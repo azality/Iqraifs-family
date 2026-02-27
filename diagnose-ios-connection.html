@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>FGS iOS Connection Diagnostic</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      padding: 20px;
+      background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+      color: #ffffff;
+      min-height: 100vh;
+    }
+    
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    
+    h1 {
+      font-size: 24px;
+      margin-bottom: 10px;
+      color: #00ff88;
+    }
+    
+    .subtitle {
+      color: #aaa;
+      margin-bottom: 30px;
+      font-size: 14px;
+    }
+    
+    .section {
+      background: #2a2a2a;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+      border-left: 4px solid #00ff88;
+    }
+    
+    .section.error {
+      border-left-color: #ff4444;
+    }
+    
+    .section.warning {
+      border-left-color: #ffaa00;
+    }
+    
+    .section.success {
+      border-left-color: #00ff88;
+    }
+    
+    h2 {
+      font-size: 18px;
+      margin-bottom: 15px;
+      color: #00ff88;
+    }
+    
+    button {
+      padding: 12px 24px;
+      margin: 5px;
+      background: #00ff88;
+      color: #000;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 16px;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+    
+    button:hover {
+      background: #00cc66;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0, 255, 136, 0.3);
+    }
+    
+    button:active {
+      transform: translateY(0);
+    }
+    
+    button.secondary {
+      background: #444;
+      color: #fff;
+    }
+    
+    button.secondary:hover {
+      background: #555;
+    }
+    
+    .result {
+      margin: 10px 0;
+      padding: 15px;
+      background: #1a1a1a;
+      border-radius: 6px;
+      border: 1px solid #444;
+      font-size: 13px;
+    }
+    
+    .result.error {
+      border-color: #ff4444;
+      background: rgba(255, 68, 68, 0.1);
+    }
+    
+    .result.success {
+      border-color: #00ff88;
+      background: rgba(0, 255, 136, 0.1);
+    }
+    
+    .result.warning {
+      border-color: #ffaa00;
+      background: rgba(255, 170, 0, 0.1);
+    }
+    
+    .result-title {
+      font-weight: 600;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .icon {
+      font-size: 20px;
+    }
+    
+    pre {
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      font-family: 'Monaco', 'Courier New', monospace;
+      font-size: 12px;
+      color: #00ff88;
+      line-height: 1.5;
+      margin-top: 8px;
+    }
+    
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    
+    .badge {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    
+    .badge.success {
+      background: #00ff88;
+      color: #000;
+    }
+    
+    .badge.error {
+      background: #ff4444;
+      color: #fff;
+    }
+    
+    .badge.warning {
+      background: #ffaa00;
+      color: #000;
+    }
+    
+    .badge.info {
+      background: #4488ff;
+      color: #fff;
+    }
+    
+    .progress {
+      margin: 15px 0;
+      font-size: 14px;
+      color: #aaa;
+    }
+    
+    .loading {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid #444;
+      border-top-color: #00ff88;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      margin-left: 8px;
+      vertical-align: middle;
+    }
+    
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    
+    .key-value {
+      display: grid;
+      grid-template-columns: 150px 1fr;
+      gap: 10px;
+      margin: 5px 0;
+      font-size: 13px;
+    }
+    
+    .key {
+      color: #888;
+      font-weight: 500;
+    }
+    
+    .value {
+      color: #00ff88;
+      word-break: break-all;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔬 FGS iOS Connection Diagnostic</h1>
+    <p class="subtitle">Automated tests to diagnose "Failed to fetch" errors</p>
+    
+    <div class="section">
+      <h2>Environment Info</h2>
+      <div id="env-info"></div>
+    </div>
+    
+    <div class="section">
+      <h2>Quick Tests</h2>
+      <div class="controls">
+        <button onclick="runAllTests()">🚀 Run All Tests</button>
+        <button onclick="testHealth()">Test Health</button>
+        <button onclick="testCORS()">Test CORS</button>
+        <button onclick="testJWTVerification()">Test JWT Verification</button>
+        <button class="secondary" onclick="clearResults()">Clear Results</button>
+      </div>
+      <div id="test-progress"></div>
+    </div>
+    
+    <div id="results"></div>
+    
+    <div class="section">
+      <h2>What the tests mean</h2>
+      <ul style="line-height: 1.8; color: #ccc; list-style-position: inside;">
+        <li><strong>Health Test:</strong> Verifies Edge Function is deployed and responding</li>
+        <li><strong>CORS Test:</strong> Checks if browser/iOS can make cross-origin requests</li>
+        <li><strong>JWT Verification Test:</strong> Detects if "Verify JWT" setting is blocking requests</li>
+      </ul>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = 'https://ybrkbrrkcqpzpjnjdyib.supabase.co/functions/v1/make-server-f116e23f';
+    const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlicmticnJrY3FwenBqbmpkeWliIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzUwOTk2MzUsImV4cCI6MjA1MDY3NTYzNX0.wDM-ZdFPHtU2Tg3XxYrJiGYWQqVR7kUikZPJCLlJNro';
+    
+    // Show environment info on load
+    window.addEventListener('load', () => {
+      const info = {
+        'Origin': window.location.origin,
+        'Protocol': window.location.protocol,
+        'Hostname': window.location.hostname,
+        'User Agent': navigator.userAgent.substring(0, 80) + '...',
+        'Online': navigator.onLine ? 'Yes' : 'No',
+        'Platform': navigator.platform,
+        'Language': navigator.language,
+        'Cookies Enabled': navigator.cookieEnabled ? 'Yes' : 'No'
+      };
+      
+      let html = '';
+      for (const [key, value] of Object.entries(info)) {
+        html += `<div class="key-value"><div class="key">${key}:</div><div class="value">${value}</div></div>`;
+      }
+      
+      document.getElementById('env-info').innerHTML = html;
+    });
+    
+    function addResult(title, data, type = 'info') {
+      const div = document.createElement('div');
+      div.className = `section ${type}`;
+      
+      const icons = {
+        success: '✅',
+        error: '❌',
+        warning: '⚠️',
+        info: 'ℹ️'
+      };
+      
+      let content = `<div class="result-title"><span class="icon">${icons[type]}</span> ${title}</div>`;
+      
+      if (typeof data === 'object') {
+        content += `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+      } else {
+        content += `<pre>${data}</pre>`;
+      }
+      
+      div.innerHTML = content;
+      document.getElementById('results').appendChild(div);
+      
+      // Scroll to bottom
+      div.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
+    
+    function setProgress(message) {
+      const progressDiv = document.getElementById('test-progress');
+      if (message) {
+        progressDiv.innerHTML = `<div class="progress">${message} <span class="loading"></span></div>`;
+      } else {
+        progressDiv.innerHTML = '';
+      }
+    }
+    
+    function clearResults() {
+      document.getElementById('results').innerHTML = '';
+      setProgress(null);
+    }
+    
+    async function testHealth() {
+      setProgress('Testing health endpoint...');
+      
+      try {
+        const startTime = Date.now();
+        
+        const response = await fetch(`${API_BASE}/health`, {
+          headers: {
+            'apikey': ANON_KEY
+          }
+        });
+        
+        const endTime = Date.now();
+        const duration = endTime - startTime;
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+          addResult('✅ Health Check PASSED', {
+            status: response.status,
+            duration: `${duration}ms`,
+            headers: {
+              'access-control-allow-origin': response.headers.get('access-control-allow-origin'),
+              'content-type': response.headers.get('content-type')
+            },
+            data: data
+          }, 'success');
+        } else {
+          addResult('❌ Health Check FAILED', {
+            status: response.status,
+            statusText: response.statusText,
+            data: data
+          }, 'error');
+        }
+      } catch (error) {
+        addResult('❌ Health Check ERROR', {
+          error: error.message,
+          name: error.name,
+          stack: error.stack?.split('\n').slice(0, 3),
+          diagnostic: getErrorDiagnostic(error)
+        }, 'error');
+      } finally {
+        setProgress(null);
+      }
+    }
+    
+    async function testCORS() {
+      setProgress('Testing CORS configuration...');
+      
+      try {
+        // Test OPTIONS preflight
+        const response = await fetch(`${API_BASE}/health`, {
+          method: 'OPTIONS',
+          headers: {
+            'apikey': ANON_KEY,
+            'Access-Control-Request-Method': 'GET',
+            'Access-Control-Request-Headers': 'Content-Type, Authorization'
+          }
+        });
+        
+        const corsHeaders = {
+          'access-control-allow-origin': response.headers.get('access-control-allow-origin'),
+          'access-control-allow-methods': response.headers.get('access-control-allow-methods'),
+          'access-control-allow-headers': response.headers.get('access-control-allow-headers'),
+          'access-control-max-age': response.headers.get('access-control-max-age'),
+          'access-control-allow-credentials': response.headers.get('access-control-allow-credentials')
+        };
+        
+        const hasAllHeaders = corsHeaders['access-control-allow-origin'] && 
+                             corsHeaders['access-control-allow-methods'] && 
+                             corsHeaders['access-control-allow-headers'];
+        
+        if (response.status === 204 && hasAllHeaders) {
+          addResult('✅ CORS Configuration VALID', {
+            status: response.status,
+            corsHeaders: corsHeaders,
+            verdict: 'CORS is properly configured'
+          }, 'success');
+        } else {
+          addResult('⚠️ CORS Configuration INCOMPLETE', {
+            status: response.status,
+            corsHeaders: corsHeaders,
+            missingHeaders: Object.entries(corsHeaders)
+              .filter(([k, v]) => !v)
+              .map(([k]) => k)
+          }, 'warning');
+        }
+      } catch (error) {
+        addResult('❌ CORS Test ERROR', {
+          error: error.message,
+          diagnostic: 'CORS preflight request failed. This usually means the server is not responding to OPTIONS requests.',
+          recommendation: 'Check if Edge Function is deployed and CORS middleware is configured'
+        }, 'error');
+      } finally {
+        setProgress(null);
+      }
+    }
+    
+    async function testJWTVerification() {
+      setProgress('Testing JWT verification setting...');
+      
+      try {
+        // Test 1: Request WITHOUT Authorization header to a protected endpoint
+        const response1 = await fetch(`${API_BASE}/families`, {
+          headers: {
+            'apikey': ANON_KEY
+          }
+        });
+        
+        let data1;
+        try {
+          data1 = await response1.json();
+        } catch {
+          data1 = await response1.text();
+        }
+        
+        // Test 2: Request WITH dummy Authorization header
+        const response2 = await fetch(`${API_BASE}/families`, {
+          headers: {
+            'apikey': ANON_KEY,
+            'Authorization': 'Bearer dummy_token_for_testing'
+          }
+        });
+        
+        let data2;
+        try {
+          data2 = await response2.json();
+        } catch {
+          data2 = await response2.text();
+        }
+        
+        // Analyze results
+        const jwtIsEnabled = 
+          (response1.status === 401 && (JSON.stringify(data1).includes('Missing') || JSON.stringify(data1).includes('authorization'))) ||
+          (response2.status === 401 && (JSON.stringify(data2).includes('Invalid') || JSON.stringify(data2).includes('JWT')));
+        
+        if (jwtIsEnabled) {
+          addResult('🚨 JWT Verification is ENABLED (This is the problem!)', {
+            verdict: 'JWT Verification is blocking requests',
+            test1: {
+              status: response1.status,
+              response: data1
+            },
+            test2: {
+              status: response2.status,
+              response: data2
+            },
+            solution: [
+              '1. Go to Supabase Dashboard',
+              '2. Navigate to Edge Functions → make-server-f116e23f → Settings',
+              '3. Disable the "Verify JWT" toggle',
+              '4. Wait 10 seconds and test again'
+            ]
+          }, 'error');
+        } else {
+          addResult('✅ JWT Verification is DISABLED', {
+            verdict: 'JWT verification is not blocking requests',
+            test1: {
+              status: response1.status,
+              response: typeof data1 === 'object' ? data1 : data1.substring(0, 100)
+            },
+            test2: {
+              status: response2.status,
+              response: typeof data2 === 'object' ? data2 : data2.substring(0, 100)
+            },
+            note: 'Requests are reaching your backend code'
+          }, 'success');
+        }
+      } catch (error) {
+        addResult('❌ JWT Verification Test ERROR', {
+          error: error.message,
+          diagnostic: getErrorDiagnostic(error),
+          note: 'Could not determine JWT verification status due to network error'
+        }, 'error');
+      } finally {
+        setProgress(null);
+      }
+    }
+    
+    async function runAllTests() {
+      clearResults();
+      addResult('🚀 Running All Diagnostic Tests...', {
+        timestamp: new Date().toISOString(),
+        device: navigator.userAgent.includes('iPhone') || navigator.userAgent.includes('iPad') ? 'iOS Device' : 'Other Device'
+      }, 'info');
+      
+      await testHealth();
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      await testCORS();
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      await testJWTVerification();
+      
+      addResult('✅ All Tests Complete', {
+        timestamp: new Date().toISOString(),
+        recommendation: 'Review the results above. If any tests failed, follow the solution steps provided.'
+      }, 'success');
+    }
+    
+    function getErrorDiagnostic(error) {
+      if (!navigator.onLine) {
+        return 'Device is OFFLINE - check internet connection';
+      }
+      
+      if (error.message.includes('Failed to fetch')) {
+        return [
+          'Possible causes:',
+          '1. CORS error - check browser console for CORS messages',
+          '2. Network error - server unreachable',
+          '3. SSL/TLS certificate error',
+          '4. Request blocked by firewall',
+          '5. JWT verification enabled in Supabase (most common)'
+        ].join('\n');
+      }
+      
+      if (error.message.includes('NetworkError')) {
+        return 'Network error - cannot connect to server';
+      }
+      
+      return 'Unknown error - check browser console for details';
+    }
+  </script>
+</body>
+</html>

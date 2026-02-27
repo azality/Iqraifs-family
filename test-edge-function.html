@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Edge Function Test</title>
+  <style>
+    body {
+      font-family: monospace;
+      padding: 20px;
+      background: #1a1a1a;
+      color: #00ff00;
+    }
+    button {
+      padding: 10px 20px;
+      margin: 5px;
+      background: #00ff00;
+      color: #000;
+      border: none;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    button:hover {
+      background: #00cc00;
+    }
+    .result {
+      margin: 10px 0;
+      padding: 10px;
+      background: #2a2a2a;
+      border-left: 3px solid #00ff00;
+    }
+    .error {
+      border-left-color: #ff0000;
+      color: #ff6666;
+    }
+    pre {
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+  </style>
+</head>
+<body>
+  <h1>🔬 Edge Function Direct Test</h1>
+  <p>This page tests the Edge Function directly without any app code.</p>
+  
+  <div>
+    <button onclick="testHealth()">Test Health Endpoint</button>
+    <button onclick="testCORS()">Test CORS Preflight</button>
+    <button onclick="testWithAuth()">Test With Auth Token</button>
+    <button onclick="clearResults()">Clear Results</button>
+  </div>
+  
+  <div id="results"></div>
+
+  <script>
+    const API_BASE = 'https://ybrkbrrkcqpzpjnjdyib.supabase.co/functions/v1/make-server-f116e23f';
+    const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlicmticnJrY3FwenBqbmpkeWliIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzUwOTk2MzUsImV4cCI6MjA1MDY3NTYzNX0.wDM-ZdFPHtU2Tg3XxYrJiGYWQqVR7kUikZPJCLlJNro';
+    
+    function addResult(title, data, isError = false) {
+      const div = document.createElement('div');
+      div.className = 'result' + (isError ? ' error' : '');
+      div.innerHTML = `
+        <strong>${title}</strong>
+        <pre>${JSON.stringify(data, null, 2)}</pre>
+      `;
+      document.getElementById('results').appendChild(div);
+    }
+    
+    function clearResults() {
+      document.getElementById('results').innerHTML = '';
+    }
+    
+    async function testHealth() {
+      try {
+        addResult('🚀 Testing Health Endpoint...', { url: `${API_BASE}/health` });
+        
+        const response = await fetch(`${API_BASE}/health`, {
+          headers: {
+            'apikey': ANON_KEY
+          }
+        });
+        
+        const data = await response.json();
+        
+        addResult('✅ Health Check Response', {
+          status: response.status,
+          ok: response.ok,
+          headers: Object.fromEntries(response.headers.entries()),
+          data: data
+        });
+      } catch (error) {
+        addResult('❌ Health Check Error', {
+          error: error.message,
+          name: error.name,
+          stack: error.stack
+        }, true);
+      }
+    }
+    
+    async function testCORS() {
+      try {
+        addResult('🚀 Testing CORS Preflight...', { url: `${API_BASE}/health` });
+        
+        const response = await fetch(`${API_BASE}/health`, {
+          method: 'OPTIONS',
+          headers: {
+            'apikey': ANON_KEY,
+            'Access-Control-Request-Method': 'GET',
+            'Access-Control-Request-Headers': 'Content-Type, Authorization'
+          }
+        });
+        
+        addResult('✅ CORS Preflight Response', {
+          status: response.status,
+          ok: response.ok,
+          corsHeaders: {
+            'access-control-allow-origin': response.headers.get('access-control-allow-origin'),
+            'access-control-allow-methods': response.headers.get('access-control-allow-methods'),
+            'access-control-allow-headers': response.headers.get('access-control-allow-headers'),
+            'access-control-max-age': response.headers.get('access-control-max-age')
+          }
+        });
+      } catch (error) {
+        addResult('❌ CORS Test Error', {
+          error: error.message,
+          name: error.name,
+          stack: error.stack
+        }, true);
+      }
+    }
+    
+    async function testWithAuth() {
+      try {
+        addResult('🚀 Testing With Auth Token...', { url: `${API_BASE}/families` });
+        
+        // Use a dummy token for testing
+        const dummyToken = 'test_token_12345';
+        
+        const response = await fetch(`${API_BASE}/families`, {
+          method: 'GET',
+          headers: {
+            'apikey': ANON_KEY,
+            'Authorization': `Bearer ${dummyToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        let data;
+        try {
+          data = await response.json();
+        } catch {
+          data = await response.text();
+        }
+        
+        addResult('✅ Auth Test Response', {
+          status: response.status,
+          ok: response.ok,
+          headers: Object.fromEntries(response.headers.entries()),
+          data: data
+        });
+      } catch (error) {
+        addResult('❌ Auth Test Error', {
+          error: error.message,
+          name: error.name,
+          stack: error.stack,
+          isOnline: navigator.onLine
+        }, true);
+      }
+    }
+    
+    // Show environment info on load
+    window.addEventListener('load', () => {
+      addResult('🌍 Environment Info', {
+        origin: window.location.origin,
+        protocol: window.location.protocol,
+        hostname: window.location.hostname,
+        userAgent: navigator.userAgent.substring(0, 100),
+        online: navigator.onLine
+      });
+    });
+  </script>
+</body>
+</html>

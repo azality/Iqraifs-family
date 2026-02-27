@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>FGS Connection Diagnostic - Run Now</title>
+  <meta charset="utf-8">
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 20px;
+      background: #1a1a1a;
+      color: #fff;
+    }
+    h1 { color: #00ff88; }
+    button {
+      background: #00ff88;
+      color: #000;
+      border: none;
+      padding: 15px 30px;
+      font-size: 18px;
+      font-weight: bold;
+      cursor: pointer;
+      border-radius: 8px;
+      margin: 10px 5px;
+    }
+    button:hover { background: #00cc66; }
+    .result {
+      background: #2a2a2a;
+      padding: 20px;
+      margin: 20px 0;
+      border-radius: 8px;
+      border-left: 4px solid #00ff88;
+    }
+    .error { border-left-color: #ff4444; }
+    .success { border-left-color: #00ff88; }
+    .warning { border-left-color: #ffaa00; }
+    pre {
+      background: #000;
+      padding: 15px;
+      border-radius: 4px;
+      overflow-x: auto;
+      font-size: 13px;
+    }
+    .status { font-size: 24px; margin-right: 10px; }
+  </style>
+</head>
+<body>
+  <h1>🔬 FGS Connection Diagnostic</h1>
+  <p>This will test your connection to the Supabase Edge Function and tell you exactly what's wrong.</p>
+  
+  <button onclick="runFullDiagnostic()">🚀 RUN FULL DIAGNOSTIC</button>
+  <button onclick="clearResults()" style="background: #666;">Clear Results</button>
+  
+  <div id="results"></div>
+
+  <script>
+    const API_BASE = 'https://ybrkbrrkcqpzpjnjdyib.supabase.co/functions/v1/make-server-f116e23f';
+    const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlicmticnJrY3FwenBqbmpkeWliIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzUwOTk2MzUsImV4cCI6MjA1MDY3NTYzNX0.wDM-ZdFPHtU2Tg3XxYrJiGYWQqVR7kUikZPJCLlJNro';
+
+    function addResult(status, title, details) {
+      const statusEmoji = {
+        success: '✅',
+        error: '❌',
+        warning: '⚠️',
+        info: 'ℹ️'
+      };
+
+      const div = document.createElement('div');
+      div.className = `result ${status}`;
+      div.innerHTML = `
+        <div style="font-size: 18px; font-weight: bold; margin-bottom: 10px;">
+          <span class="status">${statusEmoji[status]}</span>
+          ${title}
+        </div>
+        <pre>${JSON.stringify(details, null, 2)}</pre>
+      `;
+      document.getElementById('results').appendChild(div);
+      window.scrollTo(0, document.body.scrollHeight);
+    }
+
+    function clearResults() {
+      document.getElementById('results').innerHTML = '';
+    }
+
+    async function test1_NetworkCheck() {
+      addResult('info', 'TEST 1: Network Connectivity', {
+        message: 'Checking basic network connectivity...'
+      });
+
+      const checks = {
+        online: navigator.onLine,
+        protocol: window.location.protocol,
+        origin: window.location.origin,
+        userAgent: navigator.userAgent.substring(0, 100) + '...'
+      };
+
+      if (!navigator.onLine) {
+        addResult('error', 'TEST 1 FAILED: Device is OFFLINE', {
+          message: 'Please check your internet connection',
+          checks
+        });
+        return false;
+      }
+
+      addResult('success', 'TEST 1 PASSED: Network OK', checks);
+      return true;
+    }
+
+    async function test2_HealthEndpoint() {
+      addResult('info', 'TEST 2: Health Endpoint', {
+        message: 'Testing if Edge Function is responding...',
+        url: `${API_BASE}/health`
+      });
+
+      try {
+        const response = await fetch(`${API_BASE}/health`, {
+          headers: {
+            'apikey': ANON_KEY
+          }
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+          addResult('success', 'TEST 2 PASSED: Health Endpoint Works', {
+            status: response.status,
+            data: data
+          });
+          return true;
+        } else {
+          addResult('error', 'TEST 2 FAILED: Health Endpoint Returned Error', {
+            status: response.status,
+            statusText: response.statusText,
+            data: data,
+            possibleCause: 'Edge Function is deployed but returning errors'
+          });
+          return false;
+        }
+      } catch (error) {
+        addResult('error', 'TEST 2 FAILED: Cannot Reach Health Endpoint', {
+          error: error.message,
+          errorType: error.name,
+          possibleCauses: [
+            '1. Edge Function not deployed',
+            '2. CORS blocking request',
+            '3. Network firewall blocking',
+            '4. JWT verification enabled (most likely)'
+          ],
+          nextStep: 'Check if JWT verification is enabled in Supabase Dashboard'
+        });
+        return false;
+      }
+    }
+
+    async function test3_JWTVerification() {
+      addResult('info', 'TEST 3: JWT Verification Check', {
+        message: 'Testing if "Verify JWT" setting is blocking requests...'
+      });
+
+      try {
+        // Test with NO authorization header
+        const response1 = await fetch(`${API_BASE}/families`, {
+          headers: {
+            'apikey': ANON_KEY
+          }
+        });
+
+        let data1;
+        try {
+          data1 = await response1.json();
+        } catch {
+          data1 = await response1.text();
+        }
+
+        const errorMessage = JSON.stringify(data1).toLowerCase();
+        const isJWTEnabled = 
+          response1.status === 401 && 
+          (errorMessage.includes('missing') || 
+           errorMessage.includes('authorization') ||
+           errorMessage.includes('jwt') ||
+           errorMessage.includes('token'));
+
+        if (isJWTEnabled) {
+          addResult('error', 'TEST 3 FAILED: JWT Verification is ENABLED', {
+            status: response1.status,
+            response: data1,
+            diagnosis: '🎯 THIS IS THE PROBLEM!',
+            solution: [
+              '1. Open Supabase Dashboard: https://supabase.com/dashboard',
+              '2. Navigate to: Edge Functions → make-server-f116e23f → Settings',
+              '3. Find "Verify JWT" toggle',
+              '4. Turn it OFF',
+              '5. Wait 10 seconds',
+              '6. Run this diagnostic again'
+            ],
+            documentation: 'See /SUPABASE_DASHBOARD_STEPS.md for detailed instructions'
+          });
+          return false;
+        } else {
+          addResult('success', 'TEST 3 PASSED: JWT Verification is Disabled', {
+            status: response1.status,
+            message: 'Requests are reaching your backend code',
+            response: typeof data1 === 'string' ? data1.substring(0, 200) : data1
+          });
+          return true;
+        }
+      } catch (error) {
+        addResult('error', 'TEST 3 ERROR: Cannot Test JWT Verification', {
+          error: error.message,
+          note: 'This likely means the Edge Function is not reachable at all',
+          recommendation: 'Check TEST 2 results for network/deployment issues'
+        });
+        return false;
+      }
+    }
+
+    async function test4_CORSConfiguration() {
+      addResult('info', 'TEST 4: CORS Configuration', {
+        message: 'Testing CORS headers...'
+      });
+
+      try {
+        const response = await fetch(`${API_BASE}/health`, {
+          method: 'OPTIONS',
+          headers: {
+            'apikey': ANON_KEY,
+            'Access-Control-Request-Method': 'GET',
+            'Access-Control-Request-Headers': 'Content-Type, Authorization'
+          }
+        });
+
+        const corsHeaders = {
+          'allow-origin': response.headers.get('access-control-allow-origin'),
+          'allow-methods': response.headers.get('access-control-allow-methods'),
+          'allow-headers': response.headers.get('access-control-allow-headers'),
+          'max-age': response.headers.get('access-control-max-age')
+        };
+
+        const hasCORS = corsHeaders['allow-origin'] && corsHeaders['allow-methods'];
+
+        if (hasCORS) {
+          addResult('success', 'TEST 4 PASSED: CORS Configured', {
+            status: response.status,
+            headers: corsHeaders
+          });
+          return true;
+        } else {
+          addResult('warning', 'TEST 4 WARNING: CORS Headers Missing', {
+            status: response.status,
+            headers: corsHeaders,
+            note: 'CORS might not be configured properly'
+          });
+          return false;
+        }
+      } catch (error) {
+        addResult('warning', 'TEST 4 WARNING: CORS Test Failed', {
+          error: error.message,
+          note: 'Could not test CORS configuration'
+        });
+        return false;
+      }
+    }
+
+    async function test5_AuthenticatedRequest() {
+      addResult('info', 'TEST 5: Authenticated Request Test', {
+        message: 'Testing with dummy authorization token...'
+      });
+
+      try {
+        const response = await fetch(`${API_BASE}/families`, {
+          headers: {
+            'apikey': ANON_KEY,
+            'Authorization': 'Bearer test_dummy_token_12345',
+            'Content-Type': 'application/json'
+          }
+        });
+
+        let data;
+        try {
+          data = await response.json();
+        } catch {
+          data = await response.text();
+        }
+
+        if (response.status === 401 || response.status === 403) {
+          addResult('success', 'TEST 5 PASSED: Auth Middleware Working', {
+            status: response.status,
+            response: data,
+            note: 'Backend correctly rejects invalid tokens - this is expected!'
+          });
+          return true;
+        } else {
+          addResult('warning', 'TEST 5 UNEXPECTED: Got Different Status', {
+            status: response.status,
+            response: data
+          });
+          return true;
+        }
+      } catch (error) {
+        addResult('error', 'TEST 5 FAILED: Cannot Make Authenticated Request', {
+          error: error.message,
+          note: 'This suggests a network or configuration issue'
+        });
+        return false;
+      }
+    }
+
+    async function runFullDiagnostic() {
+      clearResults();
+      
+      addResult('info', '🚀 Starting Full Diagnostic...', {
+        timestamp: new Date().toISOString(),
+        target: API_BASE
+      });
+
+      const test1 = await test1_NetworkCheck();
+      await new Promise(r => setTimeout(r, 500));
+
+      if (!test1) {
+        addResult('error', '⛔ DIAGNOSTIC STOPPED', {
+          reason: 'Network connectivity issues detected',
+          action: 'Fix internet connection before continuing'
+        });
+        return;
+      }
+
+      const test2 = await test2_HealthEndpoint();
+      await new Promise(r => setTimeout(r, 500));
+
+      if (!test2) {
+        addResult('error', '⛔ DIAGNOSTIC STOPPED', {
+          reason: 'Health endpoint not responding',
+          action: 'Check if Edge Function is deployed and JWT verification is disabled'
+        });
+        return;
+      }
+
+      const test3 = await test3_JWTVerification();
+      await new Promise(r => setTimeout(r, 500));
+
+      if (!test3) {
+        addResult('error', '🎯 ROOT CAUSE IDENTIFIED', {
+          problem: 'JWT Verification is enabled in Supabase Dashboard',
+          solution: 'Follow the instructions in TEST 3 above to disable it',
+          documentation: 'See /SUPABASE_DASHBOARD_STEPS.md for step-by-step guide'
+        });
+        return;
+      }
+
+      await test4_CORSConfiguration();
+      await new Promise(r => setTimeout(r, 500));
+
+      await test5_AuthenticatedRequest();
+      await new Promise(r => setTimeout(r, 500));
+
+      addResult('success', '✅ DIAGNOSTIC COMPLETE', {
+        summary: 'All critical tests passed!',
+        nextSteps: [
+          '1. Your backend is configured correctly',
+          '2. Try logging in to your app',
+          '3. If still having issues, check browser console for specific errors',
+          '4. See /TROUBLESHOOTING_FLOWCHART.md for advanced debugging'
+        ]
+      });
+    }
+
+    // Auto-run on load
+    window.addEventListener('load', () => {
+      setTimeout(() => {
+        if (confirm('Run diagnostic automatically?')) {
+          runFullDiagnostic();
+        }
+      }, 500);
+    });
+  </script>
+</body>
+</html>
