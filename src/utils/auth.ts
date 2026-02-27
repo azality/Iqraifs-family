@@ -1,5 +1,6 @@
 import { projectId, publicAnonKey } from '/utils/supabase/info.tsx';
 import { supabase } from '/utils/supabase/client';
+import { setStorage, removeMultiple, STORAGE_KEYS } from './storage';
 
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f`;
 
@@ -93,9 +94,9 @@ export async function login(email: string, password: string) {
     expiresAt: data.session?.expires_at ? new Date(data.session.expires_at * 1000).toISOString() : 'N/A'
   });
 
-  // Store user role as 'parent' for parent logins
-  localStorage.setItem('user_role', 'parent');
-  console.log('✅ Set user_role to parent in localStorage');
+  // Store user role as 'parent' for parent logins (using native storage on iOS)
+  await setStorage(STORAGE_KEYS.USER_ROLE, 'parent');
+  console.log('✅ Set user_role to parent in storage');
 
   // Verify session was stored
   setTimeout(async () => {
@@ -117,9 +118,12 @@ export async function login(email: string, password: string) {
 export async function logout() {
   await supabase.auth.signOut();
   
-  // Clear local storage
-  localStorage.removeItem('fgs_access_token');
-  localStorage.removeItem('fgs_user_id');
-  localStorage.removeItem('fgs_family_id');
-  localStorage.removeItem('fgs_user_mode');
+  // Clear storage (works on both web and native)
+  await removeMultiple([
+    STORAGE_KEYS.ACCESS_TOKEN,
+    STORAGE_KEYS.USER_ID,
+    STORAGE_KEYS.FAMILY_ID,
+    STORAGE_KEYS.USER_MODE,
+    STORAGE_KEYS.USER_ROLE
+  ]);
 }

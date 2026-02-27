@@ -524,7 +524,7 @@ export async function runDataModelIntegrityTests(testData?: TestData): Promise<T
     // Step 2: Create point events and verify consistency
     console.log('📝 Step 2: Create point events and verify currentPoints consistency...\n');
 
-    const pointsBefore = (await fetch(
+    const pointsBeforeEvent = (await fetch(
       `${API_BASE}/children/${testData.kidA1Id}`,
       {
         headers: {
@@ -534,7 +534,7 @@ export async function runDataModelIntegrityTests(testData?: TestData): Promise<T
       }
     ).then(r => r.json())).points || 0;
 
-    console.log(`   Points before: ${pointsBefore}`);
+    console.log(`   Points before: ${pointsBeforeEvent}`);
 
     // Add 50 points
     const addPointsRes = await fetch(
@@ -570,7 +570,7 @@ export async function runDataModelIntegrityTests(testData?: TestData): Promise<T
 
     console.log(`   Points after: ${pointsAfter}`);
 
-    const expectedPoints = pointsBefore + 50;
+    const expectedPoints = pointsBeforeEvent + 50;
     if (Math.abs(pointsAfter - expectedPoints) > 0.01) {
       throw new Error(`Points drift detected: expected ${expectedPoints}, got ${pointsAfter}`);
     }

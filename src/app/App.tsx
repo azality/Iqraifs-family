@@ -1,8 +1,5 @@
 import { RouterProvider } from 'react-router';
 import { router } from './routes.tsx';
-import { FamilyProvider } from './contexts/FamilyContext';
-import { AuthProvider } from './contexts/AuthContext';
-import { ViewModeProvider, ModeTransitionOverlay } from './contexts/ViewModeContext';
 import { Toaster } from './components/ui/sonner';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { TestStatusIndicator } from './components/TestStatusIndicator';
@@ -23,19 +20,10 @@ export default function App() {
   
   return (
     <ErrorBoundary>
-      <AuthProvider>
-        <FamilyProvider>
-          <ViewModeProvider>
-            <ErrorBoundary>
-              <RouterProvider router={router} />
-            </ErrorBoundary>
-            <Toaster />
-            <ModeTransitionOverlay />
-            {import.meta.env.DEV && <TestStatusIndicator />}
-            <TestControlPanel />
-          </ViewModeProvider>
-        </FamilyProvider>
-      </AuthProvider>
+      <RouterProvider router={router} />
+      <Toaster />
+      {import.meta.env.DEV && <TestStatusIndicator />}
+      <TestControlPanel />
     </ErrorBoundary>
   );
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { getMilestones, createMilestone } from '../../utils/api';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -14,8 +14,8 @@ export function useMilestones() {
   const [error, setError] = useState<string | null>(null);
   const { accessToken: authToken } = useAuth();
   
-  // CRITICAL: Support kid mode tokens from localStorage
-  const accessToken = (() => {
+  // CRITICAL: Support kid mode tokens from localStorage - memoize to prevent infinite loops
+  const accessToken = useMemo(() => {
     if (authToken) return authToken;
     
     const userRole = localStorage.getItem('user_role');
@@ -26,7 +26,7 @@ export function useMilestones() {
     }
     
     return null;
-  })();
+  }, [authToken]);
 
   const loadMilestones = async () => {
     // Don't try to load data if we don't have an access token

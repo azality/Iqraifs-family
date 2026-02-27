@@ -1,6 +1,14 @@
+/**
+ * AuthContext - Production-Ready Async Storage Version
+ * 
+ * This version uses Capacitor Preferences for native iOS storage,
+ * ensuring auth persistence works reliably on iOS devices.
+ */
+
 import React, { createContext, useContext, useState, ReactNode, useEffect, useRef } from 'react';
 import { supabase } from '../../../utils/supabase/client';
 import { clearAllSessions, getCurrentRole, hasSupabaseSession } from '../utils/authHelpers';
+import { getStorage, setStorage, removeStorage, getMultiple, STORAGE_KEYS } from '../../utils/storage';
 
 export type UserRole = 'parent' | 'child';
 
@@ -33,26 +41,100 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Track if we're currently refreshing to prevent concurrent refreshes
   const isRefreshing = useRef(false);
   const refreshPromise = useRef<Promise<void> | null>(null);
+  const hasInitialized = useRef(false);
   
-  // Remove separate token state - we'll get it from Supabase session on demand
-  const [userId, setUserIdState] = useState<string | null>(() => {
-    const stored = localStorage.getItem('fgs_user_id');
-    console.log('AuthContext Init - UserId from localStorage:', stored);
-    return stored;
-  });
-  
+  // State - Initialize with null, load from storage in useEffect
+  const [userId, setUserIdState] = useState<string | null>(null);
   const [accessToken, setAccessTokenState] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true); // Start as loading
+  const [isLoading, setIsLoading] = useState(true);
+  const [role, setRoleState] = useState<UserRole>('parent');
+  const [user, setUser] = useState<User | null>(null);
+  
+  const isParentMode = role === 'parent';
 
-  const setUserId = (id: string | null) => {
+  // Helper to update userId with storage persistence
+  const setUserId = async (id: string | null) => {
     console.log('AuthContext - Setting userId:', id);
     setUserIdState(id);
     if (id) {
-      localStorage.setItem('fgs_user_id', id);
+      await setStorage(STORAGE_KEYS.USER_ID, id);
     } else {
-      localStorage.removeItem('fgs_user_id');
+      await removeStorage(STORAGE_KEYS.USER_ID);
     }
   };
+
+  // Helper to update role with storage persistence
+  const setRole = async (newRole: UserRole) => {
+    console.log('AuthContext - Setting role:', newRole);
+    setRoleState(newRole);
+    await setStorage(STORAGE_KEYS.USER_MODE, newRole);
+  };
+
+  // Load initial auth state from storage
+  useEffect(() => {
+    const loadInitialState = async () => {
+      console.log('🔄 AuthContext: Loading initial state from storage...');
+      
+      try {
+        // Load all auth-related values in parallel
+        const stored = await getMultiple([
+          STORAGE_KEYS.USER_ID,
+          STORAGE_KEYS.USER_ROLE,
+          STORAGE_KEYS.USER_MODE,
+          STORAGE_KEYS.USER_NAME,
+          STORAGE_KEYS.USER_EMAIL,
+          'fgs_user_name' // Legacy key
+        ]);
+
+        console.log('📦 Loaded from storage:', {
+          userId: stored[STORAGE_KEYS.USER_ID] ? '✓' : '✗',
+          userRole: stored[STORAGE_KEYS.USER_ROLE],
+          userMode: stored[STORAGE_KEYS.USER_MODE]
+        });
+
+        // Set userId if available
+        if (stored[STORAGE_KEYS.USER_ID]) {
+          setUserIdState(stored[STORAGE_KEYS.USER_ID]);
+        }
+
+        // Determine role
+        let initialRole: UserRole = 'parent';
+        
+        if (stored[STORAGE_KEYS.USER_ROLE] === 'child') {
+          initialRole = 'child';
+        } else if (stored[STORAGE_KEYS.USER_ROLE] === 'parent') {
+          initialRole = 'parent';
+        } else if (stored[STORAGE_KEYS.USER_ID]) {
+          // If we have a Supabase user ID, default to parent
+          initialRole = 'parent';
+        } else if (stored[STORAGE_KEYS.USER_MODE] === 'child') {
+          initialRole = 'child';
+        }
+        
+        setRoleState(initialRole);
+        console.log('🔐 AuthContext: Initial role determined:', initialRole);
+
+        // Set user object if we have user data
+        if (stored[STORAGE_KEYS.USER_ID]) {
+          const userName = stored[STORAGE_KEYS.USER_NAME] || stored['fgs_user_name'] || 'User';
+          const userEmail = stored[STORAGE_KEYS.USER_EMAIL];
+          
+          setUser({
+            id: stored[STORAGE_KEYS.USER_ID],
+            name: userName,
+            email: userEmail || undefined
+          });
+        }
+
+        hasInitialized.current = true;
+      } catch (error) {
+        console.error('❌ Error loading initial auth state:', error);
+        hasInitialized.current = true;
+      }
+    };
+
+    loadInitialState();
+  }, []);
 
   // Function to refresh the session and update token
   const refreshSession = async () => {
@@ -67,21 +149,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refreshPromise.current = (async () => {
       try {
         // Check if user is in kid mode
-        const userRole = localStorage.getItem('user_role');
+        const userRole = await getStorage(STORAGE_KEYS.USER_ROLE);
         
         if (userRole === 'child') {
           // Kid mode: Use kid session token
-          const kidToken = localStorage.getItem('kid_session_token');
+          const kidToken = await getStorage(STORAGE_KEYS.KID_SESSION_TOKEN);
           console.log('👶 Kid mode detected, using kid session token:', !!kidToken);
           
           if (kidToken) {
             setAccessTokenState(kidToken);
-            const childId = localStorage.getItem('child_id');
-            setUserId(childId);
+            const childId = await getStorage(STORAGE_KEYS.CHILD_ID);
+            await setUserId(childId);
           } else {
             console.log('❌ No kid session token found');
             setAccessTokenState(null);
-            setUserId(null);
+            await setUserId(null);
           }
           setIsLoading(false);
           return;
@@ -96,11 +178,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Clear any stale session data (ONLY for parent mode)
           console.log('🧹 Clearing stale parent session data due to error');
           setAccessTokenState(null);
-          setUserId(null);
+          await setUserId(null);
           // Only remove these if we're actually in parent mode
           if (userRole === 'parent') {
-            localStorage.removeItem('fgs_user_id');
-            localStorage.removeItem('user_role');
+            await removeStorage(STORAGE_KEYS.USER_ID);
+            await removeStorage(STORAGE_KEYS.USER_ROLE);
           }
           setIsLoading(false);
           return;
@@ -127,8 +209,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             console.log('🧹 Signing out to clear corrupted Supabase session');
             await supabase.auth.signOut();
             setAccessTokenState(null);
-            setUserId(null);
-            localStorage.clear();
+            await setUserId(null);
+            await clearAllSessions();
             setIsLoading(false);
             return;
           }
@@ -139,16 +221,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             expiresAt: new Date(session.expires_at! * 1000).toISOString()
           });
           setAccessTokenState(session.access_token);
-          setUserId(session.user?.id || null);
+          await setUserId(session.user?.id || null);
+          
+          // Update user object
+          if (session.user?.id) {
+            const userName = await getStorage(STORAGE_KEYS.USER_NAME) || 
+                           await getStorage('fgs_user_name') || 
+                           'User';
+            const userEmail = await getStorage(STORAGE_KEYS.USER_EMAIL);
+            
+            setUser({
+              id: session.user.id,
+              name: userName,
+              email: userEmail || undefined
+            });
+          }
         } else {
           console.log('No active session found - clearing all auth data');
           // Clear stored tokens if no session exists (ONLY for parent mode)
           setAccessTokenState(null);
-          setUserId(null);
+          await setUserId(null);
+          setUser(null);
           // Only remove these if we're actually in parent mode
           if (userRole === 'parent' || !userRole) {
-            localStorage.removeItem('fgs_user_id');
-            localStorage.removeItem('user_role');
+            await removeStorage(STORAGE_KEYS.USER_ID);
+            await removeStorage(STORAGE_KEYS.USER_ROLE);
           }
         }
         setIsLoading(false);
@@ -157,12 +254,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Clear stale data on error (ONLY for parent mode)
         console.log('🧹 Clearing stale session data due to exception');
         setAccessTokenState(null);
-        setUserId(null);
+        await setUserId(null);
+        setUser(null);
         // Only remove these if we're actually in parent mode
-        const currentUserRole = localStorage.getItem('user_role');
+        const currentUserRole = await getStorage(STORAGE_KEYS.USER_ROLE);
         if (currentUserRole === 'parent' || !currentUserRole) {
-          localStorage.removeItem('fgs_user_id');
-          localStorage.removeItem('user_role');
+          await removeStorage(STORAGE_KEYS.USER_ID);
+          await removeStorage(STORAGE_KEYS.USER_ROLE);
         }
         setIsLoading(false);
       } finally {
@@ -176,13 +274,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Check and refresh session on mount and periodically
   useEffect(() => {
+    // Wait for initial state to load
+    if (!hasInitialized.current) {
+      console.log('⏳ Waiting for initial state to load...');
+      return;
+    }
+
     // Initial session check
     console.log('🔄 AuthContext: Starting initial session check...');
     
     // Check if we should be on login page
     const checkSessionAndRedirect = async () => {
       // CRITICAL: Check if user is in kid mode FIRST
-      const userRole = localStorage.getItem('user_role');
+      const userRole = await getStorage(STORAGE_KEYS.USER_ROLE);
       
       if (userRole === 'child') {
         console.log('👶 Kid mode detected in checkSessionAndRedirect - skipping Supabase session check');
@@ -194,13 +298,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Parent mode: Check Supabase session
       const { data: { session }, error } = await supabase.auth.getSession();
       
-      // If no session and we have user_id in localStorage, it means session expired
+      // If no session and we have user_id in storage, it means session expired
       // BUT: Only redirect if NOT in kid mode (kids don't use Supabase sessions)
-      const storedUserId = localStorage.getItem('fgs_user_id');
-      const userMode = localStorage.getItem('user_mode');
+      const storedUserId = await getStorage(STORAGE_KEYS.USER_ID);
+      const userMode = await getStorage('user_mode');
       if (storedUserId && (!session || error) && userMode !== 'kid') {
         console.log('🚨 Parent session expired but user_id exists - redirecting to login');
-        localStorage.clear();
+        await clearAllSessions();
         window.location.replace('/parent-login');
         return;
       }
@@ -213,7 +317,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Set up periodic token refresh (every 30 minutes)
     const refreshInterval = setInterval(async () => {
-      const userRole = localStorage.getItem('user_role');
+      const userRole = await getStorage(STORAGE_KEYS.USER_ROLE);
       
       if (userRole === 'parent') {
         console.log('🔄 Periodic token refresh (30min)...');
@@ -246,12 +350,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (session?.access_token) {
           console.log('✅ Setting accessToken from auth state change');
           setAccessTokenState(session.access_token);
-          setUserId(session.user?.id || null);
+          await setUserId(session.user?.id || null);
           setIsLoading(false);
         } else if (event === 'SIGNED_OUT') {
           console.log('🚪 User signed out - clearing tokens');
           setAccessTokenState(null);
-          setUserId(null);
+          await setUserId(null);
+          setUser(null);
           setIsLoading(false);
           
           // Redirect to login if we're not already there
@@ -278,51 +383,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       window.removeEventListener('auth-changed', handleAuthChanged);
       clearInterval(refreshInterval);
     };
-  }, []);
+  }, [hasInitialized.current]); // Re-run when initialization completes
 
-  const [role, setRole] = useState<UserRole>(() => {
-    // Check user_role from localStorage (set during login)
-    const userRole = localStorage.getItem('user_role');
-    console.log('🔐 AuthContext Init - Determining initial role:', { userRole });
-    
-    if (userRole === 'parent') {
-      return 'parent';
-    }
-    if (userRole === 'child') {
-      return 'child';
-    }
-    
-    // Fallback: If we have a Supabase user session, default to parent
-    // Kids never have Supabase sessions - they use PIN only
-    const userId = localStorage.getItem('fgs_user_id');
-    if (userId) {
-      console.log('✅ Found Supabase user ID, defaulting to parent mode');
-      return 'parent';
-    }
-    
-    // Final fallback
-    const saved = localStorage.getItem('fgs_user_mode');
-    return (saved === 'parent' || saved === 'child') ? saved : 'parent';
-  });
-  
-  const isParentMode = role === 'parent';
-
+  // Sync role with user_role from storage when it changes
   useEffect(() => {
-    localStorage.setItem('fgs_user_mode', role);
-  }, [role]);
-
-  // Sync role with user_role from localStorage when it changes
-  useEffect(() => {
-    const syncRole = () => {
-      const userRole = localStorage.getItem('user_role');
-      console.log('🔄 Syncing role from localStorage:', { userRole, currentRole: role });
+    const syncRole = async () => {
+      const userRole = await getStorage(STORAGE_KEYS.USER_ROLE);
+      console.log('🔄 Syncing role from storage:', { userRole, currentRole: role });
       
       if (userRole === 'parent' && role !== 'parent') {
         console.log('✅ Updating role to parent');
-        setRole('parent');
+        setRoleState('parent');
       } else if (userRole === 'child' && role !== 'child') {
         console.log('✅ Updating role to child');
-        setRole('child');
+        setRoleState('child');
       }
     };
 
@@ -343,40 +417,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   
   // Re-fetch token when role changes (e.g., switching between parent/kid mode)
   useEffect(() => {
+    if (!hasInitialized.current) return;
+    
     console.log('🔄 Role changed, refreshing session...', role);
     refreshSession();
   }, [role]);
 
   const requestParentAccess = (password: string): boolean => {
     if (password === PARENT_PASSWORD) {
-      setRole('parent');
+      setRoleState('parent');
       return true;
     }
     return false;
   };
 
   const switchToChildMode = () => {
-    setRole('child');
+    setRoleState('child');
   };
 
   const switchToParentMode = (password: string): boolean => {
     return requestParentAccess(password);
   };
 
-  // Create user object from localStorage
-  const user: User | null = userId ? {
-    id: userId,
-    name: localStorage.getItem('user_name') || localStorage.getItem('fgs_user_name') || 'User',
-    email: localStorage.getItem('user_email') || undefined
-  } : null;
-
   const logout = async () => {
     console.log('Logging out...');
     await supabase.auth.signOut();
-    clearAllSessions();
+    await clearAllSessions();
     setAccessTokenState(null);
-    setUserId(null);
-    setRole('parent');
+    await setUserId(null);
+    setUser(null);
+    setRoleState('parent');
   };
 
   return (
@@ -391,7 +461,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       refreshSession,
       logout,
-      isLoading // Now properly managed
+      isLoading
     }}>
       {children}
     </AuthContext.Provider>

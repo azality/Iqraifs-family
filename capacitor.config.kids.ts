@@ -6,6 +6,8 @@ const config: CapacitorConfig = {
   webDir: 'dist',
   bundledWebRuntime: false,
   server: {
+    hostname: 'localhost',
+    iosScheme: 'https',
     androidScheme: 'https'
   },
   plugins: {
@@ -22,6 +24,9 @@ const config: CapacitorConfig = {
     StatusBar: {
       style: 'light',
       backgroundColor: '#F59E0B'
+    },
+    PushNotifications: {
+      presentationOptions: ['badge', 'sound', 'alert']
     }
   }
 };

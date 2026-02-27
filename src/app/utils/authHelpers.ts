@@ -2,57 +2,35 @@
  * Authentication and Session Management Utilities
  * 
  * This module provides centralized functions for managing authentication state
- * and localStorage keys to prevent role conflicts between parent and kid sessions.
+ * and storage keys to prevent role conflicts between parent and kid sessions.
+ * 
+ * PRODUCTION-READY: Uses Capacitor Preferences for iOS native storage
  */
 
-/**
- * All localStorage keys used by the FGS application
- */
-const STORAGE_KEYS = {
-  // User/Auth keys
-  USER_ID: 'fgs_user_id',
-  USER_ROLE: 'user_role',
-  USER_NAME: 'user_name',
-  USER_EMAIL: 'user_email',
-  USER_MODE: 'fgs_user_mode',
-  
-  // Legacy keys (kept for backwards compatibility)
-  LEGACY_USER_ID: 'user_id',
-  LEGACY_USER_NAME: 'fgs_user_name',
-  LEGACY_USER_ROLE: 'fgs_user_role',
-  
-  // Family keys
-  FAMILY_ID: 'fgs_family_id',
-  
-  // Kid-specific keys
-  CHILD_ID: 'child_id',
-  KID_PIN_SESSION: 'kid_pin_session',
-  SELECTED_CHILD_ID: 'selected_child_id',
-  LAST_ACTIVE_CHILD: 'last_active_child',
-} as const;
+import { getStorage, setStorage, removeStorage, removeMultiple, STORAGE_KEYS } from '../../utils/storage';
 
 /**
  * Clear all kid-specific session data
  * Called when parent logs in to ensure clean parent session
  */
-export function clearKidSession() {
+export async function clearKidSession(): Promise<void> {
   console.log('🧹 Clearing kid session data...');
   
-  localStorage.removeItem(STORAGE_KEYS.CHILD_ID);
-  localStorage.removeItem(STORAGE_KEYS.KID_PIN_SESSION);
-  localStorage.removeItem(STORAGE_KEYS.SELECTED_CHILD_ID);
-  localStorage.removeItem(STORAGE_KEYS.LAST_ACTIVE_CHILD);
+  await removeMultiple([
+    STORAGE_KEYS.CHILD_ID,
+    'kid_pin_session',
+    'selected_child_id',
+    'last_active_child',
+    STORAGE_KEYS.KID_SESSION_TOKEN,
+    'kid_access_token',
+    'kid_id'
+  ]);
   
-  // CRITICAL: Clear BOTH kid token keys to prevent API calls from using stale kid tokens
-  localStorage.removeItem('kid_session_token'); // Clear the kid session token
-  localStorage.removeItem('kid_access_token'); // ALSO clear kid access token
-  localStorage.removeItem('kid_id'); // Also clear kid_id
-  
-  // CRITICAL: Also dispatch a storage event to notify FamilyContext
+  // CRITICAL: Dispatch a storage event to notify FamilyContext
   // This ensures selectedChildId is cleared immediately when switching to parent mode
   window.dispatchEvent(new StorageEvent('storage', {
-    key: STORAGE_KEYS.SELECTED_CHILD_ID,
-    oldValue: localStorage.getItem(STORAGE_KEYS.SELECTED_CHILD_ID),
+    key: 'selected_child_id',
+    oldValue: await getStorage('selected_child_id'),
     newValue: null,
     url: window.location.href
   }));
@@ -63,33 +41,32 @@ export function clearKidSession() {
 /**
  * Set parent session after successful email/password login
  */
-export function setParentSession(userId: string, name: string, email: string) {
+export async function setParentSession(userId: string, name: string, email: string): Promise<void> {
   console.log('👨‍👩‍👧‍👦 Setting parent session for:', email);
   
   // Clear any existing kid session first
-  clearKidSession();
+  await clearKidSession();
   
-  // Set user data
-  localStorage.setItem(STORAGE_KEYS.USER_ID, userId);
-  localStorage.setItem(STORAGE_KEYS.USER_ROLE, 'parent');
-  localStorage.setItem(STORAGE_KEYS.USER_NAME, name);
-  localStorage.setItem(STORAGE_KEYS.USER_EMAIL, email);
-  localStorage.setItem(STORAGE_KEYS.USER_MODE, 'parent');
-  
-  // CRITICAL: Also set user_mode for getCurrentMode() compatibility
-  localStorage.setItem('user_mode', 'parent');
-  
-  // Also set legacy keys for backward compatibility
-  localStorage.setItem(STORAGE_KEYS.LEGACY_USER_ID, userId);
-  localStorage.setItem(STORAGE_KEYS.LEGACY_USER_NAME, name);
-  localStorage.setItem(STORAGE_KEYS.LEGACY_USER_ROLE, 'parent');
+  // Set user data in parallel for performance
+  await Promise.all([
+    setStorage(STORAGE_KEYS.USER_ID, userId),
+    setStorage(STORAGE_KEYS.USER_ROLE, 'parent'),
+    setStorage(STORAGE_KEYS.USER_NAME, name),
+    setStorage(STORAGE_KEYS.USER_EMAIL, email),
+    setStorage(STORAGE_KEYS.USER_MODE, 'parent'),
+    setStorage('user_mode', 'parent'), // For getCurrentMode() compatibility
+    // Legacy keys for backward compatibility
+    setStorage('user_id', userId),
+    setStorage('fgs_user_name', name),
+    setStorage('fgs_user_role', 'parent')
+  ]);
   
   // Log what we just set
-  console.log('✅ Parent session localStorage keys set:', {
-    user_role: localStorage.getItem('user_role'),
-    fgs_user_mode: localStorage.getItem('fgs_user_mode'),
-    user_mode: localStorage.getItem('user_mode'),
-    fgs_user_id: localStorage.getItem('fgs_user_id')
+  console.log('✅ Parent session storage keys set:', {
+    user_role: await getStorage(STORAGE_KEYS.USER_ROLE),
+    fgs_user_mode: await getStorage(STORAGE_KEYS.USER_MODE),
+    user_mode: await getStorage('user_mode'),
+    fgs_user_id: await getStorage(STORAGE_KEYS.USER_ID)
   });
   
   // Dispatch custom event to notify ViewModeContext and DashboardRouter
@@ -102,19 +79,24 @@ export function setParentSession(userId: string, name: string, email: string) {
 /**
  * Set kid session after successful PIN login
  */
-export function setKidSession(childId: string, childName: string, familyId: string) {
+export async function setKidSession(childId: string, childName: string, familyId: string): Promise<void> {
   console.log('👶 Setting kid session for:', childName);
   
-  // Set kid-specific data
-  localStorage.setItem(STORAGE_KEYS.CHILD_ID, childId);
-  localStorage.setItem(STORAGE_KEYS.USER_ROLE, 'child');
-  localStorage.setItem(STORAGE_KEYS.USER_NAME, childName);
-  localStorage.setItem(STORAGE_KEYS.USER_MODE, 'child');
+  // Set kid-specific data in parallel
+  const operations = [
+    setStorage(STORAGE_KEYS.CHILD_ID, childId),
+    setStorage(STORAGE_KEYS.USER_ROLE, 'child'),
+    setStorage(STORAGE_KEYS.USER_NAME, childName),
+    setStorage(STORAGE_KEYS.USER_MODE, 'child')
+  ];
   
   // Keep family ID if not already set
-  if (!localStorage.getItem(STORAGE_KEYS.FAMILY_ID)) {
-    localStorage.setItem(STORAGE_KEYS.FAMILY_ID, familyId);
+  const existingFamilyId = await getStorage(STORAGE_KEYS.FAMILY_ID);
+  if (!existingFamilyId) {
+    operations.push(setStorage(STORAGE_KEYS.FAMILY_ID, familyId));
   }
+  
+  await Promise.all(operations);
   
   // Dispatch custom event to notify ViewModeContext
   window.dispatchEvent(new Event('roleChanged'));
@@ -126,23 +108,24 @@ export function setKidSession(childId: string, childName: string, familyId: stri
  * Clear ALL authentication and session data
  * Called on logout
  */
-export function clearAllSessions() {
+export async function clearAllSessions(): Promise<void> {
   console.log('🧹 Clearing all sessions...');
   
-  // Clear all user/auth keys
-  localStorage.removeItem(STORAGE_KEYS.USER_ID);
-  localStorage.removeItem(STORAGE_KEYS.USER_ROLE);
-  localStorage.removeItem(STORAGE_KEYS.USER_NAME);
-  localStorage.removeItem(STORAGE_KEYS.USER_EMAIL);
-  localStorage.removeItem(STORAGE_KEYS.USER_MODE);
-  
-  // Clear legacy keys
-  localStorage.removeItem(STORAGE_KEYS.LEGACY_USER_ID);
-  localStorage.removeItem(STORAGE_KEYS.LEGACY_USER_NAME);
-  localStorage.removeItem(STORAGE_KEYS.LEGACY_USER_ROLE);
+  // Clear all user/auth keys in parallel
+  await removeMultiple([
+    STORAGE_KEYS.USER_ID,
+    STORAGE_KEYS.USER_ROLE,
+    STORAGE_KEYS.USER_NAME,
+    STORAGE_KEYS.USER_EMAIL,
+    STORAGE_KEYS.USER_MODE,
+    // Legacy keys
+    'user_id',
+    'fgs_user_name',
+    'fgs_user_role'
+  ]);
   
   // Clear kid session
-  clearKidSession();
+  await clearKidSession();
   
   // Note: We intentionally DO NOT clear FAMILY_ID
   // This allows users to stay logged into the same family
@@ -152,10 +135,10 @@ export function clearAllSessions() {
 }
 
 /**
- * Get the current user role from localStorage
+ * Get the current user role from storage
  */
-export function getCurrentRole(): 'parent' | 'child' | null {
-  const role = localStorage.getItem(STORAGE_KEYS.USER_ROLE);
+export async function getCurrentRole(): Promise<'parent' | 'child' | null> {
+  const role = await getStorage(STORAGE_KEYS.USER_ROLE);
   if (role === 'parent' || role === 'child') {
     return role;
   }
@@ -166,20 +149,37 @@ export function getCurrentRole(): 'parent' | 'child' | null {
  * Check if user has an active Supabase session
  * Returns true if we have user_id stored (indicating successful Supabase auth)
  */
-export function hasSupabaseSession(): boolean {
-  return !!localStorage.getItem(STORAGE_KEYS.USER_ID);
+export async function hasSupabaseSession(): Promise<boolean> {
+  const userId = await getStorage(STORAGE_KEYS.USER_ID);
+  return !!userId;
 }
 
 /**
  * Check if user is in kid mode
  */
-export function isKidMode(): boolean {
-  return localStorage.getItem(STORAGE_KEYS.USER_ROLE) === 'child';
+export async function isKidMode(): Promise<boolean> {
+  const role = await getStorage(STORAGE_KEYS.USER_ROLE);
+  return role === 'child';
 }
 
 /**
  * Check if user is in parent mode
  */
-export function isParentMode(): boolean {
-  return localStorage.getItem(STORAGE_KEYS.USER_ROLE) === 'parent';
+export async function isParentMode(): Promise<boolean> {
+  const role = await getStorage(STORAGE_KEYS.USER_ROLE);
+  return role === 'parent';
+}
+
+/**
+ * SYNC VERSION: Get current role synchronously (for useState initializers)
+ * ⚠️ This uses localStorage directly and won't work reliably on iOS
+ * Only use this for initial state - use getCurrentRole() for runtime checks
+ */
+export function getCurrentRoleSync(): 'parent' | 'child' | null {
+  // Direct localStorage access for sync initialization
+  const role = localStorage.getItem(STORAGE_KEYS.USER_ROLE);
+  if (role === 'parent' || role === 'child') {
+    return role;
+  }
+  return null;
 }

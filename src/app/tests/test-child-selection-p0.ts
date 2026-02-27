@@ -39,7 +39,7 @@
 
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import { supabase } from '../../../utils/supabase/client';
-import { testHelpers } from '../../../utils/test/helpers';
+import { testHelpers } from '../../utils/test/helpers';
 
 interface TestData {
   familyS?: {

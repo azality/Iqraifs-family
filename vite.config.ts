@@ -19,4 +19,19 @@ export default defineConfig({
 
   // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
   assetsInclude: ['**/*.svg', '**/*.csv'],
+
+  // Optimize Capacitor dependencies
+  optimizeDeps: {
+    include: ['@capacitor/core', '@capacitor/preferences', '@capacitor/push-notifications']
+  },
+
+  build: {
+    // Don't fail on Capacitor plugin warnings - they're loaded at runtime on native platforms
+    rollupOptions: {
+      external: [],
+    },
+    commonjsOptions: {
+      transformMixedEsModules: true
+    }
+  }
 })

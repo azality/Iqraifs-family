@@ -54,8 +54,8 @@
 
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import { supabase } from '../../../utils/supabase/client';
-import { navigationContext } from '../../../utils/navigation/context';
-import { testHelpers } from '../../../utils/test/helpers';
+import { navigationContext } from '../../utils/navigation/context';
+import { testHelpers } from '../../utils/test/helpers';
 
 interface TestData {
   familyA?: {

@@ -10,7 +10,7 @@ import {
   getFamily
 } from '../../utils/api';
 import { AuthContext } from './AuthContext';
-import { getCurrentRole } from '../utils/authHelpers';
+import { getCurrentRole, getCurrentRoleSync } from '../utils/authHelpers';
 import { supabase } from '../../../utils/supabase/client';
 import { projectId } from '../../../utils/supabase/info';
 
@@ -90,7 +90,7 @@ export function FamilyProvider({ children: reactChildren }: { children: ReactNod
   
   const [selectedChildId, setSelectedChildIdState] = useState<string | null>(() => {
     // CRITICAL: Check if we're in kid mode first
-    const currentRole = getCurrentRole();
+    const currentRole = getCurrentRoleSync();
     console.log('🔍 Initializing selectedChildId:', { currentRole });
     
     if (currentRole === 'child') {
@@ -118,7 +118,7 @@ export function FamilyProvider({ children: reactChildren }: { children: ReactNod
   // This useEffect is triggered when accessToken changes (e.g., when kid logs in)
   // It ensures familyId and selectedChildId are properly set from localStorage
   useEffect(() => {
-    const currentRole = getCurrentRole();
+    const currentRole = getCurrentRoleSync();
     
     if (currentRole === 'child') {
       const kidId = localStorage.getItem('kid_id') || localStorage.getItem('child_id');
@@ -165,7 +165,7 @@ export function FamilyProvider({ children: reactChildren }: { children: ReactNod
 
   // ✅ SEL-003: Restore selection from localStorage on mount (parent mode only)
   useEffect(() => {
-    const currentRole = getCurrentRole();
+    const currentRole = getCurrentRoleSync();
     if (currentRole === 'parent' && !selectedChildId && children.length > 0) {
       const storedChildId = localStorage.getItem('fgs_selected_child_id');
       if (storedChildId) {
@@ -184,7 +184,7 @@ export function FamilyProvider({ children: reactChildren }: { children: ReactNod
 
   // ✅ SEL-004: Handle 1→2+ children transition
   useEffect(() => {
-    const currentRole = getCurrentRole();
+    const currentRole = getCurrentRoleSync();
     if (currentRole === 'parent') {
       // If we had 1 child auto-selected, and now have 2+, keep the selection
       if (children.length >= 2 && selectedChildId) {
@@ -212,7 +212,7 @@ export function FamilyProvider({ children: reactChildren }: { children: ReactNod
       console.log('🔄 Refreshing session before loading family data...');
       
       // Check if we're in kid mode
-      const currentRole = getCurrentRole();
+      const currentRole = getCurrentRoleSync();
       
       if (currentRole === 'child') {
         // KID MODE: Don't call parent APIs, just load the logged-in kid's data
@@ -392,7 +392,7 @@ export function FamilyProvider({ children: reactChildren }: { children: ReactNod
         console.log('✅ Stale family data cleared. User needs to create/join a family.');
         
         // Redirect to appropriate page based on user role
-        const userRole = getCurrentRole();
+        const userRole = getCurrentRoleSync();
         if (userRole === 'child') {
           console.log('📍 Redirecting to kid login (session invalid)');
           window.location.href = '/kid/login';
@@ -430,7 +430,7 @@ export function FamilyProvider({ children: reactChildren }: { children: ReactNod
 
     // CRITICAL: Immediate role check - bail out if parent mode without explicit selection
     // This must happen BEFORE any other checks to prevent race conditions
-    const currentRole = getCurrentRole();
+    const currentRole = getCurrentRoleSync();
     
     console.log('🔍 Child data load check (immediate):', {
       selectedChildId,
@@ -504,7 +504,7 @@ export function FamilyProvider({ children: reactChildren }: { children: ReactNod
 
   // POLLING: In kid mode, periodically refresh child data to get updated points
   useEffect(() => {
-    const currentRole = getCurrentRole();
+    const currentRole = getCurrentRoleSync();
     
     if (currentRole === 'child' && familyId) {
       console.log('👶 Setting up polling for kid mode child data refresh (every 30 seconds)');
@@ -525,7 +525,7 @@ export function FamilyProvider({ children: reactChildren }: { children: ReactNod
   useEffect(() => {
     const handleRoleChange = () => {
       console.log('🔄 Role changed, checking if we need to reload family data...');
-      const currentRole = getCurrentRole();
+      const currentRole = getCurrentRoleSync();
       const storedFamilyId = localStorage.getItem('fgs_family_id');
       
       if (currentRole === 'parent' && storedFamilyId) {
