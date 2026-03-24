@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Progress } from "../components/ui/progress";
 import { Button } from "../components/ui/button";
@@ -29,7 +29,7 @@ import {
 } from "lucide-react";
 
 export function Dashboard() {
-  const { getCurrentChild, pointEvents, submitRecovery, children, loading: familyLoading } = useFamilyContext();
+  const { getCurrentChild, getChildEvents, children, isLoading: familyLoading } = useFamilyContext();
   const { items: trackableItems } = useTrackableItems();
   const { milestones } = useMilestones();
   const { rewards } = useRewards();
@@ -38,6 +38,34 @@ export function Dashboard() {
 
   const [recoveryDialogOpen, setRecoveryDialogOpen] = useState(false);
   const [selectedNegativeEvent, setSelectedNegativeEvent] = useState<PointEvent | null>(null);
+  const [pointEvents, setPointEvents] = useState<PointEvent[]>([]);
+  const [loadingEvents, setLoadingEvents] = useState(false);
+
+  // Load events for the current child
+  useEffect(() => {
+    if (child?.id) {
+      setLoadingEvents(true);
+      getChildEvents(child.id)
+        .then(events => setPointEvents(events || []))
+        .catch(err => {
+          console.error('Error loading events:', err);
+          setPointEvents([]);
+        })
+        .finally(() => setLoadingEvents(false));
+    } else {
+      setPointEvents([]);
+    }
+  }, [child?.id, getChildEvents]);
+
+  const submitRecovery = async (eventId: string, recoveryNote: string) => {
+    // TODO: Implement recovery submission via API
+    console.log('Recovery submitted:', { eventId, recoveryNote });
+    // Reload events after recovery
+    if (child?.id) {
+      const events = await getChildEvents(child.id);
+      setPointEvents(events || []);
+    }
+  };
 
   // Show loading state while family data is loading
   if (familyLoading) {
@@ -149,20 +177,9 @@ export function Dashboard() {
                 whileTap={{ scale: 0.95 }}
               >
                 <Link to="/rewards">
-                  <Button size="lg" className="bg-white text-purple-600 hover:bg-gray-100 shadow-lg font-bold text-lg">
+                  <Button size="lg" className="bg-purple-400 text-white hover:bg-purple-300 shadow-lg font-bold text-lg">
                     <Gift className="mr-2 h-5 w-5" />
-                    🎁 My Rewards
-                  </Button>
-                </Link>
-              </motion.div>
-              <motion.div
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-              >
-                <Link to="/quizzes">
-                  <Button size="lg" className="bg-yellow-400 text-purple-900 hover:bg-yellow-300 shadow-lg font-bold text-lg">
-                    <Brain className="mr-2 h-5 w-5" />
-                    🧠 Play Quizzes
+                    🎁 View Rewards
                   </Button>
                 </Link>
               </motion.div>
@@ -487,7 +504,7 @@ export function Dashboard() {
           childName={child.name}
           itemName={trackableItems.find(i => i.id === selectedNegativeEvent.trackableItemId)?.name || 'Unknown'}
           onSubmitRecovery={async (recoveryAction, notes) => {
-            await submitRecovery(child.id, selectedNegativeEvent.id, recoveryAction, notes);
+            await submitRecovery(selectedNegativeEvent.id, notes);
           }}
         />
       )}

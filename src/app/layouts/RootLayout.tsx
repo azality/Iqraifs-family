@@ -1,8 +1,7 @@
 import { Outlet, Link, useLocation, useNavigate } from "react-router";
 import { ChildSelector } from "../components/ChildSelector";
 import { ModeSwitcher } from "../components/ModeSwitcher";
-import { AuthErrorBanner } from "../components/AuthErrorBanner";
-import { Home, FileText, BarChart3, Settings, Calendar, Gift, Shield, Users, Menu, X, Trophy, Sliders, Edit, Brain, LogOut, Compass, Briefcase } from "lucide-react";
+import { Home, FileText, BarChart3, Settings, Calendar, Gift, Shield, Users, Menu, X, Trophy, Sliders, Edit, Brain, LogOut, Compass, Briefcase, Sparkles, Database, Gamepad2 } from "lucide-react";
 import { cn } from "../components/ui/utils";
 import { useViewMode } from "../contexts/ViewModeContext";
 import { useState } from "react";
@@ -11,13 +10,22 @@ import { toast } from "sonner";
 import { useAuth } from "../contexts/AuthContext";
 import { AppModeGuard } from "../components/AppModeGuard";
 
-const parentNavigation = [
+interface NavigationItem {
+  name: string;
+  href: string;
+  kidHref?: string;
+  icon: any;
+  childAccess: boolean;
+}
+
+const parentNavigation: NavigationItem[] = [
   { name: 'Dashboard', href: '/', icon: Home, childAccess: true },
   { name: 'Log Behavior', href: '/log', icon: FileText, childAccess: false },
-  { name: 'Challenges', href: '/challenges', icon: Trophy, childAccess: true },
+  { name: 'Challenges', href: '/challenges', kidHref: '/kid/challenges', icon: Trophy, childAccess: true },
   { name: 'Weekly Review', href: '/review', icon: BarChart3, childAccess: false },
   { name: 'Rewards', href: '/rewards', icon: Gift, childAccess: true },
-  { name: 'Quizzes', href: '/quizzes', icon: Brain, childAccess: true },
+  { name: 'Knowledge Quest', href: '/knowledge-quest', kidHref: '/kid/knowledge-quest', icon: Sparkles, childAccess: true },
+  { name: 'Question Bank', href: '/question-bank', icon: Database, childAccess: false },
   { name: 'Attendance', href: '/attendance', icon: Calendar, childAccess: false },
   { name: 'Adjustments', href: '/adjustments', icon: Sliders, childAccess: false },
   { name: 'Edit Requests', href: '/edit-requests', icon: Edit, childAccess: false },
@@ -37,6 +45,14 @@ export function RootLayout() {
     ? parentNavigation.filter(item => item.childAccess)
     : parentNavigation;
 
+  // Helper to get the correct href based on mode
+  const getHref = (item: NavigationItem) => {
+    if (isKidMode && item.kidHref) {
+      return item.kidHref;
+    }
+    return item.href;
+  };
+  
   const userName = localStorage.getItem('user_name') || 'User';
   const userRole = localStorage.getItem('user_role') || 'guest';
   
@@ -51,9 +67,6 @@ export function RootLayout() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col transition-colors duration-500">
-      {/* Auth Error Banner */}
-      <AuthErrorBanner />
-      
       {/* Header */}
       <header className="bg-card border-b border-border sticky top-0 z-20 shadow-sm transition-all duration-500">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
@@ -138,12 +151,13 @@ export function RootLayout() {
             <nav className="space-y-1">
               {navigation.map((item) => {
                 const Icon = item.icon;
-                const isActive = location.pathname === item.href;
+                const href = getHref(item);
+                const isActive = location.pathname === href;
                 
                 return (
                   <Link
                     key={item.name}
-                    to={item.href}
+                    to={href}
                     onClick={() => setMobileMenuOpen(false)}
                     className={cn(
                       "flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors",
@@ -168,12 +182,13 @@ export function RootLayout() {
           <div className="flex space-x-1 overflow-x-auto">
             {navigation.map((item) => {
               const Icon = item.icon;
-              const isActive = location.pathname === item.href;
+              const href = getHref(item);
+              const isActive = location.pathname === href;
               
               return (
                 <Link
                   key={item.name}
-                  to={item.href}
+                  to={href}
                   className={cn(
                     "flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap",
                     isActive
@@ -195,12 +210,13 @@ export function RootLayout() {
         <div className="grid grid-cols-4 gap-1 p-2">
           {navigation.slice(0, 4).map((item) => {
             const Icon = item.icon;
-            const isActive = location.pathname === item.href;
+            const href = getHref(item);
+            const isActive = location.pathname === href;
             
             return (
               <Link
                 key={item.name}
-                to={item.href}
+                to={href}
                 className={cn(
                   "flex flex-col items-center gap-1 px-2 py-2 rounded-lg text-xs font-medium transition-colors",
                   isActive

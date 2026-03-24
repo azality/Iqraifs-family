@@ -50,6 +50,7 @@ export interface PrayerClaim {
   claimedDate: string; // YYYY-MM-DD
   status: 'pending' | 'approved' | 'denied';
   points: number; // Points to award if approved
+  onTime?: boolean; // Was the prayer on time or late/qadha
   approvedBy?: string; // parent user ID
   approvedAt?: string;
   deniedBy?: string; // parent user ID
@@ -267,11 +268,13 @@ export async function getPendingClaimsForFamily(
  * 
  * @param claimId - Claim ID
  * @param parentId - Parent user ID
+ * @param onTime - Was the prayer prayed on time? (true = full points, false = 1 point)
  * @returns Updated claim and created point event
  */
 export async function approvePrayerClaim(
   claimId: string,
-  parentId: string
+  parentId: string,
+  onTime: boolean = true
 ): Promise<{ claim: PrayerClaim; pointEvent: any }> {
   // Get claim
   const claim = await kv.get(`prayer-claim:${claimId}`);
@@ -284,10 +287,24 @@ export async function approvePrayerClaim(
     throw new Error(`Cannot approve claim with status: ${claim.status}`);
   }
 
-  // Update claim status
+  // Calculate points based on on-time status
+  // On-time: Fajr = 5pts, others = 3pts
+  // Late/Qadha: All prayers = 1pt
+  let pointsToAward: number;
+  if (onTime) {
+    // Full points for on-time prayers
+    pointsToAward = claim.prayerName === 'Fajr' ? 5 : 3;
+  } else {
+    // Late prayers always get 1 point
+    pointsToAward = 1;
+  }
+
+  // Update claim status and onTime flag
   claim.status = 'approved';
   claim.approvedBy = parentId;
   claim.approvedAt = new Date().toISOString();
+  claim.onTime = onTime;
+  claim.points = pointsToAward; // Update with calculated points
   await kv.set(`prayer-claim:${claimId}`, claim);
 
   // Get parent name for audit trail
@@ -300,15 +317,15 @@ export async function approvePrayerClaim(
     id: pointEventId,
     childId: claim.childId,
     trackableItemId: 'prayer',
-    itemName: `Prayer: ${claim.prayerName}`,
-    points: claim.points,
+    itemName: `Prayer: ${claim.prayerName}${onTime ? ' (On Time)' : ' (Late/Qadha)'}`,
+    points: pointsToAward,
     loggedBy: parentId,
     loggedByName: parentName,
     loggedByRole: 'parent',
     timestamp: new Date().toISOString(),
     notes: claim.backdated 
       ? `Prayer: ${claim.prayerName} (backdated to ${claim.backdateDate})`
-      : `Prayer: ${claim.prayerName}`,
+      : `Prayer: ${claim.prayerName}${onTime ? ' - On Time' : ' - Late/Qadha'}`,
     prayerClaimId: claimId,
     backdated: claim.backdated,
     backdateDate: claim.backdateDate
@@ -319,7 +336,7 @@ export async function approvePrayerClaim(
   // Update child points
   const child = await kv.get(`child:${claim.childId}`);
   if (child) {
-    child.currentPoints = (child.currentPoints || 0) + claim.points;
+    child.currentPoints = (child.currentPoints || 0) + pointsToAward;
     await kv.set(`child:${claim.childId}`, child);
 
     // Add event to child's event list

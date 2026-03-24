@@ -7,14 +7,16 @@ import { Label } from '../components/ui/label';
 import { Users, Mail, Lock } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../../../utils/supabase/client';
-import { useAuth } from '../contexts/AuthContext';
+import { AuthContext } from '../contexts/AuthContext';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info.tsx';
-import { setParentSession } from '../utils/authHelpers';
+import { clearKidSession, setParentSession } from '../utils/authHelpers';
 import { isPushNotificationsSupported, initializePushNotifications } from '../utils/pushNotifications';
+import { useContext } from 'react';
 
 export function ParentLogin() {
   const navigate = useNavigate();
-  const { refreshSession } = useAuth();
+  // Use useContext directly to avoid the error if context is not available
+  const authContext = useContext(AuthContext);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -29,11 +31,7 @@ export function ParentLogin() {
       // CRITICAL: Clear any stale kid session data BEFORE login
       // This prevents race conditions where FamilyContext tries to use old child data
       console.log('🧹 Pre-login cleanup: Clearing stale kid session data');
-      localStorage.removeItem('child_id');
-      localStorage.removeItem('fgs_selected_child_id');
-      localStorage.removeItem('selected_child_id');
-      localStorage.removeItem('last_active_child');
-      localStorage.removeItem('kid_pin_session');
+      await clearKidSession(true);
       
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
@@ -54,7 +52,7 @@ export function ParentLogin() {
 
       // Use the centralized helper to set parent session
       // This will clear any kid session data and set parent role
-      setParentSession(
+      await setParentSession(
         data.user.id,
         data.user.user_metadata.name || email,
         email
@@ -66,8 +64,13 @@ export function ParentLogin() {
       
       // CRITICAL: Refresh the session in AuthContext to ensure it has the latest token
       // This prevents race conditions where FamilyContext tries to load before session is ready
-      console.log('🔄 Refreshing AuthContext session...');
-      await refreshSession();
+      // Only call refreshSession if context is available
+      if (authContext?.refreshSession) {
+        console.log('🔄 Refreshing AuthContext session...');
+        await authContext.refreshSession();
+      } else {
+        console.warn('⚠️ AuthContext not available, skipping refreshSession');
+      }
       
       // Double-check that we have a valid session before proceeding
       const { data: { session: verifySession } } = await supabase.auth.getSession();

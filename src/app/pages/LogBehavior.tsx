@@ -14,10 +14,11 @@ import { Lock, AlertCircle, Edit, Plus, Star } from "lucide-react";
 import { api } from "../../utils/api";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "../components/ui/alert-dialog";
 import { PrayerApprovalsWidget } from "../components/PrayerApprovalsWidget";
+import { PointEvent } from "../data/mockData";
 
 export function LogBehavior() {
   const { user, isParentMode, role } = useAuth();
-  const { getCurrentChild, addPointEvent, pointEvents } = useFamilyContext();
+  const { getCurrentChild, logEvent, getChildEvents } = useFamilyContext();
   const { items: trackableItems, loading: itemsLoading } = useTrackableItems();
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
@@ -30,7 +31,32 @@ export function LogBehavior() {
   const [showDedupeAlert, setShowDedupeAlert] = useState(false);
   const [dedupeData, setDedupeData] = useState<any>(null);
   const [todayPrayersLogged, setTodayPrayersLogged] = useState<Set<string>>(new Set());
+  const [pointEvents, setPointEvents] = useState<PointEvent[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(false);
   const child = getCurrentChild();
+
+  // Load point events for prayer tracking
+  useEffect(() => {
+    const loadEvents = async () => {
+      if (!child) {
+        setPointEvents([]);
+        return;
+      }
+
+      try {
+        setEventsLoading(true);
+        const events = await getChildEvents(child.id);
+        setPointEvents(events || []);
+      } catch (error) {
+        console.error('Error loading point events:', error);
+        setPointEvents([]);
+      } finally {
+        setEventsLoading(false);
+      }
+    };
+
+    loadEvents();
+  }, [child, getChildEvents]);
 
   // Debug logging - ENHANCED
   useEffect(() => {
@@ -182,13 +208,12 @@ export function LogBehavior() {
         finalNotes = finalNotes ? `${finalNotes}\n\n${bonusNote}` : bonusNote;
       }
 
-      await addPointEvent({
+      await logEvent(child.id, {
         childId: child.id,
-        itemId: selectedItemId,
-        trackableItemId: selectedItemId,
+        trackableItemId: selectedItemId!,
         type: item.type,
         points: totalPoints, // Use total points (base + bonus)
-        loggedBy: user.id, // Changed from performedBy to loggedBy
+        loggedBy: user.id,
         notes: finalNotes || undefined
       });
 
@@ -198,6 +223,10 @@ export function LogBehavior() {
       setNotes("");
       setBonusPoints(0);
       setBonusReason("");
+      
+      // Reload events to update prayer tracking
+      const events = await getChildEvents(child.id);
+      setPointEvents(events || []);
     } catch (error) {
       toast.error("Failed to log event");
     }
@@ -241,7 +270,7 @@ export function LogBehavior() {
     }
 
     try {
-      await addPointEvent({
+      await logEvent(child.id, {
         childId: child.id,
         trackableItemId: 'manual-bonus', // Use a special identifier for manual bonuses instead of null
         type: 'bonus',
@@ -254,6 +283,10 @@ export function LogBehavior() {
       toast.success(`Logged bonus for ${child.name} (+${standaloneBonusPoints} points)`);
       setStandaloneBonusPoints(0);
       setStandaloneBonusReason("");
+      
+      // Reload events to update prayer tracking
+      const events = await getChildEvents(child.id);
+      setPointEvents(events || []);
     } catch (error) {
       toast.error("Failed to log bonus event");
     }

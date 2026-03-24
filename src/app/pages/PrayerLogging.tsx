@@ -19,6 +19,7 @@ interface PrayerClaim {
   claimedDate: string;
   status: 'pending' | 'approved' | 'denied';
   points: number;
+  onTime?: boolean; // NEW: Track if prayer was on time
   approvedBy?: string;
   approvedAt?: string;
   deniedBy?: string;
@@ -247,7 +248,7 @@ export function PrayerLogging() {
       <div className="max-w-2xl mx-auto">
         {/* Back Button */}
         <button
-          onClick={() => navigate('/kid/dashboard')}
+          onClick={() => navigate('/kid/home')}
           className="mb-4 flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
         >
           <ArrowLeft className="w-5 h-5" />
@@ -372,13 +373,38 @@ export function PrayerLogging() {
           transition={{ delay: 0.6 }}
           className="mt-8 bg-blue-50 border-2 border-blue-200 rounded-xl p-6"
         >
-          <h3 className="font-bold text-lg text-gray-900 mb-3">💡 Tips</h3>
-          <ul className="space-y-2 text-sm text-gray-700">
-            <li>✅ Claim your prayer right after you finish</li>
-            <li>⏳ Your parent will approve it and you'll get points</li>
-            <li>🔥 Pray every day to build your streak!</li>
-            <li>🎯 Each prayer is worth 5 points</li>
-          </ul>
+          <h3 className="font-bold text-lg text-gray-900 mb-3">💡 Prayer Points System</h3>
+          <div className="space-y-3">
+            <div className="bg-white rounded-lg p-4 border-2 border-green-300">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-2xl">⏰</span>
+                <h4 className="font-bold text-green-700">On Time = Full Points!</h4>
+              </div>
+              <ul className="space-y-1 text-sm text-gray-700 ml-9">
+                <li>🌅 Fajr: <strong className="text-green-600">5 points</strong></li>
+                <li>☀️ Dhuhr, Asr, Maghrib, Isha: <strong className="text-green-600">3 points each</strong></li>
+              </ul>
+            </div>
+            
+            <div className="bg-white rounded-lg p-4 border-2 border-amber-300">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-2xl">⏳</span>
+                <h4 className="font-bold text-amber-700">Late (Qadha) = 1 Point</h4>
+              </div>
+              <p className="text-sm text-gray-700 ml-9">
+                All prayers after their time: <strong className="text-amber-600">1 point</strong>
+              </p>
+            </div>
+          </div>
+          
+          <div className="mt-4 pt-4 border-t border-blue-200">
+            <ul className="space-y-2 text-sm text-gray-700">
+              <li>✅ Claim your prayer right after you finish</li>
+              <li>⏳ Your parent will approve it and you'll get points</li>
+              <li>🔥 Pray every day to build your streak!</li>
+              <li>🎯 Pray on time for maximum points!</li>
+            </ul>
+          </div>
         </motion.div>
       </div>
     </div>

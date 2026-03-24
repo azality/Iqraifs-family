@@ -5,12 +5,40 @@ import { useTrackableItems } from "../hooks/useTrackableItems";
 import { useAuth } from "../contexts/AuthContext";
 import { Badge } from "../components/ui/badge";
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { useState, useEffect } from "react";
+import { PointEvent } from "../data/mockData";
 
 export function WeeklyReview() {
   const { isParentMode } = useAuth();
-  const { getCurrentChild, pointEvents } = useFamilyContext();
+  const { getCurrentChild, getChildEvents } = useFamilyContext();
   const { items: trackableItems } = useTrackableItems();
   const child = getCurrentChild();
+  const [pointEvents, setPointEvents] = useState<PointEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Load point events for the current child
+  useEffect(() => {
+    const loadEvents = async () => {
+      if (!child) {
+        setPointEvents([]);
+        setLoading(false);
+        return;
+      }
+
+      try {
+        setLoading(true);
+        const events = await getChildEvents(child.id);
+        setPointEvents(events || []);
+      } catch (error) {
+        console.error('Error loading point events:', error);
+        setPointEvents([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadEvents();
+  }, [child, getChildEvents]);
 
   if (!isParentMode) {
     return (
@@ -34,6 +62,14 @@ export function WeeklyReview() {
     return (
       <div className="flex items-center justify-center h-96">
         <p className="text-muted-foreground">Please select a child to view their weekly review.</p>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
       </div>
     );
   }
@@ -96,10 +132,18 @@ export function WeeklyReview() {
     });
   }
 
-  const pieData = [
-    { name: 'Positive', value: totalPositive, color: '#22c55e' },
-    { name: 'Negative', value: totalNegative, color: '#ef4444' }
-  ];
+  // Prepare pie data - only include non-zero values
+  const pieData = [];
+  if (totalPositive > 0) {
+    pieData.push({ name: 'Positive', value: totalPositive, color: '#22c55e', id: 'positive' });
+  }
+  if (totalNegative > 0) {
+    pieData.push({ name: 'Negative', value: totalNegative, color: '#ef4444', id: 'negative' });
+  }
+  // If no data, show a placeholder
+  if (pieData.length === 0) {
+    pieData.push({ name: 'No Data', value: 1, color: '#e5e7eb', id: 'no-data' });
+  }
 
   return (
     <div className="space-y-6">
@@ -181,8 +225,8 @@ export function WeeklyReview() {
                   fill="#8884d8"
                   dataKey="value"
                 >
-                  {pieData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  {pieData.map((entry) => (
+                    <Cell key={entry.id} fill={entry.color} />
                   ))}
                 </Pie>
                 <Tooltip />

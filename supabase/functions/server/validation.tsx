@@ -499,9 +499,7 @@ export function validateQuiz(data: any): ValidationResult {
   if (!data.questions || !Array.isArray(data.questions)) {
     errors.push("questions must be an array");
   } else if (data.questions.length === 0) {
-    errors.push("quiz must have at least one question");
-  } else if (data.questions.length > 50) {
-    errors.push("quiz cannot have more than 50 questions");
+    errors.push("at least one question is required");
   }
 
   return {
@@ -511,7 +509,176 @@ export function validateQuiz(data: any): ValidationResult {
 }
 
 /**
- * Validate quiz attempt
+ * Validate question bank item
+ */
+export function validateQuestion(data: any): ValidationResult {
+  const errors: string[] = [];
+
+  // Required fields
+  if (!data.category) {
+    errors.push("category is required");
+  }
+
+  if (!data.difficulty) {
+    errors.push("difficulty is required");
+  } else if (!["easy", "medium", "hard"].includes(data.difficulty)) {
+    errors.push("difficulty must be easy, medium, or hard");
+  }
+
+  if (!data.questionText) {
+    errors.push("questionText is required");
+  } else if (data.questionText.length > 500) {
+    errors.push("questionText must be 500 characters or less");
+  }
+
+  if (!data.questionType) {
+    errors.push("questionType is required");
+  } else if (!["multiple_choice", "true_false", "short_answer"].includes(data.questionType)) {
+    errors.push("questionType must be multiple_choice, true_false, or short_answer");
+  }
+
+  // Validate based on question type
+  if (data.questionType === "multiple_choice") {
+    if (!data.options || !Array.isArray(data.options)) {
+      errors.push("options must be an array for multiple choice questions");
+    } else if (data.options.length < 2 || data.options.length > 6) {
+      errors.push("multiple choice questions must have 2-6 options");
+    }
+
+    if (data.correctAnswerIndex === undefined || data.correctAnswerIndex === null) {
+      errors.push("correctAnswerIndex is required for multiple choice questions");
+    } else if (data.options && (data.correctAnswerIndex < 0 || data.correctAnswerIndex >= data.options.length)) {
+      errors.push("correctAnswerIndex must be a valid option index");
+    }
+  }
+
+  if (data.questionType === "true_false") {
+    if (data.correctBoolean === undefined || data.correctBoolean === null) {
+      errors.push("correctBoolean is required for true/false questions");
+    } else if (typeof data.correctBoolean !== "boolean") {
+      errors.push("correctBoolean must be a boolean");
+    }
+  }
+
+  if (data.questionType === "short_answer") {
+    if (!data.acceptedAnswers || !Array.isArray(data.acceptedAnswers)) {
+      errors.push("acceptedAnswers must be an array for short answer questions");
+    } else if (data.acceptedAnswers.length === 0) {
+      errors.push("at least one accepted answer is required");
+    }
+  }
+
+  // Validate points
+  if (data.basePoints === undefined || data.basePoints === null) {
+    errors.push("basePoints is required");
+  } else if (![5, 10, 20].includes(data.basePoints)) {
+    errors.push("basePoints must be 5 (easy), 10 (medium), or 20 (hard)");
+  }
+
+  if (data.hintPenalty !== undefined) {
+    if (typeof data.hintPenalty !== "number" || data.hintPenalty < 0) {
+      errors.push("hintPenalty must be a non-negative number");
+    }
+  }
+
+  // Validate hint options for multiple choice
+  if (data.hintReducedOptions && data.questionType === "multiple_choice") {
+    if (!Array.isArray(data.hintReducedOptions)) {
+      errors.push("hintReducedOptions must be an array");
+    } else if (data.hintReducedOptions.length < 2) {
+      errors.push("hintReducedOptions must have at least 2 options");
+    } else if (data.options && data.hintReducedOptions.length >= data.options.length) {
+      errors.push("hintReducedOptions must have fewer options than the original");
+    }
+  }
+
+  // Validate strings
+  if (data.explanation && data.explanation.length > 1000) {
+    errors.push("explanation must be 1000 characters or less");
+  }
+
+  if (data.hint && data.hint.length > 500) {
+    errors.push("hint must be 500 characters or less");
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+  };
+}
+
+/**
+ * Validate knowledge session data
+ */
+export function validateKnowledgeSession(data: any): ValidationResult {
+  const errors: string[] = [];
+
+  if (!data.childId) {
+    errors.push("childId is required");
+  }
+
+  if (!data.familyId) {
+    errors.push("familyId is required");
+  }
+
+  if (data.status && !["active", "completed", "abandoned"].includes(data.status)) {
+    errors.push("status must be active, completed, or abandoned");
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+  };
+}
+
+/**
+ * Validate session question answer
+ */
+export function validateSessionAnswer(data: any): ValidationResult {
+  const errors: string[] = [];
+
+  if (!data.sessionId) {
+    errors.push("sessionId is required");
+  }
+
+  if (!data.questionId) {
+    errors.push("questionId is required");
+  }
+
+  if (!data.difficulty) {
+    errors.push("difficulty is required");
+  } else if (!["easy", "medium", "hard"].includes(data.difficulty)) {
+    errors.push("difficulty must be easy, medium, or hard");
+  }
+
+  if (data.selectedAnswer === undefined || data.selectedAnswer === null) {
+    errors.push("selectedAnswer is required");
+  }
+
+  if (data.isCorrect === undefined || data.isCorrect === null) {
+    errors.push("isCorrect is required");
+  } else if (typeof data.isCorrect !== "boolean") {
+    errors.push("isCorrect must be a boolean");
+  }
+
+  if (data.hintUsed !== undefined && typeof data.hintUsed !== "boolean") {
+    errors.push("hintUsed must be a boolean");
+  }
+
+  if (data.pointsEarned === undefined || data.pointsEarned === null) {
+    errors.push("pointsEarned is required");
+  } else if (typeof data.pointsEarned !== "number" || data.pointsEarned < 0) {
+    errors.push("pointsEarned must be a non-negative number");
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+  };
+}
+
+/**
+ * Validate quiz attempt data (legacy - keeping for backwards compatibility)
  */
 export function validateQuizAttempt(data: any): ValidationResult {
   const errors: string[] = [];

@@ -19,7 +19,6 @@ export function FloatingActionButton() {
     { label: "Log Behavior", icon: Zap, href: "/log", color: "bg-blue-500" },
     { label: "Rewards", icon: Award, href: "/rewards", color: "bg-purple-500" },
     { label: "Challenges", icon: Heart, href: "/challenges", color: "bg-pink-500" },
-    { label: "Quizzes", icon: BookOpen, href: "/quizzes", color: "bg-green-500" },
   ];
 
   // Kid mode actions

@@ -50,9 +50,35 @@ export async function createKidSession(
     rememberDevice,
   };
   
-  await kv.set(`kidsession:${token}`, session);
+  const sessionKey = `kidsession:${token}`;
   
-  console.log(`Kid session created for child ${childId}, expires: ${expiresAt.toISOString()}`);
+  console.log('🔐 Creating kid session:', {
+    childId,
+    tokenPreview: token.substring(0, 20) + '...',
+    tokenLength: token.length,
+    sessionKey: sessionKey.substring(0, 40) + '...',
+    familyId: child.familyId,
+    expiresAt: expiresAt.toISOString()
+  });
+  
+  await kv.set(sessionKey, session);
+  
+  // VERIFY: Immediately read back to confirm it was saved
+  const verifySession = await kv.get(sessionKey);
+  console.log('🔍 Verifying kid session was saved:', {
+    sessionKey: sessionKey.substring(0, 40) + '...',
+    sessionFound: !!verifySession,
+    verifyChildId: verifySession?.childId,
+    verifyFamilyId: verifySession?.familyId,
+    verifyExpiresAt: verifySession?.expiresAt
+  });
+  
+  if (!verifySession) {
+    console.error('❌ CRITICAL: Kid session was NOT saved to KV store!');
+    throw new Error('Failed to save kid session');
+  }
+  
+  console.log(`✅ Kid session created and verified for child ${childId}, expires: ${expiresAt.toISOString()}`);
   
   return { token, expiresAt: expiresAt.toISOString() };
 }

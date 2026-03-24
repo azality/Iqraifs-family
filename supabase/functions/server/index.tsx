@@ -13,6 +13,7 @@ import {
   requireChildAccess,
   getAuthUserId,
   getFamilyId,
+  getUserFamilyId,
   serviceRoleClient
 } from "./middleware.tsx";
 import {
@@ -35,6 +36,9 @@ import {
   validateRedemptionRequest,
   validateQuiz,
   validateQuizAttempt,
+  validateQuestion,
+  validateKnowledgeSession,
+  validateSessionAnswer,
   getValidatedBody
 } from "./validation.tsx";
 import {
@@ -1373,7 +1377,22 @@ app.post(
       }
       
       // PIN correct - create kid session
+      console.log('🔐 Creating kid session for child:', {
+        childId: child.id,
+        childIdType: typeof child.id,
+        childIdLength: child.id?.length,
+        hasChildPrefix: child.id?.startsWith('child:'),
+        familyId: child.familyId
+      });
+      
       const { token, expiresAt } = await createKidSession(child.id, false);
+      
+      console.log('✅ Kid session created:', {
+        tokenPreview: token.substring(0, 30) + '...',
+        tokenLength: token.length,
+        childId: child.id,
+        expiresAt
+      });
       
       // Reset failure tracking
       await resetPinFailures(child.id, deviceHash);
@@ -3504,6 +3523,8 @@ app.post(
     try {
       const { claimId } = c.req.param();
       const userId = getAuthUserId(c);
+      const body = await c.req.json();
+      const { onTime = true } = body; // Default to true if not specified
 
       // Verify claim exists and belongs to user's family
       const claim = await kv.get(`prayer-claim:${claimId}`);
@@ -3521,7 +3542,7 @@ app.post(
         return c.json({ error: 'No access to this claim' }, 403);
       }
 
-      const result = await approvePrayerClaim(claimId, userId);
+      const result = await approvePrayerClaim(claimId, userId, onTime);
       
       return c.json({
         success: true,
@@ -3960,6 +3981,815 @@ app.get(
     return c.json(quizAttempts);
   } catch (error) {
     return c.json({ error: 'Failed to get quiz attempts' }, 500);
+  }
+});
+
+// ===== KNOWLEDGE QUEST SYSTEM (New Dynamic Question Bank) =====
+
+// Create question
+app.post(
+  "/make-server-f116e23f/questions",
+  requireAuth,
+  requireParent,
+  async (c) => {
+  try {
+    const userId = getAuthUserId(c);
+    const familyId = await getUserFamilyId(c);
+    
+    if (!familyId) {
+      return c.json({ error: 'User must be part of a family' }, 400);
+    }
+    
+    const questionData = await c.req.json();
+    
+    // Validate unless it's a bulk import
+    const validation = validateQuestion(questionData);
+    if (!validation.valid) {
+      console.error('Question validation error:', validation.errors);
+      return c.json({ error: validation.errors.join(', ') }, 400);
+    }
+    
+    const questionId = `question:${Date.now()}:${Math.random().toString(36).substr(2, 9)}`;
+    
+    const question = {
+      id: questionId,
+      ...questionData,
+      familyId,
+      createdBy: userId,
+      createdAt: new Date().toISOString(),
+      timesAnswered: 0,
+      timesCorrect: 0,
+      isPublic: questionData.isPublic || false
+    };
+    
+    await kv.set(questionId, question);
+    return c.json(question);
+  } catch (error) {
+    console.error('Create question error:', error);
+    return c.json({ error: 'Failed to create question' }, 500);
+  }
+});
+
+// Get all questions (filtered by family or public)
+app.get(
+  "/make-server-f116e23f/questions",
+  requireAuth,
+  async (c) => {
+  try {
+    const userId = getAuthUserId(c);
+    const familyId = await getUserFamilyId(c);
+    
+    const allQuestions = await kv.getByPrefix('question:');
+    
+    // Filter: Show family's questions + public questions
+    const questions = allQuestions.filter((q: any) => 
+      q.familyId === familyId || q.isPublic === true
+    );
+    
+    return c.json(questions.sort((a: any, b: any) => 
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    ));
+  } catch (error) {
+    console.error('Get questions error:', error);
+    return c.json({ error: 'Failed to get questions' }, 500);
+  }
+});
+
+// Get question by ID
+app.get(
+  "/make-server-f116e23f/questions/:id",
+  requireAuth,
+  async (c) => {
+  try {
+    const id = c.req.param('id');
+    const question = await kv.get(id);
+    
+    if (!question) {
+      return c.json({ error: 'Question not found' }, 404);
+    }
+    
+    // Access check: must be from same family or public
+    const userId = getAuthUserId(c);
+    const familyId = await getUserFamilyId(c);
+    
+    if (question.familyId !== familyId && !question.isPublic) {
+      return c.json({ error: 'Access denied' }, 403);
+    }
+    
+    return c.json(question);
+  } catch (error) {
+    console.error('Get question error:', error);
+    return c.json({ error: 'Failed to get question' }, 500);
+  }
+});
+
+// Update question
+app.patch(
+  "/make-server-f116e23f/questions/:id",
+  requireAuth,
+  requireParent,
+  async (c) => {
+  try {
+    const id = c.req.param('id');
+    const updates = await c.req.json();
+    
+    const question = await kv.get(id);
+    if (!question) {
+      return c.json({ error: 'Question not found' }, 404);
+    }
+    
+    // Access check: must be from same family
+    const userId = getAuthUserId(c);
+    const familyId = await getUserFamilyId(c);
+    
+    if (question.familyId !== familyId) {
+      return c.json({ error: 'Access denied' }, 403);
+    }
+    
+    // Validate updates
+    const updatedData = { ...question, ...updates };
+    const validation = validateQuestion(updatedData);
+    if (!validation.valid) {
+      console.error('Question validation error:', validation.errors);
+      return c.json({ error: validation.errors.join(', ') }, 400);
+    }
+    
+    const updated = { ...updatedData, updatedAt: new Date().toISOString() };
+    await kv.set(id, updated);
+    
+    return c.json(updated);
+  } catch (error) {
+    console.error('Update question error:', error);
+    return c.json({ error: 'Failed to update question' }, 500);
+  }
+});
+
+// Delete question
+app.delete(
+  "/make-server-f116e23f/questions/:id",
+  requireAuth,
+  requireParent,
+  async (c) => {
+  try {
+    const id = c.req.param('id');
+    const question = await kv.get(id);
+    
+    if (!question) {
+      return c.json({ error: 'Question not found' }, 404);
+    }
+    
+    // Access check
+    const userId = getAuthUserId(c);
+    const familyId = await getUserFamilyId(c);
+    
+    if (question.familyId !== familyId) {
+      return c.json({ error: 'Access denied' }, 403);
+    }
+    
+    await kv.del(id);
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('Delete question error:', error);
+    return c.json({ error: 'Failed to delete question' }, 500);
+  }
+});
+
+// Seed sample questions (public endpoint for initial setup)
+app.post(
+  "/make-server-f116e23f/questions/seed-samples",
+  requireAuth,
+  requireParent,
+  async (c) => {
+  try {
+    const userId = getAuthUserId(c);
+    const familyId = await getUserFamilyId(c);
+    
+    // Check if questions already exist to avoid duplicate seeding
+    const existingQuestions = await kv.getByPrefix('question:');
+    const publicQuestions = existingQuestions.filter((q: any) => q.isPublic === true);
+    
+    if (publicQuestions.length > 0) {
+      return c.json({ 
+        message: 'Sample questions already exist', 
+        count: publicQuestions.length 
+      });
+    }
+    
+    const sampleQuestions = [
+      // ISLAMIC - EASY
+      {
+        category: 'islamic',
+        difficulty: 'easy',
+        questionText: 'How many times do Muslims pray each day?',
+        questionType: 'multiple_choice',
+        options: ['3 times', '5 times', '7 times', '10 times'],
+        correctAnswerIndex: 1,
+        hint: 'Think about the five daily prayers: Fajr, Dhuhr, Asr, Maghrib, and Isha.',
+        hintReducedOptions: ['5 times', '7 times'],
+        basePoints: 5,
+        hintPenalty: 2,
+        explanation: 'Muslims pray five times a day: Fajr (dawn), Dhuhr (noon), Asr (afternoon), Maghrib (sunset), and Isha (night).',
+        isPublic: true
+      },
+      {
+        category: 'islamic',
+        difficulty: 'easy',
+        questionText: 'What is the first pillar of Islam?',
+        questionType: 'multiple_choice',
+        options: ['Salah (Prayer)', 'Shahada (Declaration of Faith)', 'Zakat (Charity)', 'Hajj (Pilgrimage)'],
+        correctAnswerIndex: 1,
+        hint: 'It is the declaration of faith that there is no god but Allah.',
+        hintReducedOptions: ['Shahada (Declaration of Faith)', 'Salah (Prayer)'],
+        basePoints: 5,
+        hintPenalty: 2,
+        explanation: 'The Shahada is the first pillar: "There is no god but Allah, and Muhammad is His messenger."',
+        isPublic: true
+      },
+      {
+        category: 'quran',
+        difficulty: 'easy',
+        questionText: 'What is the first Surah in the Quran?',
+        questionType: 'multiple_choice',
+        options: ['Al-Baqarah', 'Al-Fatiha', 'Al-Ikhlas', 'An-Nas'],
+        correctAnswerIndex: 1,
+        hint: 'It is called "The Opening" and is recited in every unit of prayer.',
+        hintReducedOptions: ['Al-Fatiha', 'Al-Baqarah'],
+        basePoints: 5,
+        hintPenalty: 2,
+        explanation: 'Al-Fatiha (The Opening) is the first chapter of the Quran and is recited in every rakat of prayer.',
+        isPublic: true
+      },
+      // ISLAMIC - MEDIUM
+      {
+        category: 'islamic',
+        difficulty: 'medium',
+        questionText: 'In which Islamic month do Muslims fast from dawn to sunset?',
+        questionType: 'multiple_choice',
+        options: ['Muharram', 'Ramadan', 'Shawwal', 'Dhul-Hijjah'],
+        correctAnswerIndex: 1,
+        hint: 'This is the 9th month of the Islamic calendar.',
+        hintReducedOptions: ['Ramadan', 'Shawwal'],
+        basePoints: 10,
+        hintPenalty: 3,
+        explanation: 'Ramadan is the 9th month of the Islamic calendar, during which Muslims fast from dawn to sunset.',
+        isPublic: true
+      },
+      {
+        category: 'hadith',
+        difficulty: 'medium',
+        questionText: 'Who compiled the most authentic collection of Hadith known as Sahih?',
+        questionType: 'multiple_choice',
+        options: ['Imam Malik', 'Imam Bukhari', 'Imam Ahmad', 'Imam Shafi'],
+        correctAnswerIndex: 1,
+        hint: 'His full name was Muhammad ibn Ismail.',
+        hintReducedOptions: ['Imam Bukhari', 'Imam Muslim'],
+        basePoints: 10,
+        hintPenalty: 3,
+        explanation: 'Imam Bukhari compiled Sahih al-Bukhari, considered the most authentic collection of Hadith.',
+        isPublic: true
+      },
+      // ISLAMIC - HARD
+      {
+        category: 'fiqh',
+        difficulty: 'hard',
+        questionText: 'What are the conditions that make Zakat obligatory on wealth?',
+        questionType: 'multiple_choice',
+        options: ['Ownership and nisab only', 'Nisab, full ownership, one lunar year, and wealth is productive', 'Just having money', 'Being wealthy for 6 months'],
+        correctAnswerIndex: 1,
+        hint: 'There are multiple conditions including a minimum threshold and time period.',
+        hintReducedOptions: ['Nisab, full ownership, one lunar year, and wealth is productive', 'Ownership and nisab only'],
+        basePoints: 20,
+        hintPenalty: 5,
+        explanation: 'Zakat becomes obligatory when wealth reaches nisab (minimum threshold), is fully owned, has been held for one lunar year, and is in a productive form.',
+        isPublic: true
+      },
+      // GENERAL KNOWLEDGE - EASY
+      {
+        category: 'math',
+        difficulty: 'easy',
+        questionText: 'What is 7 × 8?',
+        questionType: 'multiple_choice',
+        options: ['54', '56', '64', '72'],
+        correctAnswerIndex: 1,
+        hint: 'Think of 7 groups of 8.',
+        hintReducedOptions: ['56', '64'],
+        basePoints: 5,
+        hintPenalty: 2,
+        explanation: '7 × 8 = 56',
+        isPublic: true
+      },
+      {
+        category: 'science',
+        difficulty: 'easy',
+        questionText: 'What do plants need to make their own food?',
+        questionType: 'multiple_choice',
+        options: ['Soil and rocks', 'Sunlight, water, and carbon dioxide', 'Only water', 'Wind and rain'],
+        correctAnswerIndex: 1,
+        hint: 'This process is called photosynthesis.',
+        hintReducedOptions: ['Sunlight, water, and carbon dioxide', 'Only water'],
+        basePoints: 5,
+        hintPenalty: 2,
+        explanation: 'Plants use sunlight, water, and carbon dioxide to make food through photosynthesis.',
+        isPublic: true
+      },
+      // GENERAL KNOWLEDGE - MEDIUM
+      {
+        category: 'geography',
+        difficulty: 'medium',
+        questionText: 'What is the capital city of Egypt?',
+        questionType: 'multiple_choice',
+        options: ['Alexandria', 'Cairo', 'Luxor', 'Giza'],
+        correctAnswerIndex: 1,
+        hint: 'It is the largest city in the Arab world.',
+        hintReducedOptions: ['Cairo', 'Alexandria'],
+        basePoints: 10,
+        hintPenalty: 3,
+        explanation: 'Cairo is the capital and largest city of Egypt.',
+        isPublic: true
+      },
+      {
+        category: 'history',
+        difficulty: 'medium',
+        questionText: 'Which famous library in the Islamic Golden Age was located in Baghdad?',
+        questionType: 'multiple_choice',
+        options: ['House of Knowledge', 'House of Wisdom', 'House of Books', 'House of Learning'],
+        correctAnswerIndex: 1,
+        hint: 'Its Arabic name is "Bayt al-Hikmah".',
+        hintReducedOptions: ['House of Wisdom', 'House of Knowledge'],
+        basePoints: 10,
+        hintPenalty: 3,
+        explanation: 'The House of Wisdom (Bayt al-Hikmah) was a major intellectual center during the Islamic Golden Age.',
+        isPublic: true
+      },
+      // TRUE/FALSE Questions
+      {
+        category: 'islamic',
+        difficulty: 'easy',
+        questionText: 'The Kaaba is located in Mecca.',
+        questionType: 'true_false',
+        correctBoolean: true,
+        basePoints: 5,
+        hintPenalty: 0,
+        explanation: 'The Kaaba is located in Mecca, Saudi Arabia, and is the direction Muslims face during prayer.',
+        isPublic: true
+      },
+      {
+        category: 'quran',
+        difficulty: 'medium',
+        questionText: 'The Quran has 100 chapters (Surahs).',
+        questionType: 'true_false',
+        correctBoolean: false,
+        basePoints: 10,
+        hintPenalty: 0,
+        explanation: 'The Quran has 114 chapters (Surahs), not 100.',
+        isPublic: true
+      }
+    ];
+    
+    // Create all sample questions
+    const createdQuestions = [];
+    for (const questionData of sampleQuestions) {
+      const questionId = `question:${Date.now()}:${Math.random().toString(36).substr(2, 9)}`;
+      const question = {
+        id: questionId,
+        ...questionData,
+        familyId: familyId,
+        createdBy: userId,
+        createdAt: new Date().toISOString(),
+        timesAnswered: 0,
+        timesCorrect: 0
+      };
+      
+      await kv.set(questionId, question);
+      createdQuestions.push(question);
+      // Small delay to ensure unique timestamps
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    
+    return c.json({ 
+      message: 'Sample questions created successfully',
+      count: createdQuestions.length,
+      questions: createdQuestions
+    });
+  } catch (error) {
+    console.error('Seed questions error:', error);
+    return c.json({ error: 'Failed to seed questions' }, 500);
+  }
+});
+
+// Get random question by difficulty and optional category
+app.get(
+  "/make-server-f116e23f/questions/random/:difficulty",
+  requireAuth,
+  async (c) => {
+  try {
+    const difficulty = c.req.param('difficulty');
+    const category = c.req.query('category');
+    
+    if (!['easy', 'medium', 'hard'].includes(difficulty)) {
+      return c.json({ error: 'Invalid difficulty' }, 400);
+    }
+    
+    const userId = getAuthUserId(c);
+    const familyId = await getUserFamilyId(c);
+    
+    const allQuestions = await kv.getByPrefix('question:');
+    
+    // Filter by family/public, difficulty, and optionally category
+    let questions = allQuestions.filter((q: any) => 
+      (q.familyId === familyId || q.isPublic === true) &&
+      q.difficulty === difficulty
+    );
+    
+    if (category) {
+      questions = questions.filter((q: any) => q.category === category);
+    }
+    
+    if (questions.length === 0) {
+      return c.json({ error: 'No questions found' }, 404);
+    }
+    
+    // Return random question
+    const randomIndex = Math.floor(Math.random() * questions.length);
+    return c.json(questions[randomIndex]);
+  } catch (error) {
+    console.error('Get random question error:', error);
+    return c.json({ error: 'Failed to get random question' }, 500);
+  }
+});
+
+// Start knowledge session
+app.post(
+  "/make-server-f116e23f/knowledge-sessions",
+  requireAuth,
+  validate(validateKnowledgeSession),
+  async (c) => {
+  try {
+    const userId = getAuthUserId(c);
+    const sessionData = await c.req.json();
+    
+    // Verify child access
+    const child = await kv.get(sessionData.childId);
+    if (!child || child.familyId !== sessionData.familyId) {
+      return c.json({ error: 'Child not found or access denied' }, 403);
+    }
+    
+    const sessionId = `session:${Date.now()}:${Math.random().toString(36).substr(2, 9)}`;
+    
+    const session = {
+      id: sessionId,
+      childId: sessionData.childId,
+      familyId: sessionData.familyId,
+      startedAt: new Date().toISOString(),
+      status: 'active',
+      questionsAnswered: 0,
+      correctAnswers: 0,
+      totalPointsEarned: 0,
+      easyAttempted: 0,
+      easyCorrect: 0,
+      mediumAttempted: 0,
+      mediumCorrect: 0,
+      hardAttempted: 0,
+      hardCorrect: 0,
+      hintsUsed: 0,
+      categories: []
+    };
+    
+    await kv.set(sessionId, session);
+    return c.json(session);
+  } catch (error) {
+    console.error('Create session error:', error);
+    return c.json({ error: 'Failed to create session' }, 500);
+  }
+});
+
+// Submit answer to session
+app.post(
+  "/make-server-f116e23f/knowledge-sessions/:sessionId/answer",
+  requireAuth,
+  validate(validateSessionAnswer),
+  async (c) => {
+  try {
+    const sessionId = c.req.param('sessionId');
+    const answerData = await c.req.json();
+    
+    const session = await kv.get(sessionId);
+    if (!session) {
+      return c.json({ error: 'Session not found' }, 404);
+    }
+    
+    if (session.status !== 'active') {
+      return c.json({ error: 'Session is not active' }, 400);
+    }
+    
+    const question = await kv.get(answerData.questionId);
+    if (!question) {
+      return c.json({ error: 'Question not found' }, 404);
+    }
+    
+    // Create session question record
+    const sqId = `sessionquestion:${Date.now()}:${Math.random().toString(36).substr(2, 9)}`;
+    const sessionQuestion = {
+      id: sqId,
+      sessionId,
+      questionId: answerData.questionId,
+      questionSnapshot: question,
+      difficulty: answerData.difficulty,
+      selectedAnswer: answerData.selectedAnswer,
+      isCorrect: answerData.isCorrect,
+      hintUsed: answerData.hintUsed || false,
+      pointsEarned: answerData.pointsEarned,
+      timeSpent: answerData.timeSpent || 0,
+      answeredAt: new Date().toISOString(),
+      orderInSession: session.questionsAnswered + 1
+    };
+    
+    await kv.set(sqId, sessionQuestion);
+    
+    // Update session stats
+    const updatedSession = {
+      ...session,
+      questionsAnswered: session.questionsAnswered + 1,
+      correctAnswers: session.correctAnswers + (answerData.isCorrect ? 1 : 0),
+      totalPointsEarned: session.totalPointsEarned + answerData.pointsEarned,
+      hintsUsed: session.hintsUsed + (answerData.hintUsed ? 1 : 0)
+    };
+    
+    // Update difficulty breakdown
+    if (answerData.difficulty === 'easy') {
+      updatedSession.easyAttempted++;
+      if (answerData.isCorrect) updatedSession.easyCorrect++;
+    } else if (answerData.difficulty === 'medium') {
+      updatedSession.mediumAttempted++;
+      if (answerData.isCorrect) updatedSession.mediumCorrect++;
+    } else if (answerData.difficulty === 'hard') {
+      updatedSession.hardAttempted++;
+      if (answerData.isCorrect) updatedSession.hardCorrect++;
+    }
+    
+    // Add category if new
+    if (question.category && !updatedSession.categories.includes(question.category)) {
+      updatedSession.categories.push(question.category);
+    }
+    
+    await kv.set(sessionId, updatedSession);
+    
+    // Update question stats
+    const updatedQuestion = {
+      ...question,
+      timesAnswered: (question.timesAnswered || 0) + 1,
+      timesCorrect: (question.timesCorrect || 0) + (answerData.isCorrect ? 1 : 0),
+      lastUsed: new Date().toISOString()
+    };
+    await kv.set(answerData.questionId, updatedQuestion);
+    
+    return c.json({
+      sessionQuestion,
+      session: updatedSession
+    });
+  } catch (error) {
+    console.error('Submit answer error:', error);
+    return c.json({ error: 'Failed to submit answer' }, 500);
+  }
+});
+
+// Complete session and award points
+app.post(
+  "/make-server-f116e23f/knowledge-sessions/:sessionId/complete",
+  requireAuth,
+  async (c) => {
+  try {
+    const sessionId = c.req.param('sessionId');
+    const session = await kv.get(sessionId);
+    
+    if (!session) {
+      return c.json({ error: 'Session not found' }, 404);
+    }
+    
+    if (session.status !== 'active') {
+      return c.json({ error: 'Session is not active' }, 400);
+    }
+    
+    // POINTS CONVERSION: Games are "extra activities" that complement core behaviors
+    // Knowledge Quest points are scaled down by 5% so they remain bonus rewards
+    // without overshadowing prayers (5 pts), chores, homework, etc.
+    // Examples with new 5% conversion:
+    // - Easy (5 base pts) → 0.25 actual pts | With hint (3 pts) → 0.15 actual pts
+    // - Medium (10 base pts) → 0.5 actual pts | With hint (6 pts) → 0.3 actual pts
+    // - Hard (20 base pts) → 1 actual pt | With hint (15 pts) → 0.75 actual pts
+    // This means: answering 5 hard questions without hints = 5 actual points (same as one prayer)
+    // This keeps the balance: core behaviors remain the primary point source
+    const KNOWLEDGE_QUEST_CONVERSION_RATE = 0.05;
+    const convertedPoints = Math.round(session.totalPointsEarned * KNOWLEDGE_QUEST_CONVERSION_RATE);
+    
+    // Complete session
+    const completedSession = {
+      ...session,
+      status: 'completed',
+      endedAt: new Date().toISOString(),
+      rawPoints: session.totalPointsEarned, // Track what they earned in-game
+      pointsAwarded: convertedPoints // Actual points added to their account
+    };
+    
+    await kv.set(sessionId, completedSession);
+    
+    // Award points to child
+    if (convertedPoints > 0) {
+      const child = await kv.get(session.childId);
+      if (child) {
+        let newPoints = child.currentPoints + convertedPoints;
+        const newHighest = Math.max(child.highestMilestone || 0, newPoints);
+        
+        // Milestone floor protection
+        const allMilestones = await kv.getByPrefix('milestone:');
+        const achievedMilestones = allMilestones
+          .filter((m: any) => m.points <= newHighest)
+          .sort((a: any, b: any) => b.points - a.points);
+        
+        const floor = achievedMilestones[0]?.points || 0;
+        if (newPoints < floor) {
+          newPoints = floor;
+        }
+        
+        await kv.set(session.childId, {
+          ...child,
+          currentPoints: newPoints,
+          highestMilestone: newHighest
+        });
+      }
+    }
+    
+    return c.json(completedSession);
+  } catch (error) {
+    console.error('Complete session error:', error);
+    return c.json({ error: 'Failed to complete session' }, 500);
+  }
+});
+
+// Get session details
+app.get(
+  "/make-server-f116e23f/knowledge-sessions/:sessionId",
+  requireAuth,
+  async (c) => {
+  try {
+    const sessionId = c.req.param('sessionId');
+    const session = await kv.get(sessionId);
+    
+    if (!session) {
+      return c.json({ error: 'Session not found' }, 404);
+    }
+    
+    // Get all questions from this session
+    const allSessionQuestions = await kv.getByPrefix('sessionquestion:');
+    const sessionQuestions = allSessionQuestions
+      .filter((sq: any) => sq.sessionId === sessionId)
+      .sort((a: any, b: any) => a.orderInSession - b.orderInSession);
+    
+    return c.json({
+      session,
+      questions: sessionQuestions
+    });
+  } catch (error) {
+    console.error('Get session error:', error);
+    return c.json({ error: 'Failed to get session' }, 500);
+  }
+});
+
+// Get all sessions for a child
+app.get(
+  "/make-server-f116e23f/children/:childId/knowledge-sessions",
+  requireAuth,
+  requireChildAccess,
+  async (c) => {
+  try {
+    const childId = c.req.param('childId');
+    const allSessions = await kv.getByPrefix('session:');
+    
+    const childSessions = allSessions
+      .filter((s: any) => s.childId === childId)
+      .sort((a: any, b: any) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
+    
+    return c.json(childSessions);
+  } catch (error) {
+    console.error('Get child sessions error:', error);
+    return c.json({ error: 'Failed to get sessions' }, 500);
+  }
+});
+
+// Get question categories
+app.get(
+  "/make-server-f116e23f/question-categories",
+  requireAuth,
+  async (c) => {
+  try {
+    const userId = getAuthUserId(c);
+    const familyId = await getUserFamilyId(c);
+    
+    const allQuestions = await kv.getByPrefix('question:');
+    const familyQuestions = allQuestions.filter((q: any) => 
+      q.familyId === familyId || q.isPublic === true
+    );
+    
+    // Group by category
+    const categories: any = {};
+    
+    familyQuestions.forEach((q: any) => {
+      const cat = q.category || 'uncategorized';
+      if (!categories[cat]) {
+        categories[cat] = {
+          name: cat,
+          total: 0,
+          easy: 0,
+          medium: 0,
+          hard: 0
+        };
+      }
+      
+      categories[cat].total++;
+      if (q.difficulty === 'easy') categories[cat].easy++;
+      if (q.difficulty === 'medium') categories[cat].medium++;
+      if (q.difficulty === 'hard') categories[cat].hard++;
+    });
+    
+    return c.json(Object.values(categories));
+  } catch (error) {
+    console.error('Get categories error:', error);
+    return c.json({ error: 'Failed to get categories' }, 500);
+  }
+});
+
+// ===== GAME SETTINGS =====
+
+// Get game settings for a family
+app.get(
+  "/make-server-f116e23f/families/:familyId/game-settings",
+  requireAuth,
+  requireFamilyAccess,
+  async (c) => {
+  try {
+    const familyId = c.req.param('familyId');
+    const settingsKey = `gamesettings:${familyId}`;
+    
+    let settings = await kv.get(settingsKey);
+    
+    // Default settings if none exist
+    if (!settings) {
+      settings = {
+        id: settingsKey,
+        familyId,
+        knowledgeQuestEnabled: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      await kv.set(settingsKey, settings);
+    }
+    
+    return c.json(settings);
+  } catch (error) {
+    console.error('Get game settings error:', error);
+    return c.json({ error: 'Failed to get game settings' }, 500);
+  }
+});
+
+// Update game settings for a family
+app.patch(
+  "/make-server-f116e23f/families/:familyId/game-settings",
+  requireAuth,
+  requireParent,
+  requireFamilyAccess,
+  async (c) => {
+  try {
+    const familyId = c.req.param('familyId');
+    const body = await c.req.json();
+    const settingsKey = `gamesettings:${familyId}`;
+    
+    let settings = await kv.get(settingsKey);
+    
+    // Create if doesn't exist
+    if (!settings) {
+      settings = {
+        id: settingsKey,
+        familyId,
+        knowledgeQuestEnabled: true,
+        createdAt: new Date().toISOString()
+      };
+    }
+    
+    // Update settings
+    if (typeof body.knowledgeQuestEnabled === 'boolean') {
+      settings.knowledgeQuestEnabled = body.knowledgeQuestEnabled;
+    }
+    
+    settings.updatedAt = new Date().toISOString();
+    
+    await kv.set(settingsKey, settings);
+    
+    console.log(`✅ Updated game settings for family ${familyId}:`, settings);
+    
+    return c.json(settings);
+  } catch (error) {
+    console.error('Update game settings error:', error);
+    return c.json({ error: 'Failed to update game settings' }, 500);
   }
 });
 
@@ -5037,6 +5867,365 @@ app.delete(
     } catch (error: any) {
       console.error('Unregister push token error:', error);
       return c.json({ error: error.message || 'Failed to unregister token' }, 500);
+    }
+  }
+);
+
+// ═══════════════════════════════════════════════════════════════
+// ADVENTURE WORLD ROUTES (Islamic Learning Games)
+// ═══════════════════════════════════════════════════════════════
+
+// Get or create adventure profile for a child
+app.get(
+  "/make-server-f116e23f/families/:familyId/adventure/profile/:childId",
+  requireAuth,
+  requireFamilyAccess,
+  async (c) => {
+    try {
+      const { familyId, childId } = c.req.param();
+      const child = await kv.get(childId);
+      
+      if (!child || child.familyId !== familyId) {
+        return c.json({ error: 'Child not found' }, 404);
+      }
+
+      // Get or create adventure profile
+      const profileKey = `adventure-profile:${childId}`;
+      let profile = await kv.get(profileKey);
+
+      if (!profile) {
+        // Create default profile
+        profile = {
+          childId,
+          avatarStyle: {},
+          level: 1,
+          xp: 0,
+          title: "Student",
+          barakahCoins: child.currentPoints || 0,
+          completedQuests: 0,
+          gardenProgress: 0,
+          createdAt: new Date().toISOString()
+        };
+        await kv.set(profileKey, profile);
+      }
+
+      return c.json(profile);
+    } catch (error: any) {
+      console.error('Get adventure profile error:', error);
+      return c.json({ error: error.message }, 500);
+    }
+  }
+);
+
+// Update adventure profile (avatar, etc.)
+app.post(
+  "/make-server-f116e23f/families/:familyId/adventure/profile/:childId",
+  requireAuth,
+  requireFamilyAccess,
+  async (c) => {
+    try {
+      const { familyId, childId } = c.req.param();
+      const body = await c.req.json();
+      
+      const child = await kv.get(childId);
+      if (!child || child.familyId !== familyId) {
+        return c.json({ error: 'Child not found' }, 404);
+      }
+
+      const profileKey = `adventure-profile:${childId}`;
+      let profile = await kv.get(profileKey);
+
+      if (!profile) {
+        profile = {
+          childId,
+          avatarStyle: {},
+          level: 1,
+          xp: 0,
+          title: "Student",
+          barakahCoins: child.currentPoints || 0,
+          completedQuests: 0,
+          gardenProgress: 0,
+          createdAt: new Date().toISOString()
+        };
+      }
+
+      // Update profile with new data
+      profile = {
+        ...profile,
+        ...body,
+        updatedAt: new Date().toISOString()
+      };
+
+      await kv.set(profileKey, profile);
+      return c.json(profile);
+    } catch (error: any) {
+      console.error('Update adventure profile error:', error);
+      return c.json({ error: error.message }, 500);
+    }
+  }
+);
+
+// Get world zones progress
+app.get(
+  "/make-server-f116e23f/families/:familyId/adventure/zones/:childId",
+  requireAuth,
+  requireFamilyAccess,
+  async (c) => {
+    try {
+      const { familyId, childId } = c.req.param();
+      const child = await kv.get(childId);
+      
+      if (!child || child.familyId !== familyId) {
+        return c.json({ error: 'Child not found' }, 404);
+      }
+
+      const zonesKey = `adventure-zones:${childId}`;
+      let zones = await kv.get(zonesKey);
+
+      if (!zones) {
+        // Create default zones
+        zones = [
+          {
+            id: "makkah",
+            name: "Makkah",
+            nameArabic: "مكة المكرمة",
+            description: "Learn the stories of Prophet Ibrahim ﷺ and the sacred Kaaba",
+            unlocked: true,
+            progress: 0,
+            difficulty: "beginner",
+            color: "from-amber-500 to-orange-600",
+            icon: "🕋",
+            minLevel: 1
+          },
+          {
+            id: "madinah",
+            name: "Madinah",
+            nameArabic: "المدينة المنورة",
+            description: "Discover the life and teachings of Prophet Muhammad ﷺ",
+            unlocked: false,
+            progress: 0,
+            difficulty: "beginner",
+            color: "from-emerald-500 to-teal-600",
+            icon: "🕌",
+            minLevel: 3
+          },
+          {
+            id: "quran-valley",
+            name: "Quran Valley",
+            nameArabic: "وادي القرآن",
+            description: "Memorize beautiful ayahs and unlock Quranic wisdom",
+            unlocked: false,
+            progress: 0,
+            difficulty: "intermediate",
+            color: "from-blue-500 to-indigo-600",
+            icon: "📖",
+            minLevel: 5
+          },
+          {
+            id: "desert-trials",
+            name: "Desert of Trials",
+            nameArabic: "صحراء الاختبارات",
+            description: "Test your Islamic knowledge and character",
+            unlocked: false,
+            progress: 0,
+            difficulty: "intermediate",
+            color: "from-yellow-600 to-amber-700",
+            icon: "🏜️",
+            minLevel: 7
+          },
+          {
+            id: "barakah-garden",
+            name: "Barakah Garden",
+            nameArabic: "حديقة البركة",
+            description: "Your personal garden that grows with every good deed",
+            unlocked: true,
+            progress: 0,
+            difficulty: "all",
+            color: "from-green-500 to-emerald-600",
+            icon: "🌺",
+            minLevel: 1
+          }
+        ];
+        await kv.set(zonesKey, zones);
+      }
+
+      return c.json(zones);
+    } catch (error: any) {
+      console.error('Get adventure zones error:', error);
+      return c.json({ error: error.message }, 500);
+    }
+  }
+);
+
+// Award XP and update level
+app.post(
+  "/make-server-f116e23f/families/:familyId/adventure/award-xp",
+  requireAuth,
+  requireFamilyAccess,
+  async (c) => {
+    try {
+      const { familyId } = c.req.param();
+      const { childId, xp, source } = await c.req.json();
+      
+      const child = await kv.get(childId);
+      if (!child || child.familyId !== familyId) {
+        return c.json({ error: 'Child not found' }, 404);
+      }
+
+      const profileKey = `adventure-profile:${childId}`;
+      let profile = await kv.get(profileKey);
+
+      if (!profile) {
+        profile = {
+          childId,
+          avatarStyle: {},
+          level: 1,
+          xp: 0,
+          title: "Student",
+          barakahCoins: child.currentPoints || 0,
+          completedQuests: 0,
+          gardenProgress: 0,
+          createdAt: new Date().toISOString()
+        };
+      }
+
+      // Add XP
+      profile.xp += xp;
+
+      // Level up logic (100 XP per level)
+      const xpPerLevel = 100;
+      const newLevel = Math.floor(profile.xp / xpPerLevel) + 1;
+      
+      if (newLevel > profile.level) {
+        profile.level = newLevel;
+        
+        // Update title based on level
+        if (newLevel >= 20) {
+          profile.title = "Light Bearer";
+        } else if (newLevel >= 15) {
+          profile.title = "Scholar";
+        } else if (newLevel >= 10) {
+          profile.title = "Hafidh";
+        } else if (newLevel >= 5) {
+          profile.title = "Seeker";
+        } else {
+          profile.title = "Student";
+        }
+      }
+
+      profile.updatedAt = new Date().toISOString();
+      await kv.set(profileKey, profile);
+
+      // Log XP event
+      const xpEventKey = `adventure-xp:${childId}:${Date.now()}`;
+      await kv.set(xpEventKey, {
+        childId,
+        xp,
+        source,
+        timestamp: new Date().toISOString()
+      });
+
+      return c.json({ success: true, profile, leveledUp: newLevel > profile.level });
+    } catch (error: any) {
+      console.error('Award XP error:', error);
+      return c.json({ error: error.message }, 500);
+    }
+  }
+);
+
+// Get Jannah Garden progress
+app.get(
+  "/make-server-f116e23f/families/:familyId/adventure/garden/:childId",
+  requireAuth,
+  requireFamilyAccess,
+  async (c) => {
+    try {
+      const { familyId, childId } = c.req.param();
+      const child = await kv.get(childId);
+      
+      if (!child || child.familyId !== familyId) {
+        return c.json({ error: 'Child not found' }, 404);
+      }
+
+      const gardenKey = `adventure-garden:${childId}`;
+      let garden = await kv.get(gardenKey);
+
+      if (!garden) {
+        // Create default garden with one unlocked flower
+        garden = {
+          progress: {
+            childId,
+            level: 1,
+            unlockedItems: ['flower-1'],
+            totalGoodDeeds: 0,
+            prayersCompleted: 0,
+            quranMemorized: 0,
+            helpedOthers: 0,
+            createdAt: new Date().toISOString()
+          }
+        };
+        await kv.set(gardenKey, garden);
+      }
+
+      // Sync with actual child data
+      const prayerStats = await kv.getByPrefix(`prayerclaim:${childId}:`);
+      const approvedPrayers = prayerStats.filter((p: any) => p.status === 'approved');
+      garden.progress.prayersCompleted = approvedPrayers.length;
+
+      return c.json(garden);
+    } catch (error: any) {
+      console.error('Get garden progress error:', error);
+      return c.json({ error: error.message }, 500);
+    }
+  }
+);
+
+// Unlock garden item
+app.post(
+  "/make-server-f116e23f/families/:familyId/adventure/garden/:childId/unlock",
+  requireAuth,
+  requireFamilyAccess,
+  async (c) => {
+    try {
+      const { familyId, childId } = c.req.param();
+      const { itemId } = await c.req.json();
+      
+      const child = await kv.get(childId);
+      if (!child || child.familyId !== familyId) {
+        return c.json({ error: 'Child not found' }, 404);
+      }
+
+      const gardenKey = `adventure-garden:${childId}`;
+      let garden = await kv.get(gardenKey);
+
+      if (!garden) {
+        garden = {
+          progress: {
+            childId,
+            level: 1,
+            unlockedItems: [],
+            totalGoodDeeds: 0,
+            prayersCompleted: 0,
+            quranMemorized: 0,
+            helpedOthers: 0,
+            createdAt: new Date().toISOString()
+          }
+        };
+      }
+
+      // Add item to unlocked list if not already unlocked
+      if (!garden.progress.unlockedItems.includes(itemId)) {
+        garden.progress.unlockedItems.push(itemId);
+        garden.progress.totalGoodDeeds += 1;
+        garden.progress.updatedAt = new Date().toISOString();
+        
+        await kv.set(gardenKey, garden);
+      }
+
+      return c.json({ success: true, garden });
+    } catch (error: any) {
+      console.error('Unlock garden item error:', error);
+      return c.json({ error: error.message }, 500);
     }
   }
 );

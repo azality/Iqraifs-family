@@ -44,13 +44,22 @@ export function ViewModeProvider({ children }: { children: ReactNode }) {
       document.documentElement.classList.add('kid-mode');
       document.documentElement.classList.remove('parent-mode');
       
+      // CRITICAL: Dispatch event so DashboardRouter can react
+      window.dispatchEvent(new StorageEvent('storage', {
+        key: 'fgs_view_mode_preference',
+        newValue: 'kid',
+        oldValue: 'parent',
+        storageArea: localStorage,
+        url: window.location.href
+      }));
+      
       // CRITICAL: Redirect to kid dashboard if currently on a parent-only page
       const currentPath = window.location.pathname;
       const isOnParentOnlyRoute = PARENT_ONLY_ROUTES.some(route => currentPath.startsWith(route));
       
       if (isOnParentOnlyRoute) {
-        console.log('🔄 Switching to kid mode from parent-only route, redirecting to kid dashboard');
-        window.location.href = '/kid/home';
+        console.log('🔄 Switching to kid mode from parent-only route, redirecting to home');
+        window.location.href = '/';
       }
       
       setTimeout(() => setIsTransitioning(false), 600);
@@ -66,6 +75,16 @@ export function ViewModeProvider({ children }: { children: ReactNode }) {
       localStorage.setItem('fgs_view_mode_preference', 'parent');
       document.documentElement.classList.add('parent-mode');
       document.documentElement.classList.remove('kid-mode');
+      
+      // CRITICAL: Dispatch event so DashboardRouter can react
+      window.dispatchEvent(new StorageEvent('storage', {
+        key: 'fgs_view_mode_preference',
+        newValue: 'parent',
+        oldValue: 'kid',
+        storageArea: localStorage,
+        url: window.location.href
+      }));
+      
       setTimeout(() => setIsTransitioning(false), 600);
     }, 100);
   };

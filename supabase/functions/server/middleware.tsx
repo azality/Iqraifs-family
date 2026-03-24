@@ -108,11 +108,15 @@ async function verifyToken(c: Context) {
 
   // Standard parent JWT verification using manual decode
   try {
-    // First try using Supabase client (works for most valid tokens)
-    const { data: { user }, error } = await anonClient.auth.getUser(token);
+    // CRITICAL FIX: Use service role client's admin.getUserById after decoding the JWT
+    // The anonClient.auth.getUser() doesn't work without setting the session first
+    
+    // Decode the JWT to extract the user ID (we still need to verify it's valid)
+    // We'll use the service role client's getUser method which can verify any JWT
+    const { data: { user }, error } = await serviceRoleClient.auth.getUser(token);
     
     if (!error && user) {
-      console.log('✅ JWT verified successfully via Supabase client', {
+      console.log('✅ JWT verified successfully via service role client', {
         userId: user.id,
         email: user.email,
         role: user.user_metadata?.role || 'parent'
@@ -358,4 +362,18 @@ export function getFamilyId(c: Context): string {
     throw new Error("Family ID not found in route params");
   }
   return familyId;
+}
+
+/**
+ * Helper: Get user's family ID from their family membership (async)
+ */
+export async function getUserFamilyId(c: Context): Promise<string | null> {
+  const userId = getAuthUserId(c);
+  const kv = await import("./kv_store.tsx");
+  
+  // Get all families and find one where user is a parent
+  const families = await kv.getByPrefix('family:');
+  const userFamily = families.find((f: any) => f.parentIds?.includes(userId));
+  
+  return userFamily ? userFamily.id : null;
 }

@@ -14,9 +14,11 @@ import { Rewards } from "./pages/Rewards";
 import { AuditTrail } from "./pages/AuditTrail";
 import { Settings } from "./pages/Settings";
 import { EditRequests } from "./pages/EditRequests";
-import { Quizzes } from "./pages/Quizzes";
-import { QuizPlay } from "./pages/QuizPlay";
-import { QuizStats } from "./pages/QuizStats";
+import { KnowledgeQuest } from "./pages/KnowledgeQuest";
+import { KnowledgeQuestPlay } from "./pages/KnowledgeQuestPlay";
+import { KnowledgeQuestResults } from "./pages/KnowledgeQuestResults";
+import { QuestionBank } from "./pages/QuestionBank";
+import { QuestionForm } from "./pages/QuestionForm";
 import { ParentWishlistReview } from "./pages/ParentWishlistReview";
 import { PendingRedemptionRequests } from "./pages/PendingRedemptionRequests";
 import { Challenges } from "./pages/Challenges";
@@ -24,6 +26,7 @@ import { TitlesBadgesPage } from "./pages/TitlesBadgesPage";
 import { SadqaPage } from "./pages/SadqaPage";
 import { KidDashboard } from "./pages/KidDashboard";
 import { KidWishlist } from "./pages/KidWishlist";
+import { KidRewardsGallery } from "./pages/KidRewardsGallery";
 import { Onboarding } from "./pages/Onboarding";
 import { JoinPending } from "./pages/JoinPending";
 import { NetworkTest } from "./pages/NetworkTest";
@@ -33,8 +36,40 @@ import { PrayerLogging } from "./pages/PrayerLogging";
 import { PrayerApprovals } from "./pages/PrayerApprovals";
 import { DiagnosticPage } from "./pages/DiagnosticPage";
 import { WishlistDebug } from "./pages/WishlistDebug";
+import { AdventureWorld } from "./pages/AdventureWorld";
+import { JannahGarden } from "./pages/JannahGarden";
+import { DuaSpellCasting } from "./pages/games/DuaSpellCasting";
+import { AyahPuzzle } from "./pages/games/AyahPuzzle";
+import { MakkahZone } from "./pages/adventure-zones/MakkahZone";
+import { MadinahZone } from "./pages/adventure-zones/MadinahZone";
+import { QuranValleyZone } from "./pages/adventure-zones/QuranValleyZone";
+import { DesertTrialsZone } from "./pages/adventure-zones/DesertTrialsZone";
+import { ZonePlay } from "./pages/adventure-zones/ZonePlay";
 import { useState, useEffect } from "react";
 import { getCurrentMode } from "./utils/auth";
+import { getStorage, STORAGE_KEYS } from "../utils/storage";
+
+// Custom error element that's wrapped with providers
+function RouterErrorBoundary() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="max-w-md w-full bg-card p-8 rounded-lg shadow-lg">
+        <h2 className="text-2xl font-bold text-foreground mb-4">Something went wrong</h2>
+        <p className="text-muted-foreground mb-4">
+          An unexpected error occurred. Please try refreshing the page.
+        </p>
+        <button
+          onClick={() => {
+            window.location.href = '/parent-login';
+          }}
+          className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
+        >
+          Go to Login
+        </button>
+      </div>
+    </div>
+  );
+}
 
 // Kid auth protection - checks for kid session
 function RequireKidAuth({ children }: { children: JSX.Element }) {
@@ -42,9 +77,6 @@ function RequireKidAuth({ children }: { children: JSX.Element }) {
   
   console.log('🔒 RequireKidAuth check:', {
     mode,
-    userMode: localStorage.getItem('user_mode'),
-    userRole: localStorage.getItem('user_role'),
-    kidAccessToken: !!localStorage.getItem('kid_access_token'),
     pathname: window.location.pathname
   });
   
@@ -66,8 +98,8 @@ function RequireFamily({ children }: { children: JSX.Element }) {
   useEffect(() => {
     const checkFamilyAccess = async () => {
       try {
-        // First check localStorage cache
-        const cachedFamilyId = localStorage.getItem('fgs_family_id');
+        // Check storage for family ID (works on both web and native)
+        const cachedFamilyId = await getStorage(STORAGE_KEYS.FAMILY_ID);
         
         if (cachedFamilyId) {
           console.log('✅ RequireFamily: Found cached family ID:', cachedFamilyId);
@@ -112,58 +144,57 @@ function RequireFamily({ children }: { children: JSX.Element }) {
 }
 
 export const router = createBrowserRouter([
-  // Public routes - accessible without auth
+  // Public routes - accessible without auth but wrapped with ProvidersLayout for auth context
   {
-    path: "/welcome",
-    element: <Welcome />,
-  },
-  {
-    path: "/login",
-    element: <ParentLogin />,
-  },
-  {
-    path: "/parent-login",
-    element: <ParentLogin />,
-  },
-  {
-    path: "/signup",
-    element: <ParentSignup />,
-  },
-  // Legacy kid login - redirect to new implementation
-  {
-    path: "/kid-login",
-    element: <Navigate to="/kid-login-new" replace />,
-  },
-  {
-    path: "/kid-login-new",
-    element: <KidLoginNew />,
-  },
-  // Alias for kid login (used in some links)
-  {
-    path: "/kid/login",
-    element: <KidLoginNew />,
-  },
-  {
-    path: "/onboarding",
-    element: <ProtectedRoute><Onboarding /></ProtectedRoute>,
-  },
-  {
-    path: "/join-pending",
-    element: <ProtectedRoute><JoinPending /></ProtectedRoute>,
-  },
-  {
-    path: "/diagnostic",
-    element: <ProtectedRoute><DiagnosticPage /></ProtectedRoute>,
-  },
-  // Protected routes - require auth AND family
-  // Wrapped with ProvidersLayout to ensure FamilyContext and ViewModeContext are available
-  {
-    path: "/",
-    element: <ProtectedRoute><ProvidersLayout /></ProtectedRoute>,
+    element: <ProvidersLayout />,
+    errorElement: <RouterErrorBoundary />,
     children: [
       {
+        path: "/welcome",
+        element: <Welcome />,
+      },
+      {
+        path: "/login",
+        element: <ParentLogin />,
+      },
+      {
+        path: "/parent-login",
+        element: <ParentLogin />,
+      },
+      {
+        path: "/signup",
+        element: <ParentSignup />,
+      },
+      // Legacy kid login - redirect to new implementation
+      {
+        path: "/kid-login",
+        element: <Navigate to="/kid-login-new" replace />,
+      },
+      {
+        path: "/kid-login-new",
+        element: <KidLoginNew />,
+      },
+      // Alias for kid login (used in some links)
+      {
+        path: "/kid/login",
+        element: <KidLoginNew />,
+      },
+      {
+        path: "/onboarding",
+        element: <ProtectedRoute><Onboarding /></ProtectedRoute>,
+      },
+      {
+        path: "/join-pending",
+        element: <ProtectedRoute><JoinPending /></ProtectedRoute>,
+      },
+      {
+        path: "/diagnostic",
+        element: <ProtectedRoute><DiagnosticPage /></ProtectedRoute>,
+      },
+      // Protected routes - require auth AND family
+      {
         path: "/",
-        element: <RequireFamily><RootLayout /></RequireFamily>,
+        element: <ProtectedRoute><RequireFamily><RootLayout /></RequireFamily></ProtectedRoute>,
         children: [
           { index: true, element: <DashboardRouter /> },
           { path: "log", element: <RequireParentRole><LogBehavior /></RequireParentRole> },
@@ -174,13 +205,17 @@ export const router = createBrowserRouter([
           { path: "audit", element: <RequireParentRole><AuditTrail /></RequireParentRole> },
           { path: "settings", element: <RequireParentRole><Settings /></RequireParentRole> },
           { path: "edit-requests", element: <RequireParentRole><EditRequests /></RequireParentRole> },
-          { path: "quizzes", element: <Quizzes /> },
-          { path: "quizzes/:id/play", element: <QuizPlay /> },
-          { path: "quizzes/:id/stats", element: <QuizStats /> },
+          { path: "knowledge-quest", element: <KnowledgeQuest /> },
+          { path: "knowledge-quest/:sessionId/play", element: <KnowledgeQuestPlay /> },
+          { path: "knowledge-quest/results", element: <KnowledgeQuestResults /> },
+          { path: "question-bank", element: <QuestionBank /> },
+          { path: "question-form", element: <QuestionForm /> },
+          { path: "question-bank/new", element: <QuestionForm /> },
+          { path: "question-bank/:id/edit", element: <QuestionForm /> },
           { path: "wishlist", element: <RequireParentRole><ParentWishlistReview /></RequireParentRole> },
           { path: "wishlist-debug", element: <WishlistDebug /> },
           { path: "redemption-requests", element: <RequireParentRole><PendingRedemptionRequests /></RequireParentRole> },
-          { path: "challenges", element: <Challenges /> },
+          { path: "challenges", element: <RequireParentRole><Challenges /></RequireParentRole> },
           { path: "titles-badges", element: <TitlesBadgesPage /> },
           { path: "sadqa", element: <SadqaPage /> },
           { path: "prayer-approvals", element: <RequireParentRole><PrayerApprovals /></RequireParentRole> },
@@ -191,24 +226,91 @@ export const router = createBrowserRouter([
           { path: "*", element: <Navigate to="/" replace /> },
         ],
       },
+      // Kid routes - require kid auth only (NO parent auth needed)
+      {
+        path: "/kid/home",
+        element: <RequireKidAuth><KidDashboard /></RequireKidAuth>,
+      },
+      {
+        path: "/kid/wishlist",
+        element: <RequireKidAuth><KidWishlist /></RequireKidAuth>,
+      },
+      {
+        path: "/kid/rewards",
+        element: <RequireKidAuth><KidRewardsGallery /></RequireKidAuth>,
+      },
+      {
+        path: "/kid/challenges",
+        element: <RequireKidAuth><Challenges /></RequireKidAuth>,
+      },
+      {
+        path: "/kid/prayers",
+        element: <RequireKidAuth><PrayerLogging /></RequireKidAuth>,
+      },
+      {
+        path: "/kid/knowledge-quest",
+        element: <RequireKidAuth><KnowledgeQuest /></RequireKidAuth>,
+      },
+      {
+        path: "/kid/knowledge-quest/:sessionId/play",
+        element: <RequireKidAuth><KnowledgeQuestPlay /></RequireKidAuth>,
+      },
+      {
+        path: "/kid/knowledge-quest/results",
+        element: <RequireKidAuth><KnowledgeQuestResults /></RequireKidAuth>,
+      },
+      {
+        path: "/kid/adventure-world",
+        element: <RequireKidAuth><AdventureWorld /></RequireKidAuth>,
+      },
+      {
+        path: "/kid/jannah-garden",
+        element: <RequireKidAuth><JannahGarden /></RequireKidAuth>,
+      },
+      {
+        path: "/kid/games/dua-spell-casting",
+        element: <RequireKidAuth><DuaSpellCasting /></RequireKidAuth>,
+      },
+      {
+        path: "/kid/games/ayah-puzzle",
+        element: <RequireKidAuth><AyahPuzzle /></RequireKidAuth>,
+      },
+      {
+        path: "/kid/adventure-zones/makkah",
+        element: <RequireKidAuth><MakkahZone /></RequireKidAuth>,
+      },
+      {
+        path: "/kid/adventure-zones/makkah/play",
+        element: <RequireKidAuth><ZonePlay /></RequireKidAuth>,
+      },
+      {
+        path: "/kid/adventure-zones/madinah",
+        element: <RequireKidAuth><MadinahZone /></RequireKidAuth>,
+      },
+      {
+        path: "/kid/adventure-zones/madinah/play",
+        element: <RequireKidAuth><ZonePlay /></RequireKidAuth>,
+      },
+      {
+        path: "/kid/adventure-zones/quran-valley",
+        element: <RequireKidAuth><QuranValleyZone /></RequireKidAuth>,
+      },
+      {
+        path: "/kid/adventure-zones/quran-valley/play",
+        element: <RequireKidAuth><ZonePlay /></RequireKidAuth>,
+      },
+      {
+        path: "/kid/adventure-zones/desert-trials",
+        element: <RequireKidAuth><DesertTrialsZone /></RequireKidAuth>,
+      },
+      {
+        path: "/kid/adventure-zones/desert-trials/play",
+        element: <RequireKidAuth><ZonePlay /></RequireKidAuth>,
+      },
+      {
+        path: "/network-test",
+        element: <NetworkTest />,
+      },
     ],
-  },
-  // Kid routes - require kid auth only (NO parent auth needed)
-  // Wrapped with ProvidersLayout to provide FamilyContext and other contexts
-  {
-    path: "/kid/home",
-    element: <RequireKidAuth><ProvidersLayout><KidDashboard /></ProvidersLayout></RequireKidAuth>,
-  },
-  {
-    path: "/kid/wishlist",
-    element: <RequireKidAuth><ProvidersLayout><KidWishlist /></ProvidersLayout></RequireKidAuth>,
-  },
-  {
-    path: "/kid/prayers",
-    element: <RequireKidAuth><ProvidersLayout><PrayerLogging /></ProvidersLayout></RequireKidAuth>,
-  },
-  {
-    path: "/network-test",
-    element: <NetworkTest />,
   },
 ]);

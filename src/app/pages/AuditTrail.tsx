@@ -6,16 +6,43 @@ import { Badge } from "../components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { format } from "date-fns";
 import { Filter, Lock } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
+import { PointEvent } from "../data/mockData";
 
 export function AuditTrail() {
   const { isParentMode } = useAuth();
-  const { getCurrentChild, pointEvents, children, familyId } = useFamilyContext();
+  const { getCurrentChild, getChildEvents, children, familyId } = useFamilyContext();
   const { items: trackableItems } = useTrackableItems();
   const [filter, setFilter] = useState<'all' | 'adjustments' | 'recovery'>('all');
+  const [pointEvents, setPointEvents] = useState<PointEvent[]>([]);
+  const [loading, setLoading] = useState(true);
   
   const child = getCurrentChild();
+
+  // Load point events for the current child
+  useEffect(() => {
+    const loadEvents = async () => {
+      if (!child) {
+        setPointEvents([]);
+        setLoading(false);
+        return;
+      }
+
+      try {
+        setLoading(true);
+        const events = await getChildEvents(child.id);
+        setPointEvents(events || []);
+      } catch (error) {
+        console.error('Error loading point events:', error);
+        setPointEvents([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadEvents();
+  }, [child, getChildEvents]);
 
   // ✅ SIMPLIFIED: No need to fetch names - server now sends logged_by_display
   const getUserName = (event: any): string => {
@@ -59,7 +86,15 @@ export function AuditTrail() {
     );
   }
 
-  const childEvents = pointEvents.filter(e => e.childId === child.id);
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  const childEvents = pointEvents;
   
   const filteredEvents = childEvents.filter(event => {
     if (filter === 'adjustments') return event.isAdjustment;

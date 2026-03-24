@@ -31,7 +31,7 @@ export function ChildSelector() {
     );
   }
   
-  const { children, selectedChildId, setSelectedChildId, familyId, loading } = familyContext;
+  const { children, selectedChildId, setSelectedChildId, familyId, isLoading } = familyContext;
 
   // DEBUG: Log children state
   useEffect(() => {
@@ -40,20 +40,11 @@ export function ChildSelector() {
       children: children.map(c => ({ id: c.id, name: c.name })),
       selectedChildId,
       familyId,
-      loading
+      isLoading
     });
-  }, [children, selectedChildId, familyId, loading]);
+  }, [children, selectedChildId, familyId, isLoading]);
 
   const selectedChild = children.find(c => c.id === selectedChildId);
-
-  // ✅ SEL-001: Auto-select and hide dropdown for single-child families
-  useEffect(() => {
-    if (children.length === 1 && !selectedChildId) {
-      // Auto-select the only child
-      console.log('✅ Auto-selecting only child:', children[0].name);
-      setSelectedChildId(children[0].id);
-    }
-  }, [children, selectedChildId, setSelectedChildId]);
 
   // ✅ SEL-001: Hide selector when only one child
   if (children.length === 1 && selectedChild) {
@@ -75,7 +66,7 @@ export function ChildSelector() {
           aria-expanded={open}
           className="w-[200px] justify-between"
         >
-          {loading ? "Loading..." : selectedChild ? selectedChild.name : children.length === 0 ? "No children yet" : "Select child..."}
+          {isLoading ? "Loading..." : selectedChild ? selectedChild.name : children.length === 0 ? "No children yet" : "Select child..."}
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>

@@ -1,62 +1,107 @@
-import { motion } from "motion/react";
+import { useState, useEffect } from "react";
+import { Flame, Award, Heart, Gift, Sparkles, TrendingUp, TrendingDown, Clock } from "lucide-react";
+import { useNavigate } from "react-router";
+import { Button } from "../components/ui/button";
+import { useAuth } from "../contexts/AuthContext";
 import { useFamilyContext } from "../contexts/FamilyContext";
-import { useTrackableItems } from "../hooks/useTrackableItems";
-import { useMilestones } from "../hooks/useMilestones";
-import { useRewards } from "../hooks/useRewards";
-import { useChallenges } from "../hooks/useChallenges";
+import { motion } from "motion/react";
 import { PointsDisplay } from "../components/kid-mode/PointsDisplay";
 import { AdventureMap } from "../components/kid-mode/AdventureMap";
 import { QuestCard } from "../components/kid-mode/QuestCard";
 import { MosqueBuild } from "../components/kid-mode/MosqueBuild";
 import { GentleCorrection } from "../components/kid-mode/GentleCorrection";
 import { RewardRequestCard } from "../components/kid-mode/RewardRequestCard";
-import { Confetti } from "../components/effects/Confetti";
 import { FloatingActionButton } from "../components/mobile/FloatingActionButton";
-import { useState, useEffect } from "react";
-import { Flame, Award, Heart, UserCog, Gift, Sparkles, TrendingUp, TrendingDown, Clock } from "lucide-react";
-import { useNavigate } from "react-router";
-import { Button } from "../components/ui/button";
-import { useAuth } from "../contexts/AuthContext";
 import { projectId } from "../../../utils/supabase/info";
 import { toast } from "sonner";
+import { getTrackableItems, getMilestones, getRewards } from "../../utils/api";
 
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f`;
 
 export function KidDashboard() {
-  const { getCurrentChild, pointEvents, submitRecovery, familyId } = useFamilyContext();
-  const { items: trackableItems } = useTrackableItems();
-  const { milestones } = useMilestones();
-  const { rewards } = useRewards();
-  const { challenges } = useChallenges();
+  const { getCurrentChild, familyId } = useFamilyContext();
   const { accessToken } = useAuth();
   const child = getCurrentChild();
   const navigate = useNavigate();
 
-  // DEBUG: Log what we're getting
-  console.log('🎮 KidDashboard render:', {
-    hasChild: !!child,
-    childId: child?.id,
-    childName: child?.name,
-    trackableItemsCount: trackableItems.length,
-    milestonesCount: milestones.length,
-    rewardsCount: rewards.length,
-    challengesCount: challenges.length,
-    hasAccessToken: !!accessToken
-  });
-  
-  // DEBUG: Check localStorage and FamilyContext state
-  console.log('🔍 KidDashboard localStorage check:', {
-    kid_id: localStorage.getItem('kid_id'),
-    child_id: localStorage.getItem('child_id'),
-    user_role: localStorage.getItem('user_role'),
-    user_mode: localStorage.getItem('user_mode'),
-    family_id: localStorage.getItem('fgs_family_id'),
-    session_token: localStorage.getItem('kid_session_token')?.substring(0, 20) + '...'
-  });
+  // Local state for fetched data
+  const [trackableItems, setTrackableItems] = useState<any[]>([]);
+  const [milestones, setMilestones] = useState<any[]>([]);
+  const [rewards, setRewards] = useState<any[]>([]);
+  const [challenges, setChallenges] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [pointEvents, setPointEvents] = useState<any[]>([]);
 
   // Track pending redemption requests
   const [pendingRequests, setPendingRequests] = useState<any[]>([]);
   const [loadingRequests, setLoadingRequests] = useState(false);
+
+  // Game settings
+  const [knowledgeQuestEnabled, setKnowledgeQuestEnabled] = useState(true);
+
+  // Fetch data on mount
+  useEffect(() => {
+    if (!child) return;
+    
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        const [itemsData, milestonesData, rewardsData] = await Promise.all([
+          getTrackableItems(),
+          getMilestones(),
+          getRewards()
+        ]);
+        
+        setTrackableItems(itemsData || []);
+        setMilestones(milestonesData || []);
+        setRewards(rewardsData || []);
+        
+        // Fetch challenges if the child and familyId exist
+        if (familyId && accessToken) {
+          const response = await fetch(
+            `${API_BASE}/families/${familyId}/challenges`,
+            {
+              headers: { 'Authorization': `Bearer ${accessToken}` }
+            }
+          );
+          if (response.ok) {
+            const challengesData = await response.json();
+            setChallenges(challengesData || []);
+          }
+
+          // Fetch game settings
+          const gameSettingsResponse = await fetch(
+            `${API_BASE}/families/${familyId}/game-settings`,
+            {
+              headers: { 'Authorization': `Bearer ${accessToken}` }
+            }
+          );
+          if (gameSettingsResponse.ok) {
+            const gameSettings = await gameSettingsResponse.json();
+            setKnowledgeQuestEnabled(gameSettings.knowledgeQuestEnabled ?? true);
+          }
+          
+          // Fetch point events for this child
+          const eventsResponse = await fetch(
+            `${API_BASE}/families/${familyId}/children/${child.id}/events`,
+            {
+              headers: { 'Authorization': `Bearer ${accessToken}` }
+            }
+          );
+          if (eventsResponse.ok) {
+            const eventsData = await eventsResponse.json();
+            setPointEvents(eventsData || []);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load dashboard data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [child, familyId, accessToken]);
 
   // Load pending redemption requests
   useEffect(() => {
@@ -136,6 +181,51 @@ export function KidDashboard() {
     }
   };
 
+  // Handle recovery submission
+  const submitRecovery = async (eventId: string, childId: string, recoveryType: string) => {
+    if (!accessToken || !familyId) {
+      toast.error('Not authorized');
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_BASE}/families/${familyId}/recovery`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({
+          eventId,
+          childId,
+          recoveryType
+        })
+      });
+
+      if (response.ok) {
+        toast.success('Recovery submitted! Great job! 🌟');
+        // Reload events
+        const eventsResponse = await fetch(
+          `${API_BASE}/families/${familyId}/children/${child.id}/events`,
+          {
+            headers: { 'Authorization': `Bearer ${accessToken}` }
+          }
+        );
+        if (eventsResponse.ok) {
+          const eventsData = await eventsResponse.json();
+          setPointEvents(eventsData || []);
+        }
+      } else {
+        const error = await response.json();
+        toast.error(error.error || 'Failed to submit recovery');
+      }
+    } catch (error) {
+      console.error('Failed to submit recovery:', error);
+      toast.error('Failed to submit recovery');
+    }
+  };
+
+  // CRITICAL: Early return if no child (AFTER all hooks)
   if (!child) {
     return (
       <div className="flex items-center justify-center h-96 bg-gradient-to-br from-[var(--kid-midnight-blue)] to-[#2C3E50] rounded-[1.5rem] text-white">
@@ -318,7 +408,7 @@ export function KidDashboard() {
           </button>
 
           <button
-            onClick={() => navigate('/challenges')}
+            onClick={() => navigate('/kid/challenges')}
             className="bg-gradient-to-br from-purple-500 to-purple-700 rounded-[1rem] p-4 text-white shadow-lg hover:shadow-xl transition-all hover:scale-105"
           >
             <span className="text-3xl block mb-1">⚔️</span>
@@ -339,6 +429,14 @@ export function KidDashboard() {
           >
             <Gift className="w-8 h-8 mx-auto mb-2" />
             <p className="text-sm font-semibold">My Wishlist</p>
+          </button>
+
+          <button
+            onClick={() => navigate('/kid/adventure-world')}
+            className="bg-gradient-to-br from-purple-600 to-pink-600 rounded-[1rem] p-4 text-white shadow-lg hover:shadow-xl transition-all hover:scale-105"
+          >
+            <span className="text-3xl block mb-1">🗺️</span>
+            <p className="text-sm font-semibold">Adventure World</p>
           </button>
         </motion.div>
 
@@ -507,11 +605,11 @@ export function KidDashboard() {
                 Ask for Rewards 🎁
               </h2>
               <button
-                onClick={() => navigate('/kid/wishlist')}
-                className="text-sm bg-gradient-to-r from-purple-500 to-pink-500 text-white px-4 py-2 rounded-full hover:shadow-lg transition-all flex items-center gap-2"
+                onClick={() => navigate('/kid/rewards')}
+                className="text-sm bg-gradient-to-r from-amber-500 to-orange-500 text-white px-4 py-2 rounded-full hover:shadow-lg transition-all flex items-center gap-2"
               >
-                <Sparkles className="w-4 h-4" />
-                My Wishlist
+                <Gift className="w-4 h-4" />
+                See All Rewards
               </button>
             </div>
             <p className="text-gray-600 mb-4 text-sm">

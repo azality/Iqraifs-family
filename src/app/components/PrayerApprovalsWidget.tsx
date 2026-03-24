@@ -32,6 +32,7 @@ type PrayerClaim = {
   backdatedTo?: string;
   status: 'pending' | 'approved' | 'denied';
   points: number;
+  onTime?: boolean; // NEW: Track if prayer was on time
 };
 
 interface PrayerApprovalsWidgetProps {
@@ -44,6 +45,7 @@ export function PrayerApprovalsWidget({ compact = false, maxItems }: PrayerAppro
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState<string | null>(null);
   const [showDenyModal, setShowDenyModal] = useState<string | null>(null);
+  const [showApproveModal, setShowApproveModal] = useState<PrayerClaim | null>(null);
   const [denyReason, setDenyReason] = useState('');
 
   const { accessToken } = useAuth();
@@ -81,7 +83,7 @@ export function PrayerApprovalsWidget({ compact = false, maxItems }: PrayerAppro
     }
   }
 
-  async function approveClaim(claimId: string) {
+  async function approveClaim(claimId: string, onTime: boolean) {
     if (!accessToken) return;
 
     try {
@@ -94,7 +96,8 @@ export function PrayerApprovalsWidget({ compact = false, maxItems }: PrayerAppro
           headers: {
             'Authorization': `Bearer ${accessToken}`,
             'Content-Type': 'application/json'
-          }
+          },
+          body: JSON.stringify({ onTime })
         }
       );
 
@@ -103,7 +106,8 @@ export function PrayerApprovalsWidget({ compact = false, maxItems }: PrayerAppro
         throw new Error(errorData.error || 'Failed to approve claim');
       }
 
-      toast.success('✅ Prayer approved!');
+      toast.success(`✅ Prayer approved! ${onTime ? 'Full points awarded!' : '1 point awarded (late)'}`);
+      setShowApproveModal(null);
       await loadClaims();
     } catch (err: any) {
       console.error('Error approving claim:', err);
@@ -246,7 +250,7 @@ export function PrayerApprovalsWidget({ compact = false, maxItems }: PrayerAppro
                   <div className="flex gap-2">
                     <Button
                       size="sm"
-                      onClick={() => approveClaim(claim.id)}
+                      onClick={() => setShowApproveModal(claim)}
                       disabled={isProcessing}
                       className="bg-green-500 hover:bg-green-600 text-white"
                     >
@@ -314,6 +318,69 @@ export function PrayerApprovalsWidget({ compact = false, maxItems }: PrayerAppro
                 {processing === showDenyModal ? 'Processing...' : 'Deny'}
               </Button>
             </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Approve Modal */}
+      {showApproveModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-xl shadow-2xl p-6 max-w-md w-full"
+          >
+            <h3 className="text-lg font-bold mb-2">Approve Prayer: {showApproveModal.prayerName}</h3>
+            <p className="text-sm text-muted-foreground mb-6">
+              {showApproveModal.childName} - {formatTime(showApproveModal.claimedAt)}
+            </p>
+
+            <div className="space-y-3 mb-6">
+              <button
+                onClick={() => approveClaim(showApproveModal.id, true)}
+                disabled={!!processing}
+                className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-bold py-4 px-6 rounded-xl shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <span className="text-3xl">⏰</span>
+                    <div className="text-left">
+                      <div className="text-lg">On Time</div>
+                      <div className="text-sm opacity-90">
+                        {showApproveModal.prayerName === 'Fajr' ? '5 points' : '3 points'}
+                      </div>
+                    </div>
+                  </div>
+                  <CheckCircle className="w-6 h-6" />
+                </div>
+              </button>
+
+              <button
+                onClick={() => approveClaim(showApproveModal.id, false)}
+                disabled={!!processing}
+                className="w-full bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white font-bold py-4 px-6 rounded-xl shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <span className="text-3xl">⏳</span>
+                    <div className="text-left">
+                      <div className="text-lg">Late (Qadha)</div>
+                      <div className="text-sm opacity-90">1 point</div>
+                    </div>
+                  </div>
+                  <CheckCircle className="w-6 h-6" />
+                </div>
+              </button>
+            </div>
+
+            <Button
+              variant="outline"
+              onClick={() => setShowApproveModal(null)}
+              className="w-full"
+              disabled={!!processing}
+            >
+              Cancel
+            </Button>
           </motion.div>
         </div>
       )}

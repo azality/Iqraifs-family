@@ -68,8 +68,13 @@ async function apiCall(endpoint: string, options: RequestInit = {}, retryCount =
   let accessToken: string | null = null;
   let tokenSource: string = 'none';
   
-  // CRITICAL: Check if this is an actual kid login (has kid token)
-  const kidToken = localStorage.getItem('kid_access_token') || localStorage.getItem('kid_session_token');
+  // Only use kid tokens when the app is actually in kid mode.
+  const userRole = localStorage.getItem('user_role');
+  const userMode = localStorage.getItem('user_mode') || localStorage.getItem('fgs_user_mode');
+  const isKidMode = userRole === 'child' || userMode === 'kid';
+  const kidToken = isKidMode
+    ? (localStorage.getItem('kid_access_token') || localStorage.getItem('kid_session_token'))
+    : null;
   
   if (kidToken) {
     // Actual kid login: Use kid access token from localStorage
@@ -323,7 +328,37 @@ async function apiCall(endpoint: string, options: RequestInit = {}, retryCount =
 
   // Handle 401 errors by attempting to refresh the token
   if (response.status === 401 && retryCount === 0) {
-    console.log('⚠️ Received 401, attempting token refresh...');
+    console.log('⚠️ Received 401, checking token type...');
+    
+    // CRITICAL: Check if this is a kid session
+    const kidToken = localStorage.getItem('kid_access_token') || localStorage.getItem('kid_session_token');
+    const userMode = localStorage.getItem('user_mode');
+    const userRole = localStorage.getItem('user_role');
+    const isKidMode = userMode === 'kid' || userRole === 'child' || !!kidToken;
+    
+    if (isKidMode) {
+      console.warn('🔐 Kid session expired - clearing and redirecting to kid login');
+      
+      // Clear kid session data
+      localStorage.removeItem('kid_access_token');
+      localStorage.removeItem('kid_session_token');
+      localStorage.removeItem('kid_id');
+      localStorage.removeItem('child_id');
+      localStorage.removeItem('kid_name');
+      localStorage.removeItem('kid_avatar');
+      localStorage.removeItem('user_mode');
+      localStorage.removeItem('user_role');
+      localStorage.removeItem('fgs_user_mode');
+      localStorage.removeItem('kid_family_code');
+      
+      // Redirect to kid login
+      console.log('🔄 Redirecting to kid login...');
+      window.location.replace('/kid/login');
+      throw new Error('Kid session expired. Redirecting to login...');
+    }
+    
+    // PARENT SESSION: Attempt token refresh
+    console.log('⚠️ Parent session 401, attempting token refresh...');
     
     const now = Date.now();
     const timeSinceLastRefresh = now - lastRefreshAttempt;
@@ -715,8 +750,13 @@ async function getAuthHeaders() {
   let accessToken: string | null = null;
   let tokenSource: string = 'none';
   
-  // CRITICAL: Check if this is an actual kid login (has kid token)
-  const kidToken = localStorage.getItem('kid_access_token') || localStorage.getItem('kid_session_token');
+  // Only use kid tokens when the app is actually in kid mode.
+  const userRole = localStorage.getItem('user_role');
+  const userMode = localStorage.getItem('user_mode') || localStorage.getItem('fgs_user_mode');
+  const isKidMode = userRole === 'child' || userMode === 'kid';
+  const kidToken = isKidMode
+    ? (localStorage.getItem('kid_access_token') || localStorage.getItem('kid_session_token'))
+    : null;
   
   if (kidToken) {
     // Actual kid login: Use kid access token from localStorage

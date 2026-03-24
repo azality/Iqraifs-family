@@ -6,6 +6,7 @@ import { Preferences } from '@capacitor/preferences';
 import { Capacitor } from '@capacitor/core';
 
 const isNative = Capacitor.isNativePlatform();
+const isDev = import.meta.env.DEV || window.location.hostname === 'localhost';
 
 // Storage keys used in the app
 export const STORAGE_KEYS = {
@@ -26,10 +27,10 @@ export const STORAGE_KEYS = {
 export async function setStorage(key: string, value: string): Promise<void> {
   if (isNative) {
     await Preferences.set({ key, value });
-    console.log(`📱 [Native Storage] Set: ${key}`, value.substring(0, 20) + '...');
+    if (isDev) console.log(`📱 [Native Storage] Set: ${key}`, value.substring(0, 20) + '...');
   } else {
     localStorage.setItem(key, value);
-    console.log(`🌐 [Web Storage] Set: ${key}`, value.substring(0, 20) + '...');
+    if (isDev) console.log(`🌐 [Web Storage] Set: ${key}`, value.substring(0, 20) + '...');
   }
 }
 
@@ -39,11 +40,11 @@ export async function setStorage(key: string, value: string): Promise<void> {
 export async function getStorage(key: string): Promise<string | null> {
   if (isNative) {
     const { value } = await Preferences.get({ key });
-    console.log(`📱 [Native Storage] Get: ${key}`, value ? value.substring(0, 20) + '...' : 'null');
+    if (isDev) console.log(`📱 [Native Storage] Get: ${key}`, value ? value.substring(0, 20) + '...' : 'null');
     return value;
   } else {
     const value = localStorage.getItem(key);
-    console.log(`🌐 [Web Storage] Get: ${key}`, value ? value.substring(0, 20) + '...' : 'null');
+    if (isDev) console.log(`🌐 [Web Storage] Get: ${key}`, value ? value.substring(0, 20) + '...' : 'null');
     return value;
   }
 }
@@ -54,10 +55,10 @@ export async function getStorage(key: string): Promise<string | null> {
 export async function removeStorage(key: string): Promise<void> {
   if (isNative) {
     await Preferences.remove({ key });
-    console.log(`📱 [Native Storage] Remove: ${key}`);
+    if (isDev) console.log(`📱 [Native Storage] Remove: ${key}`);
   } else {
     localStorage.removeItem(key);
-    console.log(`🌐 [Web Storage] Remove: ${key}`);
+    if (isDev) console.log(`🌐 [Web Storage] Remove: ${key}`);
   }
 }
 
@@ -67,10 +68,10 @@ export async function removeStorage(key: string): Promise<void> {
 export async function clearStorage(): Promise<void> {
   if (isNative) {
     await Preferences.clear();
-    console.log(`📱 [Native Storage] Cleared all`);
+    if (isDev) console.log(`📱 [Native Storage] Cleared all`);
   } else {
     localStorage.clear();
-    console.log(`🌐 [Web Storage] Cleared all`);
+    if (isDev) console.log(`🌐 [Web Storage] Cleared all`);
   }
 }
 
@@ -107,13 +108,13 @@ export async function setMultiple(items: Record<string, string>): Promise<void> 
       Preferences.set({ key, value })
     );
     await Promise.all(promises);
-    console.log(`📱 [Native Storage] Set multiple:`, Object.keys(items));
+    if (isDev) console.log(`📱 [Native Storage] Set multiple:`, Object.keys(items));
   } else {
     // Synchronous on web
     Object.entries(items).forEach(([key, value]) => {
       localStorage.setItem(key, value);
     });
-    console.log(`🌐 [Web Storage] Set multiple:`, Object.keys(items));
+    if (isDev) console.log(`🌐 [Web Storage] Set multiple:`, Object.keys(items));
   }
 }
 
@@ -125,10 +126,10 @@ export async function removeMultiple(keys: string[]): Promise<void> {
     // Remove all keys in parallel on native
     const promises = keys.map(key => Preferences.remove({ key }));
     await Promise.all(promises);
-    console.log(`📱 [Native Storage] Removed multiple:`, keys);
+    if (isDev) console.log(`📱 [Native Storage] Removed multiple:`, keys);
   } else {
     // Synchronous on web
     keys.forEach(key => localStorage.removeItem(key));
-    console.log(`🌐 [Web Storage] Removed multiple:`, keys);
+    if (isDev) console.log(`🌐 [Web Storage] Removed multiple:`, keys);
   }
 }

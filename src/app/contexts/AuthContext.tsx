@@ -43,6 +43,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshPromise = useRef<Promise<void> | null>(null);
   const hasInitialized = useRef(false);
   
+  // CRITICAL: Add session cache to prevent concurrent getSession() calls
+  const sessionCache = useRef<{
+    session: any;
+    timestamp: number;
+  } | null>(null);
+  const SESSION_CACHE_TTL = 2000; // Cache session for 2 seconds
+  
   // State - Initialize with null, load from storage in useEffect
   const [userId, setUserIdState] = useState<string | null>(null);
   const [accessToken, setAccessTokenState] = useState<string | null>(null);
@@ -51,6 +58,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   
   const isParentMode = role === 'parent';
+
+  // Helper function to get session with caching
+  const getCachedSession = async () => {
+    const now = Date.now();
+    
+    // Return cached session if it's still fresh
+    if (sessionCache.current && (now - sessionCache.current.timestamp) < SESSION_CACHE_TTL) {
+      console.log('🔄 Using cached Supabase session');
+      return sessionCache.current.session;
+    }
+    
+    // Fetch fresh session
+    console.log('🌐 Fetching fresh Supabase session');
+    const { data: { session }, error } = await supabase.auth.getSession();
+    
+    // Cache the result
+    sessionCache.current = {
+      session: { session, error },
+      timestamp: now
+    };
+    
+    return { session, error };
+  };
 
   // Helper to update userId with storage persistence
   const setUserId = async (id: string | null) => {
@@ -171,7 +201,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         
         // Parent mode: Use Supabase session
         console.log('👨‍👩‍👧‍👦 Parent mode detected, using Supabase session...');
-        const { data: { session }, error } = await supabase.auth.getSession();
+        const { session, error } = await getCachedSession();
         
         if (error) {
           console.error('Session refresh error:', error);
@@ -205,8 +235,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               parts: token?.split('.').length
             });
             
-            // Force sign out to clear corrupted session
-            console.log('🧹 Signing out to clear corrupted Supabase session');
+            // CRITICAL FIX: Check if we're in kid mode before clearing sessions
+            const userMode = localStorage.getItem('user_mode');
+            const userRole = localStorage.getItem('user_role');
+            const isKidMode = userMode === 'kid' || userRole === 'child';
+            
+            console.log('🔍 Checking if kid mode before clearing:', {
+              userMode,
+              userRole,
+              isKidMode
+            });
+            
+            if (isKidMode) {
+              console.log('👶 Kid mode detected - skipping Supabase session clear to preserve kid session');
+              setAccessTokenState(null);
+              setIsLoading(false);
+              return;
+            }
+            
+            // Only clear sessions if NOT in kid mode
+            // Force sign out to clear corrupted PARENT session
+            console.log('🧹 Signing out to clear corrupted Supabase PARENT session');
             await supabase.auth.signOut();
             setAccessTokenState(null);
             await setUserId(null);
@@ -296,13 +345,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       
       // Parent mode: Check Supabase session
-      const { data: { session }, error } = await supabase.auth.getSession();
+      const { session, error } = await getCachedSession();
       
       // If no session and we have user_id in storage, it means session expired
       // BUT: Only redirect if NOT in kid mode (kids don't use Supabase sessions)
+      // AND: Don't redirect if we're already on a login page
       const storedUserId = await getStorage(STORAGE_KEYS.USER_ID);
       const userMode = await getStorage('user_mode');
-      if (storedUserId && (!session || error) && userMode !== 'kid') {
+      const isOnLoginPage = window.location.pathname.includes('login') || 
+                            window.location.pathname.includes('signup') ||
+                            window.location.pathname.includes('welcome');
+      
+      if (storedUserId && (!session || error) && userMode !== 'kid' && !isOnLoginPage) {
         console.log('🚨 Parent session expired but user_id exists - redirecting to login');
         await clearAllSessions();
         window.location.replace('/parent-login');
@@ -321,7 +375,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       if (userRole === 'parent') {
         console.log('🔄 Periodic token refresh (30min)...');
-        const { data: { session }, error } = await supabase.auth.getSession();
+        const { session, error } = await getCachedSession();
         
         if (session?.access_token) {
           console.log('✅ Token refreshed automatically');
@@ -471,6 +525,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 export function useAuth() {
   const context = useContext(AuthContext);
   if (!context) {
+    // Enhanced error message to help debug where this is being called from
+    console.error('❌ useAuth called outside AuthProvider!');
+    console.error('Stack trace:', new Error().stack);
     throw new Error('useAuth must be used within AuthProvider');
   }
   return context;

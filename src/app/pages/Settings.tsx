@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Textarea } from "../components/ui/textarea";
 import { Badge } from "../components/ui/badge";
+import { Switch } from "../components/ui/switch";
 import { useAuth } from "../contexts/AuthContext";
 import { useFamilyContext } from "../contexts/FamilyContext";
 import { useRewards } from "../hooks/useRewards";
@@ -15,7 +16,7 @@ import { useTrackableItems } from "../hooks/useTrackableItems";
 import { useMilestones } from "../hooks/useMilestones";
 import { createChild, generateInviteCode } from "../../utils/api";
 import { toast } from "sonner";
-import { Lock, Plus, X, Gift, Target, Award, Sparkles, TrendingUp, TrendingDown, Users, AlertTriangle, Heart, UserCheck, UserX, Trash2, Globe, Bell, BellOff } from "lucide-react";
+import { Lock, Plus, X, Gift, Target, Award, Sparkles, TrendingUp, TrendingDown, Users, AlertTriangle, Heart, UserCheck, UserX, Trash2, Globe, Bell, BellOff, Gamepad2, Brain } from "lucide-react";
 import { projectId, publicAnonKey } from "../../../utils/supabase/info.tsx";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../components/ui/alert-dialog";
@@ -99,6 +100,10 @@ export function Settings() {
   const [pushPermissionStatus, setPushPermissionStatus] = useState<'granted' | 'denied' | 'prompt'>('prompt');
   const [pushSupported, setPushSupported] = useState(false);
   const [loadingPushStatus, setLoadingPushStatus] = useState(true);
+
+  // Game Settings State
+  const [knowledgeQuestEnabled, setKnowledgeQuestEnabled] = useState(true);
+  const [gameSettingsLoading, setGameSettingsLoading] = useState(false);
 
   // Account Deletion State
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -520,6 +525,7 @@ export function Settings() {
     if (familyId) {
       fetchJoinRequests();
       loadQuestSettings();
+      loadGameSettings();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [familyId]);
@@ -560,6 +566,74 @@ export function Settings() {
       }
     } catch (error) {
       console.error('Load quest settings error:', error);
+    }
+  };
+
+  // Load game settings
+  const loadGameSettings = async () => {
+    if (!familyId || !accessToken) return;
+    
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) return;
+
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f/families/${familyId}/game-settings`,
+        {
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'apikey': publicAnonKey
+          }
+        }
+      );
+
+      if (response.ok) {
+        const settings = await response.json();
+        setKnowledgeQuestEnabled(settings.knowledgeQuestEnabled ?? true);
+      }
+    } catch (error) {
+      console.error('Load game settings error:', error);
+    }
+  };
+
+  // Save game settings
+  const handleSaveGameSettings = async () => {
+    if (!familyId || !accessToken) return;
+    
+    try {
+      setGameSettingsLoading(true);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        toast.error('No valid session');
+        return;
+      }
+
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f/families/${familyId}/game-settings`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'apikey': publicAnonKey,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            knowledgeQuestEnabled
+          })
+        }
+      );
+
+      if (response.ok) {
+        toast.success('Game settings saved!');
+      } else {
+        const error = await response.json();
+        toast.error(error.error || 'Failed to save settings');
+      }
+    } catch (error) {
+      console.error('Save game settings error:', error);
+      toast.error('Failed to save settings');
+    } finally {
+      setGameSettingsLoading(false);
     }
   };
 
@@ -895,7 +969,7 @@ export function Settings() {
       </div>
 
       <Tabs defaultValue="rewards" className="w-full">
-        <TabsList className="grid w-full grid-cols-7">
+        <TabsList className="grid w-full grid-cols-4 md:grid-cols-8">
           <TabsTrigger value="children">
             <Users className="h-4 w-4 mr-2" />
             <span className="hidden sm:inline">Children</span>
@@ -915,6 +989,10 @@ export function Settings() {
           <TabsTrigger value="quests">
             <Sparkles className="h-4 w-4 mr-2" />
             <span className="hidden sm:inline">Quests</span>
+          </TabsTrigger>
+          <TabsTrigger value="games">
+            <Gamepad2 className="h-4 w-4 mr-2" />
+            <span className="hidden sm:inline">Games</span>
           </TabsTrigger>
           <TabsTrigger value="milestones">
             <Award className="h-4 w-4 mr-2" />
@@ -2137,6 +2215,81 @@ export function Settings() {
                   </ul>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* GAMES TAB */}
+        <TabsContent value="games" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Gamepad2 className="h-5 w-5" />
+                Game Settings
+              </CardTitle>
+              <CardDescription>Control which educational games are visible to kids</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Game Toggles */}
+              <div className="space-y-4">
+                <div className="bg-gradient-to-br from-indigo-50 to-purple-50 border-2 border-indigo-200 rounded-lg p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3 flex-1">
+                      <Brain className="h-5 w-5 text-indigo-600 mt-0.5 shrink-0" />
+                      <div className="flex-1">
+                        <h4 className="font-semibold text-indigo-900 mb-1">Knowledge Quest</h4>
+                        <p className="text-sm text-indigo-800 mb-2">
+                          Dynamic quiz platform with Islamic knowledge, math, and more. Kids can select difficulty levels, use hints, and earn points.
+                        </p>
+                        <p className="text-xs text-indigo-700">
+                          <strong>Points:</strong> Easy (5 pts → 0.25 actual), Medium (10 pts → 0.5 actual), Hard (20 pts → 1 actual). 5% conversion rate to keep focus on core behaviors like prayers (5 pts each).
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Label htmlFor="knowledge-quest-toggle" className="cursor-pointer text-sm">
+                        {knowledgeQuestEnabled ? 'Enabled' : 'Disabled'}
+                      </Label>
+                      <Switch
+                        id="knowledge-quest-toggle"
+                        checked={knowledgeQuestEnabled}
+                        onCheckedChange={setKnowledgeQuestEnabled}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Save Button */}
+              <div className="flex justify-end pt-4 border-t">
+                <Button
+                  onClick={handleSaveGameSettings}
+                  disabled={gameSettingsLoading}
+                  className="min-w-32"
+                >
+                  {gameSettingsLoading ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2" />
+                      Saving...
+                    </>
+                  ) : (
+                    'Save Game Settings'
+                  )}
+                </Button>
+              </div>
+
+              {/* Info Box */}
+              <Alert>
+                <AlertDescription>
+                  <p className="text-sm font-semibold mb-2">💡 Why disable games?</p>
+                  <ul className="text-sm space-y-1 text-muted-foreground">
+                    <li>• Questions can be repeated as kids play multiple times</li>
+                    <li>• Games are always available, making them potentially distracting</li>
+                    <li>• Some families prefer to focus purely on real-world behaviors</li>
+                    <li>• Disabling removes them from the Kid Dashboard completely</li>
+                  </ul>
+                </AlertDescription>
+              </Alert>
             </CardContent>
           </Card>
         </TabsContent>

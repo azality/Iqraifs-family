@@ -1,0 +1,432 @@
+vendor-core-ade2edecaf4781c7.min.js.br:54  POST https://www.figma.com/api/cortex/shared/figmake net::ERR_QUIC_PROTOCOL_ERROR.QUIC_TOO_MANY_RTOS 200 (OK)
+(anonymous) @ vendor-core-ade2edecaf4781c7.min.js.br:54
+h @ vendor-998f6c2559412105.min.js.br:3
+s @ figma_app-cd6064e947741372.min.js.br:661
+l @ figma_app-cd6064e947741372.min.js.br:661
+(anonymous) @ 5484-3c0bf0c76ec09eda.min.js.br:147
+A @ figma_app-cd6064e947741372.min.js.br:648
+await in A
+d @ figma_app-cd6064e947741372.min.js.br:546
+await in d
+eq @ 5484-3c0bf0c76ec09eda.min.js.br:147
+await in eq
+sendMessage @ 9241-7e9ae07c2f6dc666.min.js.br:274
+eg @ 9241-7e9ae07c2f6dc666.min.js.br:274
+(anonymous) @ 9241-7e9ae07c2f6dc666.min.js.br:274
+sendMessage @ 5484-3c0bf0c76ec09eda.min.js.br:12
+requestFixErrors @ 5484-3c0bf0c76ec09eda.min.js.br:12
+push.985993.R.eventName @ 6005-63294d549fcb1e6d.min.js.br:1198
+(anonymous) @ 6005-63294d549fcb1e6d.min.js.br:1198
+ez @ vendor-core-ade2edecaf4781c7.min.js.br:11
+eq @ vendor-core-ade2edecaf4781c7.min.js.br:11
+(anonymous) @ vendor-core-ade2edecaf4781c7.min.js.br:11
+fi @ vendor-core-ade2edecaf4781c7.min.js.br:11
+ff @ vendor-core-ade2edecaf4781c7.min.js.br:11
+(anonymous) @ vendor-core-ade2edecaf4781c7.min.js.br:11
+oP @ vendor-core-ade2edecaf4781c7.min.js.br:11
+eR @ vendor-core-ade2edecaf4781c7.min.js.br:11
+fl @ vendor-core-ade2edecaf4781c7.min.js.br:11
+nz @ vendor-core-ade2edecaf4781c7.min.js.br:11
+nI @ vendor-core-ade2edecaf4781c7.min.js.br:11
+u @ vendor-core-ade2edecaf4781c7.min.js.br:54Understand this error
+installHook.js:1 [DeltaStreamController] Error in consume: TypeError: network error
+overrideMethod @ installHook.js:1
+(anonymous) @ vendor-core-ade2edecaf4781c7.min.js.br:54
+push.386909.s.cP.o.JZ.<computed> @ vendor-998f6c2559412105.min.js.br:3
+consume @ 5484-3c0bf0c76ec09eda.min.js.br:26Understand this error
+installHook.js:1 [DeltaStreamController] Error in consume method: TypeError: network error
+overrideMethod @ installHook.js:1
+(anonymous) @ vendor-core-ade2edecaf4781c7.min.js.br:54
+push.386909.s.cP.o.JZ.<computed> @ vendor-998f6c2559412105.min.js.br:3
+consume @ 5484-3c0bf0c76ec09eda.min.js.br:26Understand this error
+vendor-core-ade2edecaf4781c7.min.js.br:54 Sentry event id: 74af330705f641e0bd8eca2db058553b
+code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28  GET https://ybrkbrrkcqpzpjnjdyib.supabase.co/functions/v1/make-server-f116e23f/question-categories 500 (Internal Server Error)
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28
+loadData @ KnowledgeQuest.tsx:64
+(anonymous) @ KnowledgeQuest.tsx:55
+TN @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+T7 @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+T8 @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+T6 @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+T4 @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+S1 @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+SQ @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:3
+V @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:113
+B @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:113
+eo @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:113Understand this error
+code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28  GET https://ybrkbrrkcqpzpjnjdyib.supabase.co/functions/v1/make-server-f116e23f/questions 500 (Internal Server Error)
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28
+loadData @ QuestionBank.tsx:70
+(anonymous) @ QuestionBank.tsx:61
+TN @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+T7 @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+T8 @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+T6 @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+T4 @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+S1 @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+SQ @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:3
+V @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:113
+B @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:113
+eo @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:113Understand this error
+code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28  GET https://ybrkbrrkcqpzpjnjdyib.supabase.co/functions/v1/make-server-f116e23f/question-categories 500 (Internal Server Error)
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28
+loadData @ QuestionBank.tsx:83
+await in loadData
+(anonymous) @ QuestionBank.tsx:61
+TN @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+T7 @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+T8 @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+T6 @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+T4 @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+S1 @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+SQ @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:3
+V @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:113
+B @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:113
+eo @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:113Understand this error
+code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28  POST https://ybrkbrrkcqpzpjnjdyib.supabase.co/functions/v1/make-server-f116e23f/questions 500 (Internal Server Error)
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28
+handleBulkImport @ QuestionBank.tsx:136
+y @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+i @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28
+iG @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+ij @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+iz @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+dP @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dM @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dk @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dG @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+SR @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+iR @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+d$ @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+lO @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+lN @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+lv @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+i @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28Understand this error
+code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28  POST https://ybrkbrrkcqpzpjnjdyib.supabase.co/functions/v1/make-server-f116e23f/questions 500 (Internal Server Error)
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28
+handleBulkImport @ QuestionBank.tsx:136
+await in handleBulkImport
+y @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+i @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28
+iG @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+ij @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+iz @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+dP @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dM @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dk @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dG @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+SR @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+iR @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+d$ @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+lO @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+lN @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+lv @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+i @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28Understand this error
+code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28  POST https://ybrkbrrkcqpzpjnjdyib.supabase.co/functions/v1/make-server-f116e23f/questions 500 (Internal Server Error)
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28
+handleBulkImport @ QuestionBank.tsx:136
+await in handleBulkImport
+y @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+i @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28
+iG @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+ij @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+iz @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+dP @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dM @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dk @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dG @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+SR @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+iR @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+d$ @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+lO @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+lN @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+lv @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+i @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28Understand this error
+code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28  POST https://ybrkbrrkcqpzpjnjdyib.supabase.co/functions/v1/make-server-f116e23f/questions 500 (Internal Server Error)
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28
+handleBulkImport @ QuestionBank.tsx:136
+await in handleBulkImport
+y @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+i @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28
+iG @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+ij @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+iz @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+dP @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dM @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dk @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dG @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+SR @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+iR @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+d$ @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+lO @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+lN @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+lv @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+i @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28Understand this error
+code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28  POST https://ybrkbrrkcqpzpjnjdyib.supabase.co/functions/v1/make-server-f116e23f/questions 500 (Internal Server Error)
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28
+handleBulkImport @ QuestionBank.tsx:136
+await in handleBulkImport
+y @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+i @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28
+iG @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+ij @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+iz @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+dP @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dM @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dk @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dG @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+SR @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+iR @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+d$ @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+lO @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+lN @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+lv @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+i @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28Understand this error
+code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28  POST https://ybrkbrrkcqpzpjnjdyib.supabase.co/functions/v1/make-server-f116e23f/questions 500 (Internal Server Error)
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28
+handleBulkImport @ QuestionBank.tsx:136
+await in handleBulkImport
+y @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+i @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28
+iG @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+ij @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+iz @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+dP @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dM @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dk @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dG @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+SR @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+iR @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+d$ @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+lO @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+lN @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+lv @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+i @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28Understand this error
+code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28  POST https://ybrkbrrkcqpzpjnjdyib.supabase.co/functions/v1/make-server-f116e23f/questions 500 (Internal Server Error)
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28
+handleBulkImport @ QuestionBank.tsx:136
+await in handleBulkImport
+y @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+i @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28
+iG @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+ij @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+iz @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+dP @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dM @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dk @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dG @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+SR @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+iR @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+d$ @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+lO @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+lN @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+lv @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+i @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28Understand this error
+code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28  POST https://ybrkbrrkcqpzpjnjdyib.supabase.co/functions/v1/make-server-f116e23f/questions 500 (Internal Server Error)
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28
+handleBulkImport @ QuestionBank.tsx:136
+await in handleBulkImport
+y @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+i @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28
+iG @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+ij @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+iz @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+dP @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dM @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dk @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dG @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+SR @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+iR @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+d$ @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+lO @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+lN @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+lv @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+i @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28Understand this error
+code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28  POST https://ybrkbrrkcqpzpjnjdyib.supabase.co/functions/v1/make-server-f116e23f/questions 500 (Internal Server Error)
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28
+handleBulkImport @ QuestionBank.tsx:136
+await in handleBulkImport
+y @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+i @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28
+iG @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+ij @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+iz @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+dP @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dM @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dk @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dG @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+SR @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+iR @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+d$ @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+lO @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+lN @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+lv @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+i @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28Understand this error
+code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28  POST https://ybrkbrrkcqpzpjnjdyib.supabase.co/functions/v1/make-server-f116e23f/questions 500 (Internal Server Error)
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28
+handleBulkImport @ QuestionBank.tsx:136
+await in handleBulkImport
+y @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+i @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28
+iG @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+ij @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+iz @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+dP @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dM @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dk @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dG @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+SR @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+iR @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+d$ @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+lO @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+lN @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+lv @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+i @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28Understand this error
+code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28  POST https://ybrkbrrkcqpzpjnjdyib.supabase.co/functions/v1/make-server-f116e23f/questions 500 (Internal Server Error)
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28
+handleBulkImport @ QuestionBank.tsx:136
+await in handleBulkImport
+y @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+i @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28
+iG @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+ij @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+iz @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+dP @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dM @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dk @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dG @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+SR @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+iR @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+d$ @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+lO @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+lN @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+lv @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+i @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28Understand this error
+code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28  POST https://ybrkbrrkcqpzpjnjdyib.supabase.co/functions/v1/make-server-f116e23f/questions 500 (Internal Server Error)
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28
+handleBulkImport @ QuestionBank.tsx:136
+await in handleBulkImport
+y @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+i @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28
+iG @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+ij @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+iz @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+dP @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dM @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dk @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dG @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+SR @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+iR @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+d$ @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+lO @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+lN @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+lv @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+i @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28Understand this error
+code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28  POST https://ybrkbrrkcqpzpjnjdyib.supabase.co/functions/v1/make-server-f116e23f/questions 500 (Internal Server Error)
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28
+handleBulkImport @ QuestionBank.tsx:136
+await in handleBulkImport
+y @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+i @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28
+iG @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+ij @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+iz @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+dP @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dM @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dk @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dG @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+SR @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+iR @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+d$ @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+lO @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+lN @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+lv @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+i @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28Understand this error
+code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28  POST https://ybrkbrrkcqpzpjnjdyib.supabase.co/functions/v1/make-server-f116e23f/questions 500 (Internal Server Error)
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28
+handleBulkImport @ QuestionBank.tsx:136
+await in handleBulkImport
+y @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+i @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28
+iG @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+ij @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+iz @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+dP @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dM @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dk @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dG @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+SR @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+iR @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+d$ @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+lO @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+lN @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+lv @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+i @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28Understand this error
+code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28 🔄 Auth state changed: SIGNED_IN {hasSession: true, userId: 'fb090fa9-0ada-4662-a7eb-af2e71ead956', hasToken: true, tokenPreview: 'eyJhbGciOiJFUzI1NiIsImtpZCI6Ij...'}
+code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28 ✅ Setting accessToken from auth state change
+code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28 AuthContext - Setting userId: fb090fa9-0ada-4662-a7eb-af2e71ead956
+code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28 🌐 [Web Storage] Set: fgs_user_id fb090fa9-0ada-4662-a...
+code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28 🔒 ProtectedRoute - Auth state changed: SIGNED_IN true
+code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28  POST https://ybrkbrrkcqpzpjnjdyib.supabase.co/functions/v1/make-server-f116e23f/questions 500 (Internal Server Error)
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28
+handleBulkImport @ QuestionBank.tsx:136
+await in handleBulkImport
+y @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+i @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28
+iG @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+ij @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+iz @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+dP @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dM @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dk @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dG @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+SR @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+iR @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+d$ @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+lO @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+lN @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+lv @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+i @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28Understand this error
+code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28  POST https://ybrkbrrkcqpzpjnjdyib.supabase.co/functions/v1/make-server-f116e23f/questions 500 (Internal Server Error)
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28
+handleBulkImport @ QuestionBank.tsx:136
+await in handleBulkImport
+y @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+i @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28
+iG @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+ij @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+iz @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+dP @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dM @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dk @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+dG @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+(anonymous) @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+SR @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+iR @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+d$ @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:89
+lO @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+lN @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+lv @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:77
+i @ code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28Understand this error
+code_components_preview_iframe-e6ffa6e7eaca0ef3.min.js.br:28  POST https://ybrkbrrkcqpzpjnjdyib.supabase.co/functions/v1/make-server-f116e23f/questions 500 (Internal Server Error)

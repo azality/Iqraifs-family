@@ -1,10 +1,8 @@
 import { useState, useEffect } from 'react';
-import { motion } from "motion/react";
-import { toast } from 'sonner';
 import { format, startOfWeek, addDays, startOfMonth, endOfMonth } from 'date-fns';
 import { projectId } from '/utils/supabase/info.tsx';
 import { useAuth } from '../contexts/AuthContext';
-import { useFamily } from '../contexts/FamilyContext';
+import { useFamilyContext } from '../contexts/FamilyContext';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
@@ -20,6 +18,8 @@ import { Calendar, Plus, Download, CheckCircle, XCircle, Edit, Trash2, Clock, Ma
 import { downloadMonthlyStatement, generateActivityStatement } from "../utils/attendancePdfExport";
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert';
 import { AlertTriangle } from 'lucide-react';
+import { motion } from 'motion/react';
+import { toast } from 'sonner';
 
 // Attendance tracking for extracurricular activities
 interface Provider {
@@ -52,7 +52,7 @@ const ACTIVITY_ICONS = ["⚽", "🏊", "🥋", "🎨", "🎸", "📚", "🎯", "
 
 export function AttendanceNew() {
   const { isParentMode, accessToken, refreshSession } = useAuth();
-  const { getCurrentChild, attendanceRecords: contextAttendance, loading: familyLoading } = useFamily();
+  const { children, selectedChildId, isLoading: familyLoading } = useFamilyContext();
   const [providers, setProviders] = useState<Provider[]>([]);
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -79,7 +79,7 @@ export function AttendanceNew() {
   const [selectedProvider, setSelectedProvider] = useState<string>("");
   const [attended, setAttended] = useState(true);
   
-  const child = getCurrentChild();
+  const child = children.find(c => c.id === selectedChildId);
 
   useEffect(() => {
     // Refresh session on mount to ensure we have a valid token

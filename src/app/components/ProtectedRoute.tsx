@@ -1,45 +1,41 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useContext } from 'react';
 import { Navigate } from 'react-router';
-import { supabase } from '../../../utils/supabase/client';
+import { AuthContext } from '../contexts/AuthContext';
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
-  const [hasSession, setHasSession] = useState(false);
+  const authContext = useContext(AuthContext);
 
   useEffect(() => {
-    const checkSession = async () => {
+    const checkAuth = async () => {
       try {
-        const { data: { session }, error } = await supabase.auth.getSession();
+        // CRITICAL: Use AuthContext instead of checking Supabase directly
+        // This prevents lock contention from multiple components calling getSession()
         
-        console.log('🔒 ProtectedRoute - Session check:', {
-          hasSession: !!session,
-          userId: session?.user?.id,
-          error: error?.message
+        const localUserId = localStorage.getItem('user_id') || localStorage.getItem('fgs_user_id');
+        
+        console.log('🔒 ProtectedRoute - Auth check:', {
+          hasLocalUserId: !!localUserId,
+          hasAuthContext: !!authContext,
+          authContextUser: authContext?.user,
+          authContextLoading: authContext?.loading
         });
         
-        setHasSession(!!session);
+        // Wait a moment for AuthContext to initialize
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        setLoading(false);
       } catch (error) {
-        console.error('❌ ProtectedRoute - Session check error:', error);
-        setHasSession(false);
-      } finally {
+        console.error('❌ ProtectedRoute - Auth check error:', error);
         setLoading(false);
       }
     };
 
-    checkSession();
+    checkAuth();
+  }, [authContext]);
 
-    // Also listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      console.log('🔒 ProtectedRoute - Auth state changed:', event, !!session);
-      setHasSession(!!session);
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, []);
-
-  if (loading) {
+  // Show loading while AuthContext is initializing
+  if (loading || authContext?.loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
@@ -50,9 +46,13 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (!hasSession) {
-    console.log('🔒 ProtectedRoute - No session, redirecting to login');
-    return <Navigate to="/login" replace />;
+  // Check if user is authenticated
+  const localUserId = localStorage.getItem('user_id') || localStorage.getItem('fgs_user_id');
+  const hasAuth = !!(authContext?.user || localUserId);
+
+  if (!hasAuth) {
+    console.log('🔒 ProtectedRoute - No auth, redirecting to login');
+    return <Navigate to="/parent-login" replace />;
   }
 
   return <>{children}</>;

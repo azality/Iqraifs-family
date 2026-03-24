@@ -3,10 +3,11 @@ import { Dashboard } from './Dashboard';
 import { KidDashboard } from './KidDashboard';
 
 /**
- * DashboardRouter - Routes to the appropriate dashboard based on user role
+ * DashboardRouter - Routes to the appropriate dashboard based on user role AND view mode
  * 
  * - Kids (logged in via PIN) → KidDashboard (Unified adventure experience)
- * - Parents (logged in via email) → Dashboard (Analytics and controls)
+ * - Parents (logged in via email) in Parent Mode → Dashboard (Analytics and controls)
+ * - Parents in Kid View Mode → KidDashboard (Preview of kid experience)
  * 
  * Note: We check localStorage directly instead of using useAuth() because
  * this component is used in routes before the AuthProvider is available.
@@ -18,6 +19,13 @@ export function DashboardRouter() {
     console.log('🔍 DashboardRouter initial role:', role);
     return role;
   });
+  
+  const [viewMode, setViewMode] = useState(() => {
+    // Get initial view mode preference
+    const mode = localStorage.getItem('fgs_view_mode_preference');
+    console.log('🔍 DashboardRouter initial view mode:', mode);
+    return mode;
+  });
 
   useEffect(() => {
     // Listen for role changes
@@ -25,6 +33,13 @@ export function DashboardRouter() {
       const newRole = localStorage.getItem('user_role');
       console.log('🔄 DashboardRouter role change detected:', { old: userRole, new: newRole });
       setUserRole(newRole);
+    };
+    
+    // Listen for view mode changes
+    const handleViewModeChange = () => {
+      const newMode = localStorage.getItem('fgs_view_mode_preference');
+      console.log('🔄 DashboardRouter view mode change detected:', { old: viewMode, new: newMode });
+      setViewMode(newMode);
     };
 
     // Listen for custom roleChanged events
@@ -36,6 +51,10 @@ export function DashboardRouter() {
         console.log('🔄 DashboardRouter storage change detected:', { old: e.oldValue, new: e.newValue });
         setUserRole(e.newValue);
       }
+      if (e.key === 'fgs_view_mode_preference') {
+        console.log('🔄 DashboardRouter view mode storage change:', { old: e.oldValue, new: e.newValue });
+        setViewMode(e.newValue);
+      }
     };
     window.addEventListener('storage', handleStorageChange);
 
@@ -43,13 +62,15 @@ export function DashboardRouter() {
       window.removeEventListener('roleChanged', handleRoleChange);
       window.removeEventListener('storage', handleStorageChange);
     };
-  }, [userRole]); // Add userRole to dependencies so we can log old value
+  }, [userRole, viewMode]); // Add both to dependencies so we can log old values
 
-  console.log('🎯 DashboardRouter rendering with role:', userRole);
+  console.log('🎯 DashboardRouter rendering with role:', userRole, 'viewMode:', viewMode);
 
-  // Show KidDashboard for children (unified experience for both kid login and parent "kid view")
-  if (userRole === 'child') {
-    console.log('✅ DashboardRouter: Showing KidDashboard');
+  // Show KidDashboard for:
+  // 1. Children (logged in via PIN) - actual kid experience
+  // 2. Parents in "Kid View" mode - preview of kid experience
+  if (userRole === 'child' || viewMode === 'kid') {
+    console.log('✅ DashboardRouter: Showing KidDashboard', { reason: userRole === 'child' ? 'kid login' : 'parent kid view' });
     return <KidDashboard />;
   }
 

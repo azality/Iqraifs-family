@@ -9,6 +9,8 @@ import { ViewModeProvider, ModeTransitionOverlay } from '../contexts/ViewModeCon
  * This ensures Auth, Family, and ViewMode contexts are available to all child routes
  */
 export function ProvidersLayout({ children }: { children?: ReactNode }) {
+  console.log('🔧 ProvidersLayout rendering, has children:', !!children);
+  
   return (
     <AuthProvider>
       <FamilyProvider>
