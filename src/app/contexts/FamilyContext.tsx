@@ -13,7 +13,7 @@ import { AuthContext } from './AuthContext';
 import { getCurrentRole, getCurrentRoleSync } from '../utils/authHelpers';
 import { supabase } from '../../../utils/supabase/client';
 import { projectId } from '../../../utils/supabase/info';
-import { getStorage } from '../../utils/storage';
+import { getStorage, setStorage, removeStorage } from '../../utils/storage';
 import { logoutKid } from '../utils/auth';
 
 interface FamilyContextType {
@@ -78,7 +78,23 @@ export function FamilyProvider({ children: childrenProp }: FamilyProviderProps) 
         setSelectedChildIdState(storedChildId);
       }
     }
-  }, [currentRole]);
+  }, [currentRole, auth?.userId]);
+
+  useEffect(() => {
+    const normalizeParentMode = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (currentRole === 'parent' && session?.access_token) {
+        localStorage.setItem('user_role', 'parent');
+        localStorage.setItem('user_mode', 'parent');
+        localStorage.setItem('fgs_user_mode', 'parent');
+        localStorage.removeItem('kid_access_token');
+        localStorage.removeItem('kid_session_token');
+        localStorage.removeItem('kid_pin_session');
+      }
+    };
+
+    normalizeParentMode();
+  }, [currentRole, auth?.userId]);
 
   // Auto-select single child after children are loaded (parent mode only)
   useEffect(() => {
@@ -89,20 +105,23 @@ export function FamilyProvider({ children: childrenProp }: FamilyProviderProps) 
     }
   }, [children, selectedChildId, currentRole, setSelectedChildId]);
 
-  // Load family ID and family name when auth state changes.
+  // Load family data
   useEffect(() => {
-    const loadFamilyMeta = async () => {
+    const loadFamilyData = async () => {
       try {
-        console.log('🏠 FamilyContext: Loading family metadata...');
+        setIsLoading(true);
+        console.log('🏠 FamilyContext: Loading family data...');
         console.log('🔍 Current role from AuthContext:', currentRole);
-
+        
+        // Get family ID from localStorage with fallback to multiple keys
         const storedFamilyId = localStorage.getItem('fgs_family_id') || 
                                localStorage.getItem('family_id') ||
                                await getStorage('fgs_family_id') ||
                                await getStorage('family_id');
-
+        
         console.log('🔍 Family ID from storage:', storedFamilyId);
-
+        
+        // DEBUG: Log ALL relevant localStorage values
         console.log('🔍 ALL STORAGE VALUES:', {
           fgs_family_id: localStorage.getItem('fgs_family_id'),
           family_id: localStorage.getItem('family_id'),
@@ -113,10 +132,11 @@ export function FamilyProvider({ children: childrenProp }: FamilyProviderProps) 
           authContextRole: currentRole,
           hasSupabaseSession: !!(await supabase.auth.getSession()).data.session
         });
-
-        setFamilyId(storedFamilyId || null);
-
+        
         if (storedFamilyId) {
+          setFamilyId(storedFamilyId);
+          
+          // Try to load family name
           try {
             const familyData = await getFamily(storedFamilyId);
             if (familyData?.name) {
@@ -126,30 +146,7 @@ export function FamilyProvider({ children: childrenProp }: FamilyProviderProps) 
           } catch (error) {
             console.log('ℹ️ Could not load family name (non-critical):', error);
           }
-        } else {
-          setFamilyName(null);
         }
-      } catch (error) {
-        console.error('❌ Error loading family metadata:', error);
-        setFamilyId(null);
-        setFamilyName(null);
-      }
-    };
-
-    loadFamilyMeta();
-  }, [currentRole, auth?.userId]);
-
-  // Load children whenever the effective role or family changes.
-  useEffect(() => {
-    const loadFamilyData = async () => {
-      try {
-        setIsLoading(true);
-
-        const storedFamilyId = familyId ||
-          localStorage.getItem('fgs_family_id') || 
-          localStorage.getItem('family_id') ||
-          await getStorage('fgs_family_id') ||
-          await getStorage('family_id');
 
         // Load children based on user role
         if (currentRole === 'child') {
@@ -304,7 +301,7 @@ export function FamilyProvider({ children: childrenProp }: FamilyProviderProps) 
     };
 
     loadFamilyData();
-  }, [currentRole, familyId, auth?.userId]); // Re-run when role or family changes
+  }, [currentRole]); // Re-run when role changes
 
   const refreshChildren = useCallback(async () => {
     if (!familyId) return;

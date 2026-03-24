@@ -50,45 +50,52 @@ export async function hasSupabaseSession(): Promise<boolean> {
  * Clear all kid-specific session data
  * Called when parent logs in to ensure clean parent session
  */
-export async function clearKidSession(force = false): Promise<void> {
-  // CRITICAL SAFETY CHECK: Never clear kid session if currently in kid mode
-  // unless this is an explicit parent-login handoff.
-  const userMode = localStorage.getItem('user_mode') || localStorage.getItem('fgs_user_mode');
-  const userRole = localStorage.getItem('user_role');
-  const isKidMode = userMode === 'kid' || userRole === 'child';
-  
-  if (isKidMode && !force) {
-    // Silent block - kid session is protected
-    return; // ABORT - do not clear active kid session
-  }
+const KID_SESSION_KEYS = [
+  STORAGE_KEYS.CHILD_ID,
+  STORAGE_KEYS.KID_SESSION_TOKEN,
+  'kid_access_token',
+  'kid_pin_session',
+  'kid_id',
+  'kid_name',
+  'kid_avatar',
+  'kid_family_code',
+  'selected_child_id',
+  'fgs_selected_child_id',
+  'last_active_child',
+  'child_id'
+] as const;
 
-  const previousSelectedChildId = await getStorage('selected_child_id');
-  
-  await removeMultiple([
-    STORAGE_KEYS.CHILD_ID,
-    'kid_pin_session',
-    'selected_child_id',
-    'fgs_selected_child_id',
-    'last_active_child',
-    STORAGE_KEYS.KID_SESSION_TOKEN,
-    'kid_access_token',
-    'kid_id',
-    'kid_name',
-    'kid_avatar',
-    'kid_family_code',
-    'child_id',
-    'user_mode',
-    'fgs_user_mode'
-  ]);
-  
-  // CRITICAL: Dispatch a storage event to notify FamilyContext
-  // This ensures selectedChildId is cleared immediately when switching to parent mode
+async function removeKidSessionKeys(): Promise<void> {
+  await removeMultiple([...KID_SESSION_KEYS]);
+}
+
+function dispatchChildSelectionCleared() {
   window.dispatchEvent(new StorageEvent('storage', {
-    key: 'selected_child_id',
-    oldValue: previousSelectedChildId,
+    key: 'fgs_selected_child_id',
+    oldValue: localStorage.getItem('fgs_selected_child_id'),
     newValue: null,
     url: window.location.href
   }));
+}
+
+export async function clearKidSession(): Promise<void> {
+  const userMode = localStorage.getItem('user_mode') || localStorage.getItem('fgs_user_mode');
+  const userRole = localStorage.getItem('user_role');
+  const isKidMode = userMode === 'kid' || userRole === 'child';
+
+  if (isKidMode) {
+    return;
+  }
+
+  await removeKidSessionKeys();
+  dispatchChildSelectionCleared();
+}
+
+export async function forceClearKidSessionForParentLogin(): Promise<void> {
+  await removeKidSessionKeys();
+  localStorage.removeItem('user_mode');
+  localStorage.removeItem('fgs_user_mode');
+  dispatchChildSelectionCleared();
 }
 
 /**
@@ -122,7 +129,7 @@ export async function clearAllSessions(): Promise<void> {
   ]);
   
   // Clear kid session (safe since we're not in kid mode)
-  await clearKidSession(true);
+  await clearKidSession();
   
   // Note: We intentionally DO NOT clear FAMILY_ID
   // This allows users to stay logged into the same family
@@ -161,8 +168,8 @@ export async function setParentSession(
     userEmail
   });
   
-  // Clear any kid session first
-  await clearKidSession(true);
+  // Force-clear any stale kid session data first
+  await forceClearKidSessionForParentLogin();
   
   // Set parent session keys
   await setStorage(STORAGE_KEYS.USER_ID, userId);
@@ -173,9 +180,12 @@ export async function setParentSession(
   
   // Backwards compatibility keys
   localStorage.setItem('user_role', 'parent');
+  localStorage.setItem('user_mode', 'parent');
   localStorage.setItem('fgs_user_mode', 'parent');
   localStorage.setItem('fgs_user_id', userId);
   localStorage.setItem('fgs_user_name', userName);
+  localStorage.removeItem('kid_access_token');
+  localStorage.removeItem('kid_session_token');
   
   console.log('✅ Parent session set - dispatching roleChanged event');
   

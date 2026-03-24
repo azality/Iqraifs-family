@@ -9,7 +9,7 @@ import { toast } from 'sonner';
 import { supabase } from '../../../utils/supabase/client';
 import { AuthContext } from '../contexts/AuthContext';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info.tsx';
-import { clearKidSession, setParentSession } from '../utils/authHelpers';
+import { forceClearKidSessionForParentLogin, setParentSession } from '../utils/authHelpers';
 import { isPushNotificationsSupported, initializePushNotifications } from '../utils/pushNotifications';
 import { useContext } from 'react';
 
@@ -28,10 +28,9 @@ export function ParentLogin() {
     try {
       console.log('🔐 Starting parent login process for:', email);
       
-      // CRITICAL: Clear any stale kid session data BEFORE login
-      // This prevents race conditions where FamilyContext tries to use old child data
-      console.log('🧹 Pre-login cleanup: Clearing stale kid session data');
-      await clearKidSession(true);
+      // CRITICAL: Force-clear any stale kid session data BEFORE login
+      console.log('🧹 Pre-login cleanup: force-clearing stale kid session data');
+      await forceClearKidSessionForParentLogin();
       
       const { data, error } = await supabase.auth.signInWithPassword({
         email,

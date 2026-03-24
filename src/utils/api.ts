@@ -64,20 +64,21 @@ async function apiCall(endpoint: string, options: RequestInit = {}, retryCount =
   // Even for unauthenticated endpoints, the apikey is required
   headers['apikey'] = publicAnonKey;
 
-  // Get access token - check for KID mode FIRST, then fall back to Supabase
+  // Get access token - only use kid token when app is actually in kid mode
   let accessToken: string | null = null;
   let tokenSource: string = 'none';
-  
-  // Only use kid tokens when the app is actually in kid mode.
+
   const userRole = localStorage.getItem('user_role');
-  const userMode = localStorage.getItem('user_mode') || localStorage.getItem('fgs_user_mode');
+  const userMode = localStorage.getItem('fgs_user_mode') || localStorage.getItem('user_mode');
   const isKidMode = userRole === 'child' || userMode === 'kid';
-  const kidToken = isKidMode
-    ? (localStorage.getItem('kid_access_token') || localStorage.getItem('kid_session_token'))
-    : null;
-  
+  const rawKidToken = localStorage.getItem('kid_access_token') || localStorage.getItem('kid_session_token');
+  const kidToken = isKidMode ? rawKidToken : null;
+
+  if (!isKidMode && rawKidToken) {
+    console.warn('🧹 Ignoring stale kid token while in parent mode');
+  }
+
   if (kidToken) {
-    // Actual kid login: Use kid access token from localStorage
     accessToken = kidToken;
     tokenSource = 'kid-session';
     console.log('👶 Kid mode detected - using kid access token for API call:', {
@@ -746,20 +747,21 @@ async function getAuthHeaders() {
   // Even for unauthenticated endpoints, the apikey is required
   headers['apikey'] = publicAnonKey;
 
-  // Get access token - check for KID mode FIRST, then fall back to Supabase
+  // Get access token - only use kid token when app is actually in kid mode
   let accessToken: string | null = null;
   let tokenSource: string = 'none';
-  
-  // Only use kid tokens when the app is actually in kid mode.
+
   const userRole = localStorage.getItem('user_role');
-  const userMode = localStorage.getItem('user_mode') || localStorage.getItem('fgs_user_mode');
+  const userMode = localStorage.getItem('fgs_user_mode') || localStorage.getItem('user_mode');
   const isKidMode = userRole === 'child' || userMode === 'kid';
-  const kidToken = isKidMode
-    ? (localStorage.getItem('kid_access_token') || localStorage.getItem('kid_session_token'))
-    : null;
-  
+  const rawKidToken = localStorage.getItem('kid_access_token') || localStorage.getItem('kid_session_token');
+  const kidToken = isKidMode ? rawKidToken : null;
+
+  if (!isKidMode && rawKidToken) {
+    console.warn('🧹 Ignoring stale kid token while in parent mode');
+  }
+
   if (kidToken) {
-    // Actual kid login: Use kid access token from localStorage
     accessToken = kidToken;
     tokenSource = 'kid-session';
     console.log('👶 Kid mode detected - using kid access token for API call:', {
