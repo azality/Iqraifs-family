@@ -1,6 +1,7 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { getMilestones, createMilestone } from '../../utils/api';
 import { useAuth } from '../contexts/AuthContext';
+import { getStorage } from '../../utils/storage';
 
 export interface Milestone {
   id: string;
@@ -14,19 +15,32 @@ export function useMilestones() {
   const [error, setError] = useState<string | null>(null);
   const { accessToken: authToken } = useAuth();
   
-  // CRITICAL: Support kid mode tokens from localStorage - memoize to prevent infinite loops
-  const accessToken = useMemo(() => {
-    if (authToken) return authToken;
-    
-    const userRole = localStorage.getItem('user_role');
-    const userMode = localStorage.getItem('user_mode');
-    
-    if (userRole === 'child' || userMode === 'kid') {
-      return localStorage.getItem('kid_access_token') || localStorage.getItem('kid_session_token');
-    }
-    
-    return null;
-  }, [authToken]);
+  // CRITICAL: Support kid mode tokens from storage.
+  // Resolved asynchronously via the storage abstraction (Capacitor Preferences on native).
+  const [kidToken, setKidToken] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [userRole, userMode] = await Promise.all([
+        getStorage('user_role'),
+        getStorage('user_mode'),
+      ]);
+      if (userRole === 'child' || userMode === 'kid') {
+        const token =
+          (await getStorage('kid_access_token')) ||
+          (await getStorage('kid_session_token'));
+        if (!cancelled) setKidToken(token ?? null);
+      } else if (!cancelled) {
+        setKidToken(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const accessToken = authToken || kidToken;
 
   const loadMilestones = async () => {
     // Don't try to load data if we don't have an access token

@@ -6,6 +6,7 @@
  */
 
 import { useState, useEffect } from 'react';
+import { clearStorage, getStorage, setStorage, removeStorage } from '../../../utils/storage';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import { motion } from 'motion/react';
 import { ArrowLeft } from 'lucide-react';
@@ -64,8 +65,8 @@ export function PrayerLogging() {
   const [error, setError] = useState<string | null>(null);
 
   // CRITICAL: Use correct localStorage keys for kid mode
-  const childId = localStorage.getItem('kid_id') || localStorage.getItem('child_id');
-  const sessionToken = localStorage.getItem('kid_access_token') || localStorage.getItem('kid_session_token');
+  const childId = await getStorage('kid_id') || await getStorage('child_id');
+  const sessionToken = await getStorage('kid_access_token') || await getStorage('kid_session_token');
 
   // DEBUG: Log what we're loading
   console.log('🕌 PrayerLogging component:', {

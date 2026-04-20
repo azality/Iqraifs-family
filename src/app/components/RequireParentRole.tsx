@@ -1,24 +1,40 @@
+import { useEffect } from 'react';
 import { Navigate } from 'react-router';
 import { getCurrentMode } from '../utils/auth';
 import { Card, CardContent } from './ui/card';
 import { Lock } from 'lucide-react';
+import { getStorage } from '../../utils/storage';
 
 /**
  * ✅ NAV-003: Prevents kids from accessing parent routes
  * ✅ NAV-005: Ensures user is authenticated as parent
- * 
+ *
  * This guard protects routes that should ONLY be accessible by parents.
  * Kids attempting to access parent routes will be redirected to kid dashboard.
  */
 export function RequireParentRole({ children }: { children: JSX.Element }) {
+  // FIXME(localStorage-migration): getCurrentMode() in ../utils/auth is still
+  // sync; long-term that module should move onto the async storage abstraction
+  // so this guard can render the correct result on native (Capacitor Preferences)
+  // on first paint instead of only on the web localStorage fallback.
   const mode = getCurrentMode();
-  
-  console.log('🔒 RequireParentRole check:', {
-    mode,
-    userMode: localStorage.getItem('user_mode'),
-    userRole: localStorage.getItem('user_role'),
-    pathname: window.location.pathname
-  });
+
+  // Debug logging for the raw storage keys is done async so no render-time
+  // localStorage reads are needed.
+  useEffect(() => {
+    (async () => {
+      const [userMode, userRole] = await Promise.all([
+        getStorage('user_mode'),
+        getStorage('user_role'),
+      ]);
+      console.log('🔒 RequireParentRole check:', {
+        mode,
+        userMode,
+        userRole,
+        pathname: window.location.pathname,
+      });
+    })();
+  }, [mode]);
   
   // ✅ NAV-003: Block kid access to parent routes
   if (mode === 'kid') {

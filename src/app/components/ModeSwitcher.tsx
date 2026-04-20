@@ -3,7 +3,8 @@ import { useViewMode } from "../contexts/ViewModeContext";
 import { Sparkles, BarChart3, Lock, User } from "lucide-react";
 import { Button } from "./ui/button";
 import { useAuth } from "../contexts/AuthContext";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { getStorage } from "../../utils/storage";
 import {
   Sheet,
   SheetContent,
@@ -24,10 +25,17 @@ export function ModeSwitcher({ mobile = false }: ModeSwitcherProps) {
   const { isParentMode, switchToParentMode: authSwitchParent } = useAuth();
   const [showPasswordSheet, setShowPasswordSheet] = useState(false);
   const [password, setPassword] = useState("");
+  const [isActualParent, setIsActualParent] = useState(false);
 
   // Check if user is actually logged in as parent (has Supabase session)
-  const userRole = localStorage.getItem("user_role");
-  const isActualParent = userRole === "parent";
+  // Hoist storage read from render body to useEffect
+  useEffect(() => {
+    const checkParentRole = async () => {
+      const userRole = await getStorage("user_role");
+      setIsActualParent(userRole === "parent");
+    };
+    checkParentRole();
+  }, []);
 
   const handleKidModeSwitch = () => {
     switchToKidMode();

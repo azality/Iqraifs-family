@@ -2,6 +2,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { useState, useEffect } from "react";
 import { Plus, X, Zap, Award, Heart, BookOpen, Sparkles, Gift } from "lucide-react";
 import { Link } from "react-router";
+import { getStorage } from "../../../utils/storage";
 
 export function FloatingActionButton() {
   const [isOpen, setIsOpen] = useState(false);
@@ -9,9 +10,12 @@ export function FloatingActionButton() {
 
   // Detect if we're in kid mode
   useEffect(() => {
-    const userRole = localStorage.getItem('user_role');
-    const userMode = localStorage.getItem('user_mode');
-    setIsKidMode(userRole === 'child' || userMode === 'kid');
+    const checkKidMode = async () => {
+      const userRole = await getStorage('user_role');
+      const userMode = await getStorage('user_mode');
+      setIsKidMode(userRole === 'child' || userMode === 'kid');
+    };
+    checkKidMode();
   }, []);
 
   // Parent mode actions

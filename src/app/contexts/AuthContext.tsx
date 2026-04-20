@@ -48,7 +48,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     session: any;
     timestamp: number;
   } | null>(null);
-  const SESSION_CACHE_TTL = 2000; // Cache session for 2 seconds
+  const SESSION_CACHE_TTL = 30_000; // Cache session for 30 seconds
   
   // State - Initialize with null, load from storage in useEffect
   const [userId, setUserIdState] = useState<string | null>(null);
@@ -236,8 +236,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             });
             
             // CRITICAL FIX: Check if we're in kid mode before clearing sessions
-            const userMode = localStorage.getItem('user_mode');
-            const userRole = localStorage.getItem('user_role');
+            const userMode = await getStorage('user_mode');
+            const userRole = await getStorage('user_role');
             const isKidMode = userMode === 'kid' || userRole === 'child';
             
             console.log('🔍 Checking if kid mode before clearing:', {

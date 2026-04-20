@@ -63,11 +63,11 @@ export function LogBehavior() {
     console.log('🔍 LogBehavior - Auth state CHECK:', {
       isParentMode,
       role,
-      user_role_localStorage: localStorage.getItem('user_role'),
-      fgs_user_mode_localStorage: localStorage.getItem('fgs_user_mode'),
-      fgs_user_id_localStorage: localStorage.getItem('fgs_user_id'),
-      kid_access_token: localStorage.getItem('kid_access_token'),
-      kid_session_token: localStorage.getItem('kid_session_token'),
+      user_role_localStorage: await getStorage('user_role'),
+      fgs_user_mode_localStorage: await getStorage('fgs_user_mode'),
+      fgs_user_id_localStorage: await getStorage('fgs_user_id'),
+      kid_access_token: await getStorage('kid_access_token'),
+      kid_session_token: await getStorage('kid_session_token'),
       ALL_STORAGE_KEYS: Object.keys(localStorage).filter(k => 
         k.includes('user') || k.includes('role') || k.includes('mode') || k.includes('kid')
       )
@@ -102,8 +102,8 @@ export function LogBehavior() {
     console.log('❌ LogBehavior - Blocking access, not in parent mode. FULL DEBUG:', {
       isParentMode,
       role,
-      user_role: localStorage.getItem('user_role'),
-      fgs_user_mode: localStorage.getItem('fgs_user_mode')
+      user_role: await getStorage('user_role'),
+      fgs_user_mode: await getStorage('fgs_user_mode')
     });
     return (
       <div className="flex items-center justify-center h-96">
@@ -119,8 +119,8 @@ export function LogBehavior() {
                 <p className="font-mono">DEBUG INFO:</p>
                 <p>isParentMode: {String(isParentMode)}</p>
                 <p>role: {role}</p>
-                <p>user_role (storage): {localStorage.getItem('user_role')}</p>
-                <p>fgs_user_mode (storage): {localStorage.getItem('fgs_user_mode')}</p>
+                <p>user_role (storage): {await getStorage('user_role')}</p>
+                <p>fgs_user_mode (storage): {await getStorage('fgs_user_mode')}</p>
               </div>
             </div>
           </CardContent>

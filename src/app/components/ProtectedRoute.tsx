@@ -1,9 +1,11 @@
 import { useEffect, useState, useContext } from 'react';
 import { Navigate } from 'react-router';
 import { AuthContext } from '../contexts/AuthContext';
+import { getStorage } from '../../utils/storage';
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
+  const [hasAuth, setHasAuth] = useState(false);
   const authContext = useContext(AuthContext);
 
   useEffect(() => {
@@ -11,19 +13,20 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
       try {
         // CRITICAL: Use AuthContext instead of checking Supabase directly
         // This prevents lock contention from multiple components calling getSession()
-        
-        const localUserId = localStorage.getItem('user_id') || localStorage.getItem('fgs_user_id');
-        
+
+        const localUserId = (await getStorage('user_id')) || (await getStorage('fgs_user_id'));
+
         console.log('🔒 ProtectedRoute - Auth check:', {
           hasLocalUserId: !!localUserId,
           hasAuthContext: !!authContext,
           authContextUser: authContext?.user,
           authContextLoading: authContext?.loading
         });
-        
+
         // Wait a moment for AuthContext to initialize
         await new Promise(resolve => setTimeout(resolve, 100));
-        
+
+        setHasAuth(!!(authContext?.user || localUserId));
         setLoading(false);
       } catch (error) {
         console.error('❌ ProtectedRoute - Auth check error:', error);
@@ -45,10 +48,6 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
       </div>
     );
   }
-
-  // Check if user is authenticated
-  const localUserId = localStorage.getItem('user_id') || localStorage.getItem('fgs_user_id');
-  const hasAuth = !!(authContext?.user || localUserId);
 
   if (!hasAuth) {
     console.log('🔒 ProtectedRoute - No auth, redirecting to login');

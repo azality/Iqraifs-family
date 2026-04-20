@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { clearStorage, getStorage, setStorage, removeStorage } from '../../../utils/storage';
 import { Flame, Award, Heart, Gift, Sparkles, TrendingUp, TrendingDown, Clock } from "lucide-react";
 import { useNavigate } from "react-router";
 import { Button } from "../components/ui/button";
@@ -338,14 +339,14 @@ export function KidDashboard() {
           <Button
             onClick={() => {
               // Clear ONLY kid-specific session data, keep family ID
-              localStorage.removeItem('child_id');
-              localStorage.removeItem('kid_id');
-              localStorage.removeItem('kid_access_token');
-              localStorage.removeItem('kid_session_token');
-              localStorage.removeItem('kid_pin_session');
+              await removeStorage('child_id');
+              await removeStorage('kid_id');
+              await removeStorage('kid_access_token');
+              await removeStorage('kid_session_token');
+              await removeStorage('kid_pin_session');
               // Clear user_role to allow fresh parent login
-              localStorage.removeItem('user_role');
-              localStorage.removeItem('fgs_user_mode');
+              await removeStorage('user_role');
+              await removeStorage('fgs_user_mode');
               // Navigate to parent login
               navigate('/login');
             }}

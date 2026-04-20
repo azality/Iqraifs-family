@@ -1,5 +1,6 @@
 import { projectId, publicAnonKey } from '/utils/supabase/info.tsx';
 import { supabase } from '/utils/supabase/client';
+import { getStorage, setStorage, removeStorage, clearStorage, removeMultiple } from './storage';
 
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f`;
 
@@ -22,26 +23,26 @@ export function setTemporaryToken(token: string | null) {
 }
 
 // Helper to redirect to login and prevent further API calls
-function redirectToLogin(reason: string) {
+async function redirectToLogin(reason: string) {
   if (isRedirecting) {
     console.log('⏭️ Already redirecting to login, skipping duplicate redirect');
     return;
   }
-  
+
   isRedirecting = true;
   console.log('🚪 IMMEDIATE REDIRECT TO LOGIN:', reason);
-  
+
   // Clear all auth data FIRST
   try {
-    localStorage.clear(); // Clear everything to ensure clean state
+    await clearStorage(); // Clear everything to ensure clean state
   } catch (e) {
-    console.error('Error clearing localStorage:', e);
+    console.error('Error clearing storage:', e);
   }
-  
+
   // IMMEDIATE redirect - no setTimeout, no delays
   console.log('🔄 Executing window.location.replace to /parent-login');
   window.location.replace('/parent-login');
-  
+
   // This line should never be reached, but just in case, throw error to stop execution
   throw new Error('REDIRECTING_TO_LOGIN');
 }
@@ -64,21 +65,15 @@ async function apiCall(endpoint: string, options: RequestInit = {}, retryCount =
   // Even for unauthenticated endpoints, the apikey is required
   headers['apikey'] = publicAnonKey;
 
-  // Get access token - only use kid token when app is actually in kid mode
+  // Get access token - check for KID mode FIRST, then fall back to Supabase
   let accessToken: string | null = null;
   let tokenSource: string = 'none';
-
-  const userRole = localStorage.getItem('user_role');
-  const userMode = localStorage.getItem('fgs_user_mode') || localStorage.getItem('user_mode');
-  const isKidMode = userRole === 'child' || userMode === 'kid';
-  const rawKidToken = localStorage.getItem('kid_access_token') || localStorage.getItem('kid_session_token');
-  const kidToken = isKidMode ? rawKidToken : null;
-
-  if (!isKidMode && rawKidToken) {
-    console.warn('🧹 Ignoring stale kid token while in parent mode');
-  }
-
+  
+  // CRITICAL: Check if this is an actual kid login (has kid token)
+  const kidToken = await getStorage('kid_access_token') || await getStorage('kid_session_token');
+  
   if (kidToken) {
+    // Actual kid login: Use kid access token from localStorage
     accessToken = kidToken;
     tokenSource = 'kid-session';
     console.log('👶 Kid mode detected - using kid access token for API call:', {
@@ -113,28 +108,28 @@ async function apiCall(endpoint: string, options: RequestInit = {}, retryCount =
               
               // Clear all session data
               await supabase.auth.signOut();
-              localStorage.removeItem('user_role');
-              localStorage.removeItem('user_mode');
-              localStorage.removeItem('fgs_family_id');
-              localStorage.removeItem('fgs_selected_child_id');
-              localStorage.removeItem('kid_access_token');
-              localStorage.removeItem('kid_session_token');
+              await removeStorage('user_role');
+              await removeStorage('user_mode');
+              await removeStorage('fgs_family_id');
+              await removeStorage('fgs_selected_child_id');
+              await removeStorage('kid_access_token');
+              await removeStorage('kid_session_token');
               
               // Clear all Supabase session keys
               const allKeys = Object.keys(localStorage);
-              const supabaseKeys = allKeys.filter(key => 
+              const supabaseKeys = allKeys.filter(key =>
                 key.startsWith('sb-') || key.includes('supabase') || key.includes('auth-token')
               );
-              supabaseKeys.forEach(key => localStorage.removeItem(key));
+              await removeMultiple(supabaseKeys);
               
               console.log('✅ Invalid session cleared. Redirecting to login...');
-              redirectToLogin('User account deleted');
+              await redirectToLogin('User account deleted');
               throw new Error('User account was deleted. Session cleared.');
             }
             
             // Clear session and redirect to login
             await supabase.auth.signOut();
-            redirectToLogin('Token refresh failed');
+            await redirectToLogin('Token refresh failed');
             throw new Error('Session expired. Please log in again.');
           }
           
@@ -190,7 +185,7 @@ async function apiCall(endpoint: string, options: RequestInit = {}, retryCount =
     });
     
     // Redirect to login immediately
-    redirectToLogin('No access token available');
+    await redirectToLogin('No access token available');
     throw new Error('Session expired. Redirecting to login...');
   }
   
@@ -214,7 +209,7 @@ async function apiCall(endpoint: string, options: RequestInit = {}, retryCount =
       }
       
       // Redirect to login immediately
-      redirectToLogin('Invalid JWT format');
+      await redirectToLogin('Invalid JWT format');
       throw new Error('Invalid authentication token. Redirecting to login...');
     }
   } else {
@@ -303,22 +298,22 @@ async function apiCall(endpoint: string, options: RequestInit = {}, retryCount =
         
         // Clear all session data
         await supabase.auth.signOut();
-        localStorage.removeItem('user_role');
-        localStorage.removeItem('user_mode');
-        localStorage.removeItem('fgs_family_id');
-        localStorage.removeItem('fgs_selected_child_id');
-        localStorage.removeItem('kid_access_token');
-        localStorage.removeItem('kid_session_token');
+        await removeStorage('user_role');
+        await removeStorage('user_mode');
+        await removeStorage('fgs_family_id');
+        await removeStorage('fgs_selected_child_id');
+        await removeStorage('kid_access_token');
+        await removeStorage('kid_session_token');
         
         // Clear all Supabase session keys
         const allKeys = Object.keys(localStorage);
-        const supabaseKeys = allKeys.filter(key => 
+        const supabaseKeys = allKeys.filter(key =>
           key.startsWith('sb-') || key.includes('supabase') || key.includes('auth-token')
         );
-        supabaseKeys.forEach(key => localStorage.removeItem(key));
-        
+        await removeMultiple(supabaseKeys);
+
         console.log('✅ Invalid session cleared. Redirecting to login...');
-        redirectToLogin('User account deleted');
+        await redirectToLogin('User account deleted');
         throw new Error('User account was deleted. Session cleared.');
       }
     } catch (e) {
@@ -332,25 +327,25 @@ async function apiCall(endpoint: string, options: RequestInit = {}, retryCount =
     console.log('⚠️ Received 401, checking token type...');
     
     // CRITICAL: Check if this is a kid session
-    const kidToken = localStorage.getItem('kid_access_token') || localStorage.getItem('kid_session_token');
-    const userMode = localStorage.getItem('user_mode');
-    const userRole = localStorage.getItem('user_role');
+    const kidToken = await getStorage('kid_access_token') || await getStorage('kid_session_token');
+    const userMode = await getStorage('user_mode');
+    const userRole = await getStorage('user_role');
     const isKidMode = userMode === 'kid' || userRole === 'child' || !!kidToken;
     
     if (isKidMode) {
       console.warn('🔐 Kid session expired - clearing and redirecting to kid login');
       
       // Clear kid session data
-      localStorage.removeItem('kid_access_token');
-      localStorage.removeItem('kid_session_token');
-      localStorage.removeItem('kid_id');
-      localStorage.removeItem('child_id');
-      localStorage.removeItem('kid_name');
-      localStorage.removeItem('kid_avatar');
-      localStorage.removeItem('user_mode');
-      localStorage.removeItem('user_role');
-      localStorage.removeItem('fgs_user_mode');
-      localStorage.removeItem('kid_family_code');
+      await removeStorage('kid_access_token');
+      await removeStorage('kid_session_token');
+      await removeStorage('kid_id');
+      await removeStorage('child_id');
+      await removeStorage('kid_name');
+      await removeStorage('kid_avatar');
+      await removeStorage('user_mode');
+      await removeStorage('user_role');
+      await removeStorage('fgs_user_mode');
+      await removeStorage('kid_family_code');
       
       // Redirect to kid login
       console.log('🔄 Redirecting to kid login...');
@@ -368,7 +363,7 @@ async function apiCall(endpoint: string, options: RequestInit = {}, retryCount =
     if (timeSinceLastRefresh < REFRESH_COOLDOWN) {
       console.warn(`⏳ Refresh cooldown active (${Math.ceil((REFRESH_COOLDOWN - timeSinceLastRefresh) / 1000)}s remaining). Redirecting to login.`);
       // Instead of throwing error, redirect to login
-      redirectToLogin('Refresh cooldown active');
+      await redirectToLogin('Refresh cooldown active');
       throw new Error('Session expired. Redirecting to login...');
     }
     
@@ -381,7 +376,7 @@ async function apiCall(endpoint: string, options: RequestInit = {}, retryCount =
         return apiCall(endpoint, options, 1);
       } catch (refreshError) {
         console.error('❌ Refresh failed:', refreshError);
-        redirectToLogin('Refresh failed');
+        await redirectToLogin('Refresh failed');
         throw new Error('Session refresh failed. Redirecting to login...');
       }
     }
@@ -433,7 +428,7 @@ async function apiCall(endpoint: string, options: RequestInit = {}, retryCount =
       console.error('❌ Failed to refresh token:', refreshError);
       // Clear session and redirect to login
       await supabase.auth.signOut();
-      redirectToLogin('Failed to refresh token');
+      await redirectToLogin('Failed to refresh token');
       throw new Error('Session expired. Redirecting to login...');
     }
   }
@@ -508,6 +503,23 @@ export async function checkDedupe(childId: string, itemId: string, userId: strin
 }
 
 export async function logPointEvent(eventData: any) {
+  // Defensive validation to prevent invalid API calls
+  if (!eventData || typeof eventData !== 'object') {
+    console.error('❌ logPointEvent called with invalid data:', eventData);
+    console.trace('Call stack:');
+    throw new Error('Invalid event data: must be an object');
+  }
+
+  const required = ['childId', 'trackableItemId', 'points', 'loggedBy'];
+  const missing = required.filter(field => eventData[field] === undefined || eventData[field] === null);
+
+  if (missing.length > 0) {
+    console.error('❌ logPointEvent called with missing required fields:', missing);
+    console.error('Event data received:', eventData);
+    console.trace('Call stack:');
+    throw new Error(`Missing required fields: ${missing.join(', ')}`);
+  }
+
   return apiCall('/events', {
     method: 'POST',
     body: JSON.stringify(eventData),
@@ -580,6 +592,13 @@ export async function createTrackableItem(itemData: any) {
 
 export async function getTrackableItems() {
   return apiCall('/trackable-items');
+}
+
+export async function updateTrackableItem(itemId: string, updates: any) {
+  return apiCall(`/trackable-items/${itemId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(updates),
+  });
 }
 
 export async function deduplicateTrackableItems() {
@@ -747,21 +766,15 @@ async function getAuthHeaders() {
   // Even for unauthenticated endpoints, the apikey is required
   headers['apikey'] = publicAnonKey;
 
-  // Get access token - only use kid token when app is actually in kid mode
+  // Get access token - check for KID mode FIRST, then fall back to Supabase
   let accessToken: string | null = null;
   let tokenSource: string = 'none';
-
-  const userRole = localStorage.getItem('user_role');
-  const userMode = localStorage.getItem('fgs_user_mode') || localStorage.getItem('user_mode');
-  const isKidMode = userRole === 'child' || userMode === 'kid';
-  const rawKidToken = localStorage.getItem('kid_access_token') || localStorage.getItem('kid_session_token');
-  const kidToken = isKidMode ? rawKidToken : null;
-
-  if (!isKidMode && rawKidToken) {
-    console.warn('🧹 Ignoring stale kid token while in parent mode');
-  }
-
+  
+  // CRITICAL: Check if this is an actual kid login (has kid token)
+  const kidToken = await getStorage('kid_access_token') || await getStorage('kid_session_token');
+  
   if (kidToken) {
+    // Actual kid login: Use kid access token from localStorage
     accessToken = kidToken;
     tokenSource = 'kid-session';
     console.log('👶 Kid mode detected - using kid access token for API call:', {
@@ -796,28 +809,28 @@ async function getAuthHeaders() {
               
               // Clear all session data
               await supabase.auth.signOut();
-              localStorage.removeItem('user_role');
-              localStorage.removeItem('user_mode');
-              localStorage.removeItem('fgs_family_id');
-              localStorage.removeItem('fgs_selected_child_id');
-              localStorage.removeItem('kid_access_token');
-              localStorage.removeItem('kid_session_token');
+              await removeStorage('user_role');
+              await removeStorage('user_mode');
+              await removeStorage('fgs_family_id');
+              await removeStorage('fgs_selected_child_id');
+              await removeStorage('kid_access_token');
+              await removeStorage('kid_session_token');
               
               // Clear all Supabase session keys
               const allKeys = Object.keys(localStorage);
-              const supabaseKeys = allKeys.filter(key => 
+              const supabaseKeys = allKeys.filter(key =>
                 key.startsWith('sb-') || key.includes('supabase') || key.includes('auth-token')
               );
-              supabaseKeys.forEach(key => localStorage.removeItem(key));
+              await removeMultiple(supabaseKeys);
               
               console.log('✅ Invalid session cleared. Redirecting to login...');
-              redirectToLogin('User account deleted');
+              await redirectToLogin('User account deleted');
               throw new Error('User account was deleted. Session cleared.');
             }
             
             // Clear session and redirect to login
             await supabase.auth.signOut();
-            redirectToLogin('Token refresh failed');
+            await redirectToLogin('Token refresh failed');
             throw new Error('Session expired. Please log in again.');
           }
           
@@ -871,7 +884,7 @@ async function getAuthHeaders() {
     });
     
     // Redirect to login immediately
-    redirectToLogin('No access token available');
+    await redirectToLogin('No access token available');
     throw new Error('Session expired. Redirecting to login...');
   }
   
@@ -895,7 +908,7 @@ async function getAuthHeaders() {
       }
       
       // Redirect to login immediately
-      redirectToLogin('Invalid JWT format');
+      await redirectToLogin('Invalid JWT format');
       throw new Error('Invalid authentication token. Redirecting to login...');
     }
   } else {
@@ -938,6 +951,7 @@ export const api = {
   // Trackable Items
   createTrackableItem,
   getTrackableItems,
+  updateTrackableItem,
   deduplicateTrackableItems,
   
   // Milestones

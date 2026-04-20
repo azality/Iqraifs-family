@@ -7,6 +7,7 @@
 
 import { useState, useEffect } from 'react';
 import { X, Play, Search, Zap } from 'lucide-react';
+import { setStorage, removeStorage } from '../../utils/storage';
 
 export function TestControlPanel() {
   const [isOpen, setIsOpen] = useState(false);
@@ -136,10 +137,10 @@ export function TestControlPanel() {
             children: family.children || []
           }
         };
-        
-        localStorage.setItem('fgs_test_environment', JSON.stringify(testEnv));
+
+        await setStorage('fgs_test_environment', JSON.stringify(testEnv));
         console.log('✅ Test environment updated with your session');
-        
+
         return testEnv;
       }
     },
@@ -150,10 +151,10 @@ export function TestControlPanel() {
       category: 'setup',
       action: async () => {
         console.log('🧹 Resetting test environment...\n');
-        
-        // Clear localStorage
-        localStorage.removeItem('fgs_test_environment');
-        console.log('✅ localStorage cleared\n');
+
+        // Clear storage
+        await removeStorage('fgs_test_environment');
+        console.log('✅ Storage cleared\n');
         
         // Note: We can't recreate test families here because setup-test-environment.ts doesn't exist
         // Users need to use "Discover Test Data" instead

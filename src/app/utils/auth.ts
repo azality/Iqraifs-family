@@ -1,7 +1,29 @@
 /**
  * Authentication Utilities
- * 
- * Clean separation between Parent (Supabase JWT) and Kid (custom token) auth modes
+ *
+ * Clean separation between Parent (Supabase JWT) and Kid (custom token) auth modes.
+ *
+ * ========================================================================
+ * FIXME(localStorage-migration): DOCUMENTED ESCAPE HATCH
+ * ------------------------------------------------------------------------
+ * This module intentionally uses raw `localStorage` rather than the async
+ * storage abstraction in `src/utils/storage.ts`. Several of its exports
+ * (`getCurrentMode`, `getKidToken`, `getKidInfo`, `getFamilyId`,
+ * `setParentMode`, `setKidMode`, `logoutKid`, `clearAllAuth`) are
+ * SYNCHRONOUS by design — they are consumed from render bodies and route
+ * guards (e.g. RequireParentRole, ProtectedRoute) that cannot await.
+ *
+ * On web, this is equivalent to the abstraction's fallback path.
+ * On native (Capacitor), values written here live in the WebView's
+ * window.localStorage, which the abstraction also writes to via its
+ * fallback — so reads remain consistent inside the app, but this module
+ * does NOT persist via Capacitor Preferences.
+ *
+ * Fully migrating this file requires converting the sync exports to async
+ * (Promise-returning) and refactoring every render-time caller to either
+ * read from a context/useState or accept an async load. That is tracked
+ * as its own follow-up and intentionally not done in the current pass.
+ * ========================================================================
  */
 
 // ===== STORAGE KEYS =====

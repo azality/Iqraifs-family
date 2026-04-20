@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { supabase } from '../../../utils/supabase/client';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info.tsx';
 import { motion } from 'motion/react';
+import { clearStorage, getStorage, setStorage, removeStorage } from '../../../utils/storage';
 
 export function ParentSignup() {
   const navigate = useNavigate();
@@ -96,10 +97,10 @@ export function ParentSignup() {
       });
 
       // Set parent mode - Supabase automatically stores the session
-      localStorage.setItem('user_role', 'parent');
-      localStorage.setItem('user_mode', 'parent');
-      localStorage.setItem('fgs_mode', 'parent');
-      localStorage.setItem('fgs_user_id', loginData.session.user.id);
+      await setStorage('user_role', 'parent');
+      await setStorage('user_mode', 'parent');
+      await setStorage('fgs_mode', 'parent');
+      await setStorage('fgs_user_id', loginData.session.user.id);
       
       navigate('/onboarding');
     } catch (error: any) {
@@ -203,11 +204,11 @@ export function ParentSignup() {
       });
 
       // Set parent mode - Supabase automatically stores the session
-      localStorage.setItem('user_role', 'parent');
-      localStorage.setItem('user_mode', 'parent');
-      localStorage.setItem('fgs_mode', 'parent');
-      localStorage.setItem('fgs_user_id', loginData.session.user.id);
-      localStorage.setItem('fgs_join_pending', 'true');
+      await setStorage('user_role', 'parent');
+      await setStorage('user_mode', 'parent');
+      await setStorage('fgs_mode', 'parent');
+      await setStorage('fgs_user_id', loginData.session.user.id);
+      await setStorage('fgs_join_pending', 'true');
       
       navigate('/join-pending');
       

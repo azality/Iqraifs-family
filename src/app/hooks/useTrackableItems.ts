@@ -1,26 +1,41 @@
 import { useState, useEffect } from 'react';
-import { getTrackableItems, createTrackableItem } from '../../utils/api';
+import { getTrackableItems, createTrackableItem, updateTrackableItem } from '../../utils/api';
 import { TrackableItem } from '../data/mockData';
 import { useAuth } from '../contexts/AuthContext';
+import { getStorage } from '../../utils/storage';
 
 export function useTrackableItems() {
   const [items, setItems] = useState<TrackableItem[]>([]);
   const [loading, setLoading] = useState(true);
   const { accessToken: authToken } = useAuth();
-  
-  // CRITICAL: Support kid mode tokens from localStorage
-  const accessToken = (() => {
-    if (authToken) return authToken;
-    
-    const userRole = localStorage.getItem('user_role');
-    const userMode = localStorage.getItem('user_mode');
-    
-    if (userRole === 'child' || userMode === 'kid') {
-      return localStorage.getItem('kid_access_token') || localStorage.getItem('kid_session_token');
-    }
-    
-    return null;
-  })();
+
+  // CRITICAL: Support kid mode tokens from storage.
+  // Kid tokens live in the async storage abstraction (Capacitor Preferences on
+  // native), so we resolve them in a useEffect and keep them in state.
+  const [kidToken, setKidToken] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [userRole, userMode] = await Promise.all([
+        getStorage('user_role'),
+        getStorage('user_mode'),
+      ]);
+      if (userRole === 'child' || userMode === 'kid') {
+        const token =
+          (await getStorage('kid_access_token')) ||
+          (await getStorage('kid_session_token'));
+        if (!cancelled) setKidToken(token ?? null);
+      } else if (!cancelled) {
+        setKidToken(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const accessToken = authToken || kidToken;
 
   const loadItems = async () => {
     // Don't try to load data if we don't have an access token
@@ -60,5 +75,26 @@ export function useTrackableItems() {
     }
   };
 
-  return { items, loading, addItem };
+  const updateItem = async (itemId: string, updates: Partial<TrackableItem>) => {
+    // Optimistic update so the UI reflects the new value immediately.
+    const previous = items;
+    setItems((current) =>
+      current.map((i) => (i.id === itemId ? { ...i, ...updates } : i)),
+    );
+    try {
+      const updated = await updateTrackableItem(itemId, updates);
+      // Reconcile with server response (covers server-added fields like updatedAt).
+      setItems((current) =>
+        current.map((i) => (i.id === itemId ? { ...i, ...updated } : i)),
+      );
+      return updated;
+    } catch (error) {
+      console.error('Error updating trackable item:', error);
+      // Roll back on failure.
+      setItems(previous);
+      throw error;
+    }
+  };
+
+  return { items, loading, addItem, updateItem };
 }

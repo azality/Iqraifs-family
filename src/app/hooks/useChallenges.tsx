@@ -3,28 +3,37 @@ import { Challenge } from '../data/mockData';
 import { useFamilyContext } from '../contexts/FamilyContext';
 import { useAuth } from '../contexts/AuthContext';
 import { projectId } from '../../../utils/supabase/info';
+import { getStorage } from '../../../utils/storage';
 
 export function useChallenges() {
   const { getCurrentChild } = useFamilyContext();
   const { accessToken: authToken } = useAuth();
   const child = getCurrentChild();
-  
-  // CRITICAL: Support kid mode tokens from localStorage
-  const accessToken = (() => {
-    if (authToken) return authToken;
-    
-    const userRole = localStorage.getItem('user_role');
-    const userMode = localStorage.getItem('user_mode');
-    
-    if (userRole === 'child' || userMode === 'kid') {
-      return localStorage.getItem('kid_access_token') || localStorage.getItem('kid_session_token');
-    }
-    
-    return null;
-  })();
-  
+
   const [challenges, setChallenges] = useState<Challenge[]>([]);
   const [loading, setLoading] = useState(false);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+
+  // CRITICAL: Support kid mode tokens from storage (hoisted to useEffect)
+  useEffect(() => {
+    const initializeToken = async () => {
+      if (authToken) {
+        setAccessToken(authToken);
+        return;
+      }
+
+      const userRole = await getStorage('user_role');
+      const userMode = await getStorage('user_mode');
+
+      if (userRole === 'child' || userMode === 'kid') {
+        const kidToken = (await getStorage('kid_access_token')) || (await getStorage('kid_session_token'));
+        setAccessToken(kidToken);
+      } else {
+        setAccessToken(null);
+      }
+    };
+    initializeToken();
+  }, [authToken]);
 
   useEffect(() => {
     if (!child || !accessToken) {

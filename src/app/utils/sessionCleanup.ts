@@ -5,6 +5,7 @@
  */
 
 import { supabase } from '../../../utils/supabase/client';
+import { removeMultiple } from '../../utils/storage';
 
 let isClearing = false;
 
@@ -23,21 +24,26 @@ export async function clearInvalidSessionAndRedirect(reason: string) {
   try {
     // Sign out from Supabase
     await supabase.auth.signOut();
-    
-    // Clear all session-related localStorage
-    localStorage.removeItem('user_role');
-    localStorage.removeItem('user_mode');
-    localStorage.removeItem('fgs_family_id');
-    localStorage.removeItem('fgs_selected_child_id');
-    localStorage.removeItem('kid_access_token');
-    localStorage.removeItem('kid_session_token');
-    
-    // Clear all Supabase session keys
-    const allKeys = Object.keys(localStorage);
-    const supabaseKeys = allKeys.filter(key => 
-      key.startsWith('sb-') || key.includes('supabase') || key.includes('auth-token')
+
+    // Clear all FGS session-related storage (async abstraction covers both web and native)
+    await removeMultiple([
+      'user_role',
+      'user_mode',
+      'fgs_family_id',
+      'fgs_selected_child_id',
+      'kid_access_token',
+      'kid_session_token',
+    ]);
+
+    // Supabase stores its own session state directly in window.localStorage, so
+    // we have to clean those raw entries here (see note in src/utils/sessionCleanup.ts).
+    // eslint-disable-next-line no-restricted-globals
+    const allKeys = Object.keys(window.localStorage);
+    const supabaseKeys = allKeys.filter((key) =>
+      key.startsWith('sb-') || key.includes('supabase') || key.includes('auth-token'),
     );
-    supabaseKeys.forEach(key => localStorage.removeItem(key));
+    // eslint-disable-next-line no-restricted-globals
+    supabaseKeys.forEach((key) => window.localStorage.removeItem(key));
     
     console.log('✅ Invalid session cleared successfully');
     console.log('🔄 Redirecting to login...');

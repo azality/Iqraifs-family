@@ -15,14 +15,14 @@ import { KidDashboard } from './KidDashboard';
 export function DashboardRouter() {
   const [userRole, setUserRole] = useState(() => {
     // Get initial role from localStorage
-    const role = localStorage.getItem('user_role');
+    const role = await getStorage('user_role');
     console.log('🔍 DashboardRouter initial role:', role);
     return role;
   });
   
   const [viewMode, setViewMode] = useState(() => {
     // Get initial view mode preference
-    const mode = localStorage.getItem('fgs_view_mode_preference');
+    const mode = await getStorage('fgs_view_mode_preference');
     console.log('🔍 DashboardRouter initial view mode:', mode);
     return mode;
   });
@@ -30,14 +30,14 @@ export function DashboardRouter() {
   useEffect(() => {
     // Listen for role changes
     const handleRoleChange = () => {
-      const newRole = localStorage.getItem('user_role');
+      const newRole = await getStorage('user_role');
       console.log('🔄 DashboardRouter role change detected:', { old: userRole, new: newRole });
       setUserRole(newRole);
     };
     
     // Listen for view mode changes
     const handleViewModeChange = () => {
-      const newMode = localStorage.getItem('fgs_view_mode_preference');
+      const newMode = await getStorage('fgs_view_mode_preference');
       console.log('🔄 DashboardRouter view mode change detected:', { old: viewMode, new: newMode });
       setViewMode(newMode);
     };

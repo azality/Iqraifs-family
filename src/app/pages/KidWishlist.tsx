@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { clearStorage, getStorage, setStorage, removeStorage } from '../../../utils/storage';
 import { useFamilyContext } from '../contexts/FamilyContext';
 import { useAuth } from '../contexts/AuthContext';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
@@ -60,7 +61,7 @@ export function KidWishlist() {
         
         // Get kid info from localStorage
         const kidInfo = {
-          id: localStorage.getItem('kid_id') || localStorage.getItem('child_id')
+          id: await getStorage('kid_id') || await getStorage('child_id')
         };
         
         // Filter to show only current child's items if in kid mode

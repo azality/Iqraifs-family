@@ -58,43 +58,30 @@ export function FamilyProvider({ children: childrenProp }: FamilyProviderProps) 
   // Get the current user's role from AuthContext
   const currentRole = auth?.role || 'parent';
 
-  // Wrapper for setSelectedChildId that persists to localStorage
+  // Wrapper for setSelectedChildId that persists to storage
   const setSelectedChildId = useCallback((id: string | null) => {
     console.log('💾 Setting selectedChildId:', id);
     setSelectedChildIdState(id);
     if (id) {
-      localStorage.setItem('fgs_selected_child_id', id);
+      void setStorage('fgs_selected_child_id', id); // fire-and-forget async call
     } else {
-      localStorage.removeItem('fgs_selected_child_id');
+      void removeStorage('fgs_selected_child_id'); // fire-and-forget async call
     }
   }, []);
 
-  // Initialize selectedChildId from localStorage on mount (parent mode only)
+  // Initialize selectedChildId from storage on mount (parent mode only)
   useEffect(() => {
-    if (currentRole === 'parent') {
-      const storedChildId = localStorage.getItem('fgs_selected_child_id');
-      if (storedChildId) {
-        console.log('📥 Restoring selectedChildId from localStorage:', storedChildId);
-        setSelectedChildIdState(storedChildId);
-      }
-    }
-  }, [currentRole, auth?.userId]);
-
-  useEffect(() => {
-    const normalizeParentMode = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (currentRole === 'parent' && session?.access_token) {
-        localStorage.setItem('user_role', 'parent');
-        localStorage.setItem('user_mode', 'parent');
-        localStorage.setItem('fgs_user_mode', 'parent');
-        localStorage.removeItem('kid_access_token');
-        localStorage.removeItem('kid_session_token');
-        localStorage.removeItem('kid_pin_session');
+    const initializeChild = async () => {
+      if (currentRole === 'parent') {
+        const storedChildId = await getStorage('fgs_selected_child_id');
+        if (storedChildId) {
+          console.log('📥 Restoring selectedChildId from storage:', storedChildId);
+          setSelectedChildIdState(storedChildId);
+        }
       }
     };
-
-    normalizeParentMode();
-  }, [currentRole, auth?.userId]);
+    initializeChild();
+  }, [currentRole]);
 
   // Auto-select single child after children are loaded (parent mode only)
   useEffect(() => {
@@ -114,8 +101,8 @@ export function FamilyProvider({ children: childrenProp }: FamilyProviderProps) 
         console.log('🔍 Current role from AuthContext:', currentRole);
         
         // Get family ID from localStorage with fallback to multiple keys
-        const storedFamilyId = localStorage.getItem('fgs_family_id') || 
-                               localStorage.getItem('family_id') ||
+        const storedFamilyId = await getStorage('fgs_family_id') || 
+                               await getStorage('family_id') ||
                                await getStorage('fgs_family_id') ||
                                await getStorage('family_id');
         
@@ -123,12 +110,12 @@ export function FamilyProvider({ children: childrenProp }: FamilyProviderProps) 
         
         // DEBUG: Log ALL relevant localStorage values
         console.log('🔍 ALL STORAGE VALUES:', {
-          fgs_family_id: localStorage.getItem('fgs_family_id'),
-          family_id: localStorage.getItem('family_id'),
-          user_id: localStorage.getItem('user_id'),
-          user_role: localStorage.getItem('user_role'),
-          user_mode: localStorage.getItem('user_mode'),
-          user_name: localStorage.getItem('user_name'),
+          fgs_family_id: await getStorage('fgs_family_id'),
+          family_id: await getStorage('family_id'),
+          user_id: await getStorage('user_id'),
+          user_role: await getStorage('user_role'),
+          user_mode: await getStorage('user_mode'),
+          user_name: await getStorage('user_name'),
           authContextRole: currentRole,
           hasSupabaseSession: !!(await supabase.auth.getSession()).data.session
         });
@@ -154,12 +141,12 @@ export function FamilyProvider({ children: childrenProp }: FamilyProviderProps) 
           console.log('👶 Kid mode detected - loading single child data from backend');
           
           // Get kid data from localStorage with detailed logging
-          const kidId = localStorage.getItem('kid_id') || localStorage.getItem('child_id');
-          const kidSessionToken = localStorage.getItem('kid_session_token') || localStorage.getItem('kid_access_token');
-          const kidName = localStorage.getItem('kid_name');
-          const kidAvatar = localStorage.getItem('kid_avatar');
-          const userRole = localStorage.getItem('user_role');
-          const userMode = localStorage.getItem('user_mode');
+          const kidId = await getStorage('kid_id') || await getStorage('child_id');
+          const kidSessionToken = await getStorage('kid_session_token') || await getStorage('kid_access_token');
+          const kidName = await getStorage('kid_name');
+          const kidAvatar = await getStorage('kid_avatar');
+          const userRole = await getStorage('user_role');
+          const userMode = await getStorage('user_mode');
           
           console.log('🔍 Kid login data check (DETAILED):', {
             kidId,
@@ -174,12 +161,12 @@ export function FamilyProvider({ children: childrenProp }: FamilyProviderProps) 
               k.includes('kid') || k.includes('child') || k.includes('user') || k.includes('family')
             ),
             allKidKeys: {
-              kid_id: localStorage.getItem('kid_id'),
-              child_id: localStorage.getItem('child_id'),
-              kid_session_token: localStorage.getItem('kid_session_token')?.substring(0, 20),
-              kid_access_token: localStorage.getItem('kid_access_token')?.substring(0, 20),
-              user_mode: localStorage.getItem('user_mode'),
-              user_role: localStorage.getItem('user_role')
+              kid_id: await getStorage('kid_id'),
+              child_id: await getStorage('child_id'),
+              kid_session_token: await getStorage('kid_session_token')?.substring(0, 20),
+              kid_access_token: await getStorage('kid_access_token')?.substring(0, 20),
+              user_mode: await getStorage('user_mode'),
+              user_role: await getStorage('user_role')
             }
           });
           
@@ -321,7 +308,7 @@ export function FamilyProvider({ children: childrenProp }: FamilyProviderProps) 
       console.log('🔄 Refreshing single child:', childId);
       
       // For kid mode, use kid token
-      const kidToken = localStorage.getItem('kid_session_token') || localStorage.getItem('kid_access_token');
+      const kidToken = await getStorage('kid_session_token') || await getStorage('kid_access_token');
       const token = kidToken || auth?.accessToken;
       
       if (!token) {
@@ -389,6 +376,12 @@ export function FamilyProvider({ children: childrenProp }: FamilyProviderProps) 
     return found || null;
   }, [children, selectedChildId, currentRole]);
 
+  // Wrapper for logEvent to match interface signature
+  const logEventWrapper = async (childId: string, event: Omit<PointEvent, 'id' | 'timestamp'>) => {
+    // The event object should already contain childId, but we ensure it's set
+    return logPointEvent({ ...event, childId });
+  };
+
   const value: FamilyContextType = {
     children,
     selectedChildId,
@@ -398,7 +391,7 @@ export function FamilyProvider({ children: childrenProp }: FamilyProviderProps) 
     refreshChild,
     getChildEvents,
     getChildAttendance,
-    logEvent: logPointEvent,
+    logEvent: logEventWrapper,
     createAttendance,
     updateChild,
     familyId,

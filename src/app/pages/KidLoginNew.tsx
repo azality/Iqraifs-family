@@ -10,6 +10,7 @@ import { supabase } from '../../../utils/supabase/client';
 import { motion } from 'motion/react';
 import { projectId, publicAnonKey } from '/utils/supabase/info.tsx';
 import { setKidMode } from '../utils/auth';
+import { getStorage, setStorage, removeStorage } from '../../../utils/storage';
 
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f`;
 
@@ -234,15 +235,15 @@ export function KidLoginNew() {
         // CRITICAL: Immediately verify localStorage was actually written
         console.log('🔍 IMMEDIATE localStorage verification after setKidMode:');
         const immediateCheck = {
-          user_mode: localStorage.getItem('user_mode'),
-          user_role: localStorage.getItem('user_role'),
-          kid_access_token: localStorage.getItem('kid_access_token'),
-          kid_session_token: localStorage.getItem('kid_session_token'),
-          kid_id: localStorage.getItem('kid_id'),
-          child_id: localStorage.getItem('child_id'),
-          kid_name: localStorage.getItem('kid_name'),
-          kid_avatar: localStorage.getItem('kid_avatar'),
-          fgs_family_id: localStorage.getItem('fgs_family_id'),
+          user_mode: await getStorage('user_mode'),
+          user_role: await getStorage('user_role'),
+          kid_access_token: await getStorage('kid_access_token'),
+          kid_session_token: await getStorage('kid_session_token'),
+          kid_id: await getStorage('kid_id'),
+          child_id: await getStorage('child_id'),
+          kid_name: await getStorage('kid_name'),
+          kid_avatar: await getStorage('kid_avatar'),
+          fgs_family_id: await getStorage('fgs_family_id'),
           allKeys: Object.keys(localStorage)
         };
         console.log('📊 Immediate check results:', immediateCheck);
@@ -274,15 +275,15 @@ export function KidLoginNew() {
       }
       
       console.log('✅ Kid session stored, checking localStorage:', {
-        user_role: localStorage.getItem('user_role'),
-        user_mode: localStorage.getItem('user_mode'),
-        kid_session_token: !!localStorage.getItem('kid_session_token'),
-        kid_session_token_length: localStorage.getItem('kid_session_token')?.length,
-        kid_access_token: !!localStorage.getItem('kid_access_token'),
-        kid_access_token_length: localStorage.getItem('kid_access_token')?.length,
-        child_id: localStorage.getItem('child_id'),
-        kid_id: localStorage.getItem('kid_id'),
-        fgs_family_id: localStorage.getItem('fgs_family_id')
+        user_role: await getStorage('user_role'),
+        user_mode: await getStorage('user_mode'),
+        kid_session_token: !!await getStorage('kid_session_token'),
+        kid_session_token_length: await getStorage('kid_session_token')?.length,
+        kid_access_token: !!await getStorage('kid_access_token'),
+        kid_access_token_length: await getStorage('kid_access_token')?.length,
+        child_id: await getStorage('child_id'),
+        kid_id: await getStorage('kid_id'),
+        fgs_family_id: await getStorage('fgs_family_id')
       });
 
       // CRITICAL: Force trigger FamilyContext to reload data with kid session
@@ -308,9 +309,9 @@ export function KidLoginNew() {
       setTimeout(() => {
         console.log('🚀 Executing navigate() now...');
         console.log('🔍 Final localStorage check before navigate:', {
-          user_mode: localStorage.getItem('user_mode'),
-          kid_access_token: !!localStorage.getItem('kid_access_token'),
-          user_role: localStorage.getItem('user_role')
+          user_mode: await getStorage('user_mode'),
+          kid_access_token: !!await getStorage('kid_access_token'),
+          user_role: await getStorage('user_role')
         });
         
         // Navigate to kid dashboard

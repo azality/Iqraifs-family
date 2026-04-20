@@ -7,19 +7,28 @@
  * PRODUCTION-READY: Uses Capacitor Preferences for iOS native storage
  */
 
-import { getStorage, setStorage, removeStorage, removeMultiple, STORAGE_KEYS } from '../../utils/storage';
+import { getStorage, setStorage, setMultiple, removeMultiple, STORAGE_KEYS } from '../../utils/storage';
 
 /**
- * Get current user role SYNCHRONOUSLY
- * This checks localStorage directly without async operations
- * Used for immediate role checks in contexts
+ * Get current user role SYNCHRONOUSLY.
+ *
+ * This is a deliberate escape hatch from the async storage abstraction:
+ * a handful of render-time guards (e.g. RequireParentRole) need a role
+ * answer before an async effect can run. It reads window.localStorage
+ * directly, which on web is exactly what the async abstraction falls
+ * back to. On native iOS the writer side (setParentSession etc.) mirrors
+ * the role to window.localStorage via storage.ts's web fallback, so this
+ * still returns correct values inside the Capacitor WebView.
+ *
+ * Prefer the async {@link getCurrentRole} anywhere you can `await`.
  */
 export function getCurrentRoleSync(): 'parent' | 'child' | null {
-  const userRole = localStorage.getItem('user_role');
-  
+  // eslint-disable-next-line no-restricted-globals
+  const userRole = window.localStorage.getItem('user_role');
+
   if (userRole === 'parent') return 'parent';
   if (userRole === 'child') return 'child';
-  
+
   return null;
 }
 
@@ -50,52 +59,35 @@ export async function hasSupabaseSession(): Promise<boolean> {
  * Clear all kid-specific session data
  * Called when parent logs in to ensure clean parent session
  */
-const KID_SESSION_KEYS = [
-  STORAGE_KEYS.CHILD_ID,
-  STORAGE_KEYS.KID_SESSION_TOKEN,
-  'kid_access_token',
-  'kid_pin_session',
-  'kid_id',
-  'kid_name',
-  'kid_avatar',
-  'kid_family_code',
-  'selected_child_id',
-  'fgs_selected_child_id',
-  'last_active_child',
-  'child_id'
-] as const;
-
-async function removeKidSessionKeys(): Promise<void> {
-  await removeMultiple([...KID_SESSION_KEYS]);
-}
-
-function dispatchChildSelectionCleared() {
+export async function clearKidSession(): Promise<void> {
+  // CRITICAL SAFETY CHECK: Never clear kid session if currently in kid mode
+  const userMode = await getStorage('user_mode');
+  const userRole = await getStorage('user_role');
+  const isKidMode = userMode === 'kid' || userRole === 'child';
+  
+  if (isKidMode) {
+    // Silent block - kid session is protected
+    return; // ABORT - do not clear active kid session
+  }
+  
+  await removeMultiple([
+    STORAGE_KEYS.CHILD_ID,
+    'kid_pin_session',
+    'selected_child_id',
+    'last_active_child',
+    STORAGE_KEYS.KID_SESSION_TOKEN,
+    'kid_access_token',
+    'kid_id'
+  ]);
+  
+  // CRITICAL: Dispatch a storage event to notify FamilyContext
+  // This ensures selectedChildId is cleared immediately when switching to parent mode
   window.dispatchEvent(new StorageEvent('storage', {
-    key: 'fgs_selected_child_id',
-    oldValue: localStorage.getItem('fgs_selected_child_id'),
+    key: 'selected_child_id',
+    oldValue: await getStorage('selected_child_id'),
     newValue: null,
     url: window.location.href
   }));
-}
-
-export async function clearKidSession(): Promise<void> {
-  const userMode = localStorage.getItem('user_mode') || localStorage.getItem('fgs_user_mode');
-  const userRole = localStorage.getItem('user_role');
-  const isKidMode = userMode === 'kid' || userRole === 'child';
-
-  if (isKidMode) {
-    return;
-  }
-
-  await removeKidSessionKeys();
-  dispatchChildSelectionCleared();
-}
-
-export async function forceClearKidSessionForParentLogin(): Promise<void> {
-  await removeKidSessionKeys();
-  localStorage.removeItem('user_mode');
-  localStorage.removeItem('fgs_user_mode');
-  dispatchChildSelectionCleared();
 }
 
 /**
@@ -104,8 +96,8 @@ export async function forceClearKidSessionForParentLogin(): Promise<void> {
  */
 export async function clearAllSessions(): Promise<void> {
   // CRITICAL SAFETY CHECK: BLOCK logout if in kid mode
-  const userMode = localStorage.getItem('user_mode');
-  const userRole = localStorage.getItem('user_role');
+  const userMode = await getStorage('user_mode');
+  const userRole = await getStorage('user_role');
   const isKidMode = userMode === 'kid' || userRole === 'child';
   
   if (isKidMode) {
@@ -168,8 +160,8 @@ export async function setParentSession(
     userEmail
   });
   
-  // Force-clear any stale kid session data first
-  await forceClearKidSessionForParentLogin();
+  // Clear any kid session first
+  await clearKidSession();
   
   // Set parent session keys
   await setStorage(STORAGE_KEYS.USER_ID, userId);
@@ -179,13 +171,12 @@ export async function setParentSession(
   await setStorage(STORAGE_KEYS.USER_MODE, 'parent');
   
   // Backwards compatibility keys
-  localStorage.setItem('user_role', 'parent');
-  localStorage.setItem('user_mode', 'parent');
-  localStorage.setItem('fgs_user_mode', 'parent');
-  localStorage.setItem('fgs_user_id', userId);
-  localStorage.setItem('fgs_user_name', userName);
-  localStorage.removeItem('kid_access_token');
-  localStorage.removeItem('kid_session_token');
+  await setMultiple({
+    user_role: 'parent',
+    fgs_user_mode: 'parent',
+    fgs_user_id: userId,
+    fgs_user_name: userName,
+  });
   
   console.log('✅ Parent session set - dispatching roleChanged event');
   

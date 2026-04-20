@@ -9,6 +9,7 @@ import { Button } from "../components/ui/button";
 import { toast } from "sonner";
 import { useAuth } from "../contexts/AuthContext";
 import { AppModeGuard } from "../components/AppModeGuard";
+import { clearStorage, getStorage, setStorage, removeStorage } from '../../../utils/storage';
 
 interface NavigationItem {
   name: string;
@@ -53,8 +54,8 @@ export function RootLayout() {
     return item.href;
   };
   
-  const userName = localStorage.getItem('user_name') || 'User';
-  const userRole = localStorage.getItem('user_role') || 'guest';
+  const userName = await getStorage('user_name') || 'User';
+  const userRole = await getStorage('user_role') || 'guest';
   
   // Kids are logged in separately and shouldn't see parent features
   const isChildLoggedIn = userRole === 'child';

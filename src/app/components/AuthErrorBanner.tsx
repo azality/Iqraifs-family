@@ -3,21 +3,26 @@ import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { Button } from './ui/button';
 import { AlertCircle, RefreshCw } from 'lucide-react';
 import { supabase } from '../../../utils/supabase/client';
+import { getStorage, clearStorage } from '../../../utils/storage';
 
 export function AuthErrorBanner() {
   const [showBanner, setShowBanner] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [kidModeDetected, setKidModeDetected] = useState(false);
 
-  // Helper to check if we're in kid mode
-  const isKidMode = () => {
-    const userRole = localStorage.getItem('user_role');
-    const userMode = localStorage.getItem('user_mode');
-    return userRole === 'child' || userMode === 'kid';
-  };
+  useEffect(() => {
+    // Initialize kid mode check
+    const checkKidMode = async () => {
+      const userRole = await getStorage('user_role');
+      const userMode = await getStorage('user_mode');
+      setKidModeDetected(userRole === 'child' || userMode === 'kid');
+    };
+    checkKidMode();
+  }, []);
 
   useEffect(() => {
     // CRITICAL: Don't show banner at all in kid mode
-    if (isKidMode()) {
+    if (kidModeDetected) {
       console.log('👶 Kid mode detected - AuthErrorBanner disabled');
       return;
     }
@@ -28,13 +33,13 @@ export function AuthErrorBanner() {
     
     console.error = (...args) => {
       const errorMessage = args.join(' ');
-      
+
       // Skip kid-specific errors
       if (errorMessage.includes('Kid session') || errorMessage.includes('kid session')) {
         originalError.apply(console, args);
         return;
       }
-      
+
       if (
         errorMessage.includes('Authentication failed') ||
         errorMessage.includes('Invalid JWT') ||
@@ -44,31 +49,31 @@ export function AuthErrorBanner() {
         errorMessage.includes('expired')
       ) {
         // Double-check we're not in kid mode AND user is logged in before showing banner
-        const storedUserId = localStorage.getItem('user_id');
-        if (!isKidMode() && storedUserId) {
+        // Note: kidModeDetected is from state set in separate useEffect
+        if (!kidModeDetected) {
+          // Can't await here, so check banner logic in checkSession instead
           setShowBanner(true);
         }
       }
       originalError.apply(console, args);
     };
-    
+
     console.warn = (...args) => {
       const warnMessage = args.join(' ');
-      
+
       // Skip kid-specific warnings
       if (warnMessage.includes('Kid session') || warnMessage.includes('kid session') || warnMessage.includes('👶')) {
         originalWarn.apply(console, args);
         return;
       }
-      
+
       if (
         warnMessage.includes('Refresh cooldown') ||
         warnMessage.includes('Token is expired') ||
         warnMessage.includes('No access token')
       ) {
         // Double-check we're not in kid mode AND user is logged in before showing banner
-        const storedUserId = localStorage.getItem('user_id');
-        if (!isKidMode() && storedUserId) {
+        if (!kidModeDetected) {
           setShowBanner(true);
         }
       }
@@ -77,7 +82,7 @@ export function AuthErrorBanner() {
 
     // Check session on mount
     checkSession();
-    
+
     // Recheck every 10 seconds
     const interval = setInterval(checkSession, 10000);
 
@@ -86,28 +91,28 @@ export function AuthErrorBanner() {
       console.warn = originalWarn;
       clearInterval(interval);
     };
-  }, []);
+  }, [kidModeDetected]);
 
   const checkSession = async () => {
     try {
       // CRITICAL: Don't check Supabase session if in kid mode
-      if (isKidMode()) {
+      if (kidModeDetected) {
         console.log('👶 Kid mode detected - skipping Supabase session check in AuthErrorBanner');
         setShowBanner(false);
         return;
       }
-      
+
       // CRITICAL: Only check session if user has a stored user_id
       // This prevents showing "Session Expired" to users who aren't logged in
-      const storedUserId = localStorage.getItem('user_id');
+      const storedUserId = await getStorage('user_id');
       if (!storedUserId) {
         console.log('🔓 No user_id found - user not logged in, skipping session check');
         setShowBanner(false);
         return;
       }
-      
+
       const { data: { session }, error } = await supabase.auth.getSession();
-      
+
       if (error || !session) {
         console.log('🔴 No valid session found, but user_id exists - session expired');
         setShowBanner(true);
@@ -116,7 +121,7 @@ export function AuthErrorBanner() {
         const expiresAt = session.expires_at;
         const now = Math.floor(Date.now() / 1000);
         const isExpired = expiresAt && expiresAt < now;
-        
+
         if (isExpired) {
           console.log('🔴 Token is expired');
           setShowBanner(true);
@@ -128,7 +133,7 @@ export function AuthErrorBanner() {
     } catch (error) {
       console.error('Error checking session:', error);
       // Only show banner if user_id exists (meaning they were logged in)
-      const storedUserId = localStorage.getItem('user_id');
+      const storedUserId = await getStorage('user_id');
       if (storedUserId) {
         setShowBanner(true);
       }
@@ -158,9 +163,9 @@ export function AuthErrorBanner() {
     }
   };
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     // Clear any stale session data before navigating
-    localStorage.clear();
+    await clearStorage();
     supabase.auth.signOut();
     window.location.href = '/parent-login';
   };

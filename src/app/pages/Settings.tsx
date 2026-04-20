@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { clearStorage, getStorage, setStorage, removeStorage } from '../../../utils/storage';
 import { useNavigate } from "react-router";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
@@ -42,7 +43,7 @@ export function Settings() {
   const navigate = useNavigate();
   const { isParentMode, accessToken } = useAuth();
   const { rewards, addReward } = useRewards();
-  const { items: trackableItems, addItem } = useTrackableItems();
+  const { items: trackableItems, addItem, updateItem: updateTrackableItem } = useTrackableItems();
   const { milestones, addMilestone } = useMilestones();
   const { children, familyId, family, loadFamilyData } = useFamilyContext();
   const [dedupeLoading, setDedupeLoading] = useState(false);
@@ -388,7 +389,7 @@ export function Settings() {
         console.error('❌ No valid session to fetch join requests - logging out');
         toast.error('Session expired. Please log in again.');
         // Clear all localStorage and redirect to login
-        localStorage.clear();
+        await clearStorage();
         navigate('/login');
         return;
       }
@@ -401,7 +402,7 @@ export function Settings() {
         toast.error('Invalid session. Please log in again.');
         // Force sign out to clear corrupted Supabase in-memory session
         await supabase.auth.signOut();
-        localStorage.clear();
+        await clearStorage();
         navigate('/login');
         return;
       }
@@ -435,7 +436,7 @@ export function Settings() {
         // If we get a 401, session is invalid
         if (response.status === 401) {
           toast.error('Session expired. Please log in again.');
-          localStorage.clear();
+          await clearStorage();
           navigate('/login');
         }
       }
@@ -2024,11 +2025,23 @@ export function Settings() {
                         
                         <div className="space-y-2">
                           <Label className="text-sm">Religious Sensitivity Mode</Label>
-                          <Select 
+                          <Select
                             value={item.religiousGuardrailMode || 'full-tracking'}
-                            onValueChange={(value) => {
-                              // TODO: Update item guardrail mode
-                              toast.info(`Guardrail mode update coming soon`);
+                            onValueChange={async (value) => {
+                              // Persist the new guardrail mode via the trackable-items PATCH endpoint.
+                              // The hook updates local state optimistically and rolls back on failure.
+                              try {
+                                await updateTrackableItem(item.id, {
+                                  religiousGuardrailMode: value as
+                                    | 'positive-only'
+                                    | 'streak-only'
+                                    | 'full-tracking'
+                                    | 'disabled',
+                                });
+                                toast.success(`Updated ${item.name} sensitivity mode`);
+                              } catch (err) {
+                                toast.error(`Couldn't update ${item.name}. Please try again.`);
+                              }
                             }}
                           >
                             <SelectTrigger className="h-9">

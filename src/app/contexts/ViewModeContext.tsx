@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { getStorage, setStorage } from '../../../utils/storage';
 
 type ViewMode = 'kid' | 'parent';
 
@@ -26,24 +27,30 @@ const PARENT_ONLY_ROUTES = [
 ];
 
 export function ViewModeProvider({ children }: { children: ReactNode }) {
-  // Initialize viewMode based on user_role in localStorage
-  const [viewMode, setViewMode] = useState<ViewMode>(() => {
-    const userRole = localStorage.getItem('user_role');
-    console.log('🎨 ViewModeProvider Init - User role:', userRole);
-    return userRole === 'child' ? 'kid' : 'parent';
-  });
+  // Initialize viewMode based on user_role in storage (default to parent)
+  const [viewMode, setViewMode] = useState<ViewMode>('parent');
   const [isTransitioning, setIsTransitioning] = useState(false);
+
+  // Load initial viewMode from storage on mount
+  useEffect(() => {
+    const initializeMode = async () => {
+      const userRole = await getStorage('user_role');
+      console.log('🎨 ViewModeProvider Init - User role:', userRole);
+      setViewMode(userRole === 'child' ? 'kid' : 'parent');
+    };
+    initializeMode();
+  }, []);
 
   const switchToKidMode = () => {
     setIsTransitioning(true);
-    setTimeout(() => {
+    setTimeout(async () => {
       setViewMode('kid');
       // Don't change user_role - that reflects actual login type
       // Just update the visual mode preference
-      localStorage.setItem('fgs_view_mode_preference', 'kid');
+      await setStorage('fgs_view_mode_preference', 'kid');
       document.documentElement.classList.add('kid-mode');
       document.documentElement.classList.remove('parent-mode');
-      
+
       // CRITICAL: Dispatch event so DashboardRouter can react
       window.dispatchEvent(new StorageEvent('storage', {
         key: 'fgs_view_mode_preference',
@@ -52,30 +59,30 @@ export function ViewModeProvider({ children }: { children: ReactNode }) {
         storageArea: localStorage,
         url: window.location.href
       }));
-      
+
       // CRITICAL: Redirect to kid dashboard if currently on a parent-only page
       const currentPath = window.location.pathname;
       const isOnParentOnlyRoute = PARENT_ONLY_ROUTES.some(route => currentPath.startsWith(route));
-      
+
       if (isOnParentOnlyRoute) {
         console.log('🔄 Switching to kid mode from parent-only route, redirecting to home');
         window.location.href = '/';
       }
-      
+
       setTimeout(() => setIsTransitioning(false), 600);
     }, 100);
   };
 
   const switchToParentMode = () => {
     setIsTransitioning(true);
-    setTimeout(() => {
+    setTimeout(async () => {
       setViewMode('parent');
       // Don't change user_role - that reflects actual login type
       // Just update the visual mode preference
-      localStorage.setItem('fgs_view_mode_preference', 'parent');
+      await setStorage('fgs_view_mode_preference', 'parent');
       document.documentElement.classList.add('parent-mode');
       document.documentElement.classList.remove('kid-mode');
-      
+
       // CRITICAL: Dispatch event so DashboardRouter can react
       window.dispatchEvent(new StorageEvent('storage', {
         key: 'fgs_view_mode_preference',
@@ -91,14 +98,18 @@ export function ViewModeProvider({ children }: { children: ReactNode }) {
 
   // Initialize mode class on mount AND watch for role changes
   useEffect(() => {
-    const userRole = localStorage.getItem('user_role');
-    const initialMode = userRole === 'child' ? 'kid' : 'parent';
-    
-    console.log('🎨 ViewModeProvider Effect - Setting mode to:', initialMode);
-    setViewMode(initialMode);
-    document.documentElement.classList.add(`${initialMode}-mode`);
-    document.documentElement.classList.remove(initialMode === 'kid' ? 'parent-mode' : 'kid-mode');
-    
+    const initializeMode = async () => {
+      const userRole = await getStorage('user_role');
+      const initialMode = userRole === 'child' ? 'kid' : 'parent';
+
+      console.log('🎨 ViewModeProvider Effect - Setting mode to:', initialMode);
+      setViewMode(initialMode);
+      document.documentElement.classList.add(`${initialMode}-mode`);
+      document.documentElement.classList.remove(initialMode === 'kid' ? 'parent-mode' : 'kid-mode');
+    };
+
+    initializeMode();
+
     // Listen for storage events (role changes from other tabs or login processes)
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'user_role') {
@@ -112,8 +123,8 @@ export function ViewModeProvider({ children }: { children: ReactNode }) {
     };
 
     // Also listen for custom events (for same-window role changes)
-    const handleRoleChange = () => {
-      const newRole = localStorage.getItem('user_role');
+    const handleRoleChange = async () => {
+      const newRole = await getStorage('user_role');
       const newMode = newRole === 'child' ? 'kid' : 'parent';
       console.log('🎨 ViewModeProvider - Role changed (custom event), new mode:', newMode);
       setViewMode(newMode);

@@ -1,11 +1,12 @@
 /**
  * Kid Session Guard
- * 
+ *
  * This module intercepts all fetch calls and automatically handles
- * expired kid sessions by clearing localStorage and redirecting.
+ * expired kid sessions by clearing storage and redirecting.
  */
 
 import { logoutKid } from './auth';
+import { getStorage } from '../../../utils/storage';
 
 let isHandlingExpiredSession = false;
 
@@ -17,10 +18,10 @@ export function initKidSessionGuard() {
   
   window.fetch = async (...args) => {
     const response = await originalFetch(...args);
-    
+
     // Check if this is a 401 Unauthorized response
     if (response.status === 401) {
-      const mode = localStorage.getItem('user_mode');
+      const mode = await getStorage('user_mode');
       
       // Get authorization header - handle both plain object and Headers object
       let authHeader = '';

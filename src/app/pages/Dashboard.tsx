@@ -7,6 +7,7 @@ import { useTrackableItems } from "../hooks/useTrackableItems";
 import { useMilestones } from "../hooks/useMilestones";
 import { useRewards } from "../hooks/useRewards";
 import { useAuth } from "../contexts/AuthContext";
+import { logPointEvent } from "../../utils/api";
 import { Badge } from "../components/ui/badge";
 import { Link } from "react-router";
 import { motion } from "motion/react";
@@ -33,7 +34,7 @@ export function Dashboard() {
   const { items: trackableItems } = useTrackableItems();
   const { milestones } = useMilestones();
   const { rewards } = useRewards();
-  const { isParentMode } = useAuth();
+  const { isParentMode, user } = useAuth();
   const child = getCurrentChild();
 
   const [recoveryDialogOpen, setRecoveryDialogOpen] = useState(false);
@@ -57,14 +58,45 @@ export function Dashboard() {
     }
   }, [child?.id, getChildEvents]);
 
-  const submitRecovery = async (eventId: string, recoveryNote: string) => {
-    // TODO: Implement recovery submission via API
-    console.log('Recovery submitted:', { eventId, recoveryNote });
-    // Reload events after recovery
-    if (child?.id) {
-      const events = await getChildEvents(child.id);
-      setPointEvents(events || []);
+  // Point values awarded for each recovery action. Must match RecoveryDialog.tsx.
+  const RECOVERY_POINTS: Record<'apology' | 'reflection' | 'correction', number> = {
+    apology: 2,
+    reflection: 3,
+    correction: 5,
+  };
+
+  const submitRecovery = async (
+    eventId: string,
+    recoveryAction: 'apology' | 'reflection' | 'correction',
+    recoveryNotes: string,
+  ) => {
+    if (!child?.id) {
+      throw new Error('No child selected');
     }
+    const originalEvent = pointEvents.find(e => e.id === eventId);
+    if (!originalEvent) {
+      throw new Error('Original negative event not found');
+    }
+
+    // Recovery is modelled as a positive point event with isRecovery=true.
+    // The backend (supabase/functions/server/index.tsx) skips daily-cap and
+    // singleton/dedupe checks when isRecovery is true.
+    await logPointEvent({
+      childId: child.id,
+      trackableItemId: originalEvent.trackableItemId,
+      points: RECOVERY_POINTS[recoveryAction],
+      loggedBy: user?.name || user?.id || child.name,
+      isRecovery: true,
+      recoveryFromEventId: eventId,
+      recoveryAction,
+      recoveryNotes,
+      notes: `Recovery (${recoveryAction}): ${recoveryNotes}`,
+      timestamp: new Date().toISOString(),
+    });
+
+    // Reload events so the new recovery entry shows in the timeline
+    const events = await getChildEvents(child.id);
+    setPointEvents(events || []);
   };
 
   // Show loading state while family data is loading
@@ -504,7 +536,7 @@ export function Dashboard() {
           childName={child.name}
           itemName={trackableItems.find(i => i.id === selectedNegativeEvent.trackableItemId)?.name || 'Unknown'}
           onSubmitRecovery={async (recoveryAction, notes) => {
-            await submitRecovery(selectedNegativeEvent.id, notes);
+            await submitRecovery(selectedNegativeEvent.id, recoveryAction, notes);
           }}
         />
       )}

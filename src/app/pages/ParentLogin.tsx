@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { clearStorage, getStorage, setStorage, removeStorage } from '../../../utils/storage';
 import { useNavigate } from 'react-router';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -9,7 +10,7 @@ import { toast } from 'sonner';
 import { supabase } from '../../../utils/supabase/client';
 import { AuthContext } from '../contexts/AuthContext';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info.tsx';
-import { forceClearKidSessionForParentLogin, setParentSession } from '../utils/authHelpers';
+import { setParentSession } from '../utils/authHelpers';
 import { isPushNotificationsSupported, initializePushNotifications } from '../utils/pushNotifications';
 import { useContext } from 'react';
 
@@ -28,9 +29,14 @@ export function ParentLogin() {
     try {
       console.log('🔐 Starting parent login process for:', email);
       
-      // CRITICAL: Force-clear any stale kid session data BEFORE login
-      console.log('🧹 Pre-login cleanup: force-clearing stale kid session data');
-      await forceClearKidSessionForParentLogin();
+      // CRITICAL: Clear any stale kid session data BEFORE login
+      // This prevents race conditions where FamilyContext tries to use old child data
+      console.log('🧹 Pre-login cleanup: Clearing stale kid session data');
+      await removeStorage('child_id');
+      await removeStorage('fgs_selected_child_id');
+      await removeStorage('selected_child_id');
+      await removeStorage('last_active_child');
+      await removeStorage('kid_pin_session');
       
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
@@ -51,7 +57,7 @@ export function ParentLogin() {
 
       // Use the centralized helper to set parent session
       // This will clear any kid session data and set parent role
-      await setParentSession(
+      setParentSession(
         data.user.id,
         data.user.user_metadata.name || email,
         email
@@ -162,7 +168,7 @@ export function ParentLogin() {
           
           if (families && families.length > 0) {
             const familyId = families[0].id;
-            localStorage.setItem('fgs_family_id', familyId);
+            await setStorage('fgs_family_id', familyId);
             console.log('✅ Cached family ID:', familyId);
             
             // Small delay to ensure localStorage is flushed before navigation

@@ -3107,6 +3107,38 @@ app.get(
   }
 });
 
+// Update a trackable item (e.g. change religiousGuardrailMode, points, name)
+app.patch(
+  "/make-server-f116e23f/trackable-items/:id",
+  requireAuth,
+  requireParent,
+  async (c) => {
+    try {
+      const id = c.req.param('id');
+      const updates = await c.req.json();
+
+      const item = await kv.get(id);
+      if (!item) {
+        return c.json({ error: 'Trackable item not found' }, 404);
+      }
+
+      // Don't let callers overwrite the id or creation timestamp
+      const { id: _ignoredId, createdAt: _ignoredCreatedAt, ...safeUpdates } = updates || {};
+
+      const updated = {
+        ...item,
+        ...safeUpdates,
+        updatedAt: new Date().toISOString(),
+      };
+      await kv.set(id, updated);
+
+      return c.json(updated);
+    } catch (error) {
+      return c.json({ error: 'Failed to update trackable item' }, 500);
+    }
+  }
+);
+
 // Deduplicate trackable items (admin/debug endpoint)
 app.post(
   "/make-server-f116e23f/trackable-items/dedupe",

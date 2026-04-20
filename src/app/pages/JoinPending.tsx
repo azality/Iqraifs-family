@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { clearStorage, getStorage, setStorage, removeStorage } from '../../../utils/storage';
 import { useNavigate } from 'react-router';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -48,8 +49,8 @@ export function JoinPending() {
         
         if (userData.familyId) {
           // Approved! Clear pending flag and redirect
-          localStorage.removeItem('fgs_join_pending');
-          localStorage.setItem('fgs_family_id', userData.familyId);
+          await removeStorage('fgs_join_pending');
+          await setStorage('fgs_family_id', userData.familyId);
           // Don't need to store token - Supabase already has it
           toast.success('Your join request was approved! Welcome to the family! 🎉');
           navigate('/onboarding');
@@ -88,7 +89,7 @@ export function JoinPending() {
   };
 
   const handleLogout = () => {
-    localStorage.clear();
+    await clearStorage();
     navigate('/login');
   };
 
