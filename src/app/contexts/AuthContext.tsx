@@ -21,9 +21,11 @@ interface User {
 interface AuthContextType {
   role: UserRole;
   isParentMode: boolean;
-  requestParentAccess: (password: string) => boolean;
+  /**
+   * Set the current role to 'child'. Does NOT start a kid session — that's
+   * kidLogin's job. Use this only when a real kid session already exists.
+   */
   switchToChildMode: () => void;
-  switchToParentMode: (password: string) => boolean;
   accessToken: string | null;
   userId: string | null;
   user: User | null;
@@ -33,9 +35,6 @@ interface AuthContextType {
 }
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-// Simple password - in production, this would be stored securely
-const PARENT_PASSWORD = '1234'; // Parents can change this
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   // Track if we're currently refreshing to prevent concurrent refreshes
@@ -477,20 +476,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refreshSession();
   }, [role]);
 
-  const requestParentAccess = (password: string): boolean => {
-    if (password === PARENT_PASSWORD) {
-      setRoleState('parent');
-      return true;
-    }
-    return false;
-  };
-
   const switchToChildMode = () => {
     setRoleState('child');
-  };
-
-  const switchToParentMode = (password: string): boolean => {
-    return requestParentAccess(password);
   };
 
   const logout = async () => {
@@ -507,9 +494,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthContext.Provider value={{
       role,
       isParentMode,
-      requestParentAccess,
       switchToChildMode,
-      switchToParentMode,
       accessToken,
       userId,
       user,

@@ -4,7 +4,7 @@ import { ModeSwitcher } from "../components/ModeSwitcher";
 import {
   Home, FileText, BarChart3, Settings, Calendar, Gift, Shield,
   Menu, X, Trophy, Sliders, Edit, LogOut, Compass, Briefcase,
-  Sparkles, Database, Gamepad2, ChevronDown,
+  Sparkles, Database, Gamepad2, ChevronDown, Eye,
 } from "lucide-react";
 import { cn } from "../components/ui/utils";
 import { useViewMode } from "../contexts/ViewModeContext";
@@ -86,7 +86,7 @@ const kidQuickAccess = [
 export function RootLayout() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { viewMode } = useViewMode();
+  const { viewMode, switchToParentMode, isPreviewingAsKid } = useViewMode();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { logout } = useAuth();
 
@@ -148,6 +148,29 @@ export function RootLayout() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col transition-colors duration-500">
+      {/* ================= Preview banner (parent viewing as kid) ================= */}
+      {isPreviewingAsKid && (
+        <div className="bg-amber-400 text-amber-950 border-b border-amber-500 sticky top-0 z-30">
+          <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-2 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 min-w-0">
+              <Eye className="h-4 w-4 flex-shrink-0" />
+              <span className="text-sm font-semibold truncate">
+                Previewing as kid — actions are disabled
+              </span>
+            </div>
+            <button
+              onClick={() => {
+                switchToParentMode();
+                toast.success("Switched back to Parent View 📊");
+              }}
+              className="text-xs font-semibold underline underline-offset-2 hover:text-amber-900 whitespace-nowrap"
+            >
+              Exit preview
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ================= Header ================= */}
       <header className="bg-card border-b border-border sticky top-0 z-20 shadow-sm transition-all duration-500">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">

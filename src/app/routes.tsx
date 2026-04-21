@@ -47,7 +47,7 @@ import { DesertTrialsZone } from "./pages/adventure-zones/DesertTrialsZone";
 import { ZonePlay } from "./pages/adventure-zones/ZonePlay";
 import { useState, useEffect } from "react";
 import { getCurrentMode } from "./utils/auth";
-import { getStorage, STORAGE_KEYS } from "../utils/storage";
+import { getStorage, getStorageSync, STORAGE_KEYS } from "../utils/storage";
 
 // Custom error element that's wrapped with providers
 function RouterErrorBoundary() {
@@ -71,21 +71,36 @@ function RouterErrorBoundary() {
   );
 }
 
-// Kid auth protection - checks for kid session
+// Kid auth protection - checks for kid session OR parent-previewing-as-kid.
+//
+// Two valid ways to reach a /kid/* route:
+//   1. Real kid login (user_role === 'child' and a kid session token exists).
+//   2. Parent previewing the kid experience (user_role === 'parent' AND
+//      fgs_view_mode_preference === 'kid'). This is a READ-ONLY preview —
+//      KidDashboard and friends gate mutations on `isPreviewingAsKid`, so
+//      the parent's JWT cannot fire real kid actions here.
+//
+// Anyone else (no session, no preview intent) is sent to /kid/login.
 function RequireKidAuth({ children }: { children: JSX.Element }) {
   const mode = getCurrentMode();
-  
+  const userRole = getStorageSync(STORAGE_KEYS.USER_ROLE);
+  const viewPref = getStorageSync('fgs_view_mode_preference');
+  const isParentPreviewing = userRole === 'parent' && viewPref === 'kid';
+
   console.log('🔒 RequireKidAuth check:', {
     mode,
-    pathname: window.location.pathname
+    userRole,
+    viewPref,
+    isParentPreviewing,
+    pathname: window.location.pathname,
   });
-  
-  if (mode !== 'kid') {
-    console.log('❌ RequireKidAuth: Not in kid mode, redirecting to /kid/login');
+
+  if (mode !== 'kid' && !isParentPreviewing) {
+    console.log('❌ RequireKidAuth: Not in kid mode or parent-preview, redirecting to /kid/login');
     return <Navigate to="/kid/login" replace />;
   }
-  
-  console.log('✅ RequireKidAuth: Kid mode detected, allowing access');
+
+  console.log('✅ RequireKidAuth: Allowed', { reason: isParentPreviewing ? 'parent-previewing-as-kid' : 'kid-session' });
   return children;
 }
 

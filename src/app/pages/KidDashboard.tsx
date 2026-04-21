@@ -4,6 +4,7 @@ import { Flame, Award, Heart, Gift, Sparkles, TrendingUp, TrendingDown, Clock } 
 import { useNavigate } from "react-router";
 import { Button } from "../components/ui/button";
 import { useAuth } from "../contexts/AuthContext";
+import { useViewMode } from "../contexts/ViewModeContext";
 import { useFamilyContext } from "../contexts/FamilyContext";
 import { motion } from "motion/react";
 import { PointsDisplay } from "../components/kid-mode/PointsDisplay";
@@ -22,6 +23,10 @@ const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-f116
 export function KidDashboard() {
   const { getCurrentChild, familyId } = useFamilyContext();
   const { accessToken } = useAuth();
+  // When a parent is previewing the kid view, we must prevent any real
+  // mutations (reward requests, recovery submissions, etc). The RootLayout
+  // banner plus these guards keep the preview strictly read-only.
+  const { isPreviewingAsKid } = useViewMode();
   const child = getCurrentChild();
   const navigate = useNavigate();
 
@@ -139,6 +144,10 @@ export function KidDashboard() {
 
   // Handle reward request submission
   const handleRequestReward = async (rewardId: string, notes?: string) => {
+    if (isPreviewingAsKid) {
+      toast.info("You're previewing as a kid — actions are disabled 👀");
+      return;
+    }
     if (!child || !accessToken) {
       toast.error('Please log in first');
       return;
@@ -184,6 +193,10 @@ export function KidDashboard() {
 
   // Handle recovery submission
   const submitRecovery = async (eventId: string, childId: string, recoveryType: string) => {
+    if (isPreviewingAsKid) {
+      toast.info("You're previewing as a kid — actions are disabled 👀");
+      return;
+    }
     if (!accessToken || !familyId) {
       toast.error('Not authorized');
       return;

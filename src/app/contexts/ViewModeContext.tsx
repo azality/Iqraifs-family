@@ -9,6 +9,13 @@ interface ViewModeContextType {
   switchToKidMode: () => void;
   switchToParentMode: () => void;
   isTransitioning: boolean;
+  /**
+   * True when the ACTUAL logged-in user is a parent but the UI is showing
+   * the kid view (a read-only preview). Kid-facing components should use
+   * this to disable mutations — a parent previewing as kid must not be
+   * able to request rewards, submit recovery, earn points, etc.
+   */
+  isPreviewingAsKid: boolean;
 }
 
 const ViewModeContext = createContext<ViewModeContextType | undefined>(undefined);
@@ -30,13 +37,25 @@ export function ViewModeProvider({ children }: { children: ReactNode }) {
   // Initialize viewMode based on user_role in storage (default to parent)
   const [viewMode, setViewMode] = useState<ViewMode>('parent');
   const [isTransitioning, setIsTransitioning] = useState(false);
+  // Track the actual logged-in role separately from the visual viewMode.
+  // A parent can flip to kid view for preview, but the underlying role is
+  // still 'parent' — we use that gap to compute isPreviewingAsKid.
+  const [actualRole, setActualRole] = useState<string | null>(() => getStorageSync('user_role'));
 
-  // Load initial viewMode from storage on mount
+  // Load initial viewMode from storage on mount. Prefer any explicit user
+  // preference (fgs_view_mode_preference) so a parent who previously flipped
+  // into kid-view stays in kid-view after a reload.
   useEffect(() => {
     const initializeMode = async () => {
       const userRole = getStorageSync('user_role');
-      console.log('🎨 ViewModeProvider Init - User role:', userRole);
-      setViewMode(userRole === 'child' ? 'kid' : 'parent');
+      const viewPref = getStorageSync('fgs_view_mode_preference');
+      console.log('🎨 ViewModeProvider Init - User role:', userRole, 'viewPref:', viewPref);
+      setActualRole(userRole);
+      if (viewPref === 'kid' || viewPref === 'parent') {
+        setViewMode(viewPref);
+      } else {
+        setViewMode(userRole === 'child' ? 'kid' : 'parent');
+      }
     };
     initializeMode();
   }, []);
@@ -116,6 +135,7 @@ export function ViewModeProvider({ children }: { children: ReactNode }) {
         const newRole = e.newValue;
         const newMode = newRole === 'child' ? 'kid' : 'parent';
         console.log('🎨 ViewModeProvider - Storage changed, new mode:', newMode);
+        setActualRole(newRole);
         setViewMode(newMode);
         document.documentElement.classList.add(`${newMode}-mode`);
         document.documentElement.classList.remove(newMode === 'kid' ? 'parent-mode' : 'kid-mode');
@@ -127,6 +147,7 @@ export function ViewModeProvider({ children }: { children: ReactNode }) {
       const newRole = getStorageSync('user_role');
       const newMode = newRole === 'child' ? 'kid' : 'parent';
       console.log('🎨 ViewModeProvider - Role changed (custom event), new mode:', newMode);
+      setActualRole(newRole);
       setViewMode(newMode);
       document.documentElement.classList.add(`${newMode}-mode`);
       document.documentElement.classList.remove(newMode === 'kid' ? 'parent-mode' : 'kid-mode');
@@ -143,8 +164,21 @@ export function ViewModeProvider({ children }: { children: ReactNode }) {
     };
   }, []); // Only run once on mount, but listeners will handle updates
 
+  // A parent previewing the kid experience: real role is parent but the
+  // UI is showing the kid view. Used by guards and components to lock
+  // mutations during preview.
+  const isPreviewingAsKid = actualRole === 'parent' && viewMode === 'kid';
+
   return (
-    <ViewModeContext.Provider value={{ viewMode, switchToKidMode, switchToParentMode, isTransitioning }}>
+    <ViewModeContext.Provider
+      value={{
+        viewMode,
+        switchToKidMode,
+        switchToParentMode,
+        isTransitioning,
+        isPreviewingAsKid,
+      }}
+    >
       {children}
     </ViewModeContext.Provider>
   );
@@ -159,7 +193,8 @@ export function useViewMode() {
       viewMode: 'parent' as ViewMode,
       switchToKidMode: () => {},
       switchToParentMode: () => {},
-      isTransitioning: false
+      isTransitioning: false,
+      isPreviewingAsKid: false,
     };
   }
   return context;
