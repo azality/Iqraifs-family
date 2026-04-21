@@ -102,7 +102,7 @@ export function RootLayout() {
   const navigate = useNavigate();
   const { viewMode, switchToParentMode, isPreviewingAsKid } = useViewMode();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
 
   const isKidMode = viewMode === 'kid';
 
@@ -175,7 +175,15 @@ export function RootLayout() {
     setOpenGroups(prev => ({ ...prev, [key]: !prev[key] }));
 
   // --- User info ------------------------------------------------------------
-  const userName = getStorageSync('user_name') || 'User';
+  // AuthContext.user is the reactive source of truth (it loads from the
+  // canonical STORAGE_KEYS.USER_NAME = 'fgs_user_name'). We fall back to
+  // the same storage key on first paint so the name doesn't briefly flash
+  // as "User" before the context hydrates. The old code read 'user_name'
+  // (no prefix) — nothing ever writes that, so it always showed "User".
+  const userName =
+    user?.name ||
+    getStorageSync('fgs_user_name') ||
+    'User';
   const userRole = getStorageSync('user_role') || 'guest';
   const isChildLoggedIn = userRole === 'child';
   const userInitial = (userName || 'U').charAt(0).toUpperCase();
