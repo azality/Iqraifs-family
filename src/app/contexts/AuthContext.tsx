@@ -179,12 +179,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         // Check if user is in kid mode
         const userRole = getStorageSync(STORAGE_KEYS.USER_ROLE);
-        
+
         if (userRole === 'child') {
           // Kid mode: Use kid session token
           const kidToken = getStorageSync(STORAGE_KEYS.KID_SESSION_TOKEN);
           console.log('👶 Kid mode detected, using kid session token:', !!kidToken);
-          
+
           if (kidToken) {
             setAccessTokenState(kidToken);
             const childId = getStorageSync(STORAGE_KEYS.CHILD_ID);
@@ -197,22 +197,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setIsLoading(false);
           return;
         }
-        
-        // Parent mode: Use Supabase session
-        console.log('👨‍👩‍👧‍👦 Parent mode detected, using Supabase session...');
-        const { session, error } = await getCachedSession();
+
+        // Parent mode: Use Supabase session.
+        //
+        // refreshSession is an EXPLICIT "give me fresh state" call (e.g. right
+        // after signInWithPassword). We must bypass the 30s session cache here
+        // or we'll hit a stale post-logout null and nuke the fresh login. We
+        // still update the cache afterward so other callers get the benefit.
+        console.log('👨‍👩‍👧‍👦 Parent mode detected, using Supabase session (bypassing cache)...');
+        sessionCache.current = null;
+        const { data: { session }, error } = await supabase.auth.getSession();
+        sessionCache.current = {
+          session: { session, error },
+          timestamp: Date.now(),
+        };
         
         if (error) {
-          console.error('Session refresh error:', error);
-          // Clear any stale session data (ONLY for parent mode)
-          console.log('🧹 Clearing stale parent session data due to error');
+          // Same rule as the no-session branch below: a transient Supabase
+          // error must NOT wipe persisted auth keys, or a post-login cache
+          // race bounces the user back to /parent-login. Storage clears
+          // belong to the explicit logout path. Note: we call the raw
+          // setUserIdState (not the setUserId helper) so we only clear
+          // in-memory state — the helper would also remove fgs_user_id.
+          console.error('Session refresh error (storage preserved):', error);
           setAccessTokenState(null);
-          await setUserId(null);
-          // Only remove these if we're actually in parent mode
-          if (userRole === 'parent') {
-            removeStorageSync(STORAGE_KEYS.USER_ID);
-            removeStorageSync(STORAGE_KEYS.USER_ROLE);
-          }
+          setUserIdState(null);
           setIsLoading(false);
           return;
         }
@@ -285,31 +294,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             });
           }
         } else {
-          console.log('No active session found - clearing all auth data');
-          // Clear stored tokens if no session exists (ONLY for parent mode)
+          // No active Supabase session. Reflect that in local auth state but
+          // DO NOT touch persisted storage keys (fgs_user_id, user_role).
+          // That's a race-bomb: right after signInWithPassword writes those
+          // keys, a stale no-session read would nuke them and bounce the
+          // user back to /parent-login. Storage is cleared authoritatively
+          // by logout() → clearAllSessions(). Stale in-memory state on its
+          // own does no harm — the next explicit refresh will fix it.
+          // NOTE: call the raw setUserIdState (not setUserId) so we only
+          // clear memory — the helper also removes fgs_user_id.
+          console.log('No active session found - clearing in-memory auth (storage preserved)');
           setAccessTokenState(null);
-          await setUserId(null);
+          setUserIdState(null);
           setUser(null);
-          // Only remove these if we're actually in parent mode
-          if (userRole === 'parent' || !userRole) {
-            removeStorageSync(STORAGE_KEYS.USER_ID);
-            removeStorageSync(STORAGE_KEYS.USER_ROLE);
-          }
         }
         setIsLoading(false);
       } catch (error) {
         console.error('Error refreshing session:', error);
-        // Clear stale data on error (ONLY for parent mode)
-        console.log('🧹 Clearing stale session data due to exception');
+        // Same rule as above: wipe in-memory state, leave storage alone.
+        // The authoritative storage clear path is logout().
+        console.log('🧹 Clearing in-memory session after exception (storage preserved)');
         setAccessTokenState(null);
-        await setUserId(null);
+        setUserIdState(null);
         setUser(null);
-        // Only remove these if we're actually in parent mode
-        const currentUserRole = getStorageSync(STORAGE_KEYS.USER_ROLE);
-        if (currentUserRole === 'parent' || !currentUserRole) {
-          removeStorageSync(STORAGE_KEYS.USER_ID);
-          removeStorageSync(STORAGE_KEYS.USER_ROLE);
-        }
         setIsLoading(false);
       } finally {
         isRefreshing.current = false;
@@ -400,6 +407,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           tokenPreview: session?.access_token ? session.access_token.substring(0, 30) + '...' : 'none'
         });
 
+        // CRITICAL: keep the session cache in sync with the real Supabase
+        // state on EVERY auth event. Without this, a post-logout null can
+        // linger in the cache for 30s and overwrite a fresh post-login state
+        // when something (e.g. ParentLogin) calls refreshSession().
+        sessionCache.current = {
+          session: { session, error: null },
+          timestamp: Date.now(),
+        };
+
         if (session?.access_token) {
           console.log('✅ Setting accessToken from auth state change');
           setAccessTokenState(session.access_token);
@@ -482,6 +498,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     console.log('Logging out...');
+    // Drop the cached session before we actually sign out so nothing
+    // downstream can read a stale handle during the logout → login cycle.
+    sessionCache.current = null;
     await supabase.auth.signOut();
     await clearAllSessions();
     setAccessTokenState(null);
