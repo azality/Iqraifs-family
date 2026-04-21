@@ -57,21 +57,39 @@ export function Adjustments() {
     );
   }
 
+  const [submitting, setSubmitting] = useState(false);
+
   const handleSubmit = async () => {
+    console.log('[Adjustments] handleSubmit fired', { points, reason, type, hasChild: !!child, hasUser: !!user });
+
+    if (submitting) {
+      console.log('[Adjustments] already submitting, ignoring duplicate click');
+      return;
+    }
+
     const pointValue = parseInt(points);
 
     if (!points || isNaN(pointValue) || pointValue === 0) {
+      console.warn('[Adjustments] invalid point value', { points, pointValue });
       toast.error("Please enter a valid point value");
       return;
     }
 
     if (!reason.trim()) {
+      console.warn('[Adjustments] missing reason');
       toast.error("Please provide a reason for this adjustment");
       return;
     }
 
     if (!user) {
+      console.warn('[Adjustments] no user in auth context');
       toast.error("You must be signed in to create adjustments");
+      return;
+    }
+
+    if (!child) {
+      console.warn('[Adjustments] no child selected');
+      toast.error("Please select a child first");
       return;
     }
 
@@ -81,25 +99,33 @@ export function Adjustments() {
     const isNegative = type === "negative" || pointValue < 0;
     const finalPoints = isNegative ? -magnitude : magnitude;
 
+    const payload = {
+      childId: child.id,
+      trackableItemId: 'manual-adjustment',
+      type: 'adjustment' as const,
+      points: finalPoints,
+      loggedBy: user.id,
+      notes: reason,
+      isAdjustment: true,
+    };
+
+    console.log('[Adjustments] submitting payload', payload);
+    setSubmitting(true);
+
     try {
-      await logEvent(child.id, {
-        childId: child.id,
-        trackableItemId: 'manual-adjustment',
-        type: 'adjustment',
-        points: finalPoints,
-        loggedBy: user.id,
-        notes: reason,
-        isAdjustment: true
-      });
+      await logEvent(child.id, payload);
+      console.log('[Adjustments] logEvent resolved successfully');
 
       toast.success(`Adjustment created: ${finalPoints > 0 ? '+' : ''}${finalPoints} points for ${child.name}`);
 
       setPoints("");
       setReason("");
       setType("positive");
-    } catch (error) {
-      console.error('Error creating adjustment:', error);
-      toast.error('Failed to create adjustment. Please try again.');
+    } catch (error: any) {
+      console.error('[Adjustments] logEvent threw:', error);
+      toast.error(`Failed to create adjustment: ${error?.message || 'unknown error'}`);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -173,8 +199,8 @@ export function Adjustments() {
           </div>
 
           <div className="flex gap-2">
-            <Button onClick={handleSubmit} className="flex-1">
-              Create Adjustment
+            <Button onClick={handleSubmit} className="flex-1" disabled={submitting}>
+              {submitting ? 'Creating…' : 'Create Adjustment'}
             </Button>
             <Button 
               variant="outline"
