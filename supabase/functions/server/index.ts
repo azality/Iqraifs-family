@@ -2998,7 +2998,7 @@ app.post(
       }
     }
     
-    return c.json({ 
+    return c.json({
       evaluated: completedChallenges.length,
       completed: completedChallenges
     });
@@ -3006,6 +3006,68 @@ app.post(
     return c.json({ error: 'Failed to evaluate challenges' }, 500);
   }
 });
+
+// Accept a challenge (flip status from 'available' -> 'accepted')
+//
+// Callable by the kid themselves (via kid-PIN token) or by a parent of that
+// family — requireChildAccess handles both. Idempotent: if the challenge is
+// already accepted we return 200 with the existing row instead of erroring,
+// so an accidental double-tap is harmless.
+app.post(
+  "/make-server-f116e23f/children/:childId/challenges/accept",
+  requireAuth,
+  requireChildAccess,
+  async (c) => {
+    try {
+      const { childId } = c.req.param();
+      const body = await c.req.json().catch(() => ({}));
+      const { challengeId } = body || {};
+
+      if (!challengeId || typeof challengeId !== 'string') {
+        return c.json({ error: 'challengeId is required in request body' }, 400);
+      }
+
+      const challenge = await kv.get(challengeId);
+      if (!challenge) {
+        return c.json({ error: 'Challenge not found' }, 404);
+      }
+
+      // Make sure the challenge actually belongs to the child in the URL —
+      // prevents a kid from accepting another kid's challenge by ID-guessing.
+      if (challenge.childId !== childId) {
+        return c.json({ error: 'Challenge does not belong to this child' }, 403);
+      }
+
+      // Idempotency: already accepted/completed → return current state, 200.
+      if (challenge.status === 'accepted' || challenge.status === 'completed') {
+        return c.json(challenge);
+      }
+
+      if (challenge.status !== 'available') {
+        return c.json(
+          { error: `Challenge is ${challenge.status} and cannot be accepted` },
+          409
+        );
+      }
+
+      // Expiry guard — backend is source of truth.
+      if (challenge.expiresAt && new Date(challenge.expiresAt).getTime() < Date.now()) {
+        challenge.status = 'expired';
+        await kv.set(challengeId, challenge);
+        return c.json({ error: 'Challenge has expired' }, 410);
+      }
+
+      challenge.status = 'accepted';
+      challenge.acceptedAt = new Date().toISOString();
+      await kv.set(challengeId, challenge);
+
+      return c.json(challenge);
+    } catch (error) {
+      console.error('Accept challenge error:', error);
+      return c.json({ error: 'Failed to accept challenge' }, 500);
+    }
+  }
+);
 
 // Get challenge analytics for parent dashboard
 app.get(

@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { useNavigate } from 'react-router';
 import { Challenge, ChallengeDifficulty } from "../data/mockData";
 import { projectId, publicAnonKey } from '/utils/supabase/info.tsx';
 import { useFamilyContext } from '../contexts/FamilyContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useViewMode } from '../contexts/ViewModeContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -21,7 +21,6 @@ import {
   Zap, 
   Award,
   Lock,
-  ArrowLeft,
   Plus,
   Edit,
   Trash2,
@@ -41,16 +40,22 @@ interface ChallengeProgress {
 export function Challenges() {
   const { getCurrentChild, children, familyId } = useFamilyContext();
   const { isParentMode, accessToken } = useAuth();
-  const navigate = useNavigate();
+  const { isPreviewingAsKid } = useViewMode();
   const child = getCurrentChild();
-  
+
+  // A parent-previewing-as-kid should see the kid view (read-only).
+  // Only show the parent overview when the real user is a parent AND they
+  // have NOT flipped into kid preview.
+  const showParentView = isParentMode && !isPreviewingAsKid;
+
   console.log('🎮 Challenges page - Auth status:', {
     isParentMode,
+    isPreviewingAsKid,
     hasAccessToken: !!accessToken,
     hasChild: !!child,
     childId: child?.id,
     pathname: window.location.pathname,
-    renderingMode: isParentMode ? 'PARENT VIEW' : 'KID VIEW'
+    renderingMode: showParentView ? 'PARENT VIEW' : 'KID VIEW'
   });
   
   const [challenges, setChallenges] = useState<Challenge[]>([]);
@@ -66,17 +71,17 @@ export function Challenges() {
 
   // Auto-select the first child if there's only one
   useEffect(() => {
-    if (isParentMode && children && children.length === 1 && !expandedChildId) {
+    if (showParentView && children && children.length === 1 && !expandedChildId) {
       setExpandedChildId(children[0].id);
     }
-  }, [isParentMode, children, expandedChildId]);
+  }, [showParentView, children, expandedChildId]);
 
   // Callback when quest settings change
   const handleQuestSettingsChange = (enabled: boolean) => {
     setQuestsEnabled(enabled);
     if (enabled) {
       // Reload challenges when quests are enabled
-      if (isParentMode) {
+      if (showParentView) {
         loadAllChildrenChallenges();
       } else if (child) {
         loadChallenges();
@@ -112,7 +117,7 @@ export function Challenges() {
   }, [accessToken, familyId]);
 
   useEffect(() => {
-    if (isParentMode) {
+    if (showParentView) {
       // Load challenges for all children
       loadAllChildrenChallenges();
     } else if (child) {
@@ -120,7 +125,7 @@ export function Challenges() {
       loadChallenges();
       loadSampleQuests(); // Load sample quests for empty state
     }
-  }, [child, isParentMode, children]);
+  }, [child, showParentView, children]);
 
   const loadSampleQuests = async () => {
     if (!child || !accessToken) return;
@@ -167,8 +172,12 @@ export function Challenges() {
           );
           
           if (response.ok) {
-            const data = await response.json();
-            challengesData[childItem.id] = data;
+            const data: Challenge[] = await response.json();
+            // Same defensive dedup as the kid loader — avoid duplicate cards
+            // in the parent overview if the backend returns them twice.
+            challengesData[childItem.id] = Array.from(
+              new Map(data.map((c) => [c.id, c])).values()
+            );
           }
         } catch (error) {
           console.error(`Load challenges error for child ${childItem.id}:`, error);
@@ -186,7 +195,7 @@ export function Challenges() {
 
   const loadChallenges = async () => {
     if (!child || !accessToken) return;
-    
+
     try {
       setLoading(true);
       const response = await fetch(
@@ -197,10 +206,25 @@ export function Challenges() {
           }
         }
       );
-      
+
       if (response.ok) {
-        const data = await response.json();
-        setChallenges(data);
+        const data: Challenge[] = await response.json();
+        // Defensive dedup: the backend has been observed to return the same
+        // challenge twice (e.g. two "🌟 Super Star Day" cards). Dedup by id
+        // so the UI never renders duplicates even if upstream has them.
+        const uniqueById = Array.from(
+          new Map(data.map((c) => [c.id, c])).values()
+        );
+        if (uniqueById.length !== data.length) {
+          console.warn(
+            `⚠️ Received ${data.length} challenges but only ${uniqueById.length} unique ids — backend duplication?`
+          );
+        }
+        setChallenges(uniqueById);
+      } else {
+        const errorText = await response.text();
+        console.error('❌ Load challenges failed:', response.status, errorText);
+        toast.error('Failed to load challenges');
       }
     } catch (error) {
       console.error('Load challenges error:', error);
@@ -211,26 +235,75 @@ export function Challenges() {
   };
 
   const handleAcceptChallenge = async (challengeId: string) => {
-    if (!accessToken) return;
-    
+    // Read-only preview: a parent flipped into kid view must not accept
+    // challenges on behalf of the kid.
+    if (isPreviewingAsKid) {
+      toast.info("Preview mode — only kids can accept their own challenges");
+      return;
+    }
+
+    if (!accessToken) {
+      toast.error("You're not signed in — please log in again");
+      return;
+    }
+
+    if (!child?.id) {
+      toast.error("No child selected — try reloading the page");
+      return;
+    }
+
+    console.log('⚡ Accepting challenge:', {
+      challengeId,
+      childId: child.id,
+      hasAccessToken: !!accessToken
+    });
+
     try {
+      // NOTE: the backend route is `/children/:childId/challenges/accept`
+      // with `{ challengeId }` in the body — matches the pattern used by
+      // generate/evaluate. The old client hit `/challenges/:id/accept`,
+      // which didn't exist and returned "Route not found".
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f/challenges/${challengeId}/accept`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f/children/${child.id}/challenges/accept`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${accessToken}`
-          }
+          },
+          body: JSON.stringify({ challengeId })
         }
       );
-      
+
+      // Always read the body so we can surface useful errors. Safely parse —
+      // the backend sometimes returns non-JSON on 5xx.
+      const rawText = await response.text();
+      let parsed: any = null;
+      try {
+        parsed = rawText ? JSON.parse(rawText) : null;
+      } catch {
+        parsed = { error: rawText };
+      }
+
+      console.log('⚡ Accept challenge response:', response.status, parsed);
+
       if (response.ok) {
         toast.success("Challenge accepted! You've got this! 💪", {
           description: "Complete the challenge to earn bonus points!"
         });
         loadChallenges(); // Reload to update status
+        return;
       }
+
+      // Non-ok: surface the backend message instead of silently doing
+      // nothing. Previously this branch was missing, which is why kids
+      // tapping "Accept Challenge!" got zero feedback.
+      const message =
+        parsed?.error ||
+        parsed?.message ||
+        `Couldn't accept challenge (HTTP ${response.status})`;
+      console.error('❌ Accept challenge failed:', response.status, parsed);
+      toast.error(message);
     } catch (error) {
       console.error('Accept challenge error:', error);
       toast.error("Failed to accept challenge");
@@ -273,7 +346,7 @@ export function Challenges() {
     }
   };
 
-  if (!child && !isParentMode) {
+  if (!child && !showParentView) {
     return (
       <div className="flex items-center justify-center h-96">
         <p className="text-muted-foreground">Please select a child to view challenges.</p>
@@ -281,7 +354,7 @@ export function Challenges() {
     );
   }
 
-  if (isParentMode) {
+  if (showParentView) {
     // Parent view - show overview of all children's challenges
     const allChallenges = Object.values(allChildrenChallenges).flat();
     const totalActive = allChallenges.filter(c => c.status === 'accepted').length;
@@ -718,6 +791,10 @@ export function Challenges() {
   const activeChallengesFiltered = challenges.filter(c => c.status === 'accepted');
   const completedChallenges = challenges.filter(c => c.status === 'completed');
 
+  // Kid view is the default rendering below. KidLayout already provides the
+  // sticky header with back-to-dashboard button, so this component no longer
+  // renders its own back button (used to live here at the top of the div).
+
   const getDifficultyColor = (difficulty: ChallengeDifficulty) => {
     switch (difficulty) {
       case 'easy': return 'bg-green-500';
@@ -736,20 +813,16 @@ export function Challenges() {
     return colors[difficulty];
   };
 
-  const isChildView = !isParentMode;
+  const isChildView = !showParentView;
 
   return (
-    <div className="space-y-6">
-      {/* Back Button - Kid Mode Only */}
-      {!isParentMode && (
-        <Button
-          variant="ghost"
-          onClick={() => navigate('/kid/home')}
-          className="flex items-center gap-2 text-muted-foreground hover:text-foreground -ml-2"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to Dashboard
-        </Button>
+    <div className="space-y-6" data-testid="page-kid-challenges">
+      {/* Preview banner — only shown if a parent is viewing /kid/challenges */}
+      {isPreviewingAsKid && (
+        <div className="rounded-xl border-2 border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <strong>Preview mode:</strong> you're seeing the kid view. Accepting
+          challenges is disabled — log in as the child to interact.
+        </div>
       )}
 
       {/* Hero Header */}
@@ -918,13 +991,17 @@ export function Challenges() {
                         ))}
                       </div>
 
-                      {/* Accept Button */}
-                      <Button 
-                        className="w-full bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600"
+                      {/* Accept Button — disabled while a parent is previewing
+                          as kid, since they shouldn't accept on the kid's behalf. */}
+                      <Button
+                        className="w-full bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 disabled:opacity-60"
                         onClick={() => handleAcceptChallenge(challenge.id)}
+                        disabled={isPreviewingAsKid}
+                        title={isPreviewingAsKid ? "Preview mode — kids accept their own challenges" : undefined}
+                        data-testid={`accept-challenge-${challenge.id}`}
                       >
                         <Zap className="h-4 w-4 mr-2" />
-                        Accept Challenge!
+                        {isPreviewingAsKid ? "Accept disabled (preview)" : "Accept Challenge!"}
                       </Button>
                     </CardContent>
                   </Card>
