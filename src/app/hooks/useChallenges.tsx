@@ -3,7 +3,7 @@ import { Challenge } from '../data/mockData';
 import { useFamilyContext } from '../contexts/FamilyContext';
 import { useAuth } from '../contexts/AuthContext';
 import { projectId } from '../../../utils/supabase/info';
-import { getStorage } from '../../../utils/storage';
+import { getStorageSync } from '../../utils/storage';
 
 export function useChallenges() {
   const { getCurrentChild } = useFamilyContext();
@@ -22,11 +22,11 @@ export function useChallenges() {
         return;
       }
 
-      const userRole = await getStorage('user_role');
-      const userMode = await getStorage('user_mode');
+      const userRole = getStorageSync('user_role');
+      const userMode = getStorageSync('user_mode');
 
       if (userRole === 'child' || userMode === 'kid') {
-        const kidToken = (await getStorage('kid_access_token')) || (await getStorage('kid_session_token'));
+        const kidToken = (getStorageSync('kid_access_token')) || (getStorageSync('kid_session_token'));
         setAccessToken(kidToken);
       } else {
         setAccessToken(null);

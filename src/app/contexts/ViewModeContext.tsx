@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { getStorage, setStorage } from '../../../utils/storage';
+import { getStorageSync, setStorageSync } from '../../utils/storage';
 
 type ViewMode = 'kid' | 'parent';
 
@@ -34,7 +34,7 @@ export function ViewModeProvider({ children }: { children: ReactNode }) {
   // Load initial viewMode from storage on mount
   useEffect(() => {
     const initializeMode = async () => {
-      const userRole = await getStorage('user_role');
+      const userRole = getStorageSync('user_role');
       console.log('🎨 ViewModeProvider Init - User role:', userRole);
       setViewMode(userRole === 'child' ? 'kid' : 'parent');
     };
@@ -47,7 +47,7 @@ export function ViewModeProvider({ children }: { children: ReactNode }) {
       setViewMode('kid');
       // Don't change user_role - that reflects actual login type
       // Just update the visual mode preference
-      await setStorage('fgs_view_mode_preference', 'kid');
+      setStorageSync('fgs_view_mode_preference', 'kid');
       document.documentElement.classList.add('kid-mode');
       document.documentElement.classList.remove('parent-mode');
 
@@ -79,7 +79,7 @@ export function ViewModeProvider({ children }: { children: ReactNode }) {
       setViewMode('parent');
       // Don't change user_role - that reflects actual login type
       // Just update the visual mode preference
-      await setStorage('fgs_view_mode_preference', 'parent');
+      setStorageSync('fgs_view_mode_preference', 'parent');
       document.documentElement.classList.add('parent-mode');
       document.documentElement.classList.remove('kid-mode');
 
@@ -99,7 +99,7 @@ export function ViewModeProvider({ children }: { children: ReactNode }) {
   // Initialize mode class on mount AND watch for role changes
   useEffect(() => {
     const initializeMode = async () => {
-      const userRole = await getStorage('user_role');
+      const userRole = getStorageSync('user_role');
       const initialMode = userRole === 'child' ? 'kid' : 'parent';
 
       console.log('🎨 ViewModeProvider Effect - Setting mode to:', initialMode);
@@ -124,7 +124,7 @@ export function ViewModeProvider({ children }: { children: ReactNode }) {
 
     // Also listen for custom events (for same-window role changes)
     const handleRoleChange = async () => {
-      const newRole = await getStorage('user_role');
+      const newRole = getStorageSync('user_role');
       const newMode = newRole === 'child' ? 'kid' : 'parent';
       console.log('🎨 ViewModeProvider - Role changed (custom event), new mode:', newMode);
       setViewMode(newMode);

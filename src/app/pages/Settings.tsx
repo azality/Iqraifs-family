@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { clearStorage, getStorage, setStorage, removeStorage } from '../../../utils/storage';
+import { clearStorageSync, getStorageSync, setStorageSync, removeStorageSync } from '../../utils/storage';
 import { useNavigate } from "react-router";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
@@ -389,7 +389,7 @@ export function Settings() {
         console.error('❌ No valid session to fetch join requests - logging out');
         toast.error('Session expired. Please log in again.');
         // Clear all localStorage and redirect to login
-        await clearStorage();
+        clearStorageSync();
         navigate('/login');
         return;
       }
@@ -402,7 +402,7 @@ export function Settings() {
         toast.error('Invalid session. Please log in again.');
         // Force sign out to clear corrupted Supabase in-memory session
         await supabase.auth.signOut();
-        await clearStorage();
+        clearStorageSync();
         navigate('/login');
         return;
       }
@@ -436,7 +436,7 @@ export function Settings() {
         // If we get a 401, session is invalid
         if (response.status === 401) {
           toast.error('Session expired. Please log in again.');
-          await clearStorage();
+          clearStorageSync();
           navigate('/login');
         }
       }

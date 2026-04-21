@@ -3,7 +3,7 @@ import { Navigate } from 'react-router';
 import { getCurrentMode } from '../utils/auth';
 import { Card, CardContent } from './ui/card';
 import { Lock } from 'lucide-react';
-import { getStorage } from '../../utils/storage';
+import { getStorageSync } from '../../utils/storage';
 
 /**
  * ✅ NAV-003: Prevents kids from accessing parent routes
@@ -24,8 +24,8 @@ export function RequireParentRole({ children }: { children: JSX.Element }) {
   useEffect(() => {
     (async () => {
       const [userMode, userRole] = await Promise.all([
-        getStorage('user_mode'),
-        getStorage('user_role'),
+        getStorageSync('user_mode'),
+        getStorageSync('user_role'),
       ]);
       console.log('🔒 RequireParentRole check:', {
         mode,

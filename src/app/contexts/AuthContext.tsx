@@ -8,7 +8,7 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect, useRef } from 'react';
 import { supabase } from '../../../utils/supabase/client';
 import { clearAllSessions, getCurrentRole, hasSupabaseSession } from '../utils/authHelpers';
-import { getStorage, setStorage, removeStorage, getMultiple, STORAGE_KEYS } from '../../utils/storage';
+import { getStorageSync, setStorageSync, removeStorageSync, getMultipleSync, STORAGE_KEYS } from '../../utils/storage';
 
 export type UserRole = 'parent' | 'child';
 
@@ -87,9 +87,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     console.log('AuthContext - Setting userId:', id);
     setUserIdState(id);
     if (id) {
-      await setStorage(STORAGE_KEYS.USER_ID, id);
+      setStorageSync(STORAGE_KEYS.USER_ID, id);
     } else {
-      await removeStorage(STORAGE_KEYS.USER_ID);
+      removeStorageSync(STORAGE_KEYS.USER_ID);
     }
   };
 
@@ -97,7 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const setRole = async (newRole: UserRole) => {
     console.log('AuthContext - Setting role:', newRole);
     setRoleState(newRole);
-    await setStorage(STORAGE_KEYS.USER_MODE, newRole);
+    setStorageSync(STORAGE_KEYS.USER_MODE, newRole);
   };
 
   // Load initial auth state from storage
@@ -107,7 +107,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       try {
         // Load all auth-related values in parallel
-        const stored = await getMultiple([
+        const stored = getMultipleSync([
           STORAGE_KEYS.USER_ID,
           STORAGE_KEYS.USER_ROLE,
           STORAGE_KEYS.USER_MODE,
@@ -179,16 +179,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refreshPromise.current = (async () => {
       try {
         // Check if user is in kid mode
-        const userRole = await getStorage(STORAGE_KEYS.USER_ROLE);
+        const userRole = getStorageSync(STORAGE_KEYS.USER_ROLE);
         
         if (userRole === 'child') {
           // Kid mode: Use kid session token
-          const kidToken = await getStorage(STORAGE_KEYS.KID_SESSION_TOKEN);
+          const kidToken = getStorageSync(STORAGE_KEYS.KID_SESSION_TOKEN);
           console.log('👶 Kid mode detected, using kid session token:', !!kidToken);
           
           if (kidToken) {
             setAccessTokenState(kidToken);
-            const childId = await getStorage(STORAGE_KEYS.CHILD_ID);
+            const childId = getStorageSync(STORAGE_KEYS.CHILD_ID);
             await setUserId(childId);
           } else {
             console.log('❌ No kid session token found');
@@ -211,8 +211,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           await setUserId(null);
           // Only remove these if we're actually in parent mode
           if (userRole === 'parent') {
-            await removeStorage(STORAGE_KEYS.USER_ID);
-            await removeStorage(STORAGE_KEYS.USER_ROLE);
+            removeStorageSync(STORAGE_KEYS.USER_ID);
+            removeStorageSync(STORAGE_KEYS.USER_ROLE);
           }
           setIsLoading(false);
           return;
@@ -236,8 +236,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             });
             
             // CRITICAL FIX: Check if we're in kid mode before clearing sessions
-            const userMode = await getStorage('user_mode');
-            const userRole = await getStorage('user_role');
+            const userMode = getStorageSync('user_mode');
+            const userRole = getStorageSync('user_role');
             const isKidMode = userMode === 'kid' || userRole === 'child';
             
             console.log('🔍 Checking if kid mode before clearing:', {
@@ -274,10 +274,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           
           // Update user object
           if (session.user?.id) {
-            const userName = await getStorage(STORAGE_KEYS.USER_NAME) || 
-                           await getStorage('fgs_user_name') || 
+            const userName = getStorageSync(STORAGE_KEYS.USER_NAME) || 
+                           getStorageSync('fgs_user_name') || 
                            'User';
-            const userEmail = await getStorage(STORAGE_KEYS.USER_EMAIL);
+            const userEmail = getStorageSync(STORAGE_KEYS.USER_EMAIL);
             
             setUser({
               id: session.user.id,
@@ -293,8 +293,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUser(null);
           // Only remove these if we're actually in parent mode
           if (userRole === 'parent' || !userRole) {
-            await removeStorage(STORAGE_KEYS.USER_ID);
-            await removeStorage(STORAGE_KEYS.USER_ROLE);
+            removeStorageSync(STORAGE_KEYS.USER_ID);
+            removeStorageSync(STORAGE_KEYS.USER_ROLE);
           }
         }
         setIsLoading(false);
@@ -306,10 +306,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await setUserId(null);
         setUser(null);
         // Only remove these if we're actually in parent mode
-        const currentUserRole = await getStorage(STORAGE_KEYS.USER_ROLE);
+        const currentUserRole = getStorageSync(STORAGE_KEYS.USER_ROLE);
         if (currentUserRole === 'parent' || !currentUserRole) {
-          await removeStorage(STORAGE_KEYS.USER_ID);
-          await removeStorage(STORAGE_KEYS.USER_ROLE);
+          removeStorageSync(STORAGE_KEYS.USER_ID);
+          removeStorageSync(STORAGE_KEYS.USER_ROLE);
         }
         setIsLoading(false);
       } finally {
@@ -335,7 +335,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Check if we should be on login page
     const checkSessionAndRedirect = async () => {
       // CRITICAL: Check if user is in kid mode FIRST
-      const userRole = await getStorage(STORAGE_KEYS.USER_ROLE);
+      const userRole = getStorageSync(STORAGE_KEYS.USER_ROLE);
       
       if (userRole === 'child') {
         console.log('👶 Kid mode detected in checkSessionAndRedirect - skipping Supabase session check');
@@ -350,8 +350,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // If no session and we have user_id in storage, it means session expired
       // BUT: Only redirect if NOT in kid mode (kids don't use Supabase sessions)
       // AND: Don't redirect if we're already on a login page
-      const storedUserId = await getStorage(STORAGE_KEYS.USER_ID);
-      const userMode = await getStorage('user_mode');
+      const storedUserId = getStorageSync(STORAGE_KEYS.USER_ID);
+      const userMode = getStorageSync('user_mode');
       const isOnLoginPage = window.location.pathname.includes('login') || 
                             window.location.pathname.includes('signup') ||
                             window.location.pathname.includes('welcome');
@@ -371,7 +371,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Set up periodic token refresh (every 30 minutes)
     const refreshInterval = setInterval(async () => {
-      const userRole = await getStorage(STORAGE_KEYS.USER_ROLE);
+      const userRole = getStorageSync(STORAGE_KEYS.USER_ROLE);
       
       if (userRole === 'parent') {
         console.log('🔄 Periodic token refresh (30min)...');
@@ -442,7 +442,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Sync role with user_role from storage when it changes
   useEffect(() => {
     const syncRole = async () => {
-      const userRole = await getStorage(STORAGE_KEYS.USER_ROLE);
+      const userRole = getStorageSync(STORAGE_KEYS.USER_ROLE);
       console.log('🔄 Syncing role from storage:', { userRole, currentRole: role });
       
       if (userRole === 'parent' && role !== 'parent') {

@@ -8,7 +8,7 @@
 // outside of src/utils/storage.ts. FGS keys are cleaned via the shared
 // async storage abstraction below.
 
-import { removeMultiple } from './storage';
+import { removeMultipleSync } from './storage';
 
 // Keys owned by this app that should be wiped alongside a corrupted Supabase
 // session. Routed through the async storage abstraction so that both web
@@ -68,11 +68,13 @@ export function checkAndCleanCorruptedSessions() {
         }
       });
 
-      // FGS keys go through the async abstraction so native Preferences are also wiped.
-      // Fire-and-forget: redirect is already triggered below.
-      void removeMultiple(FGS_KEYS_TO_CLEAR).catch((e) =>
-        console.error('Error clearing FGS keys via async storage:', e),
-      );
+      // FGS keys via the sync localStorage abstraction (web). For native Preferences
+      // wiping, callers should use the async removeMultiple from useEffect.
+      try {
+        removeMultipleSync(FGS_KEYS_TO_CLEAR);
+      } catch (e) {
+        console.error('Error clearing FGS keys via sync storage:', e);
+      }
 
       console.log('✅ Session cleanup complete - redirecting to login');
       return true;

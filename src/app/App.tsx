@@ -9,7 +9,7 @@ import { getCurrentMode } from './utils/auth';
 import { projectId } from '../../utils/supabase/info';
 import { initKidSessionGuard } from './utils/kidSessionGuard';
 import { suppressRechartsWarnings } from './utils/suppressRechartsWarnings';
-import { getStorage, removeMultiple } from '../utils/storage';
+import { getStorageSync, removeMultipleSync } from '../utils/storage';
 
 // Keys cleared when we abandon a kid session (both the expired-token check
 // below and the on-mount re-validation). Kept in one place so the two paths
@@ -33,7 +33,7 @@ const KID_SESSION_KEYS = [
 // This is a deliberate escape hatch from the async storage abstraction — it
 // runs at module import time. window.localStorage is also what the web side
 // of storage.ts falls back to, so the values match. On native we follow up
-// with an async removeMultiple() to wipe the same keys from Capacitor
+// with an async removeMultipleSync() to wipe the same keys from Capacitor
 // Preferences.
 const clearExpiredKidSession = () => {
   // eslint-disable-next-line no-restricted-globals
@@ -67,10 +67,12 @@ const clearExpiredKidSession = () => {
           }
         });
 
-        // Mirror the wipe to Capacitor Preferences for native parity.
-        void removeMultiple(KID_SESSION_KEYS).catch((e) =>
-          console.error('Error clearing kid session from async storage:', e),
-        );
+        // Mirror the wipe via the sync localStorage abstraction.
+        try {
+          removeMultipleSync(KID_SESSION_KEYS);
+        } catch (e) {
+          console.error('Error clearing kid session from sync storage:', e);
+        }
 
         console.log('✅ Expired session cleared - will redirect to login');
         window.location.href = '/kid/login';
@@ -107,14 +109,14 @@ function App() {
 
         // Get the kid token from storage (check BOTH old and new keys)
         const kidToken =
-          (await getStorage('kid_access_token')) ||
-          (await getStorage('kid_session_token'));
+          (getStorageSync('kid_access_token')) ||
+          (getStorageSync('kid_session_token'));
 
         if (kidToken) {
           try {
             // Try to fetch the kid's data to verify the session is valid
             const kidId =
-              (await getStorage('kid_id')) || (await getStorage('child_id'));
+              (getStorageSync('kid_id')) || (getStorageSync('child_id'));
 
             if (kidId) {
               const response = await fetch(
@@ -128,7 +130,7 @@ function App() {
                 console.warn('🚨 Kid session expired on app load - clearing and redirecting to login');
 
                 // Clear all kid session data via the abstraction (covers web + native)
-                await removeMultiple(KID_SESSION_KEYS);
+                removeMultipleSync(KID_SESSION_KEYS);
 
                 // Redirect to kid login
                 window.location.href = '/kid/login';

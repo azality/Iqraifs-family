@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Dashboard } from './Dashboard';
 import { KidDashboard } from './KidDashboard';
+import { getStorageSync } from '../../utils/storage';
 
 /**
  * DashboardRouter - Routes to the appropriate dashboard based on user role AND view mode
@@ -15,14 +16,14 @@ import { KidDashboard } from './KidDashboard';
 export function DashboardRouter() {
   const [userRole, setUserRole] = useState(() => {
     // Get initial role from localStorage
-    const role = await getStorage('user_role');
+    const role = getStorageSync('user_role');
     console.log('🔍 DashboardRouter initial role:', role);
     return role;
   });
   
   const [viewMode, setViewMode] = useState(() => {
     // Get initial view mode preference
-    const mode = await getStorage('fgs_view_mode_preference');
+    const mode = getStorageSync('fgs_view_mode_preference');
     console.log('🔍 DashboardRouter initial view mode:', mode);
     return mode;
   });
@@ -30,14 +31,14 @@ export function DashboardRouter() {
   useEffect(() => {
     // Listen for role changes
     const handleRoleChange = () => {
-      const newRole = await getStorage('user_role');
+      const newRole = getStorageSync('user_role');
       console.log('🔄 DashboardRouter role change detected:', { old: userRole, new: newRole });
       setUserRole(newRole);
     };
     
     // Listen for view mode changes
     const handleViewModeChange = () => {
-      const newMode = await getStorage('fgs_view_mode_preference');
+      const newMode = getStorageSync('fgs_view_mode_preference');
       console.log('🔄 DashboardRouter view mode change detected:', { old: viewMode, new: newMode });
       setViewMode(newMode);
     };

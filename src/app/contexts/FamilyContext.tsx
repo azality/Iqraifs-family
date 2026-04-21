@@ -13,7 +13,7 @@ import { AuthContext } from './AuthContext';
 import { getCurrentRole, getCurrentRoleSync } from '../utils/authHelpers';
 import { supabase } from '../../../utils/supabase/client';
 import { projectId } from '../../../utils/supabase/info';
-import { getStorage, setStorage, removeStorage } from '../../utils/storage';
+import { getStorageSync, setStorageSync, removeStorageSync } from '../../utils/storage';
 import { logoutKid } from '../utils/auth';
 
 interface FamilyContextType {
@@ -63,9 +63,9 @@ export function FamilyProvider({ children: childrenProp }: FamilyProviderProps) 
     console.log('💾 Setting selectedChildId:', id);
     setSelectedChildIdState(id);
     if (id) {
-      void setStorage('fgs_selected_child_id', id); // fire-and-forget async call
+      void setStorageSync('fgs_selected_child_id', id); // fire-and-forget async call
     } else {
-      void removeStorage('fgs_selected_child_id'); // fire-and-forget async call
+      void removeStorageSync('fgs_selected_child_id'); // fire-and-forget async call
     }
   }, []);
 
@@ -73,7 +73,7 @@ export function FamilyProvider({ children: childrenProp }: FamilyProviderProps) 
   useEffect(() => {
     const initializeChild = async () => {
       if (currentRole === 'parent') {
-        const storedChildId = await getStorage('fgs_selected_child_id');
+        const storedChildId = getStorageSync('fgs_selected_child_id');
         if (storedChildId) {
           console.log('📥 Restoring selectedChildId from storage:', storedChildId);
           setSelectedChildIdState(storedChildId);
@@ -101,21 +101,21 @@ export function FamilyProvider({ children: childrenProp }: FamilyProviderProps) 
         console.log('🔍 Current role from AuthContext:', currentRole);
         
         // Get family ID from localStorage with fallback to multiple keys
-        const storedFamilyId = await getStorage('fgs_family_id') || 
-                               await getStorage('family_id') ||
-                               await getStorage('fgs_family_id') ||
-                               await getStorage('family_id');
+        const storedFamilyId = getStorageSync('fgs_family_id') || 
+                               getStorageSync('family_id') ||
+                               getStorageSync('fgs_family_id') ||
+                               getStorageSync('family_id');
         
         console.log('🔍 Family ID from storage:', storedFamilyId);
         
         // DEBUG: Log ALL relevant localStorage values
         console.log('🔍 ALL STORAGE VALUES:', {
-          fgs_family_id: await getStorage('fgs_family_id'),
-          family_id: await getStorage('family_id'),
-          user_id: await getStorage('user_id'),
-          user_role: await getStorage('user_role'),
-          user_mode: await getStorage('user_mode'),
-          user_name: await getStorage('user_name'),
+          fgs_family_id: getStorageSync('fgs_family_id'),
+          family_id: getStorageSync('family_id'),
+          user_id: getStorageSync('user_id'),
+          user_role: getStorageSync('user_role'),
+          user_mode: getStorageSync('user_mode'),
+          user_name: getStorageSync('user_name'),
           authContextRole: currentRole,
           hasSupabaseSession: !!(await supabase.auth.getSession()).data.session
         });
@@ -141,12 +141,12 @@ export function FamilyProvider({ children: childrenProp }: FamilyProviderProps) 
           console.log('👶 Kid mode detected - loading single child data from backend');
           
           // Get kid data from localStorage with detailed logging
-          const kidId = await getStorage('kid_id') || await getStorage('child_id');
-          const kidSessionToken = await getStorage('kid_session_token') || await getStorage('kid_access_token');
-          const kidName = await getStorage('kid_name');
-          const kidAvatar = await getStorage('kid_avatar');
-          const userRole = await getStorage('user_role');
-          const userMode = await getStorage('user_mode');
+          const kidId = getStorageSync('kid_id') || getStorageSync('child_id');
+          const kidSessionToken = getStorageSync('kid_session_token') || getStorageSync('kid_access_token');
+          const kidName = getStorageSync('kid_name');
+          const kidAvatar = getStorageSync('kid_avatar');
+          const userRole = getStorageSync('user_role');
+          const userMode = getStorageSync('user_mode');
           
           console.log('🔍 Kid login data check (DETAILED):', {
             kidId,
@@ -161,12 +161,12 @@ export function FamilyProvider({ children: childrenProp }: FamilyProviderProps) 
               k.includes('kid') || k.includes('child') || k.includes('user') || k.includes('family')
             ),
             allKidKeys: {
-              kid_id: await getStorage('kid_id'),
-              child_id: await getStorage('child_id'),
-              kid_session_token: await getStorage('kid_session_token')?.substring(0, 20),
-              kid_access_token: await getStorage('kid_access_token')?.substring(0, 20),
-              user_mode: await getStorage('user_mode'),
-              user_role: await getStorage('user_role')
+              kid_id: getStorageSync('kid_id'),
+              child_id: getStorageSync('child_id'),
+              kid_session_token: getStorageSync('kid_session_token')?.substring(0, 20),
+              kid_access_token: getStorageSync('kid_access_token')?.substring(0, 20),
+              user_mode: getStorageSync('user_mode'),
+              user_role: getStorageSync('user_role')
             }
           });
           
@@ -308,7 +308,7 @@ export function FamilyProvider({ children: childrenProp }: FamilyProviderProps) 
       console.log('🔄 Refreshing single child:', childId);
       
       // For kid mode, use kid token
-      const kidToken = await getStorage('kid_session_token') || await getStorage('kid_access_token');
+      const kidToken = getStorageSync('kid_session_token') || getStorageSync('kid_access_token');
       const token = kidToken || auth?.accessToken;
       
       if (!token) {

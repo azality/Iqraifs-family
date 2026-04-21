@@ -7,7 +7,7 @@
 
 import { useState, useEffect } from 'react';
 import { X, Play, Search, Zap } from 'lucide-react';
-import { setStorage, removeStorage } from '../../utils/storage';
+import { setStorageSync, removeStorageSync } from '../../utils/storage';
 
 export function TestControlPanel() {
   const [isOpen, setIsOpen] = useState(false);
@@ -138,7 +138,7 @@ export function TestControlPanel() {
           }
         };
 
-        await setStorage('fgs_test_environment', JSON.stringify(testEnv));
+        setStorageSync('fgs_test_environment', JSON.stringify(testEnv));
         console.log('✅ Test environment updated with your session');
 
         return testEnv;
@@ -153,7 +153,7 @@ export function TestControlPanel() {
         console.log('🧹 Resetting test environment...\n');
 
         // Clear storage
-        await removeStorage('fgs_test_environment');
+        removeStorageSync('fgs_test_environment');
         console.log('✅ Storage cleared\n');
         
         // Note: We can't recreate test families here because setup-test-environment.ts doesn't exist

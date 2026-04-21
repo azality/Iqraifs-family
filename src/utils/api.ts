@@ -1,6 +1,6 @@
 import { projectId, publicAnonKey } from '/utils/supabase/info.tsx';
 import { supabase } from '/utils/supabase/client';
-import { getStorage, setStorage, removeStorage, clearStorage, removeMultiple } from './storage';
+import { getStorageSync, setStorageSync, removeStorageSync, clearStorageSync, removeMultipleSync } from './storage';
 
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f`;
 
@@ -34,7 +34,7 @@ async function redirectToLogin(reason: string) {
 
   // Clear all auth data FIRST
   try {
-    await clearStorage(); // Clear everything to ensure clean state
+    clearStorageSync(); // Clear everything to ensure clean state
   } catch (e) {
     console.error('Error clearing storage:', e);
   }
@@ -70,7 +70,7 @@ async function apiCall(endpoint: string, options: RequestInit = {}, retryCount =
   let tokenSource: string = 'none';
   
   // CRITICAL: Check if this is an actual kid login (has kid token)
-  const kidToken = await getStorage('kid_access_token') || await getStorage('kid_session_token');
+  const kidToken = getStorageSync('kid_access_token') || getStorageSync('kid_session_token');
   
   if (kidToken) {
     // Actual kid login: Use kid access token from localStorage
@@ -108,19 +108,19 @@ async function apiCall(endpoint: string, options: RequestInit = {}, retryCount =
               
               // Clear all session data
               await supabase.auth.signOut();
-              await removeStorage('user_role');
-              await removeStorage('user_mode');
-              await removeStorage('fgs_family_id');
-              await removeStorage('fgs_selected_child_id');
-              await removeStorage('kid_access_token');
-              await removeStorage('kid_session_token');
+              removeStorageSync('user_role');
+              removeStorageSync('user_mode');
+              removeStorageSync('fgs_family_id');
+              removeStorageSync('fgs_selected_child_id');
+              removeStorageSync('kid_access_token');
+              removeStorageSync('kid_session_token');
               
               // Clear all Supabase session keys
               const allKeys = Object.keys(localStorage);
               const supabaseKeys = allKeys.filter(key =>
                 key.startsWith('sb-') || key.includes('supabase') || key.includes('auth-token')
               );
-              await removeMultiple(supabaseKeys);
+              removeMultipleSync(supabaseKeys);
               
               console.log('✅ Invalid session cleared. Redirecting to login...');
               await redirectToLogin('User account deleted');
@@ -298,19 +298,19 @@ async function apiCall(endpoint: string, options: RequestInit = {}, retryCount =
         
         // Clear all session data
         await supabase.auth.signOut();
-        await removeStorage('user_role');
-        await removeStorage('user_mode');
-        await removeStorage('fgs_family_id');
-        await removeStorage('fgs_selected_child_id');
-        await removeStorage('kid_access_token');
-        await removeStorage('kid_session_token');
+        removeStorageSync('user_role');
+        removeStorageSync('user_mode');
+        removeStorageSync('fgs_family_id');
+        removeStorageSync('fgs_selected_child_id');
+        removeStorageSync('kid_access_token');
+        removeStorageSync('kid_session_token');
         
         // Clear all Supabase session keys
         const allKeys = Object.keys(localStorage);
         const supabaseKeys = allKeys.filter(key =>
           key.startsWith('sb-') || key.includes('supabase') || key.includes('auth-token')
         );
-        await removeMultiple(supabaseKeys);
+        removeMultipleSync(supabaseKeys);
 
         console.log('✅ Invalid session cleared. Redirecting to login...');
         await redirectToLogin('User account deleted');
@@ -327,25 +327,25 @@ async function apiCall(endpoint: string, options: RequestInit = {}, retryCount =
     console.log('⚠️ Received 401, checking token type...');
     
     // CRITICAL: Check if this is a kid session
-    const kidToken = await getStorage('kid_access_token') || await getStorage('kid_session_token');
-    const userMode = await getStorage('user_mode');
-    const userRole = await getStorage('user_role');
+    const kidToken = getStorageSync('kid_access_token') || getStorageSync('kid_session_token');
+    const userMode = getStorageSync('user_mode');
+    const userRole = getStorageSync('user_role');
     const isKidMode = userMode === 'kid' || userRole === 'child' || !!kidToken;
     
     if (isKidMode) {
       console.warn('🔐 Kid session expired - clearing and redirecting to kid login');
       
       // Clear kid session data
-      await removeStorage('kid_access_token');
-      await removeStorage('kid_session_token');
-      await removeStorage('kid_id');
-      await removeStorage('child_id');
-      await removeStorage('kid_name');
-      await removeStorage('kid_avatar');
-      await removeStorage('user_mode');
-      await removeStorage('user_role');
-      await removeStorage('fgs_user_mode');
-      await removeStorage('kid_family_code');
+      removeStorageSync('kid_access_token');
+      removeStorageSync('kid_session_token');
+      removeStorageSync('kid_id');
+      removeStorageSync('child_id');
+      removeStorageSync('kid_name');
+      removeStorageSync('kid_avatar');
+      removeStorageSync('user_mode');
+      removeStorageSync('user_role');
+      removeStorageSync('fgs_user_mode');
+      removeStorageSync('kid_family_code');
       
       // Redirect to kid login
       console.log('🔄 Redirecting to kid login...');
@@ -771,7 +771,7 @@ async function getAuthHeaders() {
   let tokenSource: string = 'none';
   
   // CRITICAL: Check if this is an actual kid login (has kid token)
-  const kidToken = await getStorage('kid_access_token') || await getStorage('kid_session_token');
+  const kidToken = getStorageSync('kid_access_token') || getStorageSync('kid_session_token');
   
   if (kidToken) {
     // Actual kid login: Use kid access token from localStorage
@@ -809,19 +809,19 @@ async function getAuthHeaders() {
               
               // Clear all session data
               await supabase.auth.signOut();
-              await removeStorage('user_role');
-              await removeStorage('user_mode');
-              await removeStorage('fgs_family_id');
-              await removeStorage('fgs_selected_child_id');
-              await removeStorage('kid_access_token');
-              await removeStorage('kid_session_token');
+              removeStorageSync('user_role');
+              removeStorageSync('user_mode');
+              removeStorageSync('fgs_family_id');
+              removeStorageSync('fgs_selected_child_id');
+              removeStorageSync('kid_access_token');
+              removeStorageSync('kid_session_token');
               
               // Clear all Supabase session keys
               const allKeys = Object.keys(localStorage);
               const supabaseKeys = allKeys.filter(key =>
                 key.startsWith('sb-') || key.includes('supabase') || key.includes('auth-token')
               );
-              await removeMultiple(supabaseKeys);
+              removeMultipleSync(supabaseKeys);
               
               console.log('✅ Invalid session cleared. Redirecting to login...');
               await redirectToLogin('User account deleted');

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { getRewards, createReward } from '../../utils/api';
 import { useAuth } from '../contexts/AuthContext';
-import { getStorage } from '../../utils/storage';
+import { getStorageSync } from '../../utils/storage';
 
 export interface Reward {
   id: string;
@@ -25,13 +25,13 @@ export function useRewards() {
     let cancelled = false;
     (async () => {
       const [userRole, userMode] = await Promise.all([
-        getStorage('user_role'),
-        getStorage('user_mode'),
+        getStorageSync('user_role'),
+        getStorageSync('user_mode'),
       ]);
       if (userRole === 'child' || userMode === 'kid') {
         const token =
-          (await getStorage('kid_access_token')) ||
-          (await getStorage('kid_session_token'));
+          (getStorageSync('kid_access_token')) ||
+          (getStorageSync('kid_session_token'));
         if (!cancelled) setKidToken(token ?? null);
       } else if (!cancelled) {
         setKidToken(null);

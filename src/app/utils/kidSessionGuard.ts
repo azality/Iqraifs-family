@@ -6,7 +6,7 @@
  */
 
 import { logoutKid } from './auth';
-import { getStorage } from '../../../utils/storage';
+import { getStorageSync } from '../../utils/storage';
 
 let isHandlingExpiredSession = false;
 
@@ -21,7 +21,7 @@ export function initKidSessionGuard() {
 
     // Check if this is a 401 Unauthorized response
     if (response.status === 401) {
-      const mode = await getStorage('user_mode');
+      const mode = getStorageSync('user_mode');
       
       // Get authorization header - handle both plain object and Headers object
       let authHeader = '';

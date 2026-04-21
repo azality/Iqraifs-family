@@ -3,7 +3,7 @@ import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { Button } from './ui/button';
 import { AlertCircle, RefreshCw } from 'lucide-react';
 import { supabase } from '../../../utils/supabase/client';
-import { getStorage, clearStorage } from '../../../utils/storage';
+import { getStorageSync, clearStorageSync } from '../../utils/storage';
 
 export function AuthErrorBanner() {
   const [showBanner, setShowBanner] = useState(false);
@@ -13,8 +13,8 @@ export function AuthErrorBanner() {
   useEffect(() => {
     // Initialize kid mode check
     const checkKidMode = async () => {
-      const userRole = await getStorage('user_role');
-      const userMode = await getStorage('user_mode');
+      const userRole = getStorageSync('user_role');
+      const userMode = getStorageSync('user_mode');
       setKidModeDetected(userRole === 'child' || userMode === 'kid');
     };
     checkKidMode();
@@ -104,7 +104,7 @@ export function AuthErrorBanner() {
 
       // CRITICAL: Only check session if user has a stored user_id
       // This prevents showing "Session Expired" to users who aren't logged in
-      const storedUserId = await getStorage('user_id');
+      const storedUserId = getStorageSync('user_id');
       if (!storedUserId) {
         console.log('🔓 No user_id found - user not logged in, skipping session check');
         setShowBanner(false);
@@ -133,7 +133,7 @@ export function AuthErrorBanner() {
     } catch (error) {
       console.error('Error checking session:', error);
       // Only show banner if user_id exists (meaning they were logged in)
-      const storedUserId = await getStorage('user_id');
+      const storedUserId = getStorageSync('user_id');
       if (storedUserId) {
         setShowBanner(true);
       }
@@ -165,7 +165,7 @@ export function AuthErrorBanner() {
 
   const handleLogin = async () => {
     // Clear any stale session data before navigating
-    await clearStorage();
+    clearStorageSync();
     supabase.auth.signOut();
     window.location.href = '/parent-login';
   };

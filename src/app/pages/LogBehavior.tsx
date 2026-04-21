@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { getStorageSync } from "../../utils/storage";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Textarea } from "../components/ui/textarea";
@@ -63,11 +64,11 @@ export function LogBehavior() {
     console.log('🔍 LogBehavior - Auth state CHECK:', {
       isParentMode,
       role,
-      user_role_localStorage: await getStorage('user_role'),
-      fgs_user_mode_localStorage: await getStorage('fgs_user_mode'),
-      fgs_user_id_localStorage: await getStorage('fgs_user_id'),
-      kid_access_token: await getStorage('kid_access_token'),
-      kid_session_token: await getStorage('kid_session_token'),
+      user_role_localStorage: getStorageSync('user_role'),
+      fgs_user_mode_localStorage: getStorageSync('fgs_user_mode'),
+      fgs_user_id_localStorage: getStorageSync('fgs_user_id'),
+      kid_access_token: getStorageSync('kid_access_token'),
+      kid_session_token: getStorageSync('kid_session_token'),
       ALL_STORAGE_KEYS: Object.keys(localStorage).filter(k => 
         k.includes('user') || k.includes('role') || k.includes('mode') || k.includes('kid')
       )
@@ -102,8 +103,8 @@ export function LogBehavior() {
     console.log('❌ LogBehavior - Blocking access, not in parent mode. FULL DEBUG:', {
       isParentMode,
       role,
-      user_role: await getStorage('user_role'),
-      fgs_user_mode: await getStorage('fgs_user_mode')
+      user_role: getStorageSync('user_role'),
+      fgs_user_mode: getStorageSync('fgs_user_mode')
     });
     return (
       <div className="flex items-center justify-center h-96">
@@ -119,8 +120,8 @@ export function LogBehavior() {
                 <p className="font-mono">DEBUG INFO:</p>
                 <p>isParentMode: {String(isParentMode)}</p>
                 <p>role: {role}</p>
-                <p>user_role (storage): {await getStorage('user_role')}</p>
-                <p>fgs_user_mode (storage): {await getStorage('fgs_user_mode')}</p>
+                <p>user_role (storage): {getStorageSync('user_role')}</p>
+                <p>fgs_user_mode (storage): {getStorageSync('fgs_user_mode')}</p>
               </div>
             </div>
           </CardContent>

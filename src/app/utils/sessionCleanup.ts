@@ -5,7 +5,7 @@
  */
 
 import { supabase } from '../../../utils/supabase/client';
-import { removeMultiple } from '../../utils/storage';
+import { removeMultipleSync } from '../../utils/storage';
 
 let isClearing = false;
 
@@ -26,7 +26,7 @@ export async function clearInvalidSessionAndRedirect(reason: string) {
     await supabase.auth.signOut();
 
     // Clear all FGS session-related storage (async abstraction covers both web and native)
-    await removeMultiple([
+    removeMultipleSync([
       'user_role',
       'user_mode',
       'fgs_family_id',

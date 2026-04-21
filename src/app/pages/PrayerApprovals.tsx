@@ -6,7 +6,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { clearStorage, getStorage, setStorage, removeStorage } from '../../../utils/storage';
+import { clearStorageSync, getStorageSync, setStorageSync, removeStorageSync } from '../../utils/storage';
 import { projectId } from '../../../utils/supabase/info';
 import { ArrowLeft, CheckCircle, XCircle, Clock, Calendar } from 'lucide-react';
 import { useNavigate } from 'react-router';
@@ -83,7 +83,7 @@ export function PrayerApprovals() {
 
       // Load recent approved/denied claims (for history)
       // We'll get all family children and their recent claims
-      const familyId = await getStorage('familyId');
+      const familyId = getStorageSync('familyId');
       if (familyId) {
         // For now, we'll just show pending claims
         // In a full implementation, you could fetch recent claims here

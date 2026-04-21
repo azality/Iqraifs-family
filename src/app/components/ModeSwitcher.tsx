@@ -4,7 +4,7 @@ import { Sparkles, BarChart3, Lock, User } from "lucide-react";
 import { Button } from "./ui/button";
 import { useAuth } from "../contexts/AuthContext";
 import { useState, useEffect } from "react";
-import { getStorage } from "../../utils/storage";
+import { getStorageSync } from "../../utils/storage";
 import {
   Sheet,
   SheetContent,
@@ -31,7 +31,7 @@ export function ModeSwitcher({ mobile = false }: ModeSwitcherProps) {
   // Hoist storage read from render body to useEffect
   useEffect(() => {
     const checkParentRole = async () => {
-      const userRole = await getStorage("user_role");
+      const userRole = getStorageSync("user_role");
       setIsActualParent(userRole === "parent");
     };
     checkParentRole();

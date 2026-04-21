@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { clearStorage, getStorage, setStorage, removeStorage } from '../../../utils/storage';
+import { clearStorageSync, getStorageSync, setStorageSync, removeStorageSync } from '../../utils/storage';
 import { useNavigate } from 'react-router';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -32,11 +32,11 @@ export function ParentLogin() {
       // CRITICAL: Clear any stale kid session data BEFORE login
       // This prevents race conditions where FamilyContext tries to use old child data
       console.log('🧹 Pre-login cleanup: Clearing stale kid session data');
-      await removeStorage('child_id');
-      await removeStorage('fgs_selected_child_id');
-      await removeStorage('selected_child_id');
-      await removeStorage('last_active_child');
-      await removeStorage('kid_pin_session');
+      removeStorageSync('child_id');
+      removeStorageSync('fgs_selected_child_id');
+      removeStorageSync('selected_child_id');
+      removeStorageSync('last_active_child');
+      removeStorageSync('kid_pin_session');
       
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
@@ -168,7 +168,7 @@ export function ParentLogin() {
           
           if (families && families.length > 0) {
             const familyId = families[0].id;
-            await setStorage('fgs_family_id', familyId);
+            setStorageSync('fgs_family_id', familyId);
             console.log('✅ Cached family ID:', familyId);
             
             // Small delay to ensure localStorage is flushed before navigation

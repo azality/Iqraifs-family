@@ -7,7 +7,7 @@
  * PRODUCTION-READY: Uses Capacitor Preferences for iOS native storage
  */
 
-import { getStorage, setStorage, setMultiple, removeMultiple, STORAGE_KEYS } from '../../utils/storage';
+import { getStorageSync, setStorageSync, setMultipleSync, removeMultipleSync, STORAGE_KEYS } from '../../utils/storage';
 
 /**
  * Get current user role SYNCHRONOUSLY.
@@ -37,7 +37,7 @@ export function getCurrentRoleSync(): 'parent' | 'child' | null {
  * This uses async storage (Capacitor Preferences on native)
  */
 export async function getCurrentRole(): Promise<'parent' | 'child' | null> {
-  const userRole = await getStorage(STORAGE_KEYS.USER_ROLE);
+  const userRole = getStorageSync(STORAGE_KEYS.USER_ROLE);
   
   if (userRole === 'parent') return 'parent';
   if (userRole === 'child') return 'child';
@@ -49,8 +49,8 @@ export async function getCurrentRole(): Promise<'parent' | 'child' | null> {
  * Check if user has a valid Supabase session (parent mode)
  */
 export async function hasSupabaseSession(): Promise<boolean> {
-  const userId = await getStorage(STORAGE_KEYS.USER_ID);
-  const accessToken = await getStorage(STORAGE_KEYS.ACCESS_TOKEN);
+  const userId = getStorageSync(STORAGE_KEYS.USER_ID);
+  const accessToken = getStorageSync(STORAGE_KEYS.ACCESS_TOKEN);
   
   return !!(userId && accessToken);
 }
@@ -61,8 +61,8 @@ export async function hasSupabaseSession(): Promise<boolean> {
  */
 export async function clearKidSession(): Promise<void> {
   // CRITICAL SAFETY CHECK: Never clear kid session if currently in kid mode
-  const userMode = await getStorage('user_mode');
-  const userRole = await getStorage('user_role');
+  const userMode = getStorageSync('user_mode');
+  const userRole = getStorageSync('user_role');
   const isKidMode = userMode === 'kid' || userRole === 'child';
   
   if (isKidMode) {
@@ -70,7 +70,7 @@ export async function clearKidSession(): Promise<void> {
     return; // ABORT - do not clear active kid session
   }
   
-  await removeMultiple([
+  removeMultipleSync([
     STORAGE_KEYS.CHILD_ID,
     'kid_pin_session',
     'selected_child_id',
@@ -84,7 +84,7 @@ export async function clearKidSession(): Promise<void> {
   // This ensures selectedChildId is cleared immediately when switching to parent mode
   window.dispatchEvent(new StorageEvent('storage', {
     key: 'selected_child_id',
-    oldValue: await getStorage('selected_child_id'),
+    oldValue: getStorageSync('selected_child_id'),
     newValue: null,
     url: window.location.href
   }));
@@ -96,8 +96,8 @@ export async function clearKidSession(): Promise<void> {
  */
 export async function clearAllSessions(): Promise<void> {
   // CRITICAL SAFETY CHECK: BLOCK logout if in kid mode
-  const userMode = await getStorage('user_mode');
-  const userRole = await getStorage('user_role');
+  const userMode = getStorageSync('user_mode');
+  const userRole = getStorageSync('user_role');
   const isKidMode = userMode === 'kid' || userRole === 'child';
   
   if (isKidMode) {
@@ -108,7 +108,7 @@ export async function clearAllSessions(): Promise<void> {
   }
   
   // Clear all user/auth keys in parallel
-  await removeMultiple([
+  removeMultipleSync([
     STORAGE_KEYS.USER_ID,
     STORAGE_KEYS.USER_ROLE,
     STORAGE_KEYS.USER_NAME,
@@ -135,7 +135,7 @@ export async function clearAllSessions(): Promise<void> {
 export async function clearParentSession(): Promise<void> {
   console.log('🧹 Clearing parent session data...');
   
-  await removeMultiple([
+  removeMultipleSync([
     STORAGE_KEYS.USER_ID,
     STORAGE_KEYS.ACCESS_TOKEN,
     'user_id',
@@ -164,14 +164,14 @@ export async function setParentSession(
   await clearKidSession();
   
   // Set parent session keys
-  await setStorage(STORAGE_KEYS.USER_ID, userId);
-  await setStorage(STORAGE_KEYS.USER_ROLE, 'parent');
-  await setStorage(STORAGE_KEYS.USER_NAME, userName);
-  await setStorage(STORAGE_KEYS.USER_EMAIL, userEmail);
-  await setStorage(STORAGE_KEYS.USER_MODE, 'parent');
+  setStorageSync(STORAGE_KEYS.USER_ID, userId);
+  setStorageSync(STORAGE_KEYS.USER_ROLE, 'parent');
+  setStorageSync(STORAGE_KEYS.USER_NAME, userName);
+  setStorageSync(STORAGE_KEYS.USER_EMAIL, userEmail);
+  setStorageSync(STORAGE_KEYS.USER_MODE, 'parent');
   
   // Backwards compatibility keys
-  await setMultiple({
+  setMultipleSync({
     user_role: 'parent',
     fgs_user_mode: 'parent',
     fgs_user_id: userId,

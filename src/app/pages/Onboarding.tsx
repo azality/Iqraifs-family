@@ -13,7 +13,7 @@ import { Users, UserPlus, Mail, Lock, User, Copy, Check, Globe } from "lucide-re
 import { projectId, publicAnonKey } from '/utils/supabase/info.tsx';
 import { supabase } from '/utils/supabase/client';
 import { COMMON_TIMEZONES, getUserTimezone } from '../utils/timezone';
-import { clearStorage, getStorage, setStorage, removeStorage } from '../../../utils/storage';
+import { clearStorageSync, getStorageSync, setStorageSync, removeStorageSync } from '../../utils/storage';
 
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f`;
 
@@ -59,7 +59,7 @@ export function Onboarding() {
           console.log('✅ User already authenticated');
           
           // Check if they already have a family in localStorage
-          const cachedFamilyId = await getStorage('fgs_family_id');
+          const cachedFamilyId = getStorageSync('fgs_family_id');
           
           if (cachedFamilyId) {
             // User already has a family - redirect to dashboard
@@ -216,7 +216,7 @@ export function Onboarding() {
       setFamilyId(family.id);
       
       // Cache family ID immediately
-      await setStorage('fgs_family_id', family.id);
+      setStorageSync('fgs_family_id', family.id);
       console.log('✅ Cached family ID:', family.id);
       
       // Initialize default trackable items and providers
@@ -271,7 +271,7 @@ export function Onboarding() {
     }
 
     // Store family ID in localStorage before navigating
-    await setStorage('fgs_family_id', familyId);
+    setStorageSync('fgs_family_id', familyId);
     
     await new Promise(resolve => setTimeout(resolve, 100));
     navigate('/');
@@ -298,7 +298,7 @@ export function Onboarding() {
       setFamilyId(family.id);
       
       // Cache family ID immediately
-      await setStorage('fgs_family_id', family.id);
+      setStorageSync('fgs_family_id', family.id);
       console.log('✅ Cached family ID:', family.id);
       
       toast.success(result.message || `Successfully joined ${family.name}!`);
@@ -596,7 +596,7 @@ export function Onboarding() {
                     onClick={async () => {
                       // Clear all auth tokens and data
                       await supabase.auth.signOut();
-                      await clearStorage();
+                      clearStorageSync();
                       sessionStorage.clear();
                       toast.success("Logged out successfully");
                       // Reset to login screen

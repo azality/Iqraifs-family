@@ -1,7 +1,7 @@
 import { useEffect, useState, useContext } from 'react';
 import { Navigate } from 'react-router';
 import { AuthContext } from '../contexts/AuthContext';
-import { getStorage } from '../../utils/storage';
+import { getStorageSync } from '../../utils/storage';
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
@@ -14,7 +14,7 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
         // CRITICAL: Use AuthContext instead of checking Supabase directly
         // This prevents lock contention from multiple components calling getSession()
 
-        const localUserId = (await getStorage('user_id')) || (await getStorage('fgs_user_id'));
+        const localUserId = (getStorageSync('user_id')) || (getStorageSync('fgs_user_id'));
 
         console.log('🔒 ProtectedRoute - Auth check:', {
           hasLocalUserId: !!localUserId,
