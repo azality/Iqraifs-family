@@ -11,12 +11,12 @@ import { RadioGroup, RadioGroupItem } from "../components/ui/radio-group";
 import { Lock } from "lucide-react";
 
 export function Adjustments() {
-  const { isParentMode } = useAuth();
-  const { getCurrentChild, addAdjustment, loading } = useFamilyContext();
+  const { isParentMode, user } = useAuth();
+  const { getCurrentChild, logEvent, isLoading } = useFamilyContext();
   const [points, setPoints] = useState("");
   const [reason, setReason] = useState("");
   const [type, setType] = useState<"positive" | "negative">("positive");
-  
+
   const child = getCurrentChild();
 
   if (!isParentMode) {
@@ -38,7 +38,7 @@ export function Adjustments() {
   }
 
   // Show loading state while data is being fetched
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="text-center">
@@ -57,9 +57,9 @@ export function Adjustments() {
     );
   }
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     const pointValue = parseInt(points);
-    
+
     if (!points || isNaN(pointValue) || pointValue === 0) {
       toast.error("Please enter a valid point value");
       return;
@@ -70,15 +70,37 @@ export function Adjustments() {
       return;
     }
 
-    const finalPoints = type === "negative" ? -Math.abs(pointValue) : Math.abs(pointValue);
-    
-    addAdjustment(child.id, finalPoints, reason);
-    
-    toast.success(`Adjustment created: ${finalPoints > 0 ? '+' : ''}${finalPoints} points for ${child.name}`);
-    
-    setPoints("");
-    setReason("");
-    setType("positive");
+    if (!user) {
+      toast.error("You must be signed in to create adjustments");
+      return;
+    }
+
+    // Sign is negative if EITHER the radio is negative OR the typed value is negative.
+    // This way "-1" submits as -1 even if the user forgot to flip the radio.
+    const magnitude = Math.abs(pointValue);
+    const isNegative = type === "negative" || pointValue < 0;
+    const finalPoints = isNegative ? -magnitude : magnitude;
+
+    try {
+      await logEvent(child.id, {
+        childId: child.id,
+        trackableItemId: 'manual-adjustment',
+        type: 'adjustment',
+        points: finalPoints,
+        loggedBy: user.id,
+        notes: reason,
+        isAdjustment: true
+      });
+
+      toast.success(`Adjustment created: ${finalPoints > 0 ? '+' : ''}${finalPoints} points for ${child.name}`);
+
+      setPoints("");
+      setReason("");
+      setType("positive");
+    } catch (error) {
+      console.error('Error creating adjustment:', error);
+      toast.error('Failed to create adjustment. Please try again.');
+    }
   };
 
   return (
@@ -115,13 +137,23 @@ export function Adjustments() {
               <Input
                 id="points"
                 type="number"
-                placeholder="Enter point value (e.g., 10)"
+                placeholder="Enter point value (e.g., 10 or -5)"
                 value={points}
-                onChange={(e) => setPoints(e.target.value)}
-                min="1"
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setPoints(v);
+                  // If the user types a negative number, mirror that in the radio so
+                  // the UI state stays in sync with what will actually be submitted.
+                  const n = parseInt(v);
+                  if (!isNaN(n) && n < 0 && type !== "negative") {
+                    setType("negative");
+                  } else if (!isNaN(n) && n > 0 && type === "negative" && !v.trim().startsWith("-")) {
+                    setType("positive");
+                  }
+                }}
               />
               <p className="text-xs text-muted-foreground">
-                Enter the absolute value. Sign will be applied based on type selected above.
+                Enter the point value. A negative number (e.g. -5) subtracts; the type above auto-updates to match.
               </p>
             </div>
 
