@@ -30,6 +30,8 @@ interface FamilyContextType {
   updateChild: (childId: string, updates: Partial<Child>) => Promise<void>;
   familyId: string | null;
   familyName: string | null;
+  family: any | null;
+  loadFamilyData: () => Promise<void>;
   isLoading: boolean;
 }
 
@@ -52,6 +54,7 @@ export function FamilyProvider({ children: childrenProp }: FamilyProviderProps) 
   const [selectedChildId, setSelectedChildIdState] = useState<string | null>(null);
   const [familyId, setFamilyId] = useState<string | null>(null);
   const [familyName, setFamilyName] = useState<string | null>(null);
+  const [family, setFamily] = useState<any | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const auth = useContext(AuthContext);
 
@@ -92,20 +95,17 @@ export function FamilyProvider({ children: childrenProp }: FamilyProviderProps) 
     }
   }, [children, selectedChildId, currentRole, setSelectedChildId]);
 
-  // Load family data
-  useEffect(() => {
-    const loadFamilyData = async () => {
+  // Load family data — exposed via context so callers (e.g. Settings) can refresh after mutations
+  const loadFamilyData = useCallback(async () => {
       try {
         setIsLoading(true);
         console.log('🏠 FamilyContext: Loading family data...');
         console.log('🔍 Current role from AuthContext:', currentRole);
-        
+
         // Get family ID from localStorage with fallback to multiple keys
-        const storedFamilyId = getStorageSync('fgs_family_id') || 
-                               getStorageSync('family_id') ||
-                               getStorageSync('fgs_family_id') ||
+        const storedFamilyId = getStorageSync('fgs_family_id') ||
                                getStorageSync('family_id');
-        
+
         console.log('🔍 Family ID from storage:', storedFamilyId);
         
         // DEBUG: Log ALL relevant localStorage values
@@ -122,16 +122,19 @@ export function FamilyProvider({ children: childrenProp }: FamilyProviderProps) 
         
         if (storedFamilyId) {
           setFamilyId(storedFamilyId);
-          
-          // Try to load family name
+
+          // Try to load the full family object (includes timezone, inviteCode, parentIds, etc.)
           try {
             const familyData = await getFamily(storedFamilyId);
-            if (familyData?.name) {
-              setFamilyName(familyData.name);
-              console.log('✅ Family name loaded:', familyData.name);
+            if (familyData) {
+              setFamily(familyData);
+              if (familyData.name) {
+                setFamilyName(familyData.name);
+                console.log('✅ Family loaded:', familyData.name);
+              }
             }
           } catch (error) {
-            console.log('ℹ️ Could not load family name (non-critical):', error);
+            console.log('ℹ️ Could not load family (non-critical):', error);
           }
         }
 
@@ -285,10 +288,12 @@ export function FamilyProvider({ children: childrenProp }: FamilyProviderProps) 
       } finally {
         setIsLoading(false);
       }
-    };
+    }, [currentRole]);
 
+  // Re-run loadFamilyData when role changes OR when the user logs in (auth.userId / accessToken populates)
+  useEffect(() => {
     loadFamilyData();
-  }, [currentRole]); // Re-run when role changes
+  }, [loadFamilyData, auth?.userId, auth?.accessToken]);
 
   const refreshChildren = useCallback(async () => {
     if (!familyId) return;
@@ -396,6 +401,8 @@ export function FamilyProvider({ children: childrenProp }: FamilyProviderProps) 
     updateChild,
     familyId,
     familyName,
+    family,
+    loadFamilyData,
     isLoading
   };
 
