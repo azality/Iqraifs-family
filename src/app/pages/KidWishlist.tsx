@@ -170,15 +170,7 @@ export function KidWishlist() {
 
   return (
     <div className="space-y-6 pb-20" data-testid="page-kid-wishlist">
-      {/* Back Button */}
-      <Button
-        onClick={() => navigate('/kid/home')}
-        variant="ghost"
-        className="mb-2 text-gray-600 hover:text-gray-800"
-      >
-        <ArrowLeft className="w-4 h-4 mr-2" />
-        Back to Dashboard
-      </Button>
+      {/* Back button & parent-mode exit both live in KidLayout's header. */}
 
       {/* Header */}
       <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-[1.5rem] p-6 border border-purple-100">

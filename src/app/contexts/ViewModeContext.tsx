@@ -42,23 +42,12 @@ export function ViewModeProvider({ children }: { children: ReactNode }) {
   // still 'parent' — we use that gap to compute isPreviewingAsKid.
   const [actualRole, setActualRole] = useState<string | null>(() => getStorageSync('user_role'));
 
-  // Load initial viewMode from storage on mount. Prefer any explicit user
-  // preference (fgs_view_mode_preference) so a parent who previously flipped
-  // into kid-view stays in kid-view after a reload.
-  useEffect(() => {
-    const initializeMode = async () => {
-      const userRole = getStorageSync('user_role');
-      const viewPref = getStorageSync('fgs_view_mode_preference');
-      console.log('🎨 ViewModeProvider Init - User role:', userRole, 'viewPref:', viewPref);
-      setActualRole(userRole);
-      if (viewPref === 'kid' || viewPref === 'parent') {
-        setViewMode(viewPref);
-      } else {
-        setViewMode(userRole === 'child' ? 'kid' : 'parent');
-      }
-    };
-    initializeMode();
-  }, []);
+  // NOTE: Initialization + listener registration happens in the single
+  // effect below. We used to run a separate "initializeMode" effect here
+  // that respected fgs_view_mode_preference, but a second effect (below)
+  // then immediately re-set viewMode from user_role alone, stomping the
+  // stored preference. They're now merged so preference is honored exactly
+  // once at mount and storage-event listeners also honor it.
 
   const switchToKidMode = () => {
     setIsTransitioning(true);
@@ -115,47 +104,60 @@ export function ViewModeProvider({ children }: { children: ReactNode }) {
     }, 100);
   };
 
-  // Initialize mode class on mount AND watch for role changes
+  // Initialize mode class on mount AND watch for role changes.
+  //
+  // Resolution order (highest precedence first):
+  //   1. Explicit fgs_view_mode_preference (parent flipped into kid-view).
+  //   2. user_role (kid session → kid view, parent session → parent view).
+  //   3. Default 'parent'.
+  //
+  // This is the *single* source of initialization logic — a prior version
+  // had two effects and the second one ignored preference, stomping kid
+  // preview back to parent view on every mount.
   useEffect(() => {
-    const initializeMode = async () => {
+    const resolveMode = (): ViewMode => {
       const userRole = getStorageSync('user_role');
-      const initialMode = userRole === 'child' ? 'kid' : 'parent';
-
-      console.log('🎨 ViewModeProvider Effect - Setting mode to:', initialMode);
-      setViewMode(initialMode);
-      document.documentElement.classList.add(`${initialMode}-mode`);
-      document.documentElement.classList.remove(initialMode === 'kid' ? 'parent-mode' : 'kid-mode');
+      const viewPref = getStorageSync('fgs_view_mode_preference');
+      if (viewPref === 'kid' || viewPref === 'parent') return viewPref;
+      return userRole === 'child' ? 'kid' : 'parent';
     };
 
-    initializeMode();
+    const userRole = getStorageSync('user_role');
+    const initialMode = resolveMode();
+    console.log('🎨 ViewModeProvider Init — role:', userRole, 'resolved mode:', initialMode);
+    setActualRole(userRole);
+    setViewMode(initialMode);
+    document.documentElement.classList.add(`${initialMode}-mode`);
+    document.documentElement.classList.remove(initialMode === 'kid' ? 'parent-mode' : 'kid-mode');
 
-    // Listen for storage events (role changes from other tabs or login processes)
+    // Cross-tab or same-tab storage changes: re-resolve mode honoring preference.
+    const applyMode = (nextMode: ViewMode, nextRole: string | null) => {
+      setActualRole(nextRole);
+      setViewMode(nextMode);
+      document.documentElement.classList.add(`${nextMode}-mode`);
+      document.documentElement.classList.remove(nextMode === 'kid' ? 'parent-mode' : 'kid-mode');
+    };
+
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'user_role') {
-        const newRole = e.newValue;
-        const newMode = newRole === 'child' ? 'kid' : 'parent';
-        console.log('🎨 ViewModeProvider - Storage changed, new mode:', newMode);
-        setActualRole(newRole);
-        setViewMode(newMode);
-        document.documentElement.classList.add(`${newMode}-mode`);
-        document.documentElement.classList.remove(newMode === 'kid' ? 'parent-mode' : 'kid-mode');
+      if (e.key === 'user_role' || e.key === 'fgs_view_mode_preference') {
+        const nextRole = getStorageSync('user_role');
+        const nextMode = resolveMode();
+        console.log('🎨 ViewModeProvider - Storage changed:', { key: e.key, nextRole, nextMode });
+        applyMode(nextMode, nextRole);
       }
     };
 
-    // Also listen for custom events (for same-window role changes)
-    const handleRoleChange = async () => {
-      const newRole = getStorageSync('user_role');
-      const newMode = newRole === 'child' ? 'kid' : 'parent';
-      console.log('🎨 ViewModeProvider - Role changed (custom event), new mode:', newMode);
-      setActualRole(newRole);
-      setViewMode(newMode);
-      document.documentElement.classList.add(`${newMode}-mode`);
-      document.documentElement.classList.remove(newMode === 'kid' ? 'parent-mode' : 'kid-mode');
+    // Same-window role change (custom event)
+    const handleRoleChange = () => {
+      const nextRole = getStorageSync('user_role');
+      const nextMode = resolveMode();
+      console.log('🎨 ViewModeProvider - Role changed (custom event):', { nextRole, nextMode });
+      applyMode(nextMode, nextRole);
     };
 
     window.addEventListener('storage', handleStorageChange);
     window.addEventListener('roleChanged', handleRoleChange);
-    
+
     // Clean up on unmount
     return () => {
       window.removeEventListener('storage', handleStorageChange);

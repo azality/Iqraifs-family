@@ -31,6 +31,7 @@ import { Onboarding } from "./pages/Onboarding";
 import { JoinPending } from "./pages/JoinPending";
 import { NetworkTest } from "./pages/NetworkTest";
 import { RootLayout } from "./layouts/RootLayout";
+import { KidLayout } from "./layouts/KidLayout";
 import { ProvidersLayout } from "./layouts/ProvidersLayout";
 import { PrayerLogging } from "./pages/PrayerLogging";
 import { PrayerApprovals } from "./pages/PrayerApprovals";
@@ -241,31 +242,32 @@ export const router = createBrowserRouter([
           { path: "*", element: <Navigate to="/" replace /> },
         ],
       },
-      // Kid routes - require kid auth only (NO parent auth needed)
+      // Kid routes - require kid auth only (NO parent auth needed).
+      //
+      // All non-immersive kid pages share a single KidLayout so the header,
+      // back-to-dashboard button, and parent-mode / exit-preview button are
+      // identical everywhere. Fully-immersive routes (quest PLAY, zone PLAY,
+      // mini-games) stay unwrapped — they're designed to be full-screen.
       {
-        path: "/kid/home",
-        element: <RequireKidAuth><KidDashboard /></RequireKidAuth>,
+        element: <RequireKidAuth><KidLayout /></RequireKidAuth>,
+        children: [
+          { path: "/kid/home",           element: <KidDashboard /> },
+          { path: "/kid/wishlist",       element: <KidWishlist /> },
+          { path: "/kid/rewards",        element: <KidRewardsGallery /> },
+          { path: "/kid/challenges",     element: <Challenges /> },
+          { path: "/kid/prayers",        element: <PrayerLogging /> },
+          { path: "/kid/knowledge-quest",element: <KnowledgeQuest /> },
+          { path: "/kid/titles-badges",  element: <TitlesBadgesPage /> },
+          { path: "/kid/sadqa",          element: <SadqaPage /> },
+          { path: "/kid/adventure-world",element: <AdventureWorld /> },
+          { path: "/kid/jannah-garden",  element: <JannahGarden /> },
+          { path: "/kid/adventure-zones/makkah",        element: <MakkahZone /> },
+          { path: "/kid/adventure-zones/madinah",       element: <MadinahZone /> },
+          { path: "/kid/adventure-zones/quran-valley",  element: <QuranValleyZone /> },
+          { path: "/kid/adventure-zones/desert-trials", element: <DesertTrialsZone /> },
+        ],
       },
-      {
-        path: "/kid/wishlist",
-        element: <RequireKidAuth><KidWishlist /></RequireKidAuth>,
-      },
-      {
-        path: "/kid/rewards",
-        element: <RequireKidAuth><KidRewardsGallery /></RequireKidAuth>,
-      },
-      {
-        path: "/kid/challenges",
-        element: <RequireKidAuth><Challenges /></RequireKidAuth>,
-      },
-      {
-        path: "/kid/prayers",
-        element: <RequireKidAuth><PrayerLogging /></RequireKidAuth>,
-      },
-      {
-        path: "/kid/knowledge-quest",
-        element: <RequireKidAuth><KnowledgeQuest /></RequireKidAuth>,
-      },
+      // Immersive kid routes — no shared chrome, full-screen experience.
       {
         path: "/kid/knowledge-quest/:sessionId/play",
         element: <RequireKidAuth><KnowledgeQuestPlay /></RequireKidAuth>,
@@ -273,14 +275,6 @@ export const router = createBrowserRouter([
       {
         path: "/kid/knowledge-quest/results",
         element: <RequireKidAuth><KnowledgeQuestResults /></RequireKidAuth>,
-      },
-      {
-        path: "/kid/adventure-world",
-        element: <RequireKidAuth><AdventureWorld /></RequireKidAuth>,
-      },
-      {
-        path: "/kid/jannah-garden",
-        element: <RequireKidAuth><JannahGarden /></RequireKidAuth>,
       },
       {
         path: "/kid/games/dua-spell-casting",
@@ -291,32 +285,16 @@ export const router = createBrowserRouter([
         element: <RequireKidAuth><AyahPuzzle /></RequireKidAuth>,
       },
       {
-        path: "/kid/adventure-zones/makkah",
-        element: <RequireKidAuth><MakkahZone /></RequireKidAuth>,
-      },
-      {
         path: "/kid/adventure-zones/makkah/play",
         element: <RequireKidAuth><ZonePlay /></RequireKidAuth>,
-      },
-      {
-        path: "/kid/adventure-zones/madinah",
-        element: <RequireKidAuth><MadinahZone /></RequireKidAuth>,
       },
       {
         path: "/kid/adventure-zones/madinah/play",
         element: <RequireKidAuth><ZonePlay /></RequireKidAuth>,
       },
       {
-        path: "/kid/adventure-zones/quran-valley",
-        element: <RequireKidAuth><QuranValleyZone /></RequireKidAuth>,
-      },
-      {
         path: "/kid/adventure-zones/quran-valley/play",
         element: <RequireKidAuth><ZonePlay /></RequireKidAuth>,
-      },
-      {
-        path: "/kid/adventure-zones/desert-trials",
-        element: <RequireKidAuth><DesertTrialsZone /></RequireKidAuth>,
       },
       {
         path: "/kid/adventure-zones/desert-trials/play",

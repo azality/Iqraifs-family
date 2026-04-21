@@ -345,32 +345,9 @@ export function KidDashboard() {
       {/* Floating Action Button - Mobile Only */}
       <FloatingActionButton />
 
-      {/* Header Section */}
+      {/* Header Section — Parent Mode / Exit Preview button now lives in
+          KidLayout's header, so this hero is just the welcome + points. */}
       <div className="bg-gradient-to-br from-[var(--kid-midnight-blue)] to-[#2C3E50] pt-8 pb-12 px-4 md:px-6 rounded-b-[2rem] shadow-lg mb-8 relative">
-        {/* Parent Mode Button - Top Right */}
-        <div className="absolute top-4 right-4">
-          <Button
-            onClick={() => {
-              // Clear ONLY kid-specific session data, keep family ID
-              removeStorageSync('child_id');
-              removeStorageSync('kid_id');
-              removeStorageSync('kid_access_token');
-              removeStorageSync('kid_session_token');
-              removeStorageSync('kid_pin_session');
-              // Clear user_role to allow fresh parent login
-              removeStorageSync('user_role');
-              removeStorageSync('fgs_user_mode');
-              // Navigate to parent login
-              navigate('/login');
-            }}
-            variant="outline"
-            size="sm"
-            className="bg-white/20 hover:bg-white/30 text-white border-white/40"
-          >
-            Parent Mode
-          </Button>
-        </div>
-
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -406,7 +383,7 @@ export function KidDashboard() {
           className="grid grid-cols-2 gap-4 md:grid-cols-4"
         >
           <button
-            onClick={() => navigate('/titles-badges')}
+            onClick={() => navigate('/kid/titles-badges')}
             className="bg-gradient-to-br from-[var(--kid-warm-gold)] to-[var(--kid-lantern-glow)] rounded-[1rem] p-4 text-white shadow-lg hover:shadow-xl transition-all hover:scale-105"
           >
             <Award className="w-8 h-8 mx-auto mb-2" />
@@ -414,7 +391,7 @@ export function KidDashboard() {
           </button>
 
           <button
-            onClick={() => navigate('/sadqa')}
+            onClick={() => navigate('/kid/sadqa')}
             className="bg-gradient-to-br from-green-500 to-green-700 rounded-[1rem] p-4 text-white shadow-lg hover:shadow-xl transition-all hover:scale-105"
           >
             <Heart className="w-8 h-8 mx-auto mb-2 fill-white" />

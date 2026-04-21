@@ -175,17 +175,21 @@ export function RootLayout() {
     setOpenGroups(prev => ({ ...prev, [key]: !prev[key] }));
 
   // --- User info ------------------------------------------------------------
-  // AuthContext.user is the reactive source of truth (it loads from the
-  // canonical STORAGE_KEYS.USER_NAME = 'fgs_user_name'). We fall back to
-  // the same storage key on first paint so the name doesn't briefly flash
-  // as "User" before the context hydrates. The old code read 'user_name'
-  // (no prefix) — nothing ever writes that, so it always showed "User".
-  const userName =
-    user?.name ||
-    getStorageSync('fgs_user_name') ||
-    'User';
+  // Three cases to resolve a display name:
+  //  1. Real kid session (user_role === 'child') → setKidMode writes `kid_name`
+  //     and NOT `fgs_user_name`, so we must read kid_name first or the header
+  //     shows the default "User".
+  //  2. Real parent → AuthContext.user.name is the reactive source of truth
+  //     (loaded from STORAGE_KEYS.USER_NAME = 'fgs_user_name'). Fall back to
+  //     the storage key so the name doesn't flash "User" before hydration.
+  //  3. Anything unexpected → 'User'.
+  // The old code read 'user_name' (no prefix) — nothing writes that, so it
+  // always showed "User" for parents AND kids on shared layout pages.
   const userRole = getStorageSync('user_role') || 'guest';
   const isChildLoggedIn = userRole === 'child';
+  const userName = isChildLoggedIn
+    ? (getStorageSync('kid_name') || 'Adventurer')
+    : (user?.name || getStorageSync('fgs_user_name') || 'User');
   const userInitial = (userName || 'U').charAt(0).toUpperCase();
 
   const handleLogout = () => {
