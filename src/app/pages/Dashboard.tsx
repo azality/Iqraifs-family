@@ -142,6 +142,7 @@ export function Dashboard() {
 
   const todayPositive = todayEvents.filter(e => e.points > 0).reduce((sum, e) => sum + e.points, 0);
   const todayNegative = todayEvents.filter(e => e.points < 0).reduce((sum, e) => sum + e.points, 0);
+  const todayNet = todayPositive + todayNegative; // net change today (negative if penalties outweigh gains)
 
   // Calculate this week's events for ratio
   const weekEvents = childEvents.filter(e => {
@@ -273,12 +274,27 @@ export function Dashboard() {
               <Calendar className={`h-4 w-4 ${isChildView ? "text-green-600" : "text-muted-foreground"}`} />
             </CardHeader>
             <CardContent>
-              <div className={`text-2xl font-bold ${isChildView ? "text-green-700" : "text-green-600"}`}>
-                {isChildView ? `🌟 +${todayPositive}` : `+${todayPositive}`}
+              <div className={`text-2xl font-bold ${
+                isChildView
+                  ? "text-green-700"
+                  : todayNet > 0
+                    ? "text-green-600"
+                    : todayNet < 0
+                      ? "text-red-600"
+                      : "text-muted-foreground"
+              }`}>
+                {isChildView
+                  ? `🌟 +${todayPositive}`
+                  : todayNet > 0
+                    ? `+${todayNet}`
+                    : `${todayNet}`}
               </div>
-              <p className={`text-xs ${isChildView ? "text-green-700" : "text-red-600"}`}>
-                {todayNegative < 0 && (isChildView ? `⚠️ ${todayNegative}` : todayNegative)}
-                {todayNegative === 0 && (isChildView ? "✨ Perfect day!" : "No penalties")}
+              <p className={`text-xs ${isChildView ? "text-green-700" : "text-muted-foreground"}`}>
+                {isChildView
+                  ? (todayNegative < 0 ? `⚠️ ${todayNegative}` : "✨ Perfect day!")
+                  : (todayPositive === 0 && todayNegative === 0
+                      ? "No activity yet"
+                      : `+${todayPositive} earned${todayNegative < 0 ? ` · ${todayNegative} deducted` : ''}`)}
               </p>
             </CardContent>
           </Card>
