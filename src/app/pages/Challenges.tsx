@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useLocation } from 'react-router';
 import { Challenge, ChallengeDifficulty } from "../data/mockData";
 import { projectId, publicAnonKey } from '/utils/supabase/info.tsx';
 import { useFamilyContext } from '../contexts/FamilyContext';
@@ -41,20 +42,33 @@ export function Challenges() {
   const { getCurrentChild, children, familyId } = useFamilyContext();
   const { isParentMode, accessToken } = useAuth();
   const { isPreviewingAsKid } = useViewMode();
+  const location = useLocation();
   const child = getCurrentChild();
 
-  // A parent-previewing-as-kid should see the kid view (read-only).
-  // Only show the parent overview when the real user is a parent AND they
-  // have NOT flipped into kid preview.
-  const showParentView = isParentMode && !isPreviewingAsKid;
+  // Which view to render is driven by the URL path, NOT by auth state:
+  //   /kid/challenges            → always kid view (kid logged in, or
+  //                                parent previewing as kid)
+  //   /challenges (or anything
+  //    outside /kid/*)           → parent view when the user is actually
+  //                                a parent; otherwise kid view
+  //
+  // Previously this branched on `isParentMode` from AuthContext, but that
+  // flag can briefly be stale on mount (default 'parent' until the role
+  // loads from storage), which caused a real kid logged in as Omar to see
+  // the parent overview — "Waiting for Omar to accept" / "Generate Daily
+  // Quest" buttons — at /kid/challenges. Path-based selection eliminates
+  // the race entirely: if the route says /kid, it's kid UI.
+  const isKidPath = location.pathname.startsWith('/kid');
+  const showParentView = !isKidPath && isParentMode && !isPreviewingAsKid;
 
-  console.log('🎮 Challenges page - Auth status:', {
+  console.log('🎮 Challenges page - render decision:', {
+    pathname: location.pathname,
+    isKidPath,
     isParentMode,
     isPreviewingAsKid,
     hasAccessToken: !!accessToken,
     hasChild: !!child,
     childId: child?.id,
-    pathname: window.location.pathname,
     renderingMode: showParentView ? 'PARENT VIEW' : 'KID VIEW'
   });
   
@@ -259,12 +273,13 @@ export function Challenges() {
     });
 
     try {
-      // NOTE: the backend route is `/children/:childId/challenges/accept`
-      // with `{ challengeId }` in the body — matches the pattern used by
-      // generate/evaluate. The old client hit `/challenges/:id/accept`,
-      // which didn't exist and returned "Route not found".
+      // NOTE: backend route is `POST /challenges/accept` with `{ challengeId }`
+      // in the body. childId is intentionally NOT in the URL — our child.id
+      // values look like `child:1771427054125`, and Hono's router treats the
+      // embedded `:` as a malformed URL segment and 404s with "Route not
+      // found". The server derives ownership from the stored challenge row.
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f/children/${child.id}/challenges/accept`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f/challenges/accept`,
         {
           method: 'POST',
           headers: {
