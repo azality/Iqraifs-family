@@ -31,6 +31,8 @@ import {
 import { QuestSettings } from '../components/QuestSettings';
 import { CustomQuestCreator } from '../components/CustomQuestCreator';
 import { CustomQuestsManager } from '../components/CustomQuestsManager';
+import { QuestPreviewDialog } from '../components/QuestPreviewDialog';
+import { useNavigate } from 'react-router';
 
 interface ChallengeProgress {
   current: number;
@@ -82,6 +84,93 @@ export function Challenges() {
   const [showCustomQuestCreator, setShowCustomQuestCreator] = useState(false);
   const [customQuests, setCustomQuests] = useState<any[]>([]);
   const [editingCustomQuest, setEditingCustomQuest] = useState<any | null>(null);
+
+  // Quest preview dialog: shows the parent the exact templates that will be
+  // created before calling the generate endpoint. Target is set when the
+  // parent clicks "Preview Daily" or "Preview Weekly".
+  const [previewTarget, setPreviewTarget] = useState<{
+    childId: string;
+    childName: string;
+    type: 'daily' | 'weekly';
+  } | null>(null);
+
+  // When quest generation fails with NO_TRACKABLE_ITEMS, the inline helper
+  // card that points the parent at Settings → Trackable Items / the starter-
+  // set seeder is shown per-child via this set.
+  const [needsItemsFor, setNeedsItemsFor] = useState<Set<string>>(new Set());
+  const [seedingStarter, setSeedingStarter] = useState(false);
+
+  const navigate = useNavigate();
+
+  const openPreview = (targetId: string, name: string, type: 'daily' | 'weekly') => {
+    setPreviewTarget({ childId: targetId, childName: name, type });
+  };
+
+  const handleSeedStarter = async () => {
+    if (!accessToken) return;
+    try {
+      setSeedingStarter(true);
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f/trackable-items/seed-starter`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({ familyId }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data?.error || 'Failed to seed starter set');
+        return;
+      }
+      toast.success(
+        `Added ${data.createdCount || 0} starter item${data.createdCount === 1 ? '' : 's'}`,
+        data.skippedCount
+          ? { description: `Skipped ${data.skippedCount} existing item${data.skippedCount === 1 ? '' : 's'}.` }
+          : undefined
+      );
+      // Clear the helper flag — parent can retry generate now.
+      setNeedsItemsFor(new Set());
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to seed starter set');
+    } finally {
+      setSeedingStarter(false);
+    }
+  };
+
+  const handleDeleteQuest = async (targetChildId: string, challengeId: string) => {
+    if (!accessToken) return;
+    try {
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f/children/${targetChildId}/challenges/delete`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({ challengeId }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data?.hint || data?.error || 'Failed to delete quest');
+        return;
+      }
+      toast.success('Quest removed');
+      // Refresh the right view
+      if (showParentView) {
+        loadAllChildrenChallenges();
+      } else if (child) {
+        loadChallenges();
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to delete quest');
+    }
+  };
 
   // Auto-select the first child if there's only one
   useEffect(() => {
@@ -347,11 +436,30 @@ export function Challenges() {
         toast.success(`${data.count} ${type} quest${data.count > 1 ? 's' : ''} created! 🎉`, {
           description: "Kids can now accept and complete them"
         });
+        // Clear any previous "needs items" flag for this child.
+        setNeedsItemsFor((prev) => {
+          const next = new Set(prev);
+          next.delete(childId);
+          return next;
+        });
         // Reload all children challenges to show new quests
         await loadAllChildrenChallenges();
       } else {
-        const error = await response.json();
-        toast.error(error.message || error.error || "Failed to generate quests");
+        const error = await response.json().catch(() => ({}));
+        // Machine-readable code from v1.0.8 backend — surface the actionable
+        // helper card instead of just toasting a vague error.
+        if (error?.code === 'NO_TRACKABLE_ITEMS') {
+          setNeedsItemsFor((prev) => {
+            const next = new Set(prev);
+            next.add(childId);
+            return next;
+          });
+          toast.info(error.message || 'No behaviors configured yet', {
+            description: error.hint,
+          });
+        } else {
+          toast.error(error?.message || error?.error || "Failed to generate quests");
+        }
       }
     } catch (error) {
       console.error('Generate quests error:', error);
@@ -435,18 +543,37 @@ export function Challenges() {
                 Create New Quests
               </CardTitle>
               <CardDescription>
-                Generate daily or weekly challenges for {singleChild.name}
+                Preview what will be generated, pick the ones you like, and create them.
+                Use <em>Generate</em> for quick random selection.
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="flex gap-3 flex-wrap">
+              <div className="flex gap-2 flex-wrap">
+                <Button
+                  variant="outline"
+                  onClick={() => openPreview(singleChild.id, singleChild.name, 'daily')}
+                  disabled={!questsEnabled}
+                  className="gap-2"
+                >
+                  <Target className="h-4 w-4" />
+                  Preview Daily
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => openPreview(singleChild.id, singleChild.name, 'weekly')}
+                  disabled={!questsEnabled}
+                  className="gap-2"
+                >
+                  <Target className="h-4 w-4" />
+                  Preview Weekly
+                </Button>
                 <Button
                   onClick={() => handleGenerateQuests(singleChild.id, 'daily')}
                   disabled={generatingFor === singleChild.id || !questsEnabled}
                   className="gap-2 bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600"
                 >
                   <Sparkles className="h-4 w-4" />
-                  {generatingFor === singleChild.id ? "Generating..." : "Generate Daily Quest"}
+                  {generatingFor === singleChild.id ? "Generating..." : "Generate Daily"}
                 </Button>
                 <Button
                   onClick={() => handleGenerateQuests(singleChild.id, 'weekly')}
@@ -454,7 +581,7 @@ export function Challenges() {
                   className="gap-2 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600"
                 >
                   <Sparkles className="h-4 w-4" />
-                  {generatingFor === singleChild.id ? "Generating..." : "Generate Weekly Quest"}
+                  {generatingFor === singleChild.id ? "Generating..." : "Generate Weekly"}
                 </Button>
               </div>
               {!questsEnabled && (
@@ -464,6 +591,44 @@ export function Challenges() {
               )}
             </CardContent>
           </Card>
+
+          {/* NO_TRACKABLE_ITEMS helper — guides parent to Settings. */}
+          {needsItemsFor.has(singleChild.id) && (
+            <Card className="border-2 border-amber-400 bg-gradient-to-br from-amber-50 to-yellow-50">
+              <CardHeader>
+                <CardTitle className="text-amber-900 flex items-center gap-2">
+                  <Sparkles className="h-5 w-5" />
+                  Configure behaviors to generate quests
+                </CardTitle>
+                <CardDescription className="text-amber-800">
+                  Quests are built from the salah, habits, and positive / negative
+                  behaviors you've configured. Add at least a few Trackable Items,
+                  or tap below to seed a sensible starter set.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => navigate('/settings?tab=trackable-items')}
+                  className="gap-2"
+                >
+                  Open Settings → Trackable Items
+                </Button>
+                <Button
+                  onClick={handleSeedStarter}
+                  disabled={seedingStarter}
+                  className="gap-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  {seedingStarter ? 'Seeding…' : 'Add Starter Set'}
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Custom quests — parent can write their own templates alongside
+              the auto-generated ones. */}
+          <CustomQuestsManager familyId={familyId} />
 
           {/* Active Challenges */}
           {active.length > 0 && (
@@ -545,9 +710,26 @@ export function Challenges() {
                           {challenge.type === 'daily' ? 'Daily' : 'Weekly'}
                         </Badge>
                       </div>
-                      <p className="text-xs text-muted-foreground">
-                        Waiting for {singleChild.name} to accept
-                      </p>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs text-muted-foreground">
+                          Waiting for {singleChild.name} to accept
+                        </p>
+                        {/* Backend guards against deleting completed quests;
+                            available ones are safe to remove. */}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            if (window.confirm(`Remove "${challenge.title}"?`)) {
+                              handleDeleteQuest(singleChild.id, challenge.id);
+                            }
+                          }}
+                          className="h-7 px-2 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 gap-1"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                          Remove
+                        </Button>
+                      </div>
                     </CardContent>
                   </Card>
                 ))}
@@ -600,7 +782,7 @@ export function Challenges() {
                 <div className="flex-1">
                   <h3 className="font-semibold text-blue-900 mb-1">About Challenges</h3>
                   <p className="text-sm text-blue-800">
-                    Challenges are bonus activities that {singleChild.name} can accept and complete for extra points. 
+                    Challenges are bonus activities that {singleChild.name} can accept and complete for extra points.
                     They refresh daily and weekly, encouraging consistent positive behaviors.
                     Switch to Kid Mode to let {singleChild.name} accept and track their own challenges!
                   </p>
@@ -608,6 +790,16 @@ export function Challenges() {
               </div>
             </CardContent>
           </Card>
+
+          <QuestPreviewDialog
+            open={previewTarget !== null}
+            onOpenChange={(v) => { if (!v) setPreviewTarget(null); }}
+            childId={previewTarget?.childId || null}
+            childName={previewTarget?.childName || ''}
+            questType={previewTarget?.type || 'daily'}
+            accessToken={accessToken}
+            onConfirmed={loadAllChildrenChallenges}
+          />
         </div>
       );
     }
@@ -675,7 +867,27 @@ export function Challenges() {
                         </CardDescription>
                       </div>
                       <div className="flex gap-2 flex-wrap items-center">
-                        {/* Generate Quest Buttons */}
+                        {/* Preview first, Generate as a quick-shortcut. */}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openPreview(childItem.id, childItem.name, 'daily')}
+                          disabled={!questsEnabled}
+                          className="gap-1"
+                        >
+                          <Target className="h-3 w-3" />
+                          Preview Daily
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openPreview(childItem.id, childItem.name, 'weekly')}
+                          disabled={!questsEnabled}
+                          className="gap-1"
+                        >
+                          <Target className="h-3 w-3" />
+                          Preview Weekly
+                        </Button>
                         <Button
                           variant="outline"
                           size="sm"
@@ -790,7 +1002,7 @@ export function Challenges() {
               <div className="flex-1">
                 <h3 className="font-semibold text-blue-900 mb-1">About Challenges</h3>
                 <p className="text-sm text-blue-800">
-                  Challenges are bonus activities that kids can accept and complete for extra points. 
+                  Challenges are bonus activities that kids can accept and complete for extra points.
                   They refresh daily and weekly, encouraging consistent positive behaviors.
                   Switch to Kid Mode to let your children accept and track their own challenges!
                 </p>
@@ -798,6 +1010,52 @@ export function Challenges() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Global NO_TRACKABLE_ITEMS helper — if any child's generate failed,
+            the parent sees one actionable card that unblocks the whole
+            family at once. */}
+        {needsItemsFor.size > 0 && (
+          <Card className="border-2 border-amber-400 bg-gradient-to-br from-amber-50 to-yellow-50">
+            <CardHeader>
+              <CardTitle className="text-amber-900 flex items-center gap-2">
+                <Sparkles className="h-5 w-5" />
+                Configure behaviors to generate quests
+              </CardTitle>
+              <CardDescription className="text-amber-800">
+                Quests are built from the salah, habits, and positive / negative
+                behaviors you've configured. Add at least a few Trackable Items,
+                or tap below to seed a sensible starter set.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                onClick={() => navigate('/settings?tab=trackable-items')}
+                className="gap-2"
+              >
+                Open Settings → Trackable Items
+              </Button>
+              <Button
+                onClick={handleSeedStarter}
+                disabled={seedingStarter}
+                className="gap-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600"
+              >
+                <Sparkles className="h-4 w-4" />
+                {seedingStarter ? 'Seeding…' : 'Add Starter Set'}
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        <QuestPreviewDialog
+          open={previewTarget !== null}
+          onOpenChange={(v) => { if (!v) setPreviewTarget(null); }}
+          childId={previewTarget?.childId || null}
+          childName={previewTarget?.childName || ''}
+          questType={previewTarget?.type || 'daily'}
+          accessToken={accessToken}
+          onConfirmed={loadAllChildrenChallenges}
+        />
       </div>
     );
   }

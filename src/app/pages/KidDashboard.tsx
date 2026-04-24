@@ -1,12 +1,13 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { clearStorageSync, getStorageSync, setStorageSync, removeStorageSync } from '../../utils/storage';
-import { Flame, Award, Heart, Gift, Sparkles, TrendingUp, TrendingDown, Clock } from "lucide-react";
+import { Flame, Award, Heart, Gift, Sparkles, TrendingUp, TrendingDown, Clock, Star } from "lucide-react";
 import { useNavigate } from "react-router";
 import { Button } from "../components/ui/button";
 import { useAuth } from "../contexts/AuthContext";
 import { useViewMode } from "../contexts/ViewModeContext";
 import { useFamilyContext } from "../contexts/FamilyContext";
-import { motion } from "motion/react";
+import { motion, AnimatePresence } from "motion/react";
+import { Confetti } from "../components/effects/Confetti";
 import { PointsDisplay } from "../components/kid-mode/PointsDisplay";
 import { AdventureMap } from "../components/kid-mode/AdventureMap";
 import { QuestCard } from "../components/kid-mode/QuestCard";
@@ -44,6 +45,21 @@ export function KidDashboard() {
 
   // Game settings
   const [knowledgeQuestEnabled, setKnowledgeQuestEnabled] = useState(true);
+
+  // Bonus-points celebration: when a new event with `isBonus: true` lands
+  // (e.g. parent approved a prayer with bonus points for praying beautifully),
+  // fire confetti + surface a banner showing the reason. `seenBonusIds` is a
+  // ref so re-renders don't re-trigger; it's seeded from storage so we don't
+  // re-celebrate events from previous sessions.
+  const BONUS_SEEN_KEY = `bonus-seen:${child?.id || ''}`;
+  const seenBonusIdsRef = useRef<Set<string>>(
+    new Set(child ? (getStorageSync(BONUS_SEEN_KEY) as string[] | null) || [] : [])
+  );
+  const [celebration, setCelebration] = useState<{
+    points: number;
+    reason: string;
+    itemName: string;
+  } | null>(null);
 
   // Fetch data on mount
   useEffect(() => {
@@ -88,8 +104,10 @@ export function KidDashboard() {
           }
           
           // Fetch point events for this child
+          // Server route is /children/:childId/events (no /families prefix —
+          // the previous URL was 404ing, which silently hid the activity log).
           const eventsResponse = await fetch(
-            `${API_BASE}/families/${familyId}/children/${child.id}/events`,
+            `${API_BASE}/children/${child.id}/events`,
             {
               headers: { 'Authorization': `Bearer ${accessToken}` }
             }
@@ -139,6 +157,29 @@ export function KidDashboard() {
     loadPendingRequests();
     // Refresh every 30 seconds
     const interval = setInterval(loadPendingRequests, 30000);
+    return () => clearInterval(interval);
+  }, [child, accessToken, familyId]);
+
+  // Poll point events so parent approvals (including bonus awards) show up
+  // on the kid's dashboard in near-real-time without a manual refresh.
+  useEffect(() => {
+    if (!child || !accessToken || !familyId) return;
+    const refreshEvents = async () => {
+      try {
+        const res = await fetch(
+          `${API_BASE}/children/${child.id}/events`,
+          { headers: { 'Authorization': `Bearer ${accessToken}` } }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          setPointEvents(data || []);
+        }
+      } catch (err) {
+        // Silent — background refresh shouldn't break the page
+        console.error('Event poll failed:', err);
+      }
+    };
+    const interval = setInterval(refreshEvents, 20000); // 20s feels live-ish
     return () => clearInterval(interval);
   }, [child, accessToken, familyId]);
 
@@ -218,9 +259,9 @@ export function KidDashboard() {
 
       if (response.ok) {
         toast.success('Recovery submitted! Great job! 🌟');
-        // Reload events
+        // Reload events (correct route — see fetchData comment above)
         const eventsResponse = await fetch(
-          `${API_BASE}/families/${familyId}/children/${child.id}/events`,
+          `${API_BASE}/children/${child.id}/events`,
           {
             headers: { 'Authorization': `Bearer ${accessToken}` }
           }
@@ -238,6 +279,37 @@ export function KidDashboard() {
       toast.error('Failed to submit recovery');
     }
   };
+
+  // Detect newly-arrived bonus events. When `pointEvents` refreshes, any event
+  // flagged `isBonus: true` whose ID we haven't seen yet triggers the
+  // celebration banner + confetti once, then is added to the seen set.
+  useEffect(() => {
+    if (!child) return;
+    const myEvents = pointEvents.filter((e) => e.childId === child.id);
+    const unseenBonuses = myEvents
+      .filter((e) => e.isBonus && !seenBonusIdsRef.current.has(e.id))
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+    if (unseenBonuses.length > 0) {
+      // Mark all as seen so we don't re-celebrate on next poll
+      for (const ev of unseenBonuses) seenBonusIdsRef.current.add(ev.id);
+      setStorageSync(BONUS_SEEN_KEY, Array.from(seenBonusIdsRef.current).slice(-200));
+      // Celebrate the most recent one
+      const latest = unseenBonuses[0];
+      setCelebration({
+        points: latest.points,
+        reason: latest.bonusReason || latest.notes || 'Great job!',
+        itemName: latest.itemName || 'Bonus'
+      });
+    }
+  }, [pointEvents, child, BONUS_SEEN_KEY]);
+
+  // Auto-dismiss the celebration banner ~4s after it appears
+  useEffect(() => {
+    if (!celebration) return;
+    const t = setTimeout(() => setCelebration(null), 4000);
+    return () => clearTimeout(t);
+  }, [celebration]);
 
   // CRITICAL: Early return if no child (AFTER all hooks)
   if (!child) {
@@ -342,6 +414,43 @@ export function KidDashboard() {
 
   return (
     <div className="min-h-screen bg-[var(--kid-soft-cream)] pb-12">
+      {/* Bonus celebration — confetti + banner on arrival of new bonus event */}
+      <Confetti trigger={celebration !== null} onComplete={() => { /* particles cleared by component */ }} />
+      <AnimatePresence>
+        {celebration && (
+          <motion.div
+            initial={{ opacity: 0, y: -40, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+            transition={{ type: 'spring', stiffness: 200, damping: 18 }}
+            className="fixed top-20 left-1/2 -translate-x-1/2 z-[60] max-w-md w-[92%] px-4"
+          >
+            <div className="bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 rounded-[1.25rem] shadow-2xl p-5 border-4 border-white">
+              <div className="flex items-start gap-3">
+                <div className="bg-white rounded-full p-2 shrink-0">
+                  <Sparkles className="w-6 h-6 text-amber-500" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-white font-bold text-lg drop-shadow">
+                    Bonus Points! +{celebration.points} ✨
+                  </p>
+                  <p className="text-white/95 text-sm font-medium mt-0.5 break-words">
+                    {celebration.reason}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setCelebration(null)}
+                  aria-label="Dismiss"
+                  className="bg-white/20 hover:bg-white/30 rounded-full w-7 h-7 flex items-center justify-center text-white font-bold shrink-0"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Floating Action Button - Mobile Only */}
       <FloatingActionButton />
 
@@ -517,6 +626,110 @@ export function KidDashboard() {
           </motion.div>
         )}
 
+        {/* How You Can Earn Points — transparency widget.
+            Kids asked for visibility into *which* behaviors their parent can
+            reward. We render the configured Trackable Items grouped by type
+            (Salah / Habits / Positive / Negative) with their point values so
+            the kid can see exactly what's on the menu. Pulled straight from
+            the same /trackable-items endpoint the parent writes to. */}
+        {trackableItems.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.44 }}
+            className="bg-white rounded-[1.5rem] p-6 shadow-lg"
+          >
+            <h2 className="text-2xl font-bold text-[var(--kid-midnight-blue)] mb-1 flex items-center gap-2">
+              <Sparkles className="w-6 h-6 text-purple-500" />
+              How You Can Earn Points 🎯
+            </h2>
+            <p className="text-sm text-[var(--kid-midnight-blue)]/70 mb-4">
+              Here's what your parent is watching for. Ask them to log any of
+              these!
+            </p>
+
+            {(() => {
+              // Small inline grouping — keeps the JSX readable without
+              // pulling out a new component file.
+              const salah = trackableItems.filter(
+                (i: any) => (i.category || '').toLowerCase() === 'salah'
+              );
+              const habits = trackableItems.filter(
+                (i: any) => (i.category || '').toLowerCase() === 'habit'
+              );
+              const behaviors = trackableItems.filter(
+                (i: any) => (i.category || '').toLowerCase() === 'behavior'
+              );
+              const positive = behaviors.filter((i: any) => (i.points ?? 0) >= 0);
+              const negative = behaviors.filter((i: any) => (i.points ?? 0) < 0);
+
+              const Group = ({
+                title,
+                emoji,
+                items,
+                tone,
+              }: {
+                title: string;
+                emoji: string;
+                items: any[];
+                tone: 'blue' | 'green' | 'purple' | 'red';
+              }) => {
+                if (items.length === 0) return null;
+                const toneBg = {
+                  blue: 'from-blue-50 to-cyan-50 border-blue-200',
+                  green: 'from-green-50 to-emerald-50 border-green-200',
+                  purple: 'from-purple-50 to-pink-50 border-purple-200',
+                  red: 'from-red-50 to-rose-50 border-red-200',
+                }[tone];
+                const chipTone = {
+                  blue: 'bg-blue-500',
+                  green: 'bg-green-500',
+                  purple: 'bg-purple-500',
+                  red: 'bg-red-500',
+                }[tone];
+                return (
+                  <div className={`rounded-xl border-2 p-4 bg-gradient-to-br ${toneBg}`}>
+                    <div className="font-bold text-[var(--kid-midnight-blue)] mb-3 flex items-center gap-2">
+                      <span className="text-xl">{emoji}</span>
+                      {title}
+                      <span className="text-xs font-normal text-[var(--kid-midnight-blue)]/60">
+                        ({items.length})
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {items.map((item: any) => (
+                        <div
+                          key={item.id}
+                          className="inline-flex items-center gap-2 bg-white rounded-full pl-3 pr-1 py-1 shadow-sm border border-black/5"
+                        >
+                          <span className="text-sm font-medium text-[var(--kid-midnight-blue)]">
+                            {item.name}
+                          </span>
+                          <span
+                            className={`text-xs font-bold text-white ${chipTone} rounded-full px-2 py-0.5`}
+                          >
+                            {(item.points ?? 0) > 0 ? '+' : ''}
+                            {item.points ?? 0}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              };
+
+              return (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Group title="Salah" emoji="🕌" items={salah} tone="blue" />
+                  <Group title="Habits" emoji="🌱" items={habits} tone="green" />
+                  <Group title="Positive" emoji="✨" items={positive} tone="purple" />
+                  <Group title="Needs Work" emoji="⚠️" items={negative} tone="red" />
+                </div>
+              );
+            })()}
+          </motion.div>
+        )}
+
         {/* Recent Activity Log - How did I earn points? */}
         {childEvents.length > 0 && (
           <motion.div
@@ -536,8 +749,13 @@ export function KidDashboard() {
                 .map((event, index) => {
                   const item = trackableItems.find(i => i.id === event.trackableItemId);
                   const isPositive = event.points > 0;
+                  const isBonus = !!event.isBonus;
                   const timeAgo = getTimeAgo(event.timestamp);
-                  
+
+                  // Prefer the server-sent itemName for bonus + prayer events
+                  // (item lookup won't resolve 'prayer' / 'prayer_bonus' pseudo-IDs).
+                  const displayName = item?.name || event.itemName || 'Activity';
+
                   return (
                     <motion.div
                       key={event.id}
@@ -545,29 +763,44 @@ export function KidDashboard() {
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: index * 0.02 }}
                       className={`flex items-center justify-between p-3 rounded-xl border-2 ${
-                        isPositive
+                        isBonus
+                          ? 'bg-gradient-to-r from-amber-50 to-yellow-50 border-amber-300 shadow-[0_0_0_2px_rgba(251,191,36,0.15)]'
+                          : isPositive
                           ? 'bg-green-50 border-green-200'
                           : 'bg-red-50 border-red-200'
                       }`}
                     >
-                      <div className="flex items-center gap-3">
-                        {isPositive ? (
-                          <TrendingUp className="w-5 h-5 text-green-600" />
+                      <div className="flex items-center gap-3 min-w-0">
+                        {isBonus ? (
+                          <div className="bg-amber-400 rounded-full p-1.5 shrink-0">
+                            <Sparkles className="w-4 h-4 text-white" />
+                          </div>
+                        ) : isPositive ? (
+                          <TrendingUp className="w-5 h-5 text-green-600 shrink-0" />
                         ) : (
-                          <TrendingDown className="w-5 h-5 text-red-600" />
+                          <TrendingDown className="w-5 h-5 text-red-600 shrink-0" />
                         )}
-                        <div>
-                          <p className="font-semibold text-gray-800">
-                            {item?.name || 'Activity'}
+                        <div className="min-w-0">
+                          <p className="font-semibold text-gray-800 flex items-center gap-1.5 flex-wrap">
+                            <span className="truncate">{displayName}</span>
+                            {isBonus && (
+                              <span className="inline-flex items-center gap-0.5 text-[10px] font-bold uppercase tracking-wide bg-amber-400 text-white px-1.5 py-0.5 rounded">
+                                <Star className="w-2.5 h-2.5 fill-white" /> Bonus
+                              </span>
+                            )}
                           </p>
                           <p className="text-xs text-gray-500">{timeAgo}</p>
-                          {event.notes && (
-                            <p className="text-xs text-gray-600 italic mt-1">"{event.notes}"</p>
+                          {(event.bonusReason || event.notes) && (
+                            <p className={`text-xs italic mt-1 break-words ${isBonus ? 'text-amber-700 font-medium' : 'text-gray-600'}`}>
+                              "{event.bonusReason || event.notes}"
+                            </p>
                           )}
                         </div>
                       </div>
-                      <div className={`text-lg font-bold ${
-                        isPositive ? 'text-green-600' : 'text-red-600'
+                      <div className={`text-lg font-bold shrink-0 ml-2 ${
+                        isBonus
+                          ? 'text-amber-600'
+                          : isPositive ? 'text-green-600' : 'text-red-600'
                       }`}>
                         {isPositive ? '+' : ''}{event.points}
                       </div>

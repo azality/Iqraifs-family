@@ -38,7 +38,32 @@ export function KnowledgeQuestPlay() {
   const { children, selectedChildId } = useFamilyContext();
   const child = children.find(c => c.id === selectedChildId);
   
-  const selectedCategories = (location.state as any)?.categories || [];
+  const selectedCategories: string[] = (location.state as any)?.categories || [];
+  // Full catalog of categories (name + per-difficulty counts) passed from
+  // KnowledgeQuest. When empty or missing (e.g. deep-link into /play), the
+  // difficulty picker falls back to always-enabled buttons without counts —
+  // the server remains the source of truth.
+  const categoryCatalog: Array<{
+    name: string;
+    total: number;
+    easy: number;
+    medium: number;
+    hard: number;
+  }> = (location.state as any)?.categoryCatalog || [];
+
+  // Compute per-difficulty availability across the selected categories (or
+  // the full catalog if none are selected). Used to disable buttons and
+  // annotate them with counts so kids don't click a difficulty that has no
+  // questions and see a confusing "no questions found" error.
+  const pool = selectedCategories.length > 0
+    ? categoryCatalog.filter((c) => selectedCategories.includes(c.name))
+    : categoryCatalog;
+  const poolCounts = {
+    easy: pool.reduce((s, c) => s + (c.easy || 0), 0),
+    medium: pool.reduce((s, c) => s + (c.medium || 0), 0),
+    hard: pool.reduce((s, c) => s + (c.hard || 0), 0),
+  };
+  const hasCatalog = categoryCatalog.length > 0;
   
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
   const [selectedAnswer, setSelectedAnswer] = useState<any>(null);
@@ -81,7 +106,12 @@ export function KnowledgeQuestPlay() {
       } else {
         const errorText = await response.text();
         if (response.status === 404) {
-          toast.error('No questions found for this difficulty/category. Try another!');
+          // More specific message: name the selected category/difficulty
+          // rather than the generic "no questions" text.
+          const scope = selectedCategories.length > 0
+            ? `${selectedDifficulty} ${selectedCategories.join(' / ')}`
+            : `${selectedDifficulty} questions`;
+          toast.error(`No ${scope} available. Try a different difficulty or topic.`);
         } else {
           console.error('Load question error:', errorText);
           toast.error('Failed to load question');
@@ -218,17 +248,25 @@ export function KnowledgeQuestPlay() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            {/* When we have a catalog, disable buttons where the selected-
+                category pool has zero questions. When no catalog is
+                available (deep-link), all three remain enabled and the
+                server is the final arbiter. */}
             <motion.button
               onClick={() => loadQuestion('easy')}
               whileHover={{ scale: 1.05, x: 10 }}
               whileTap={{ scale: 0.95 }}
-              disabled={loading}
-              className="w-full p-6 rounded-2xl border-4 border-green-400 bg-gradient-to-r from-green-50 to-emerald-50 hover:from-green-100 hover:to-emerald-100 transition-all shadow-lg disabled:opacity-50"
+              disabled={loading || (hasCatalog && poolCounts.easy === 0)}
+              className="w-full p-6 rounded-2xl border-4 border-green-400 bg-gradient-to-r from-green-50 to-emerald-50 hover:from-green-100 hover:to-emerald-100 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <div className="flex items-center justify-between">
                 <div className="text-left">
                   <div className="text-3xl font-bold text-green-700">🟢 EASY</div>
-                  <div className="text-sm text-green-600 mt-1">Quick Win!</div>
+                  <div className="text-sm text-green-600 mt-1">
+                    {hasCatalog
+                      ? `${poolCounts.easy} question${poolCounts.easy === 1 ? '' : 's'} available`
+                      : 'Quick Win!'}
+                  </div>
                 </div>
                 <div className="text-right">
                   <div className="text-4xl font-black text-green-700">5</div>
@@ -241,13 +279,17 @@ export function KnowledgeQuestPlay() {
               onClick={() => loadQuestion('medium')}
               whileHover={{ scale: 1.05, x: 10 }}
               whileTap={{ scale: 0.95 }}
-              disabled={loading}
-              className="w-full p-6 rounded-2xl border-4 border-yellow-400 bg-gradient-to-r from-yellow-50 to-orange-50 hover:from-yellow-100 hover:to-orange-100 transition-all shadow-lg disabled:opacity-50"
+              disabled={loading || (hasCatalog && poolCounts.medium === 0)}
+              className="w-full p-6 rounded-2xl border-4 border-yellow-400 bg-gradient-to-r from-yellow-50 to-orange-50 hover:from-yellow-100 hover:to-orange-100 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <div className="flex items-center justify-between">
                 <div className="text-left">
                   <div className="text-3xl font-bold text-yellow-700">🟡 MEDIUM</div>
-                  <div className="text-sm text-yellow-600 mt-1">Good Challenge!</div>
+                  <div className="text-sm text-yellow-600 mt-1">
+                    {hasCatalog
+                      ? `${poolCounts.medium} question${poolCounts.medium === 1 ? '' : 's'} available`
+                      : 'Good Challenge!'}
+                  </div>
                 </div>
                 <div className="text-right">
                   <div className="text-4xl font-black text-yellow-700">10</div>
@@ -260,13 +302,17 @@ export function KnowledgeQuestPlay() {
               onClick={() => loadQuestion('hard')}
               whileHover={{ scale: 1.05, x: 10 }}
               whileTap={{ scale: 0.95 }}
-              disabled={loading}
-              className="w-full p-6 rounded-2xl border-4 border-red-400 bg-gradient-to-r from-red-50 to-rose-50 hover:from-red-100 hover:to-rose-100 transition-all shadow-lg disabled:opacity-50"
+              disabled={loading || (hasCatalog && poolCounts.hard === 0)}
+              className="w-full p-6 rounded-2xl border-4 border-red-400 bg-gradient-to-r from-red-50 to-rose-50 hover:from-red-100 hover:to-rose-100 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <div className="flex items-center justify-between">
                 <div className="text-left">
                   <div className="text-3xl font-bold text-red-700">🔴 HARD</div>
-                  <div className="text-sm text-red-600 mt-1">Expert Level! 🔥</div>
+                  <div className="text-sm text-red-600 mt-1">
+                    {hasCatalog
+                      ? `${poolCounts.hard} question${poolCounts.hard === 1 ? '' : 's'} available`
+                      : 'Expert Level! 🔥'}
+                  </div>
                 </div>
                 <div className="text-right">
                   <div className="text-4xl font-black text-red-700">20</div>
@@ -274,6 +320,15 @@ export function KnowledgeQuestPlay() {
                 </div>
               </div>
             </motion.button>
+
+            {hasCatalog && poolCounts.easy + poolCounts.medium + poolCounts.hard === 0 && (
+              <div className="rounded-xl border-2 border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                <strong>No questions here yet.</strong>{' '}
+                {selectedCategories.length > 0
+                  ? `Nothing in ${selectedCategories.join(', ')}. Go back and pick a different topic.`
+                  : 'Ask a parent to add questions in the Question Bank.'}
+              </div>
+            )}
 
             <Button
               variant="outline"
