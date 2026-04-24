@@ -48,6 +48,11 @@ export function PrayerApprovals() {
   const [error, setError] = useState<string | null>(null);
   const [showDenyModal, setShowDenyModal] = useState<string | null>(null);
   const [denyReason, setDenyReason] = useState('');
+  // Bonus approval modal: lets parent award extra points with a short reason
+  // (e.g. "prayed beautifully"). Kid sees it as a distinct celebration event.
+  const [showBonusModal, setShowBonusModal] = useState<string | null>(null);
+  const [bonusAmount, setBonusAmount] = useState<number>(3);
+  const [bonusReason, setBonusReason] = useState<string>('');
 
   const { accessToken } = useAuth();
   const navigate = useNavigate();
@@ -97,12 +102,18 @@ export function PrayerApprovals() {
     }
   }
 
-  async function approveClaim(claimId: string) {
+  async function approveClaim(claimId: string, opts?: { bonusPoints?: number; bonusReason?: string }) {
     if (!accessToken) return;
 
     try {
       setProcessing(claimId);
       setError(null);
+
+      const body: any = { onTime: true };
+      if (opts?.bonusPoints && opts.bonusPoints > 0) {
+        body.bonusPoints = opts.bonusPoints;
+        if (opts.bonusReason) body.bonusReason = opts.bonusReason;
+      }
 
       const res = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f/prayer-claims/${claimId}/approve`,
@@ -111,13 +122,18 @@ export function PrayerApprovals() {
           headers: {
             'Authorization': `Bearer ${accessToken}`,
             'Content-Type': 'application/json'
-          }
+          },
+          body: JSON.stringify(body)
         }
       );
 
       if (!res.ok) {
         const errorData = await res.json();
         throw new Error(errorData.error || 'Failed to approve claim');
+      }
+
+      if (opts?.bonusPoints && opts.bonusPoints > 0) {
+        toast.success(`Approved with +${opts.bonusPoints} bonus! ✨`);
       }
 
       // Reload claims
@@ -296,6 +312,17 @@ export function PrayerApprovals() {
                         {isProcessing ? 'Processing...' : `✓ Approve ${claim.pointsAwarded}pts`}
                       </button>
                       <button
+                        onClick={() => {
+                          setShowBonusModal(claim.id);
+                          setBonusAmount(3);
+                          setBonusReason('');
+                        }}
+                        disabled={isProcessing}
+                        className="px-6 py-2 bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-500 hover:to-yellow-600 text-white font-medium rounded-lg shadow-sm hover:shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        ✨ Approve + Bonus
+                      </button>
+                      <button
                         onClick={() => setShowDenyModal(claim.id)}
                         disabled={isProcessing}
                         className="px-6 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium rounded-lg shadow-sm hover:shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed"
@@ -322,6 +349,82 @@ export function PrayerApprovals() {
           </ul>
         </div>
       </div>
+
+      {/* Bonus Modal — parent awards extra points with a short reason.
+          Kid sees a distinct gold-tile event + confetti on arrival. */}
+      {showBonusModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-xl shadow-2xl p-6 max-w-md w-full"
+          >
+            <h3 className="text-xl font-bold text-gray-900 mb-2 flex items-center gap-2">
+              <span>✨</span> Approve + Bonus Points
+            </h3>
+            <p className="text-gray-600 mb-4 text-sm">
+              Award extra points for an exceptional prayer. Your child will see it as a special celebration.
+            </p>
+
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Bonus amount
+            </label>
+            <div className="flex gap-2 mb-4">
+              {[1, 2, 3, 5, 10].map((n) => (
+                <button
+                  key={n}
+                  onClick={() => setBonusAmount(n)}
+                  className={`flex-1 py-2 rounded-lg font-medium border-2 transition-all ${
+                    bonusAmount === n
+                      ? 'bg-amber-400 border-amber-500 text-white'
+                      : 'bg-white border-gray-200 text-gray-700 hover:border-amber-300'
+                  }`}
+                >
+                  +{n}
+                </button>
+              ))}
+            </div>
+
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Reason (shown to your child)
+            </label>
+            <input
+              type="text"
+              value={bonusReason}
+              onChange={(e) => setBonusReason(e.target.value.slice(0, 80))}
+              placeholder="e.g. Prayed beautifully with full focus"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent mb-4"
+            />
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowBonusModal(null);
+                  setBonusReason('');
+                }}
+                className="flex-1 px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  const claimId = showBonusModal;
+                  setShowBonusModal(null);
+                  await approveClaim(claimId, {
+                    bonusPoints: bonusAmount,
+                    bonusReason: bonusReason.trim()
+                  });
+                  setBonusReason('');
+                }}
+                disabled={processing === showBonusModal || bonusAmount <= 0}
+                className="flex-1 px-4 py-2 bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-500 hover:to-yellow-600 text-white font-medium rounded-lg transition-colors disabled:opacity-50"
+              >
+                Approve + {bonusAmount} Bonus
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
 
       {/* Deny Modal */}
       {showDenyModal && (

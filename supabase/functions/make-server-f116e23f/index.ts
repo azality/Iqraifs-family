@@ -3639,7 +3639,7 @@ app.post(
       const { claimId } = c.req.param();
       const userId = getAuthUserId(c);
       const body = await c.req.json();
-      const { onTime = true } = body; // Default to true if not specified
+      const { onTime = true, bonusPoints = 0, bonusReason = '' } = body;
 
       // Verify claim exists and belongs to user's family
       const claim = await kv.get(`prayer-claim:${claimId}`);
@@ -3657,12 +3657,13 @@ app.post(
         return c.json({ error: 'No access to this claim' }, 403);
       }
 
-      const result = await approvePrayerClaim(claimId, userId, onTime);
-      
+      const result = await approvePrayerClaim(claimId, userId, onTime, bonusPoints, bonusReason);
+
       return c.json({
         success: true,
         claim: result.claim,
-        pointEvent: result.pointEvent
+        pointEvent: result.pointEvent,
+        bonusEvent: result.bonusEvent
       });
     } catch (error: any) {
       console.error('Approve claim error:', error);
