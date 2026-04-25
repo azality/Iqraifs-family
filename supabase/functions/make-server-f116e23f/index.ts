@@ -1,5 +1,5 @@
 // FGS Backend Server v1.0.3 - Accept challenge route flattened (no :childId in URL)
-const SERVER_VERSION = "v1.0.10-quest-polish";
+const SERVER_VERSION = "v1.0.11-mobile-and-recovery";
 import { Hono } from "npm:hono";
 import { cors } from "npm:hono/cors";
 import { logger } from "npm:hono/logger";
@@ -2841,6 +2841,172 @@ app.get(
     } catch (error) {
       console.error('Get family users error:', error);
       return c.json({ error: 'Failed to get family users' }, 500);
+    }
+  }
+);
+
+// v11: Family Members — parents + guardians, with relationship metadata
+// Lets the primary parent see who is registered under their family code,
+// including spouses (added via join-request relationship='spouse') and
+// guardians (relationship='guardian'). The first ID in family.parentIds
+// is treated as the primary (founder) parent.
+app.get(
+  "/make-server-f116e23f/families/:familyId/members",
+  requireAuth,
+  requireFamilyAccess,
+  async (c) => {
+    try {
+      const { familyId } = c.req.param();
+      const family = await kv.get(`family:${familyId}`);
+      if (!family) {
+        return c.json({ error: 'Family not found' }, 404);
+      }
+
+      const parentIds: string[] = Array.isArray(family.parentIds) ? family.parentIds : [];
+      const primaryParentId = parentIds[0] || null;
+
+      // Pull all approved join requests for this family once, so we can
+      // resolve each non-primary parent's relationship without an N+1.
+      const allRequests = await kv.getByPrefix('joinreq:');
+      const approvedRequests = allRequests.filter(
+        (r: any) => r && r.familyId === familyId && r.status === 'approved'
+      );
+
+      // Map userId -> most recent approved request (in case of replays)
+      const requestByUser = new Map<string, any>();
+      for (const r of approvedRequests) {
+        const prev = requestByUser.get(r.requesterId);
+        if (!prev || (r.reviewedAt && r.reviewedAt > prev.reviewedAt)) {
+          requestByUser.set(r.requesterId, r);
+        }
+      }
+
+      const members: Array<{
+        id: string;
+        email: string;
+        name: string;
+        isPrimary: boolean;
+        relationship: 'self' | 'spouse' | 'parent' | 'guardian' | 'unknown';
+        joinedAt: string | null;
+      }> = [];
+
+      for (const userId of parentIds) {
+        const userMapping = await kv.get(`user:${userId}`);
+        let email = '';
+        let name = userMapping?.name || 'Unknown User';
+        try {
+          const { data: { user: authUser } } =
+            await serviceRoleClient.auth.admin.getUserById(userId);
+          if (authUser) {
+            email = authUser.email || '';
+            name = userMapping?.name
+              || authUser.user_metadata?.name
+              || authUser.email?.split('@')[0]
+              || name;
+          }
+        } catch (_e) {
+          // tolerate auth lookup failures so the list still renders
+        }
+
+        const isPrimary = userId === primaryParentId;
+        const req = requestByUser.get(userId);
+        let relationship: 'self' | 'spouse' | 'parent' | 'guardian' | 'unknown';
+        if (isPrimary) {
+          relationship = 'self';
+        } else if (req?.relationship === 'guardian') {
+          relationship = 'guardian';
+        } else if (req?.relationship === 'spouse') {
+          relationship = 'spouse';
+        } else if (req?.relationship === 'parent') {
+          relationship = 'parent';
+        } else {
+          relationship = 'unknown';
+        }
+
+        members.push({
+          id: userId,
+          email,
+          name,
+          isPrimary,
+          relationship,
+          joinedAt: req?.reviewedAt || null,
+        });
+      }
+
+      return c.json({
+        familyId,
+        primaryParentId,
+        members,
+      });
+    } catch (error) {
+      console.error('Get family members error:', error);
+      return c.json({ error: 'Failed to get family members' }, 500);
+    }
+  }
+);
+
+// v11: Admin-triggered password reset.
+// Only the primary parent (parentIds[0]) may trigger this for another
+// member of the same family. We use Supabase's resetPasswordForEmail via
+// the service-role client so the email is sent immediately without
+// exposing the recovery link to the caller.
+app.post(
+  "/make-server-f116e23f/families/:familyId/members/:userId/reset-password",
+  requireAuth,
+  requireParent,
+  requireFamilyAccess,
+  async (c) => {
+    try {
+      const { familyId, userId: targetUserId } = c.req.param();
+      const callerId = getAuthUserId(c);
+
+      const family = await kv.get(`family:${familyId}`);
+      if (!family) {
+        return c.json({ error: 'Family not found' }, 404);
+      }
+
+      const parentIds: string[] = Array.isArray(family.parentIds) ? family.parentIds : [];
+      const primaryParentId = parentIds[0];
+
+      if (callerId !== primaryParentId) {
+        return c.json({
+          error: 'Only the primary parent can trigger a password reset for another member.'
+        }, 403);
+      }
+
+      if (!parentIds.includes(targetUserId)) {
+        return c.json({ error: 'Target user is not a member of this family' }, 404);
+      }
+
+      if (targetUserId === callerId) {
+        return c.json({
+          error: 'Use the Forgot Password flow to reset your own password.'
+        }, 400);
+      }
+
+      // Resolve target email
+      const { data: { user: targetUser }, error: getUserErr } =
+        await serviceRoleClient.auth.admin.getUserById(targetUserId);
+
+      if (getUserErr || !targetUser?.email) {
+        return c.json({ error: 'Could not resolve target user email' }, 404);
+      }
+
+      const { error: resetErr } = await serviceRoleClient.auth
+        .resetPasswordForEmail(targetUser.email);
+
+      if (resetErr) {
+        console.error('resetPasswordForEmail failed:', resetErr);
+        return c.json({ error: 'Failed to send password reset email' }, 500);
+      }
+
+      return c.json({
+        success: true,
+        message: `Password reset email sent to ${targetUser.email}.`,
+      });
+    } catch (error) {
+      console.error('Admin password reset error:', error);
+      return c.json({ error: 'Failed to trigger password reset' }, 500);
     }
   }
 );

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { clearStorageSync, getStorageSync, setStorageSync, removeStorageSync } from '../../utils/storage';
+import { clearStorage, getStorage, setStorage, removeStorage } from '../../../utils/storage';
 import { useNavigate } from "react-router";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
@@ -41,7 +41,7 @@ const deduplicateByName = <T extends { id: string; name: string }>(items: T[]): 
 
 export function Settings() {
   const navigate = useNavigate();
-  const { isParentMode, accessToken } = useAuth();
+  const { isParentMode, accessToken, userId } = useAuth();
   const { rewards, addReward } = useRewards();
   const { items: trackableItems, addItem, updateItem: updateTrackableItem } = useTrackableItems();
   const { milestones, addMilestone } = useMilestones();
@@ -52,6 +52,21 @@ export function Settings() {
   // Join Requests State
   const [joinRequests, setJoinRequests] = useState<any[]>([]);
   const [loadingJoinRequests, setLoadingJoinRequests] = useState(false);
+
+  // v11: Family Members State
+  type FamilyMember = {
+    id: string;
+    email: string;
+    name: string;
+    isPrimary: boolean;
+    relationship: 'self' | 'spouse' | 'parent' | 'guardian' | 'unknown';
+    joinedAt: string | null;
+  };
+  const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>([]);
+  const [primaryParentId, setPrimaryParentId] = useState<string | null>(null);
+  const [loadingMembers, setLoadingMembers] = useState(false);
+  const [resettingMemberId, setResettingMemberId] = useState<string | null>(null);
+  const isPrimaryParent = !!userId && !!primaryParentId && userId === primaryParentId;
 
   // Child Form State
   const [childName, setChildName] = useState("");
@@ -389,7 +404,7 @@ export function Settings() {
         console.error('❌ No valid session to fetch join requests - logging out');
         toast.error('Session expired. Please log in again.');
         // Clear all localStorage and redirect to login
-        clearStorageSync();
+        await clearStorage();
         navigate('/login');
         return;
       }
@@ -402,7 +417,7 @@ export function Settings() {
         toast.error('Invalid session. Please log in again.');
         // Force sign out to clear corrupted Supabase in-memory session
         await supabase.auth.signOut();
-        clearStorageSync();
+        await clearStorage();
         navigate('/login');
         return;
       }
@@ -436,7 +451,7 @@ export function Settings() {
         // If we get a 401, session is invalid
         if (response.status === 401) {
           toast.error('Session expired. Please log in again.');
-          clearStorageSync();
+          await clearStorage();
           navigate('/login');
         }
       }
@@ -521,12 +536,83 @@ export function Settings() {
     }
   };
 
+  // v11: Family Members — load + reset-password handlers
+  const loadFamilyMembers = async () => {
+    if (!familyId) return;
+    setLoadingMembers(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        toast.error('No valid session');
+        return;
+      }
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f/families/${familyId}/members`,
+        {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'apikey': publicAnonKey,
+          },
+        }
+      );
+      if (response.ok) {
+        const data = await response.json();
+        setFamilyMembers(Array.isArray(data?.members) ? data.members : []);
+        setPrimaryParentId(data?.primaryParentId || null);
+      } else {
+        const err = await response.json().catch(() => ({}));
+        toast.error(err.error || 'Failed to load family members');
+      }
+    } catch (error) {
+      console.error('Error loading family members:', error);
+      toast.error('Failed to load family members');
+    } finally {
+      setLoadingMembers(false);
+    }
+  };
+
+  const handleSendPasswordReset = async (memberId: string, memberEmail: string) => {
+    if (!familyId) return;
+    if (!window.confirm(`Send a password reset email to ${memberEmail}?`)) return;
+    setResettingMemberId(memberId);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        toast.error('No valid session');
+        return;
+      }
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f/families/${familyId}/members/${memberId}/reset-password`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'apikey': publicAnonKey,
+          },
+        }
+      );
+      if (response.ok) {
+        toast.success(`Password reset email sent to ${memberEmail}.`);
+      } else {
+        const err = await response.json().catch(() => ({}));
+        toast.error(err.error || 'Failed to send password reset email');
+      }
+    } catch (error) {
+      console.error('Error sending password reset:', error);
+      toast.error('Failed to send password reset email');
+    } finally {
+      setResettingMemberId(null);
+    }
+  };
+
   // Fetch join requests on mount
   useEffect(() => {
     if (familyId) {
       fetchJoinRequests();
       loadQuestSettings();
       loadGameSettings();
+      loadFamilyMembers();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [familyId]);
@@ -970,40 +1056,48 @@ export function Settings() {
       </div>
 
       <Tabs defaultValue="rewards" className="w-full">
-        <TabsList className="grid w-full grid-cols-4 md:grid-cols-8">
-          <TabsTrigger value="children">
-            <Users className="h-4 w-4 mr-2" />
-            <span className="hidden sm:inline">Children</span>
-          </TabsTrigger>
-          <TabsTrigger value="notifications">
-            <Bell className="h-4 w-4 mr-2" />
-            <span className="hidden sm:inline">Notifications</span>
-          </TabsTrigger>
-          <TabsTrigger value="rewards">
-            <Gift className="h-4 w-4 mr-2" />
-            <span className="hidden sm:inline">Rewards</span>
-          </TabsTrigger>
-          <TabsTrigger value="behaviors">
-            <Target className="h-4 w-4 mr-2" />
-            <span className="hidden sm:inline">Behaviors</span>
-          </TabsTrigger>
-          <TabsTrigger value="quests">
-            <Sparkles className="h-4 w-4 mr-2" />
-            <span className="hidden sm:inline">Quests</span>
-          </TabsTrigger>
-          <TabsTrigger value="games">
-            <Gamepad2 className="h-4 w-4 mr-2" />
-            <span className="hidden sm:inline">Games</span>
-          </TabsTrigger>
-          <TabsTrigger value="milestones">
-            <Award className="h-4 w-4 mr-2" />
-            <span className="hidden sm:inline">Milestones</span>
-          </TabsTrigger>
-          <TabsTrigger value="danger" className="text-red-600">
-            <AlertTriangle className="h-4 w-4 mr-2" />
-            <span className="hidden sm:inline">Danger</span>
-          </TabsTrigger>
-        </TabsList>
+        {/* Mobile: horizontally-scrollable tab strip with labels (single row,
+            user swipes). Desktop (md+): 9-column grid as before. */}
+        <div className="-mx-4 px-4 overflow-x-auto md:mx-0 md:px-0 md:overflow-visible">
+          <TabsList className="flex w-max gap-1 md:w-full md:gap-0 md:grid md:grid-cols-9">
+            <TabsTrigger value="children" className="flex-none md:flex-1 px-3 md:px-2">
+              <Users className="h-4 w-4 mr-2" />
+              <span>Children</span>
+            </TabsTrigger>
+            <TabsTrigger value="members" className="flex-none md:flex-1 px-3 md:px-2">
+              <Heart className="h-4 w-4 mr-2" />
+              <span>Members</span>
+            </TabsTrigger>
+            <TabsTrigger value="notifications" className="flex-none md:flex-1 px-3 md:px-2">
+              <Bell className="h-4 w-4 mr-2" />
+              <span>Notifications</span>
+            </TabsTrigger>
+            <TabsTrigger value="rewards" className="flex-none md:flex-1 px-3 md:px-2">
+              <Gift className="h-4 w-4 mr-2" />
+              <span>Rewards</span>
+            </TabsTrigger>
+            <TabsTrigger value="behaviors" className="flex-none md:flex-1 px-3 md:px-2">
+              <Target className="h-4 w-4 mr-2" />
+              <span>Behaviors</span>
+            </TabsTrigger>
+            <TabsTrigger value="quests" className="flex-none md:flex-1 px-3 md:px-2">
+              <Sparkles className="h-4 w-4 mr-2" />
+              <span>Quests</span>
+            </TabsTrigger>
+            <TabsTrigger value="games" className="flex-none md:flex-1 px-3 md:px-2">
+              <Gamepad2 className="h-4 w-4 mr-2" />
+              <span>Games</span>
+            </TabsTrigger>
+            <TabsTrigger value="milestones" className="flex-none md:flex-1 px-3 md:px-2">
+              <Award className="h-4 w-4 mr-2" />
+              <span>Milestones</span>
+            </TabsTrigger>
+            <TabsTrigger value="danger" className="flex-none md:flex-1 px-3 md:px-2 text-red-600">
+              <AlertTriangle className="h-4 w-4 mr-2" />
+              <span>Danger</span>
+            </TabsTrigger>
+          </TabsList>
+        </div>
 
         {/* CHILDREN TAB */}
         <TabsContent value="children" className="space-y-4">
@@ -1330,6 +1424,107 @@ export function Settings() {
                   They'll use their PIN to log into Kid Mode!
                 </p>
               </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* MEMBERS TAB (v11) */}
+        <TabsContent value="members" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Heart className="h-5 w-5 text-pink-500" />
+                    Family Members
+                  </CardTitle>
+                  <CardDescription>
+                    Everyone registered under your family code (parents, spouses, and child guardians).
+                    {isPrimaryParent && ' As the primary parent, you can trigger a password reset for any member.'}
+                  </CardDescription>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={loadFamilyMembers}
+                  disabled={loadingMembers}
+                >
+                  {loadingMembers ? 'Refreshing…' : 'Refresh'}
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {loadingMembers && familyMembers.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4">Loading members…</p>
+              ) : familyMembers.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4">
+                  No members found. Share your family invite code from the Children tab to add a spouse or guardian.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {familyMembers.map((m) => {
+                    const relationshipLabel =
+                      m.relationship === 'self' ? 'Primary parent' :
+                      m.relationship === 'spouse' ? 'Spouse' :
+                      m.relationship === 'guardian' ? 'Guardian' :
+                      m.relationship === 'parent' ? 'Parent' :
+                      'Member';
+                    const badgeColor =
+                      m.relationship === 'self' ? 'bg-blue-100 text-blue-800 border-blue-200' :
+                      m.relationship === 'guardian' ? 'bg-purple-100 text-purple-800 border-purple-200' :
+                      'bg-green-100 text-green-800 border-green-200';
+                    const isSelfRow = m.id === userId;
+                    const showResetButton = isPrimaryParent && !isSelfRow;
+                    return (
+                      <div
+                        key={m.id}
+                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 border rounded-lg bg-card"
+                      >
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-medium truncate">{m.name}</span>
+                            <Badge variant="outline" className={badgeColor}>
+                              {relationshipLabel}
+                            </Badge>
+                            {isSelfRow && (
+                              <Badge variant="outline" className="bg-gray-100 text-gray-700">
+                                You
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground truncate mt-0.5">
+                            {m.email || '—'}
+                          </p>
+                          {m.joinedAt && (
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              Joined {new Date(m.joinedAt).toLocaleDateString()}
+                            </p>
+                          )}
+                        </div>
+                        {showResetButton && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleSendPasswordReset(m.id, m.email)}
+                            disabled={resettingMemberId === m.id || !m.email}
+                            className="shrink-0"
+                          >
+                            <Lock className="h-3.5 w-3.5 mr-1.5" />
+                            {resettingMemberId === m.id ? 'Sending…' : 'Send password reset'}
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {!isPrimaryParent && familyMembers.length > 0 && (
+                <p className="text-xs text-muted-foreground mt-4">
+                  Only the primary parent can trigger password resets for other members.
+                  If you've forgotten your own password, sign out and use "Forgot password?" on the login screen.
+                </p>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

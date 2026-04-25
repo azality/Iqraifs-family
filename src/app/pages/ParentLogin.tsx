@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { clearStorageSync, getStorageSync, setStorageSync, removeStorageSync } from '../../utils/storage';
+import { clearStorage, getStorage, setStorage, removeStorage } from '../../../utils/storage';
 import { useNavigate } from 'react-router';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -21,6 +21,26 @@ export function ParentLogin() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [resetting, setResetting] = useState(false);
+
+  const handleForgotPassword = async () => {
+    if (!email || !email.includes('@')) {
+      toast.error('Please enter your email above first, then tap Forgot password.');
+      return;
+    }
+    setResetting(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email);
+      if (error) throw error;
+      toast.success('If that email is registered, a reset link is on its way.');
+    } catch (err: any) {
+      console.error('❌ Forgot-password error:', err);
+      // Privacy: never confirm whether the email exists.
+      toast.success('If that email is registered, a reset link is on its way.');
+    } finally {
+      setResetting(false);
+    }
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,11 +52,11 @@ export function ParentLogin() {
       // CRITICAL: Clear any stale kid session data BEFORE login
       // This prevents race conditions where FamilyContext tries to use old child data
       console.log('🧹 Pre-login cleanup: Clearing stale kid session data');
-      removeStorageSync('child_id');
-      removeStorageSync('fgs_selected_child_id');
-      removeStorageSync('selected_child_id');
-      removeStorageSync('last_active_child');
-      removeStorageSync('kid_pin_session');
+      await removeStorage('child_id');
+      await removeStorage('fgs_selected_child_id');
+      await removeStorage('selected_child_id');
+      await removeStorage('last_active_child');
+      await removeStorage('kid_pin_session');
       
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
@@ -168,7 +188,7 @@ export function ParentLogin() {
           
           if (families && families.length > 0) {
             const familyId = families[0].id;
-            setStorageSync('fgs_family_id', familyId);
+            await setStorage('fgs_family_id', familyId);
             console.log('✅ Cached family ID:', familyId);
             
             // Small delay to ensure localStorage is flushed before navigation
@@ -280,6 +300,17 @@ export function ParentLogin() {
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? 'Signing in...' : 'Sign In'}
             </Button>
+
+            <div className="text-right">
+              <button
+                type="button"
+                onClick={handleForgotPassword}
+                disabled={resetting}
+                className="text-sm text-blue-600 hover:underline font-medium disabled:opacity-50"
+              >
+                {resetting ? 'Sending reset email...' : 'Forgot password?'}
+              </button>
+            </div>
           </form>
 
           <div className="mt-6 space-y-4">
