@@ -118,7 +118,16 @@ export function CustomQuestCreator({ open, onOpenChange, familyId, onQuestCreate
         const data = await response.json();
         // /trackable-items returns { id, name, points, category, ... } —
         // already the shape Behavior expects.
-        setBehaviors(Array.isArray(data) ? data : []);
+        //
+        // v10: filter out negative behaviors (points < 0). Quests are
+        // about what the kid should DO, not what they should AVOID —
+        // surfacing "Talked back (-2)" in the picker is a foot-gun
+        // (parent could accidentally build a quest that rewards bad
+        // behavior). Salah and positive behaviors all have points >= 0
+        // by construction in the starter seed.
+        const allItems: Behavior[] = Array.isArray(data) ? data : [];
+        const positiveOnly = allItems.filter((b) => (b?.points ?? 0) >= 0);
+        setBehaviors(positiveOnly);
       }
     } catch (error) {
       console.error('Load behaviors error:', error);
@@ -373,9 +382,10 @@ export function CustomQuestCreator({ open, onOpenChange, familyId, onQuestCreate
                   </Button>
                 </div>
                 <p className="text-xs text-amber-700">
-                  "Add Starter Set" seeds 5 prayers + 4 positive behaviors + 1
-                  negative behavior. Idempotent — safe to tap if you've added
-                  some already.
+                  "Add Starter Set" seeds 5 prayers + 4 positive behaviors.
+                  (Negative behaviors don't appear here — quests reward
+                  positive actions only.) Idempotent — safe to tap if you've
+                  already added some.
                 </p>
               </div>
             ) : (
@@ -406,7 +416,10 @@ export function CustomQuestCreator({ open, onOpenChange, familyId, onQuestCreate
               </div>
             )}
             <p className="text-xs text-muted-foreground">
-              The quest will track progress across all selected behaviors
+              The quest will track progress across all selected behaviors.
+              Only positive behaviors (points ≥ 0) are listed — negative
+              behaviors are things to <em>avoid</em>, so they aren't valid
+              quest goals.
             </p>
           </div>
 

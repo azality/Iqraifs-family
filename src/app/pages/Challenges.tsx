@@ -172,6 +172,64 @@ export function Challenges() {
     }
   };
 
+  // v10: Pause / Resume — parent escape hatch for active challenges they
+  // created by mistake. Pause hides the quest from the kid view (the kid
+  // filter is status === 'accepted' || 'available') without destroying
+  // progress events; Resume flips it back to whatever it was before.
+  const handlePauseQuest = async (targetChildId: string, challengeId: string) => {
+    if (!accessToken) return;
+    try {
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f/children/${targetChildId}/challenges/pause`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({ challengeId }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data?.hint || data?.error || 'Failed to pause quest');
+        return;
+      }
+      toast.success('Quest paused');
+      if (showParentView) loadAllChildrenChallenges();
+      else if (child) loadChallenges();
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to pause quest');
+    }
+  };
+
+  const handleResumeQuest = async (targetChildId: string, challengeId: string) => {
+    if (!accessToken) return;
+    try {
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f/children/${targetChildId}/challenges/resume`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({ challengeId }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data?.hint || data?.error || 'Failed to resume quest');
+        return;
+      }
+      toast.success('Quest resumed');
+      if (showParentView) loadAllChildrenChallenges();
+      else if (child) loadChallenges();
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to resume quest');
+    }
+  };
+
   // Auto-select the first child if there's only one
   useEffect(() => {
     if (showParentView && children && children.length === 1 && !expandedChildId) {
@@ -672,6 +730,97 @@ export function Challenges() {
                           {challenge.type === 'daily' ? 'Daily' : 'Weekly'}
                         </Badge>
                       </div>
+                      {/* v10: Parent escape hatch — Pause hides the quest
+                          from the kid (without destroying progress) and
+                          Remove deletes it outright. Both are guarded
+                          server-side: completed quests are locked. */}
+                      <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handlePauseQuest(singleChild.id, challenge.id)}
+                          className="h-7 px-2 text-xs text-amber-700 hover:text-amber-800 hover:bg-amber-50 gap-1"
+                          title="Pause this quest — hides it from the kid view but keeps it for later"
+                        >
+                          <Pause className="h-3 w-3" />
+                          Pause
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            if (window.confirm(
+                              `Remove "${challenge.title}"?\n\nProgress on this quest will be lost.`
+                            )) {
+                              handleDeleteQuest(singleChild.id, challenge.id);
+                            }
+                          }}
+                          className="h-7 px-2 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 gap-1"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                          Remove
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Paused Challenges (v10) — quests the parent paused so the kid
+              wouldn't see them. Resume puts them back in active/available. */}
+          {childChallenges.filter(c => c.status === 'paused').length > 0 && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <Pause className="h-6 w-6 text-amber-500" />
+                <h2 className="text-2xl font-bold">Paused Challenges</h2>
+                <Badge variant="outline" className="ml-2">
+                  {childChallenges.filter(c => c.status === 'paused').length} paused
+                </Badge>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {childChallenges.filter(c => c.status === 'paused').map((challenge) => (
+                  <Card key={challenge.id} className="border-2 border-amber-300 bg-amber-50/40 opacity-90">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-start gap-2">
+                        <span className="text-4xl grayscale">{challenge.icon}</span>
+                        <div className="flex-1">
+                          <CardTitle className="text-lg">{challenge.title}</CardTitle>
+                          <CardDescription className="text-sm">{challenge.description}</CardDescription>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs text-amber-800">
+                          Hidden from {singleChild.name} until resumed
+                        </p>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleResumeQuest(singleChild.id, challenge.id)}
+                            className="h-7 px-2 text-xs text-amber-700 hover:bg-amber-100 gap-1"
+                          >
+                            <Play className="h-3 w-3" />
+                            Resume
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              if (window.confirm(`Remove "${challenge.title}"?`)) {
+                                handleDeleteQuest(singleChild.id, challenge.id);
+                              }
+                            }}
+                            className="h-7 px-2 text-xs text-red-600 hover:bg-red-50 gap-1"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                            Remove
+                          </Button>
+                        </div>
+                      </div>
                     </CardContent>
                   </Card>
                 ))}
@@ -957,6 +1106,34 @@ export function Challenges() {
                                   <Star className="h-2 w-2 mr-1" />
                                   +{challenge.bonusPoints}
                                 </Badge>
+                              </div>
+                              {/* v10: parent can pause/remove an active
+                                  quest they generated by mistake. */}
+                              <div className="flex items-center justify-end gap-1 pt-2 mt-2 border-t">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handlePauseQuest(childItem.id, challenge.id)}
+                                  className="h-6 px-2 text-[10px] text-amber-700 hover:bg-amber-50 gap-1"
+                                >
+                                  <Pause className="h-2.5 w-2.5" />
+                                  Pause
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    if (window.confirm(
+                                      `Remove "${challenge.title}"?\n\nProgress on this quest will be lost.`
+                                    )) {
+                                      handleDeleteQuest(childItem.id, challenge.id);
+                                    }
+                                  }}
+                                  className="h-6 px-2 text-[10px] text-red-600 hover:bg-red-50 gap-1"
+                                >
+                                  <Trash2 className="h-2.5 w-2.5" />
+                                  Remove
+                                </Button>
                               </div>
                             </CardContent>
                           </Card>

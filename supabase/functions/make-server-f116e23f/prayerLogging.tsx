@@ -159,7 +159,8 @@ export async function createPrayerClaim(
 
   // Notify parents about new prayer claim (non-blocking)
   try {
-    const child = await kv.get(`child:${childId}`);
+    // childId arrives already prefixed with "child:" (see index.ts:3483)
+    const child = await kv.get(childId);
     if (child && child.familyId) {
       await notifyFamilyParents(child.familyId, {
         title: '🕌 Prayer Logged',
@@ -274,8 +275,10 @@ export async function getPendingClaimsForFamily(
 export async function approvePrayerClaim(
   claimId: string,
   parentId: string,
-  onTime: boolean = true
-): Promise<{ claim: PrayerClaim; pointEvent: any }> {
+  onTime: boolean = true,
+  bonusPoints: number = 0,
+  bonusReason: string = ''
+): Promise<{ claim: PrayerClaim; pointEvent: any; bonusEvent?: any }> {
   // Get claim
   const claim = await kv.get(`prayer-claim:${claimId}`);
   
@@ -311,19 +314,54 @@ export async function approvePrayerClaim(
   const parent = await kv.get(`user:${parentId}`);
   const parentName = parent?.name || 'Parent';
 
+  // v10: Resolve the *real* trackable item ID for this prayer name.
+  //
+  // Quest progress (`calculateChallengeProgress`) matches events by
+  // `trackableItemId in requirement.itemIds`, where `itemIds` are the
+  // actual `item:<timestamp>` IDs from the family's salah trackable items.
+  // Previously we hardcoded `trackableItemId: 'prayer'`, so a kid whose
+  // parent approved 5 daily prayers would still see 0/5 progress on the
+  // "Complete all 5 prayers" quest. Look up the matching salah item by
+  // name within this child's family and use its real ID; fall back to
+  // 'prayer' only if no item is configured (legacy behavior — at least
+  // nothing regresses).
+  let resolvedItemId = 'prayer';
+  try {
+    // claim.childId is already prefixed (see comment ~line 344 below).
+    const _child = await kv.get(claim.childId);
+    if (_child?.familyId) {
+      const _allItems = await kv.getByPrefix('item:');
+      const _wantedName = String(claim.prayerName || '').toLowerCase().trim();
+      const _match = _allItems.find(
+        (it: any) =>
+          it &&
+          (it.familyId === _child.familyId || !it.familyId) &&
+          String(it.name || '').toLowerCase().trim() === _wantedName
+      );
+      if (_match?.id) resolvedItemId = _match.id;
+    }
+  } catch (_e) {
+    // Resolution failure is non-fatal — fall through with 'prayer' so the
+    // points still post; only quest-progress matching is affected.
+  }
+
   // Award points (create point event)
   const pointEventId = generateId();
   const pointEvent = {
     id: pointEventId,
     childId: claim.childId,
-    trackableItemId: 'prayer',
+    // v10: real item ID when available (so salah quests count this event).
+    trackableItemId: resolvedItemId,
+    // Keep the prayer name on the event as a robust secondary key — useful
+    // for analytics filters that previously relied on 'prayer'.
+    prayerName: claim.prayerName,
     itemName: `Prayer: ${claim.prayerName}${onTime ? ' (On Time)' : ' (Late/Qadha)'}`,
     points: pointsToAward,
     loggedBy: parentId,
     loggedByName: parentName,
     loggedByRole: 'parent',
     timestamp: new Date().toISOString(),
-    notes: claim.backdated 
+    notes: claim.backdated
       ? `Prayer: ${claim.prayerName} (backdated to ${claim.backdateDate})`
       : `Prayer: ${claim.prayerName}${onTime ? ' - On Time' : ' - Late/Qadha'}`,
     prayerClaimId: claimId,
@@ -334,19 +372,56 @@ export async function approvePrayerClaim(
   await kv.set(`event:${pointEventId}`, pointEvent);
 
   // Update child points
-  const child = await kv.get(`child:${claim.childId}`);
-  if (child) {
-    child.currentPoints = (child.currentPoints || 0) + pointsToAward;
-    await kv.set(`child:${claim.childId}`, child);
+  // NOTE: claim.childId already includes the "child:" prefix (as stored by createPrayerClaim,
+  // which itself receives a prefixed childId from POST /prayer-claims — see index.ts:3463, 3475).
+  // Reading with `child:${claim.childId}` produces "child:child:..." which never resolves,
+  // so the block silently no-ops and the kid's currentPoints never updates. (Bug fix v6.1)
+  const child = await kv.get(claim.childId);
 
-    // Add event to child's event list
+  // ---- Optional bonus event (e.g. "prayed beautifully") ----
+  // If the parent awarded bonus points on approval, write a SECOND point event
+  // with `isBonus: true` so the kid dashboard can style it distinctly and
+  // trigger a celebration animation. Bonus is additive on top of the base
+  // points. Clamped to [0, 500] to match challenge-side validation bounds.
+  let bonusEvent: any | undefined;
+  const bonusAmount = Math.max(0, Math.min(500, Math.floor(Number(bonusPoints) || 0)));
+  if (bonusAmount > 0) {
+    const bonusEventId = generateId();
+    bonusEvent = {
+      id: bonusEventId,
+      childId: claim.childId,
+      trackableItemId: 'prayer_bonus',
+      itemName: `Bonus: ${claim.prayerName}`,
+      points: bonusAmount,
+      loggedBy: parentId,
+      loggedByName: parentName,
+      loggedByRole: 'parent',
+      timestamp: new Date().toISOString(),
+      notes: bonusReason
+        ? `Bonus for ${claim.prayerName}: ${bonusReason}`
+        : `Bonus for ${claim.prayerName}`,
+      prayerClaimId: claimId,
+      isBonus: true,
+      bonusReason: bonusReason || 'Extra effort',
+      backdated: claim.backdated,
+      backdateDate: claim.backdateDate
+    };
+    await kv.set(`event:${bonusEventId}`, bonusEvent);
+  }
+
+  if (child) {
+    child.currentPoints = (child.currentPoints || 0) + pointsToAward + bonusAmount;
+    await kv.set(claim.childId, child);
+
+    // Add event(s) to child's event list
     const childEventsKey = `events-by-child:${claim.childId}`;
     const childEvents = (await kv.get(childEventsKey)) || [];
     childEvents.push(pointEventId);
+    if (bonusEvent) childEvents.push(bonusEvent.id);
     await kv.set(childEventsKey, childEvents);
   }
 
-  return { claim, pointEvent };
+  return { claim, pointEvent, bonusEvent };
 }
 
 /**

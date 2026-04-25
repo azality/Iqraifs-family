@@ -1,5 +1,5 @@
 // FGS Backend Server v1.0.3 - Accept challenge route flattened (no :childId in URL)
-const SERVER_VERSION = "v1.0.9-multi-fix";
+const SERVER_VERSION = "v1.0.10-quest-polish";
 import { Hono } from "npm:hono";
 import { cors } from "npm:hono/cors";
 import { logger } from "npm:hono/logger";
@@ -71,7 +71,13 @@ import {
 import {
   getTodayInTimezone,
   getDateInTimezone,
-  isValidTimezone
+  isValidTimezone,
+  // v10: TZ-aware day/week boundaries so daily quests run from
+  // 00:00 family-local → 23:59 family-local, not server UTC.
+  getStartOfDayInTimezone,
+  getEndOfDayInTimezone,
+  getStartOfWeekInTimezone,
+  getEndOfWeekInTimezone
 } from "./timezoneUtils.ts";
 import {
   createPrayerClaim,
@@ -2398,22 +2404,64 @@ async function generateQuestTemplates(familyId: string, type: 'daily' | 'weekly'
 async function calculateChallengeProgress(challenge: any, childId: string) {
   try {
     const allEvents = await kv.getByPrefix('event:');
-    
+
+    // v10: Anchor the progress window to family-local 00:00 instead of the
+    // exact `createdAt` instant.
+    //
+    // Why: a parent who taps "Generate Daily" at 8am EST creates a quest
+    // with createdAt=08:00. The kid's prayers from 5:30am Fajr, however,
+    // were logged earlier the same family-local day. With the old window
+    // (createdAt → expiresAt) those prayers fell outside the window and
+    // never counted toward the quest. Anchoring to the family-tz day-start
+    // makes the window match what a human would call "today".
+    //
+    // We pull the family timezone via the child → family chain and fall
+    // back to UTC when missing.
+    let _tz = 'UTC';
+    try {
+      const _child = await kv.get(childId);
+      if (_child?.familyId) {
+        const _family = await kv.get(`family:${_child.familyId}`);
+        if (_family?.timezone) _tz = _family.timezone;
+      }
+    } catch (_e) {
+      // fall through with UTC
+    }
+    const _createdInstant = new Date(challenge.createdAt);
+    const _windowStart = challenge.acceptedAt
+      ? new Date(challenge.acceptedAt)
+      : challenge.type === 'weekly'
+        ? getStartOfWeekInTimezone(_tz, _createdInstant)
+        : getStartOfDayInTimezone(_tz, _createdInstant);
+
     // Filter events for this child and challenge time range
     const relevantEvents = allEvents.filter((e: any) => {
       if (e.childId !== childId) return false;
       const eventDate = new Date(e.timestamp);
-      const challengeStart = challenge.acceptedAt ? new Date(challenge.acceptedAt) : new Date(challenge.createdAt);
-      return eventDate >= challengeStart && eventDate <= new Date(challenge.expiresAt);
+      return eventDate >= _windowStart && eventDate <= new Date(challenge.expiresAt);
     });
 
     let current = 0;
     const target = challenge.requirements[0].target;
 
     if (challenge.requirements[0].type === 'specific-items') {
-      // Count events matching the item IDs
-      current = relevantEvents.filter((e: any) => 
+      // Count events matching the item IDs. Both kid-logged events and
+      // parent-approved prayer events count, because v10's prayerLogging
+      // resolves the real trackable item ID before writing the event
+      // (was hardcoded to 'prayer' before, which never matched).
+      current = relevantEvents.filter((e: any) =>
         challenge.requirements[0].itemIds.includes(e.trackableItemId) && e.points > 0
+      ).length;
+    } else if (challenge.requirements[0].type === 'behavior') {
+      // v10: custom quests created via CustomQuestCreator carry
+      //   { type: 'behavior', behaviorIds: [...], target: N }
+      // The progress calculator was missing this branch entirely, so
+      // custom quests always reported 0/N. Match by the same rule as
+      // 'specific-items' but against `behaviorIds`.
+      current = relevantEvents.filter((e: any) =>
+        Array.isArray(challenge.requirements[0].behaviorIds) &&
+        challenge.requirements[0].behaviorIds.includes(e.trackableItemId) &&
+        e.points > 0
       ).length;
     } else if (challenge.requirements[0].type === 'total-points') {
       // Sum positive points
@@ -2426,7 +2474,7 @@ async function calculateChallengeProgress(challenge: any, childId: string) {
     }
 
     const percentage = Math.min(100, Math.round((current / target) * 100));
-    const isComplete = challenge.requirements[0].type === 'count' 
+    const isComplete = challenge.requirements[0].type === 'count'
       ? current === 0 // For "zero negatives", must be exactly 0
       : current >= target;
 
@@ -2713,10 +2761,15 @@ app.post(
       // Create challenge instance
       const challengeId = `challenge:${childId}:${Date.now()}:${Math.random().toString(36).substr(2, 9)}`;
       const now = new Date();
-      
+
+      // v10: Anchor expiry to the family timezone (matches the daily/weekly
+      // generator and progress window).
+      const _cqChild = await kv.get(childId);
+      const _cqFamily = _cqChild?.familyId ? await kv.get(`family:${_cqChild.familyId}`) : null;
+      const _cqTz = _cqFamily?.timezone || 'UTC';
       const expiresAt = customQuest.type === 'daily'
-        ? new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59)
-        : new Date(now.getFullYear(), now.getMonth(), now.getDate() + (7 - now.getDay()), 23, 59, 59);
+        ? getEndOfDayInTimezone(_cqTz, now)
+        : getEndOfWeekInTimezone(_cqTz, now);
       
       const challenge = {
         id: challengeId,
@@ -2862,10 +2915,18 @@ app.post(
     //
     // We treat 'available' and 'accepted' as "already has it"; expired
     // / failed / completed challenges from prior days don't block.
+    //
+    // v10: Period start anchored to the family timezone, so daily quests
+    // really run from 00:00 family-local (e.g. 12:01 AM EST) → 23:59
+    // family-local. Without this, a quest generated late at night EST
+    // would already be considered "for tomorrow" by server UTC, and a
+    // re-generation request the next morning would NOT dedup against it.
+    const _family = child.familyId ? await kv.get(`family:${child.familyId}`) : null;
+    const _tz = _family?.timezone || 'UTC';
     const _now = new Date();
     const _periodStart = type === 'daily'
-      ? new Date(_now.getFullYear(), _now.getMonth(), _now.getDate())
-      : new Date(_now.getFullYear(), _now.getMonth(), _now.getDate() - _now.getDay());
+      ? getStartOfDayInTimezone(_tz, _now)
+      : getStartOfWeekInTimezone(_tz, _now);
 
     const existingChallenges = await kv.getByPrefix(`challenge:${childId}:`);
     const dupTemplateIds = new Set(
@@ -2899,13 +2960,16 @@ app.post(
     // Create challenge instances
     const newChallenges = [];
     const now = new Date();
-    
+
+    // v10: end-of-day / end-of-week in the family timezone (matches
+    // _periodStart above so the window is symmetric).
+    const _expiresAt = type === 'daily'
+      ? getEndOfDayInTimezone(_tz, now)
+      : getEndOfWeekInTimezone(_tz, now);
+
     for (const template of selectedTemplates) {
       const challengeId = `challenge:${childId}:${Date.now()}:${Math.random().toString(36).substr(2, 9)}`;
-      
-      const expiresAt = type === 'daily'
-        ? new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59)
-        : new Date(now.getFullYear(), now.getMonth(), now.getDate() + (7 - now.getDay()), 23, 59, 59);
+      const expiresAt = _expiresAt;
       
       const challenge = {
         id: challengeId,
@@ -3048,6 +3112,111 @@ app.post(
     } catch (error) {
       console.error('Delete challenge error:', error);
       return c.json({ error: 'Failed to delete challenge' }, 500);
+    }
+  }
+);
+
+// v10: Pause an active (or available) challenge. Parent-only.
+//
+// "Paused" challenges are hidden from the kid view (Challenges.tsx filters
+// kid view by status === 'accepted' || 'available'), so this is the soft
+// alternative to Remove for cases where the parent generated a quest by
+// mistake but isn't sure they want to delete it. The accepted/available
+// status is preserved on the challenge as `prevStatus` so Resume can put
+// it back exactly where it was.
+app.post(
+  "/make-server-f116e23f/children/:childId/challenges/pause",
+  requireAuth,
+  requireParent,
+  requireChildAccess,
+  async (c) => {
+    try {
+      const { childId } = c.req.param();
+      const { challengeId } = await c.req.json();
+      if (!challengeId || typeof challengeId !== 'string') {
+        return c.json({ error: 'challengeId is required' }, 400);
+      }
+
+      const challenge = await kv.get(challengeId);
+      if (!challenge) {
+        return c.json({ error: 'Challenge not found' }, 404);
+      }
+      if (challenge.childId !== childId) {
+        return c.json({ error: 'Challenge does not belong to this child' }, 403);
+      }
+      if (challenge.status === 'completed') {
+        return c.json({
+          error: 'Cannot pause a completed challenge',
+          code: 'COMPLETED_LOCKED',
+          hint: 'Completed quests are locked for auditing — points were already awarded.'
+        }, 400);
+      }
+      if (challenge.status !== 'accepted' && challenge.status !== 'available') {
+        return c.json({
+          error: `Challenge is ${challenge.status} and cannot be paused`,
+          code: 'INVALID_STATE'
+        }, 400);
+      }
+
+      challenge.prevStatus = challenge.status; // preserve for Resume
+      challenge.status = 'paused';
+      challenge.pausedAt = new Date().toISOString();
+      await kv.set(challengeId, challenge);
+      return c.json(challenge);
+    } catch (error) {
+      console.error('Pause challenge error:', error);
+      return c.json({ error: 'Failed to pause challenge' }, 500);
+    }
+  }
+);
+
+// v10: Resume a paused challenge — flips back to its previous status
+// (typically 'available'; or 'accepted' if it had been accepted before
+// pause).
+app.post(
+  "/make-server-f116e23f/children/:childId/challenges/resume",
+  requireAuth,
+  requireParent,
+  requireChildAccess,
+  async (c) => {
+    try {
+      const { childId } = c.req.param();
+      const { challengeId } = await c.req.json();
+      if (!challengeId || typeof challengeId !== 'string') {
+        return c.json({ error: 'challengeId is required' }, 400);
+      }
+
+      const challenge = await kv.get(challengeId);
+      if (!challenge) {
+        return c.json({ error: 'Challenge not found' }, 404);
+      }
+      if (challenge.childId !== childId) {
+        return c.json({ error: 'Challenge does not belong to this child' }, 403);
+      }
+      if (challenge.status !== 'paused') {
+        return c.json({
+          error: `Challenge is ${challenge.status}, not paused`,
+          code: 'NOT_PAUSED'
+        }, 400);
+      }
+
+      // Refuse if already expired (don't quietly resume into a dead window).
+      if (challenge.expiresAt && new Date(challenge.expiresAt).getTime() < Date.now()) {
+        challenge.status = 'expired';
+        delete challenge.prevStatus;
+        delete challenge.pausedAt;
+        await kv.set(challengeId, challenge);
+        return c.json({ error: 'Challenge has expired', code: 'EXPIRED' }, 410);
+      }
+
+      challenge.status = challenge.prevStatus === 'accepted' ? 'accepted' : 'available';
+      delete challenge.prevStatus;
+      delete challenge.pausedAt;
+      await kv.set(challengeId, challenge);
+      return c.json(challenge);
+    } catch (error) {
+      console.error('Resume challenge error:', error);
+      return c.json({ error: 'Failed to resume challenge' }, 500);
     }
   }
 );
