@@ -365,15 +365,44 @@ export function getFamilyId(c: Context): string {
 }
 
 /**
- * Helper: Get user's family ID from their family membership (async)
+ * Helper: Get user's family ID from their family membership (async).
+ *
+ * Resolves a familyId for BOTH parent JWTs and kid sessions:
+ *
+ *   - Kid sessions: verifyKidSession (in this file) already attaches
+ *     `familyId` to the pseudo-user it stores in `c.set("user", …)`.
+ *     We use it directly so that family-scoped endpoints
+ *     (questions, categories, custom-quests, etc.) work for kids.
+ *
+ *   - Parents: scan `family:` records and match `f.parentIds`.
+ *
+ * BUG HISTORY (v8 → v9): the parent-only branch returned `null` for
+ * kids, which made `q.familyId === familyId` collapse to
+ * `q.familyId === null` and silently filtered out every family-scoped
+ * question — kids saw "No questions yet, ask a parent" even when the
+ * parent had authored 35.
  */
 export async function getUserFamilyId(c: Context): Promise<string | null> {
+  const user = c.get("user");
+
+  // Kid sessions carry familyId directly on the verified user object.
+  if (user?.familyId) {
+    return user.familyId;
+  }
+
   const userId = getAuthUserId(c);
   const kv = await import("./kv_store.tsx");
-  
-  // Get all families and find one where user is a parent
+
+  // Parent path: find the family where this user is a parent.
   const families = await kv.getByPrefix('family:');
   const userFamily = families.find((f: any) => f.parentIds?.includes(userId));
-  
-  return userFamily ? userFamily.id : null;
+  if (userFamily) return userFamily.id;
+
+  // Last-ditch fallback for kid-like callers whose token didn't go
+  // through verifyKidSession (e.g. an older session shape): look up the
+  // child record by its key and read its familyId.
+  const child = await kv.get(userId);
+  if (child?.familyId) return child.familyId;
+
+  return null;
 }

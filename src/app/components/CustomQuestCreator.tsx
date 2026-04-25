@@ -88,6 +88,16 @@ export function CustomQuestCreator({ open, onOpenChange, familyId, onQuestCreate
     }
   }, [editQuest]);
 
+  // v9: This component used to fetch from
+  //   /families/:familyId/behaviors
+  // which is NOT a route the backend serves — every call 404'd, behaviors
+  // stayed at its useState([]) default, and the dialog showed
+  //   "No behaviors configured yet. Please create behaviors first in
+  //    the Behaviors page."
+  // even when the parent had configured plenty of trackable items. The
+  // intended source is the trackable-items endpoint (which IS family-scoped
+  // since the v8 prefix fix), so we read from there and treat each
+  // trackable item as a behavior.
   const loadBehaviors = async () => {
     setLoadingBehaviors(true);
     try {
@@ -95,7 +105,7 @@ export function CustomQuestCreator({ open, onOpenChange, familyId, onQuestCreate
       if (!session?.access_token) return;
 
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f/families/${familyId}/behaviors`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f/trackable-items`,
         {
           headers: {
             'Authorization': `Bearer ${session.access_token}`,
@@ -106,12 +116,53 @@ export function CustomQuestCreator({ open, onOpenChange, familyId, onQuestCreate
 
       if (response.ok) {
         const data = await response.json();
-        setBehaviors(data);
+        // /trackable-items returns { id, name, points, category, ... } —
+        // already the shape Behavior expects.
+        setBehaviors(Array.isArray(data) ? data : []);
       }
     } catch (error) {
       console.error('Load behaviors error:', error);
     } finally {
       setLoadingBehaviors(false);
+    }
+  };
+
+  // v9: One-tap "Add Starter Set" so a parent dead-ended in this dialog
+  // can unblock themselves without leaving (and without the older "go to
+  // the Behaviors page" copy that pointed at a place that doesn't exist).
+  const [seeding, setSeeding] = useState(false);
+  const handleSeedStarter = async () => {
+    setSeeding(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        toast.error('No valid session');
+        return;
+      }
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f/trackable-items/seed-starter`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'apikey': publicAnonKey,
+            'Content-Type': 'application/json',
+          },
+          body: '{}',
+        }
+      );
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        toast.error(err?.error || 'Could not seed starter set');
+        return;
+      }
+      const data = await response.json().catch(() => ({}));
+      toast.success(`Added ${data.created ?? 'starter'} starter behaviors`);
+      await loadBehaviors();
+    } catch (err: any) {
+      toast.error(err?.message || 'Could not seed starter set');
+    } finally {
+      setSeeding(false);
     }
   };
 
@@ -293,8 +344,39 @@ export function CustomQuestCreator({ open, onOpenChange, familyId, onQuestCreate
                 <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-600"></div>
               </div>
             ) : behaviors.length === 0 ? (
-              <div className="p-4 bg-yellow-50 border-2 border-yellow-200 rounded-lg text-sm text-yellow-800">
-                No behaviors configured yet. Please create behaviors first in the Behaviors page.
+              <div className="p-4 bg-amber-50 border-2 border-amber-200 rounded-lg space-y-3">
+                <p className="text-sm text-amber-900">
+                  <strong>No behaviors configured yet.</strong> Add at least one
+                  trackable behavior so this quest has something to track.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={handleSeedStarter}
+                    disabled={seeding}
+                    className="bg-amber-600 hover:bg-amber-700 text-white"
+                  >
+                    {seeding ? 'Adding…' : 'Add Starter Set'}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      onOpenChange(false);
+                      // Open Settings → Trackable Items in a follow-up step.
+                      window.location.assign('/settings?tab=trackable-items');
+                    }}
+                  >
+                    Open Settings → Trackable Items
+                  </Button>
+                </div>
+                <p className="text-xs text-amber-700">
+                  "Add Starter Set" seeds 5 prayers + 4 positive behaviors + 1
+                  negative behavior. Idempotent — safe to tap if you've added
+                  some already.
+                </p>
               </div>
             ) : (
               <div className="grid gap-2 max-h-48 overflow-y-auto p-2 border rounded-lg">

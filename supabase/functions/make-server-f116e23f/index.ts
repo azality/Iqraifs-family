@@ -1,5 +1,5 @@
 // FGS Backend Server v1.0.3 - Accept challenge route flattened (no :childId in URL)
-const SERVER_VERSION = "v1.0.8-quest-fixes";
+const SERVER_VERSION = "v1.0.9-multi-fix";
 import { Hono } from "npm:hono";
 import { cors } from "npm:hono/cors";
 import { logger } from "npm:hono/logger";
@@ -2854,7 +2854,48 @@ app.post(
         selectedTemplates.push(shuffled[i]);
       }
     }
-    
+
+    // v9: Dedup safeguard — drop any templates the kid already has an
+    // active challenge for in this period (today for daily, this week
+    // for weekly). Without this, hitting Generate Daily twice produced
+    // two copies of every quest, which is exactly what users reported.
+    //
+    // We treat 'available' and 'accepted' as "already has it"; expired
+    // / failed / completed challenges from prior days don't block.
+    const _now = new Date();
+    const _periodStart = type === 'daily'
+      ? new Date(_now.getFullYear(), _now.getMonth(), _now.getDate())
+      : new Date(_now.getFullYear(), _now.getMonth(), _now.getDate() - _now.getDay());
+
+    const existingChallenges = await kv.getByPrefix(`challenge:${childId}:`);
+    const dupTemplateIds = new Set(
+      existingChallenges
+        .filter((ch: any) =>
+          ch.type === type &&
+          (ch.status === 'available' || ch.status === 'accepted') &&
+          ch.createdAt && new Date(ch.createdAt) >= _periodStart
+        )
+        .map((ch: any) => ch.templateId)
+        .filter(Boolean)
+    );
+
+    const beforeDedup = selectedTemplates.length;
+    selectedTemplates = selectedTemplates.filter((t: any) => !dupTemplateIds.has(t.id));
+    const skipped = beforeDedup - selectedTemplates.length;
+
+    if (selectedTemplates.length === 0) {
+      return c.json({
+        challenges: [],
+        count: 0,
+        skipped,
+        code: 'ALREADY_GENERATED',
+        message: skipped > 0
+          ? `${child.name || 'This child'} already has these ${type} quests for ${type === 'daily' ? 'today' : 'this week'}.`
+          : 'No new quests to create.',
+        hint: 'Remove an existing quest first, or wait for the period to roll over.'
+      }, 200);
+    }
+
     // Create challenge instances
     const newChallenges = [];
     const now = new Date();

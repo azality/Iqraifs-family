@@ -1188,14 +1188,48 @@ export function Challenges() {
                         </Badge>
                       </div>
 
-                      {/* Requirements */}
-                      <div className="space-y-1">
-                        {challenge.requirements.map((req, idx) => (
-                          <div key={idx} className="flex items-start gap-2 text-sm">
-                            <CheckCircle2 className="h-4 w-4 mt-0.5 text-green-600" />
-                            <span className="text-muted-foreground">{req.description}</span>
+                      {/* v9: kid-friendly framing — make Objective /
+                          How to Win / Reward explicit on Active cards
+                          so it's obvious what to do, when it counts, and
+                          what they'll get. */}
+                      <div className="rounded-xl bg-white/70 border border-orange-200 p-3 space-y-2.5">
+                        <div className="flex items-start gap-2 text-sm">
+                          <span className="text-base leading-none">🎯</span>
+                          <div>
+                            <div className="font-semibold text-orange-900">
+                              What to do
+                            </div>
+                            <div className="text-muted-foreground">
+                              {challenge.description}
+                            </div>
                           </div>
-                        ))}
+                        </div>
+                        <div className="flex items-start gap-2 text-sm">
+                          <span className="text-base leading-none">✅</span>
+                          <div>
+                            <div className="font-semibold text-orange-900">
+                              How to win
+                            </div>
+                            <div className="space-y-0.5">
+                              {challenge.requirements.map((req, idx) => (
+                                <div key={idx} className="text-muted-foreground">
+                                  {req.description}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-start gap-2 text-sm">
+                          <span className="text-base leading-none">🎁</span>
+                          <div>
+                            <div className="font-semibold text-orange-900">
+                              What you'll get
+                            </div>
+                            <div className="text-muted-foreground">
+                              +{challenge.bonusPoints} bonus points when you finish before {challenge.type === 'daily' ? 'tonight' : 'the end of the week'}
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     </CardContent>
                   </Card>
@@ -1253,15 +1287,47 @@ export function Challenges() {
                         </Badge>
                       </div>
 
-                      {/* Requirements */}
-                      <div className="space-y-1">
-                        <p className="text-sm font-semibold">Requirements:</p>
-                        {challenge.requirements.map((req, idx) => (
-                          <div key={idx} className="flex items-start gap-2 text-sm">
-                            <Target className="h-4 w-4 mt-0.5 text-blue-600" />
-                            <span className="text-muted-foreground">{req.description}</span>
+                      {/* v9: same Objective / How to Win / Reward framing
+                          as Active challenges so kids know what they're
+                          opting into before they tap Accept. */}
+                      <div className="rounded-xl bg-blue-50/60 border border-blue-200 p-3 space-y-2.5">
+                        <div className="flex items-start gap-2 text-sm">
+                          <span className="text-base leading-none">🎯</span>
+                          <div>
+                            <div className="font-semibold text-blue-900">
+                              What to do
+                            </div>
+                            <div className="text-muted-foreground">
+                              {challenge.description}
+                            </div>
                           </div>
-                        ))}
+                        </div>
+                        <div className="flex items-start gap-2 text-sm">
+                          <span className="text-base leading-none">✅</span>
+                          <div>
+                            <div className="font-semibold text-blue-900">
+                              How to win
+                            </div>
+                            <div className="space-y-0.5">
+                              {challenge.requirements.map((req, idx) => (
+                                <div key={idx} className="text-muted-foreground">
+                                  {req.description}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-start gap-2 text-sm">
+                          <span className="text-base leading-none">🎁</span>
+                          <div>
+                            <div className="font-semibold text-blue-900">
+                              What you'll get
+                            </div>
+                            <div className="text-muted-foreground">
+                              +{challenge.bonusPoints} bonus points if you finish before {challenge.type === 'daily' ? 'tonight' : 'the end of the week'}
+                            </div>
+                          </div>
+                        </div>
                       </div>
 
                       {/* Accept Button — disabled while a parent is previewing
