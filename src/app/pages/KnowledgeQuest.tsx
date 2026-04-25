@@ -131,10 +131,19 @@ export function KnowledgeQuest() {
 
       if (response.ok) {
         const session = await response.json();
-        // Navigate to quest play with selected categories - use kid route if in kid mode
+        // Navigate to quest play with selected categories - use kid route if in kid mode.
+        // NOTE: we also pass the full `categories` catalog (with per-difficulty
+        // counts). KnowledgeQuestPlay uses this to:
+        //   - disable the Easy/Medium/Hard buttons when nothing is available,
+        //   - show an accurate count next to each difficulty,
+        //   - surface a precise "no X questions in Y" message instead of a
+        //     generic error when it happens.
         const basePath = mode === 'kid' ? '/kid/knowledge-quest' : '/knowledge-quest';
         navigate(`${basePath}/${session.id}/play`, {
-          state: { categories: selectedCategories }
+          state: {
+            categories: selectedCategories,
+            categoryCatalog: categories,
+          }
         });
       } else {
         toast.error('Failed to start quest');
@@ -317,8 +326,12 @@ export function KnowledgeQuest() {
         </CardContent>
       </Card>
 
-      {/* No Questions Warning & Seed Button */}
-      {needsSeeding && (
+      {/* No Questions Warning.
+          - Parents see the actual "Add Sample Questions" seeder button.
+          - Kids see a friendly "ask a parent" card instead — kids must never
+            be able to mutate the question bank, and surfacing a button that
+            does nothing for them was confusing. */}
+      {needsSeeding && isParentMode && (
         <Card className="border-4 border-orange-400 bg-gradient-to-br from-orange-50 to-yellow-50">
           <CardHeader>
             <CardTitle className="text-orange-900 flex items-center gap-2">
@@ -348,6 +361,21 @@ export function KnowledgeQuest() {
               )}
             </Button>
           </CardContent>
+        </Card>
+      )}
+
+      {needsSeeding && !isParentMode && (
+        <Card className="border-4 border-purple-300 bg-gradient-to-br from-purple-50 to-pink-50">
+          <CardHeader>
+            <CardTitle className="text-purple-900 flex items-center gap-2">
+              <Sparkles className="h-5 w-5" />
+              No questions yet!
+            </CardTitle>
+            <CardDescription className="text-purple-700">
+              Ask a parent to add some questions so you can start your quest.
+              Once they do, you'll see topics to pick from here.
+            </CardDescription>
+          </CardHeader>
         </Card>
       )}
 

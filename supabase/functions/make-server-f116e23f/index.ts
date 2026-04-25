@@ -1,5 +1,5 @@
 // FGS Backend Server v1.0.3 - Accept challenge route flattened (no :childId in URL)
-const SERVER_VERSION = "v1.0.3-accept-flat";
+const SERVER_VERSION = "v1.0.8-quest-fixes";
 import { Hono } from "npm:hono";
 import { cors } from "npm:hono/cors";
 import { logger } from "npm:hono/logger";
@@ -2120,8 +2120,15 @@ async function generateQuestTemplates(familyId: string, type: 'daily' | 'weekly'
       return Math.round(baseBonus * (multipliers[difficulty] || 1));
     };
     
-    // Fetch all trackable items for this family
-    const allItems = await kv.getByPrefix(`item:${familyId}:`);
+    // Fetch all trackable items for this family.
+    // NOTE: POST /trackable-items stores items under `item:<timestamp>` (NOT
+    // `item:<familyId>:<timestamp>`), so we must scan the global `item:`
+    // prefix and then filter by familyId. Legacy items written before we
+    // started stamping familyId are accepted as well (familyId missing).
+    const rawItems = await kv.getByPrefix('item:');
+    const allItems = rawItems.filter((it: any) =>
+      it && (it.familyId === familyId || !it.familyId)
+    );
     
     // Categorize items
     const salahItems = allItems.filter((item: any) => item.category === 'salah');
@@ -2794,32 +2801,58 @@ app.post(
   async (c) => {
   try {
     const { childId } = c.req.param();
-    const { type } = await c.req.json(); // 'daily' or 'weekly'
-    
+    const body = await c.req.json();
+    const { type } = body; // 'daily' or 'weekly'
+    // Optional: client preselects specific template IDs (from the preview
+    // dialog). When present, we build challenges from exactly those
+    // templates instead of random-selecting.
+    const templateIds: string[] | undefined = Array.isArray(body?.templateIds)
+      ? body.templateIds
+      : undefined;
+
     // Get child to find familyId
     // childId already includes 'child:' prefix from route parameter
     const child = await kv.get(childId);
     if (!child) {
       return c.json({ error: 'Child not found' }, 404);
     }
-    
+
     // Generate dynamic templates based on family's configured behaviors
     const templates = await generateQuestTemplates(child.familyId, type);
-    
+
     if (templates.length === 0) {
-      return c.json({ 
-        error: 'No behaviors configured yet', 
-        message: 'Please configure salah and behaviors first to generate quests' 
+      return c.json({
+        error: 'No behaviors configured yet',
+        message: 'Please configure salah and behaviors first to generate quests',
+        // Machine-readable so the frontend can render an inline helper card
+        // pointing the parent at Settings → Trackable Items (and offering a
+        // one-tap "seed starter set" action).
+        code: 'NO_TRACKABLE_ITEMS',
+        hint: 'Go to Settings → Trackable Items to add Salah, Habits, and Positive/Negative behaviors. You can also tap "Add Starter Set" to seed a sensible default.'
       }, 400);
     }
-    
-    // Randomly select 2-3 challenges
-    const selectedTemplates = [];
-    const numChallenges = type === 'daily' ? 3 : 2;
-    const shuffled = [...templates].sort(() => Math.random() - 0.5);
-    
-    for (let i = 0; i < Math.min(numChallenges, shuffled.length); i++) {
-      selectedTemplates.push(shuffled[i]);
+
+    // Select templates — either preselected from the client or randomly.
+    let selectedTemplates: any[] = [];
+    if (templateIds && templateIds.length > 0) {
+      const byId = new Map(templates.map((t: any) => [t.id, t]));
+      for (const id of templateIds) {
+        const t = byId.get(id);
+        if (t) selectedTemplates.push(t);
+      }
+      if (selectedTemplates.length === 0) {
+        return c.json({
+          error: 'Selected quests are no longer available',
+          code: 'TEMPLATES_STALE',
+          hint: 'The quest options changed. Please open the preview again to pick fresh ones.'
+        }, 400);
+      }
+    } else {
+      const numChallenges = type === 'daily' ? 3 : 2;
+      const shuffled = [...templates].sort(() => Math.random() - 0.5);
+      for (let i = 0; i < Math.min(numChallenges, shuffled.length); i++) {
+        selectedTemplates.push(shuffled[i]);
+      }
     }
     
     // Create challenge instances
@@ -2895,6 +2928,88 @@ app.get(
     return c.json({ error: 'Failed to get challenges' }, 500);
   }
 });
+
+// Preview the full template pool for a child without creating any challenges.
+// Parent uses this to inspect / pick which quests to generate (see
+// QuestPreviewDialog on the frontend). ?type=daily|weekly (default: daily).
+app.get(
+  "/make-server-f116e23f/children/:childId/challenges/preview",
+  requireAuth,
+  requireParent,
+  requireChildAccess,
+  async (c) => {
+    try {
+      const { childId } = c.req.param();
+      const type = (c.req.query('type') === 'weekly' ? 'weekly' : 'daily') as 'daily' | 'weekly';
+
+      // childId already includes 'child:' prefix from route parameter
+      const child = await kv.get(childId);
+      if (!child) {
+        return c.json({ error: 'Child not found' }, 404);
+      }
+
+      const templates = await generateQuestTemplates(child.familyId, type);
+      if (templates.length === 0) {
+        return c.json({
+          templates: [],
+          type,
+          error: 'No behaviors configured yet',
+          message: 'Please configure salah and behaviors first to generate quests',
+          code: 'NO_TRACKABLE_ITEMS',
+          hint: 'Go to Settings → Trackable Items to add Salah, Habits, and Positive/Negative behaviors. You can also tap "Add Starter Set" to seed a sensible default.'
+        }, 200);
+      }
+
+      return c.json({ templates, type, count: templates.length });
+    } catch (error) {
+      console.error('Preview challenges error:', error);
+      return c.json({ error: 'Failed to preview challenges' }, 500);
+    }
+  }
+);
+
+// Delete a challenge. Parent-only. Refuses to delete completed challenges
+// (those already awarded points — auditing integrity).
+app.post(
+  "/make-server-f116e23f/children/:childId/challenges/delete",
+  requireAuth,
+  requireParent,
+  requireChildAccess,
+  async (c) => {
+    try {
+      const { childId } = c.req.param();
+      const { challengeId } = await c.req.json();
+      if (!challengeId || typeof challengeId !== 'string') {
+        return c.json({ error: 'challengeId is required' }, 400);
+      }
+
+      const challenge = await kv.get(challengeId);
+      if (!challenge) {
+        return c.json({ error: 'Challenge not found' }, 404);
+      }
+
+      // Sanity check — the caller must be deleting a challenge that belongs
+      // to the child they claimed. This guards against cross-child deletes.
+      if (challenge.childId !== childId) {
+        return c.json({ error: 'Challenge does not belong to this child' }, 403);
+      }
+
+      if (challenge.status === 'completed') {
+        return c.json({
+          error: 'Cannot delete a completed challenge',
+          code: 'COMPLETED_LOCKED',
+          hint: 'Completed quests are locked for auditing — points were already awarded.'
+        }, 400);
+      }
+
+      await kv.del(challengeId);
+      return c.json({ success: true, deletedId: challengeId });
+    } catch (error) {
+      console.error('Delete challenge error:', error);
+      return c.json({ error: 'Failed to delete challenge' }, 500);
+    }
+  }
+);
 
 // Get sample quests for empty state preview (based on actual configured behaviors)
 app.get(
@@ -3143,19 +3258,106 @@ app.post(
   try {
     const itemData = await c.req.json();
     const itemId = `item:${Date.now()}`;
-    
+
+    // Stamp familyId so generateQuestTemplates can filter items per family.
+    // Callers (Settings → Trackable Items) may already include familyId in
+    // the body, in which case we trust that value; otherwise we look it up
+    // from the authenticated parent's account.
+    const familyId = itemData.familyId || (await getUserFamilyId(c));
+
     const item = {
       id: itemId,
       ...itemData,
+      familyId,
       createdAt: new Date().toISOString()
     };
-    
+
     await kv.set(itemId, item);
     return c.json(item);
   } catch (error) {
     return c.json({ error: 'Failed to create trackable item' }, 500);
   }
 });
+
+// Seed a sensible starter set of trackable items for a family.
+// Parent-only. Idempotent: items whose name+familyId already exist are skipped.
+// Used by the "Add Starter Set" button on the Challenges NO_TRACKABLE_ITEMS
+// helper card — one tap to unblock quest generation.
+app.post(
+  "/make-server-f116e23f/trackable-items/seed-starter",
+  requireAuth,
+  requireParent,
+  async (c) => {
+    try {
+      const bodyFamilyId = (await c.req.json().catch(() => ({})))?.familyId;
+      const familyId = bodyFamilyId || (await getUserFamilyId(c));
+      if (!familyId) {
+        return c.json({ error: 'No family associated with this account' }, 400);
+      }
+
+      // Load existing items for this family once so we can skip dupes by name.
+      const rawExisting = await kv.getByPrefix('item:');
+      const existingForFamily = rawExisting.filter(
+        (it: any) => it && (it.familyId === familyId || !it.familyId)
+      );
+      const existingNames = new Set(
+        existingForFamily
+          .map((it: any) => (it?.name || '').toLowerCase().trim())
+          .filter(Boolean)
+      );
+
+      const starter = [
+        // Salah (5 daily prayers)
+        { name: 'Fajr',   category: 'salah', points: 5, iconName: 'Sunrise' },
+        { name: 'Dhuhr',  category: 'salah', points: 3, iconName: 'Sun' },
+        { name: 'Asr',    category: 'salah', points: 3, iconName: 'CloudSun' },
+        { name: 'Maghrib',category: 'salah', points: 3, iconName: 'Sunset' },
+        { name: 'Isha',   category: 'salah', points: 3, iconName: 'Moon' },
+        // Positive behaviors
+        { name: 'Helped a sibling',    category: 'behavior', points:  2, iconName: 'Heart' },
+        { name: 'Read Quran',          category: 'behavior', points:  3, iconName: 'BookOpen' },
+        { name: 'Said Bismillah',      category: 'behavior', points:  1, iconName: 'Sparkles' },
+        { name: 'Cleaned up toys',     category: 'behavior', points:  2, iconName: 'Broom' },
+        // Negative behavior
+        { name: 'Talked back',         category: 'behavior', points: -2, iconName: 'AlertTriangle' },
+      ];
+
+      const created: any[] = [];
+      const skipped: string[] = [];
+      let now = Date.now();
+
+      for (const seed of starter) {
+        const key = seed.name.toLowerCase().trim();
+        if (existingNames.has(key)) {
+          skipped.push(seed.name);
+          continue;
+        }
+        // Guarantee unique timestamps even inside a tight loop.
+        const itemId = `item:${now++}`;
+        const item = {
+          id: itemId,
+          ...seed,
+          familyId,
+          createdAt: new Date().toISOString(),
+        };
+        await kv.set(itemId, item);
+        created.push(item);
+        existingNames.add(key);
+      }
+
+      return c.json({
+        success: true,
+        createdCount: created.length,
+        skippedCount: skipped.length,
+        skipped,
+        items: created,
+      });
+    } catch (error) {
+      console.error('Seed starter trackable items error:', error);
+      return c.json({ error: 'Failed to seed starter trackable items' }, 500);
+    }
+  }
+);
 
 // Get all trackable items
 app.get(
@@ -3639,7 +3841,7 @@ app.post(
       const { claimId } = c.req.param();
       const userId = getAuthUserId(c);
       const body = await c.req.json();
-      const { onTime = true } = body; // Default to true if not specified
+      const { onTime = true, bonusPoints = 0, bonusReason = '' } = body;
 
       // Verify claim exists and belongs to user's family
       const claim = await kv.get(`prayer-claim:${claimId}`);
@@ -3657,12 +3859,13 @@ app.post(
         return c.json({ error: 'No access to this claim' }, 403);
       }
 
-      const result = await approvePrayerClaim(claimId, userId, onTime);
-      
+      const result = await approvePrayerClaim(claimId, userId, onTime, bonusPoints, bonusReason);
+
       return c.json({
         success: true,
         claim: result.claim,
-        pointEvent: result.pointEvent
+        pointEvent: result.pointEvent,
+        bonusEvent: result.bonusEvent
       });
     } catch (error: any) {
       console.error('Approve claim error:', error);
