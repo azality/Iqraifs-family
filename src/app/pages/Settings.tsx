@@ -2667,4 +2667,164 @@ export function Settings() {
                     <div>
                       <h3 className="font-semibold text-red-900 text-lg">Delete Your Account</h3>
                       <p className="text-sm text-red-700 mt-1">
-                        Once you delete your accou
+                        Once you delete your account, there is no going back. This action cannot be undone.
+                      </p>
+                    </div>
+
+                    <Alert className="bg-amber-50 border-amber-300">
+                      <AlertTriangle className="h-4 w-4 text-amber-600" />
+                      <AlertTitle className="text-amber-900">What will be deleted?</AlertTitle>
+                      <AlertDescription className="text-amber-800 text-sm space-y-2">
+                        {family && family.parentIds && family.parentIds.length === 1 ? (
+                          // Sole parent
+                          <>
+                            <p className="font-semibold">⚠️ You are the only parent in this family.</p>
+                            <p>Deleting your account will delete:</p>
+                            <ul className="list-disc list-inside space-y-1 ml-2">
+                              <li>Your entire family ({family.name})</li>
+                              <li>All children in the family ({children.length} {children.length === 1 ? 'child' : 'children'})</li>
+                              <li>All habits, behaviors, rewards, and milestones</li>
+                              <li>All activity logs and progress data</li>
+                              <li>All prayer claims and wishlist items</li>
+                              <li>All custom quests and settings</li>
+                            </ul>
+                            <p className="font-semibold text-red-600 mt-2">
+                              This will permanently delete everything for your entire family.
+                            </p>
+                          </>
+                        ) : (
+                          // Dual parent
+                          <>
+                            <p>Since another parent exists in your family, deleting your account will:</p>
+                            <ul className="list-disc list-inside space-y-1 ml-2">
+                              <li>Remove ONLY your account</li>
+                              <li>Preserve the family and all children</li>
+                              <li>Preserve all family data (habits, rewards, logs, etc.)</li>
+                              <li>The other parent will retain full access</li>
+                            </ul>
+                            <p className="font-semibold text-blue-600 mt-2">
+                              Your family data will be preserved for the other parent.
+                            </p>
+                          </>
+                        )}
+                      </AlertDescription>
+                    </Alert>
+
+                    <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+                      <AlertDialogTrigger asChild>
+                        <Button variant="destructive" className="w-full sm:w-auto">
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          Delete My Account
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle className="flex items-center gap-2 text-red-600">
+                            <AlertTriangle className="h-5 w-5" />
+                            Permanently Delete Account?
+                          </AlertDialogTitle>
+                          <AlertDialogDescription className="space-y-4">
+                            <p className="text-red-600 font-semibold">
+                              This action cannot be undone. This will permanently delete your account
+                              {family && family.parentIds && family.parentIds.length === 1
+                                ? ' and your entire family with all data.'
+                                : ', but your family will be preserved for the other parent.'}
+                            </p>
+
+                            <div className="space-y-3">
+                              <div>
+                                <Label htmlFor="delete-confirm" className="text-sm font-medium">
+                                  Type <span className="font-mono font-bold">DELETE</span> to confirm
+                                </Label>
+                                <Input
+                                  id="delete-confirm"
+                                  value={deleteConfirmText}
+                                  onChange={(e) => setDeleteConfirmText(e.target.value)}
+                                  placeholder="Type DELETE here"
+                                  className="mt-1"
+                                  autoComplete="off"
+                                />
+                              </div>
+
+                              <div>
+                                <Label htmlFor="delete-password" className="text-sm font-medium">
+                                  Enter your password to confirm
+                                </Label>
+                                <Input
+                                  id="delete-password"
+                                  type="password"
+                                  value={deletePassword}
+                                  onChange={(e) => setDeletePassword(e.target.value)}
+                                  placeholder="Your password"
+                                  className="mt-1"
+                                  autoComplete="current-password"
+                                />
+                              </div>
+                            </div>
+
+                            <Alert className="bg-red-50 border-red-300">
+                              <AlertTriangle className="h-4 w-4 text-red-600" />
+                              <AlertDescription className="text-red-800 text-xs">
+                                <strong>Final warning:</strong> All data will be permanently deleted from our servers.
+                                You will be immediately logged out and cannot recover this account.
+                              </AlertDescription>
+                            </Alert>
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel
+                            onClick={() => {
+                              setDeletePassword("");
+                              setDeleteConfirmText("");
+                            }}
+                          >
+                            Cancel
+                          </AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={(e) => {
+                              e.preventDefault();
+                              handleDeleteAccount();
+                            }}
+                            disabled={isDeletingAccount || deleteConfirmText !== 'DELETE' || !deletePassword}
+                            className="bg-red-600 hover:bg-red-700"
+                          >
+                            {isDeletingAccount ? (
+                              <>
+                                <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2" />
+                                Deleting...
+                              </>
+                            ) : (
+                              <>
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                Delete Account Permanently
+                              </>
+                            )}
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+                </div>
+              </div>
+
+              {/* Info about data privacy */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h4 className="font-semibold text-blue-900 mb-2">🔒 Your Data Privacy</h4>
+                <p className="text-sm text-blue-800">
+                  We respect your right to delete your data. When you delete your account:
+                </p>
+                <ul className="text-sm text-blue-800 list-disc list-inside mt-2 space-y-1">
+                  <li>All personal information is permanently removed from our servers</li>
+                  <li>Your data cannot be recovered after deletion</li>
+                  <li>We do not retain any copies or backups of deleted accounts</li>
+                  <li>Deletion happens immediately upon confirmation</li>
+                </ul>
+              </div>
+
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}

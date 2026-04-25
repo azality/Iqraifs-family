@@ -318,4 +318,41 @@ export function ParentLogin() {
               <span className="text-gray-600">Don't have an account? </span>
               <button
                 onClick={() => navigate('/signup')}
-        
+                className="text-blue-600 hover:underline font-medium"
+              >
+                Sign up
+              </button>
+            </div>
+
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-gray-300" />
+              </div>
+              <div className="relative flex justify-center text-sm">
+                <span className="px-2 bg-white text-gray-500">Or</span>
+              </div>
+            </div>
+
+            <Button
+              variant="outline"
+              onClick={() => navigate('/kid-login')}
+              className="w-full"
+            >
+              <span className="text-2xl mr-2">👶</span>
+              Kid Login
+            </Button>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => navigate('/network-test')}
+              className="w-full text-xs text-gray-500 hover:text-gray-700"
+            >
+              🔬 Network Diagnostics
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
