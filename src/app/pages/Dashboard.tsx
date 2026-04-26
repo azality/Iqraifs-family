@@ -14,6 +14,7 @@ import { motion } from "motion/react";
 import { RecoveryDialog } from "../components/RecoveryDialog";
 import { PrayerApprovalsWidget } from "../components/PrayerApprovalsWidget";
 import { WishlistWidget } from "../components/WishlistWidget";
+import { GettingStartedCard } from "../components/GettingStartedCard";
 import { PointEvent } from "../data/mockData";
 import { 
   Award, 
@@ -113,20 +114,23 @@ export function Dashboard() {
 
   if (!child) {
     return (
-      <div className="flex items-center justify-center h-96">
-        <Card className="max-w-md">
-          <CardContent className="pt-6 text-center space-y-4">
-            <div className="text-4xl mb-2">👨‍👩‍👧‍👦</div>
-            <div>
-              <h3 className="font-semibold text-lg mb-2">Select a Child</h3>
-              <p className="text-muted-foreground">
-                {children.length === 0
-                  ? "No children found. Please add a child in Settings."
-                  : "Please select a child from the dropdown to view their dashboard."}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+      <div className="space-y-6">
+        {isParentMode && <GettingStartedCard />}
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <Card className="max-w-md">
+            <CardContent className="pt-6 text-center space-y-4">
+              <div className="text-4xl mb-2">👨‍👩‍👧‍👦</div>
+              <div>
+                <h3 className="font-semibold text-lg mb-2">Select a Child</h3>
+                <p className="text-muted-foreground">
+                  {children.length === 0
+                    ? "No children found. Please add a child in Settings."
+                    : "Please select a child from the dropdown to view their dashboard."}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     );
   }
@@ -177,6 +181,9 @@ export function Dashboard() {
 
   return (
     <div className="space-y-6">
+      {/* Getting Started checklist (parents only, dismissible, hides when complete) */}
+      {isParentMode && <GettingStartedCard />}
+
       {/* Child-Friendly Hero Section */}
       {isChildView && (
         <motion.div

@@ -17,6 +17,24 @@ import { clearStorageSync, getStorageSync, setStorageSync, removeStorageSync } f
 
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f`;
 
+// v13: Soft warning for obviously-guessable child PINs.
+// We don't block these — parents may still want a simple PIN for very young
+// kids — but we surface a confirm prompt so they're at least making the choice
+// deliberately.
+const WEAK_PINS = new Set([
+  '1234', '4321', '0000', '1111', '2222', '3333', '4444', '5555',
+  '6666', '7777', '8888', '9999', '1212', '2121', '1122', '2211',
+  '0123', '3210', '1010', '2020', '6789', '9876', '0001',
+  '1000', '2580',
+]);
+const isWeakPin = (pin: string): boolean => {
+  if (!/^\d{4}$/.test(pin)) return false;
+  if (WEAK_PINS.has(pin)) return true;
+  // All four digits identical (e.g. 5555).
+  if (pin[0] === pin[1] && pin[1] === pin[2] && pin[2] === pin[3]) return true;
+  return false;
+};
+
 export function Onboarding() {
   const navigate = ReactRouter.useNavigate();
   const { refreshSession, accessToken, userId } = useAuth();
@@ -247,6 +265,18 @@ export function Onboarding() {
     if (!childPin || !/^\d{4}$/.test(childPin)) {
       toast.error("Please enter a 4-digit PIN for the child");
       return;
+    }
+
+    // v13: Soft confirm on guessable PINs (1234, 0000, 5555, etc.).
+    // The PIN is the only thing standing between siblings and each other's
+    // accounts, so worth a one-click sanity check before saving.
+    if (isWeakPin(childPin)) {
+      const proceed = window.confirm(
+        `"${childPin}" is an easy-to-guess PIN (siblings will try 1234, 0000, etc. first). ` +
+        `You can change it later in Settings → Children → Reset PIN.\n\n` +
+        `Use it anyway?`
+      );
+      if (!proceed) return;
     }
 
     setLoading(true);
@@ -704,7 +734,10 @@ export function Onboarding() {
                       Add
                     </Button>
                   </div>
-                  <p className="text-xs text-gray-600">Each child needs a 4-digit PIN for Kid Mode login</p>
+                  <p className="text-xs text-gray-600">
+                    You choose each child's 4-digit PIN — share it with them so they can sign in to Kid Mode.
+                    You can reset it anytime in Settings → Children.
+                  </p>
                 </div>
 
                 {children.length > 0 && (

@@ -1,5 +1,5 @@
 // FGS Backend Server v1.0.3 - Accept challenge route flattened (no :childId in URL)
-const SERVER_VERSION = "v1.0.12-roles";
+const SERVER_VERSION = "v1.0.13-pin-management";
 import { Hono } from "npm:hono";
 import { cors } from "npm:hono/cors";
 import { logger } from "npm:hono/logger";
@@ -3239,6 +3239,67 @@ app.delete(
     } catch (error) {
       console.error('Remove member error:', error);
       return c.json({ error: 'Failed to remove member' }, 500);
+    }
+  }
+);
+
+// v13: Reset a child's PIN.
+// Any parent (owner or co-parent) in the family may reset any child's PIN.
+// Guardians cannot - they can mark prayers / approve behaviors but they
+// don't manage child credentials.
+// Body: { pin: string } - 4 digit string, must be 1000-9999.
+// The new PIN is hashed before storage; the previous PIN is overwritten.
+app.post(
+  "/make-server-f116e23f/families/:familyId/children/:childId/reset-pin",
+  requireAuth,
+  requireParent,
+  requireFamilyAccess,
+  async (c) => {
+    try {
+      const { familyId, childId } = c.req.param();
+      const body = await c.req.json().catch(() => ({}));
+      const pin = typeof body?.pin === 'string' ? body.pin.trim() : '';
+
+      // Validate PIN format - exactly 4 digits, 1000-9999.
+      if (!/^\d{4}$/.test(pin)) {
+        return c.json({ error: 'PIN must be a 4-digit number.' }, 400);
+      }
+      const pinNum = parseInt(pin, 10);
+      if (pinNum < 1000 || pinNum > 9999) {
+        return c.json({ error: 'PIN must be between 1000 and 9999.' }, 400);
+      }
+
+      // childId from the URL is the full key including the "child:" prefix
+      // (the frontend stores child.id as "child:<timestamp>"). If a caller
+      // passes only the timestamp, prefix it.
+      const childKey = childId.startsWith('child:') ? childId : `child:${childId}`;
+
+      const child = await kv.get(childKey);
+      if (!child) {
+        return c.json({ error: 'Child not found.' }, 404);
+      }
+
+      // Verify the child belongs to the family in the URL. Prevents a parent
+      // of family A from resetting a child in family B even if they guess the
+      // child id.
+      if (child.familyId !== familyId) {
+        return c.json({ error: 'Child does not belong to this family.' }, 403);
+      }
+
+      // Hash and store. hashPin is the same helper used by create-child and
+      // verify-pin so the new value will round-trip cleanly on next login.
+      child.pin = await hashPin(pin);
+      child.pinUpdatedAt = new Date().toISOString();
+      await kv.set(childKey, child);
+
+      return c.json({
+        success: true,
+        message: `PIN updated for ${child.name}.`,
+        childId: child.id,
+      });
+    } catch (error) {
+      console.error('Child PIN reset error:', error);
+      return c.json({ error: 'Failed to reset PIN.' }, 500);
     }
   }
 );

@@ -28,6 +28,25 @@ import { QuestSettings } from "../components/QuestSettings";
 import { COMMON_TIMEZONES } from "../utils/timezone";
 import { isPushNotificationsSupported, checkPushPermissions, requestPushPermissions, initializePushNotifications } from "../utils/pushNotifications";
 
+// v13: PINs that are trivially guessable. We don't block these (parents
+// know their families best) but we surface a soft warning when one is
+// chosen so the parent can reconsider. Anything in this list represents
+// either a sequential, repeating, or top-of-mind value.
+const WEAK_PINS = new Set([
+  '1234', '4321', '0000', '1111', '2222', '3333', '4444', '5555',
+  '6666', '7777', '8888', '9999', '1212', '2121', '1122', '2211',
+  '0123', '3210', '1010', '2020', '1234', '6789', '9876', '0001',
+  '1000', '7777', '2580',
+]);
+
+const isWeakPin = (pin: string): boolean => {
+  if (!/^\d{4}$/.test(pin)) return false;
+  if (WEAK_PINS.has(pin)) return true;
+  // All same digit (e.g. '5555') - covered above but defense in depth.
+  if (pin[0] === pin[1] && pin[1] === pin[2] && pin[2] === pin[3]) return true;
+  return false;
+};
+
 // Helper function to deduplicate items by name (client-side safety net)
 const deduplicateByName = <T extends { id: string; name: string }>(items: T[]): T[] => {
   const seen = new Map<string, T>();
@@ -81,6 +100,10 @@ export function Settings() {
   const [roleUpdatingId, setRoleUpdatingId] = useState<string | null>(null);
   const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
   const [memberToRemove, setMemberToRemove] = useState<FamilyMember | null>(null);
+  // v13: child PIN reset dialog state
+  const [pinResetChild, setPinResetChild] = useState<{ id: string; name: string } | null>(null);
+  const [pinResetValue, setPinResetValue] = useState("");
+  const [pinResetSubmitting, setPinResetSubmitting] = useState(false);
   const isPrimaryParent = !!userId && !!primaryParentId && userId === primaryParentId;
   // In v12, the owner is parentIds[0], same as primary. We keep a local
   // alias so the meaning is obvious at the call sites.
@@ -341,6 +364,16 @@ export function Settings() {
     if (isNaN(pin) || pin < 1000 || pin > 9999) {
       toast.error("PIN must be a 4-digit number");
       return;
+    }
+
+    // v13: warn (don't block) on common easy-to-guess PINs.
+    if (isWeakPin(childPin)) {
+      const proceed = window.confirm(
+        `"${childPin}" is a very common PIN (like 1234 or 0000) and easy for ` +
+        `siblings to guess. We recommend choosing a less obvious 4-digit number.\n\n` +
+        `Continue with this PIN anyway?`
+      );
+      if (!proceed) return;
     }
 
     if (!familyId) {
@@ -703,6 +736,56 @@ export function Settings() {
     } finally {
       setRemovingMemberId(null);
       setMemberToRemove(null);
+    }
+  };
+
+  // v13: Reset a child's PIN. Hits the new owner/parent-gated endpoint.
+  // Open the dialog from the children grid; this handler validates the
+  // entered value and submits.
+  const handleResetChildPin = async () => {
+    if (!familyId || !pinResetChild) return;
+    const pin = pinResetValue.trim();
+    if (!/^\d{4}$/.test(pin)) {
+      toast.error('PIN must be exactly 4 digits.');
+      return;
+    }
+    const pinNum = parseInt(pin, 10);
+    if (pinNum < 1000 || pinNum > 9999) {
+      toast.error('PIN must be between 1000 and 9999.');
+      return;
+    }
+    setPinResetSubmitting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        toast.error('No valid session');
+        return;
+      }
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f/families/${familyId}/children/${pinResetChild.id}/reset-pin`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json',
+            'apikey': publicAnonKey,
+          },
+          body: JSON.stringify({ pin }),
+        }
+      );
+      if (response.ok) {
+        toast.success(`PIN updated for ${pinResetChild.name}.`);
+        setPinResetChild(null);
+        setPinResetValue("");
+      } else {
+        const err = await response.json().catch(() => ({}));
+        toast.error(err.error || 'Failed to update PIN');
+      }
+    } catch (error) {
+      console.error('Error resetting child PIN:', error);
+      toast.error('Failed to update PIN');
+    } finally {
+      setPinResetSubmitting(false);
     }
   };
 
@@ -1280,6 +1363,21 @@ export function Settings() {
                         </p>
                       </div>
                     </div>
+                    {/* v13: Reset PIN action - parents only (guardians don't manage child credentials). */}
+                    <div className="mt-3 flex justify-end">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs text-blue-700 hover:text-blue-900 hover:bg-blue-100"
+                        onClick={() => {
+                          setPinResetChild({ id: child.id, name: child.name });
+                          setPinResetValue("");
+                        }}
+                      >
+                        <Lock className="h-3 w-3 mr-1" />
+                        Reset PIN
+                      </Button>
+                    </div>
                   </div>
                 ))}
                 {children.length === 0 && (
@@ -1292,6 +1390,80 @@ export function Settings() {
                   </div>
                 )}
               </div>
+
+              {/* v13: Reset Child PIN dialog */}
+              <Dialog
+                open={!!pinResetChild}
+                onOpenChange={(open) => {
+                  if (!open && !pinResetSubmitting) {
+                    setPinResetChild(null);
+                    setPinResetValue("");
+                  }
+                }}
+              >
+                <DialogContent className="sm:max-w-md">
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                      <Lock className="h-5 w-5 text-blue-600" />
+                      Reset PIN for {pinResetChild?.name}
+                    </DialogTitle>
+                    <DialogDescription>
+                      Enter a new 4-digit PIN. This will overwrite {pinResetChild?.name}'s
+                      current PIN immediately. Make sure to share the new PIN with them
+                      so they can sign back in.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-3 py-2">
+                    <div>
+                      <Label htmlFor="reset-pin-input">New PIN (4 digits, 1000-9999)</Label>
+                      <Input
+                        id="reset-pin-input"
+                        type="text"
+                        inputMode="numeric"
+                        autoComplete="off"
+                        maxLength={4}
+                        placeholder="••••"
+                        value={pinResetValue}
+                        onChange={(e) => {
+                          // Strip to digits only, cap at 4 chars
+                          const digits = e.target.value.replace(/\D/g, '').slice(0, 4);
+                          setPinResetValue(digits);
+                        }}
+                        disabled={pinResetSubmitting}
+                        className="mt-1 text-center text-2xl tracking-[0.5em] font-mono"
+                      />
+                    </div>
+                    {pinResetValue.length === 4 && isWeakPin(pinResetValue) && (
+                      <div className="flex items-start gap-2 p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
+                        <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                        <span>
+                          That PIN is easy to guess (e.g. 1234, 0000, repeating digits).
+                          You can still use it, but a less obvious PIN keeps siblings out.
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setPinResetChild(null);
+                        setPinResetValue("");
+                      }}
+                      disabled={pinResetSubmitting}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={handleResetChildPin}
+                      disabled={pinResetSubmitting || !/^\d{4}$/.test(pinResetValue)}
+                      className="bg-blue-600 hover:bg-blue-700 text-white"
+                    >
+                      {pinResetSubmitting ? 'Updating…' : 'Update PIN'}
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
 
               {/* Family Invite Code */}
               <div className="mt-6 bg-gradient-to-br from-purple-50 to-pink-50 border-2 border-purple-200 rounded-lg p-4">
@@ -1485,7 +1657,10 @@ export function Settings() {
                             <li>Tap their name/avatar</li>
                             <li>Enter their 4-digit PIN</li>
                           </ol>
-                          <p className="text-xs text-amber-600 mt-2">
+                          <p className="text-xs text-amber-700 mt-2">
+                            <strong>You set each child's PIN</strong> when adding them above. Forgot a PIN? Tap <strong>Reset PIN</strong> on their card.
+                          </p>
+                          <p className="text-xs text-amber-600 mt-1">
                             ✨ No parent login required on their device!
                           </p>
                         </div>
