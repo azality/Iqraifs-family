@@ -53,20 +53,38 @@ export function Settings() {
   const [joinRequests, setJoinRequests] = useState<any[]>([]);
   const [loadingJoinRequests, setLoadingJoinRequests] = useState(false);
 
-  // v11: Family Members State
+  // v11/v12: Family Members State
+  // role added in v12 (owner | parent | guardian); relationship now also
+  // includes the literal dropdown values caregiver/teacher/other.
   type FamilyMember = {
     id: string;
     email: string;
     name: string;
+    role?: 'owner' | 'parent' | 'guardian';
     isPrimary: boolean;
-    relationship: 'self' | 'spouse' | 'parent' | 'guardian' | 'unknown';
+    relationship:
+      | 'self'
+      | 'spouse'
+      | 'parent'
+      | 'caregiver'
+      | 'teacher'
+      | 'guardian'
+      | 'other'
+      | 'unknown';
     joinedAt: string | null;
   };
   const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>([]);
   const [primaryParentId, setPrimaryParentId] = useState<string | null>(null);
   const [loadingMembers, setLoadingMembers] = useState(false);
   const [resettingMemberId, setResettingMemberId] = useState<string | null>(null);
+  // v12: owner-only role management state
+  const [roleUpdatingId, setRoleUpdatingId] = useState<string | null>(null);
+  const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
+  const [memberToRemove, setMemberToRemove] = useState<FamilyMember | null>(null);
   const isPrimaryParent = !!userId && !!primaryParentId && userId === primaryParentId;
+  // In v12, the owner is parentIds[0], same as primary. We keep a local
+  // alias so the meaning is obvious at the call sites.
+  const isOwner = isPrimaryParent;
 
   // Child Form State
   const [childName, setChildName] = useState("");
@@ -603,6 +621,88 @@ export function Settings() {
       toast.error('Failed to send password reset email');
     } finally {
       setResettingMemberId(null);
+    }
+  };
+
+  // v12: Promote a guardian -> parent, or demote a parent -> guardian.
+  // Owner-only on the backend; UI also gates the buttons by isOwner.
+  const handleUpdateMemberRole = async (
+    memberId: string,
+    newRole: 'parent' | 'guardian',
+    memberName: string
+  ) => {
+    if (!familyId) return;
+    setRoleUpdatingId(memberId);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        toast.error('No valid session');
+        return;
+      }
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f/families/${familyId}/members/${memberId}/role`,
+        {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'apikey': publicAnonKey,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ role: newRole }),
+        }
+      );
+      if (response.ok) {
+        toast.success(
+          newRole === 'parent'
+            ? `${memberName} is now a Parent.`
+            : `${memberName} is now a Guardian.`
+        );
+        await loadFamilyMembers();
+      } else {
+        const err = await response.json().catch(() => ({}));
+        toast.error(err.error || 'Failed to update role');
+      }
+    } catch (error) {
+      console.error('Error updating member role:', error);
+      toast.error('Failed to update role');
+    } finally {
+      setRoleUpdatingId(null);
+    }
+  };
+
+  // v12: Remove a member from the family. Auth account is preserved.
+  const handleRemoveMember = async (member: FamilyMember) => {
+    if (!familyId || !member?.id) return;
+    setRemovingMemberId(member.id);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        toast.error('No valid session');
+        return;
+      }
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f/families/${familyId}/members/${member.id}`,
+        {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'apikey': publicAnonKey,
+          },
+        }
+      );
+      if (response.ok) {
+        toast.success(`${member.name} was removed from the family.`);
+        await loadFamilyMembers();
+      } else {
+        const err = await response.json().catch(() => ({}));
+        toast.error(err.error || 'Failed to remove member');
+      }
+    } catch (error) {
+      console.error('Error removing member:', error);
+      toast.error('Failed to remove member');
+    } finally {
+      setRemovingMemberId(null);
+      setMemberToRemove(null);
     }
   };
 
@@ -1439,8 +1539,9 @@ export function Settings() {
                     Family Members
                   </CardTitle>
                   <CardDescription>
-                    Everyone registered under your family code (parents, spouses, and child guardians).
-                    {isPrimaryParent && ' As the primary parent, you can trigger a password reset for any member.'}
+                    Everyone registered under your family code. Parents have full access; guardians
+                    (nannies, teachers, etc.) can mark prayers and approve behaviors but can't change family settings.
+                    {isOwner && ' As the family owner, you can promote, demote, remove, or reset passwords for any member.'}
                   </CardDescription>
                 </div>
                 <Button
@@ -1463,28 +1564,54 @@ export function Settings() {
               ) : (
                 <div className="space-y-3">
                   {familyMembers.map((m) => {
-                    const relationshipLabel =
-                      m.relationship === 'self' ? 'Primary parent' :
-                      m.relationship === 'spouse' ? 'Spouse' :
-                      m.relationship === 'guardian' ? 'Guardian' :
-                      m.relationship === 'parent' ? 'Parent' :
-                      'Member';
-                    const badgeColor =
-                      m.relationship === 'self' ? 'bg-blue-100 text-blue-800 border-blue-200' :
-                      m.relationship === 'guardian' ? 'bg-purple-100 text-purple-800 border-purple-200' :
-                      'bg-green-100 text-green-800 border-green-200';
+                    // v12: prefer the new role field; fall back to relationship
+                    // for back-compat with old payloads.
+                    const role: 'owner' | 'parent' | 'guardian' =
+                      m.role
+                        ? m.role
+                        : m.relationship === 'self'
+                          ? 'owner'
+                          : (m.relationship === 'spouse' || m.relationship === 'parent')
+                            ? 'parent'
+                            : 'guardian';
+
+                    const roleLabel =
+                      role === 'owner' ? 'Owner' :
+                      role === 'parent' ? 'Parent' :
+                      'Guardian';
+
+                    const roleBadgeColor =
+                      role === 'owner' ? 'bg-amber-100 text-amber-900 border-amber-300' :
+                      role === 'parent' ? 'bg-blue-100 text-blue-800 border-blue-200' :
+                      'bg-gray-100 text-gray-800 border-gray-300';
+
+                    // Subtitle shows the original relationship the user picked
+                    // at signup, when it adds info beyond the role badge.
+                    const relationshipSubtitle =
+                      m.relationship === 'spouse' ? 'spouse' :
+                      m.relationship === 'caregiver' ? 'nanny / caregiver' :
+                      m.relationship === 'teacher' ? 'teacher' :
+                      m.relationship === 'guardian' ? 'guardian' :
+                      m.relationship === 'other' ? 'other' :
+                      m.relationship === 'parent' ? 'parent' :
+                      '';
+
                     const isSelfRow = m.id === userId;
-                    const showResetButton = isPrimaryParent && !isSelfRow;
+                    const showResetButton = isOwner && !isSelfRow;
+                    const showOwnerActions = isOwner && !isSelfRow && role !== 'owner';
+                    const isBusy =
+                      roleUpdatingId === m.id || removingMemberId === m.id;
+
                     return (
                       <div
                         key={m.id}
-                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 border rounded-lg bg-card"
+                        className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 p-3 border rounded-lg bg-card"
                       >
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="font-medium truncate">{m.name}</span>
-                            <Badge variant="outline" className={badgeColor}>
-                              {relationshipLabel}
+                            <Badge variant="outline" className={roleBadgeColor}>
+                              {roleLabel}
                             </Badge>
                             {isSelfRow && (
                               <Badge variant="outline" className="bg-gray-100 text-gray-700">
@@ -1494,6 +1621,9 @@ export function Settings() {
                           </div>
                           <p className="text-xs text-muted-foreground truncate mt-0.5">
                             {m.email || '—'}
+                            {relationshipSubtitle && role !== 'owner' && (
+                              <span className="ml-2">• joined as {relationshipSubtitle}</span>
+                            )}
                           </p>
                           {m.joinedAt && (
                             <p className="text-xs text-muted-foreground mt-0.5">
@@ -1501,30 +1631,97 @@ export function Settings() {
                             </p>
                           )}
                         </div>
-                        {showResetButton && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleSendPasswordReset(m.id, m.email)}
-                            disabled={resettingMemberId === m.id || !m.email}
-                            className="shrink-0"
-                          >
-                            <Lock className="h-3.5 w-3.5 mr-1.5" />
-                            {resettingMemberId === m.id ? 'Sending…' : 'Send password reset'}
-                          </Button>
-                        )}
+
+                        <div className="flex flex-wrap items-center gap-2 shrink-0">
+                          {showResetButton && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleSendPasswordReset(m.id, m.email)}
+                              disabled={resettingMemberId === m.id || !m.email || isBusy}
+                            >
+                              <Lock className="h-3.5 w-3.5 mr-1.5" />
+                              {resettingMemberId === m.id ? 'Sending…' : 'Reset password'}
+                            </Button>
+                          )}
+                          {showOwnerActions && role === 'guardian' && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleUpdateMemberRole(m.id, 'parent', m.name)}
+                              disabled={isBusy}
+                              title="Give this member full parent-tier permissions"
+                            >
+                              <UserCheck className="h-3.5 w-3.5 mr-1.5" />
+                              {roleUpdatingId === m.id ? 'Updating…' : 'Promote to Parent'}
+                            </Button>
+                          )}
+                          {showOwnerActions && role === 'parent' && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleUpdateMemberRole(m.id, 'guardian', m.name)}
+                              disabled={isBusy}
+                              title="Restrict this member to guardian-tier permissions"
+                            >
+                              <UserX className="h-3.5 w-3.5 mr-1.5" />
+                              {roleUpdatingId === m.id ? 'Updating…' : 'Demote to Guardian'}
+                            </Button>
+                          )}
+                          {showOwnerActions && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setMemberToRemove(m)}
+                              disabled={isBusy}
+                              className="text-red-700 hover:text-red-800 hover:bg-red-50 border-red-200"
+                            >
+                              <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                              Remove
+                            </Button>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
                 </div>
               )}
 
-              {!isPrimaryParent && familyMembers.length > 0 && (
+              {!isOwner && familyMembers.length > 0 && (
                 <p className="text-xs text-muted-foreground mt-4">
-                  Only the primary parent can trigger password resets for other members.
+                  Only the family owner can change roles or remove members.
                   If you've forgotten your own password, sign out and use "Forgot password?" on the login screen.
                 </p>
               )}
+
+              {/* v12: Confirm-remove dialog */}
+              <AlertDialog
+                open={!!memberToRemove}
+                onOpenChange={(open) => { if (!open) setMemberToRemove(null); }}
+              >
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>
+                      Remove {memberToRemove?.name} from the family?
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                      They will lose access to this family's children, prayers, and settings.
+                      Their account is preserved — they can still sign in and join another family,
+                      and you can re-add them later via your invite code.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel disabled={!!removingMemberId}>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => memberToRemove && handleRemoveMember(memberToRemove)}
+                      disabled={!!removingMemberId}
+                      className="bg-red-600 hover:bg-red-700 text-white"
+                    >
+                      {removingMemberId ? 'Removing…' : 'Remove member'}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </CardContent>
           </Card>
         </TabsContent>

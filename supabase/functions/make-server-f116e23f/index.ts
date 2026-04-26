@@ -1,5 +1,5 @@
 // FGS Backend Server v1.0.3 - Accept challenge route flattened (no :childId in URL)
-const SERVER_VERSION = "v1.0.11-mobile-and-recovery";
+const SERVER_VERSION = "v1.0.12-roles";
 import { Hono } from "npm:hono";
 import { cors } from "npm:hono/cors";
 import { logger } from "npm:hono/logger";
@@ -7,11 +7,13 @@ import * as kv from "./kv_store.tsx";
 import * as monitoring from "./monitoring.ts";
 import { notifyFamilyParents } from "./notifications.tsx";
 import { createClient } from 'jsr:@supabase/supabase-js@2';
-import { 
-  requireAuth, 
-  requireParent, 
+import {
+  requireAuth,
+  requireParent,
   requireFamilyAccess,
   requireChildAccess,
+  requireOwner,
+  getMemberRole,
   getAuthUserId,
   getFamilyId,
   getUserFamilyId,
@@ -371,9 +373,24 @@ app.post(
     });
 
     if (error) {
-      return c.json({ error: error.message }, 400);
+      // v12: surface a stable code for the "already registered" case so
+      // the frontend can show an actionable dialog ("Go to Login" /
+      // "Use Forgot Password") instead of a dead-end red toast.
+      const msg = (error.message || '').toLowerCase();
+      const isAlreadyRegistered =
+        msg.includes('already been registered') ||
+        msg.includes('already registered') ||
+        msg.includes('user already registered') ||
+        msg.includes('email address has already');
+      return c.json(
+        {
+          error: error.message,
+          ...(isAlreadyRegistered ? { code: 'EMAIL_EXISTS' } : {}),
+        },
+        400
+      );
     }
-    
+
     // Create user record in KV store
     await kv.set(`user:${data.user.id}`, {
       id: data.user.id,
@@ -997,15 +1014,31 @@ app.post(
         return c.json({ error: 'Family or user not found' }, 404);
       }
       
-      // Add user to family
-      if (!family.parentIds.includes(joinRequest.requesterId)) {
-        family.parentIds.push(joinRequest.requesterId);
-        await kv.set(familyId, family);
+      // v12: route the approved member to the right tier based on the
+      // relationship they declared at signup. Spouses become parent-tier
+      // (full access). Caregivers, teachers, and "other" become
+      // guardian-tier (read-only on most things, can mark prayers and
+      // approve behaviors). The owner can promote them later via the
+      // members management endpoints if they trust them as a co-parent.
+      const targetTier =
+        joinRequest.relationship === 'spouse' ? 'parent' : 'guardian';
+
+      if (targetTier === 'parent') {
+        if (!Array.isArray(family.parentIds)) family.parentIds = [];
+        if (!family.parentIds.includes(joinRequest.requesterId)) {
+          family.parentIds.push(joinRequest.requesterId);
+        }
+      } else {
+        if (!Array.isArray(family.guardianIds)) family.guardianIds = [];
+        if (!family.guardianIds.includes(joinRequest.requesterId)) {
+          family.guardianIds.push(joinRequest.requesterId);
+        }
       }
-      
+      await kv.set(familyId, family);
+
       // Update user record
       requester.familyId = familyId;
-      requester.role = joinRequest.requestedRole;
+      requester.role = targetTier; // 'parent' or 'guardian'
       await kv.set(`user:${joinRequest.requesterId}`, requester);
       
       // Update join request status
@@ -2845,11 +2878,11 @@ app.get(
   }
 );
 
-// v11: Family Members — parents + guardians, with relationship metadata
-// Lets the primary parent see who is registered under their family code,
-// including spouses (added via join-request relationship='spouse') and
-// guardians (relationship='guardian'). The first ID in family.parentIds
-// is treated as the primary (founder) parent.
+// v12: Family Members — owner + parents + guardians, with role + relationship.
+// Owner = parentIds[0] (founder). Parents = rest of parentIds. Guardians =
+// guardianIds (new in v12; legacy families have no guardianIds and just
+// render parents). The relationship field carries the original signup
+// label (spouse / caregiver / teacher / other) for display.
 app.get(
   "/make-server-f116e23f/families/:familyId/members",
   requireAuth,
@@ -2863,10 +2896,11 @@ app.get(
       }
 
       const parentIds: string[] = Array.isArray(family.parentIds) ? family.parentIds : [];
+      const guardianIds: string[] = Array.isArray(family.guardianIds) ? family.guardianIds : [];
       const primaryParentId = parentIds[0] || null;
 
       // Pull all approved join requests for this family once, so we can
-      // resolve each non-primary parent's relationship without an N+1.
+      // resolve each non-primary member's relationship without an N+1.
       const allRequests = await kv.getByPrefix('joinreq:');
       const approvedRequests = allRequests.filter(
         (r: any) => r && r.familyId === familyId && r.status === 'approved'
@@ -2881,16 +2915,19 @@ app.get(
         }
       }
 
-      const members: Array<{
+      type MemberRow = {
         id: string;
         email: string;
         name: string;
+        role: 'owner' | 'parent' | 'guardian';
         isPrimary: boolean;
-        relationship: 'self' | 'spouse' | 'parent' | 'guardian' | 'unknown';
+        relationship: 'self' | 'spouse' | 'parent' | 'caregiver' | 'teacher' | 'guardian' | 'other' | 'unknown';
         joinedAt: string | null;
-      }> = [];
+      };
+      const members: MemberRow[] = [];
 
-      for (const userId of parentIds) {
+      // Helper: resolve email + display name from KV + auth.
+      const resolveIdentity = async (userId: string) => {
         const userMapping = await kv.get(`user:${userId}`);
         let email = '';
         let name = userMapping?.name || 'Unknown User';
@@ -2907,28 +2944,57 @@ app.get(
         } catch (_e) {
           // tolerate auth lookup failures so the list still renders
         }
+        return { email, name };
+      };
 
-        const isPrimary = userId === primaryParentId;
+      // Helper: classify a member's relationship label for display. The
+      // dropdown vocabulary is spouse / caregiver / teacher / other; we
+      // also tolerate the older 'guardian' / 'parent' values for safety.
+      const labelFor = (
+        userId: string,
+        isPrimary: boolean
+      ): MemberRow['relationship'] => {
+        if (isPrimary) return 'self';
         const req = requestByUser.get(userId);
-        let relationship: 'self' | 'spouse' | 'parent' | 'guardian' | 'unknown';
-        if (isPrimary) {
-          relationship = 'self';
-        } else if (req?.relationship === 'guardian') {
-          relationship = 'guardian';
-        } else if (req?.relationship === 'spouse') {
-          relationship = 'spouse';
-        } else if (req?.relationship === 'parent') {
-          relationship = 'parent';
-        } else {
-          relationship = 'unknown';
-        }
+        const rel = req?.relationship;
+        if (rel === 'spouse') return 'spouse';
+        if (rel === 'caregiver') return 'caregiver';
+        if (rel === 'teacher') return 'teacher';
+        if (rel === 'other') return 'other';
+        if (rel === 'guardian') return 'guardian';
+        if (rel === 'parent') return 'parent';
+        return 'unknown';
+      };
 
+      // Owner + parents (parentIds, in order — owner first by definition).
+      for (const userId of parentIds) {
+        const isPrimary = userId === primaryParentId;
+        const { email, name } = await resolveIdentity(userId);
+        const req = requestByUser.get(userId);
         members.push({
           id: userId,
           email,
           name,
+          role: isPrimary ? 'owner' : 'parent',
           isPrimary,
-          relationship,
+          relationship: labelFor(userId, isPrimary),
+          joinedAt: req?.reviewedAt || null,
+        });
+      }
+
+      // Guardians (guardianIds — appended after parents).
+      for (const userId of guardianIds) {
+        // Defensive: in case someone is on both lists, don't double-list.
+        if (parentIds.includes(userId)) continue;
+        const { email, name } = await resolveIdentity(userId);
+        const req = requestByUser.get(userId);
+        members.push({
+          id: userId,
+          email,
+          name,
+          role: 'guardian',
+          isPrimary: false,
+          relationship: labelFor(userId, false),
           joinedAt: req?.reviewedAt || null,
         });
       }
@@ -2966,6 +3032,7 @@ app.post(
       }
 
       const parentIds: string[] = Array.isArray(family.parentIds) ? family.parentIds : [];
+      const guardianIds: string[] = Array.isArray(family.guardianIds) ? family.guardianIds : [];
       const primaryParentId = parentIds[0];
 
       if (callerId !== primaryParentId) {
@@ -2974,7 +3041,9 @@ app.post(
         }, 403);
       }
 
-      if (!parentIds.includes(targetUserId)) {
+      // v12: guardians count as members for the purpose of admin reset.
+      const isMember = parentIds.includes(targetUserId) || guardianIds.includes(targetUserId);
+      if (!isMember) {
         return c.json({ error: 'Target user is not a member of this family' }, 404);
       }
 
@@ -3007,6 +3076,169 @@ app.post(
     } catch (error) {
       console.error('Admin password reset error:', error);
       return c.json({ error: 'Failed to trigger password reset' }, 500);
+    }
+  }
+);
+
+// v12: Promote / demote a member's role.
+// Body: { role: 'parent' | 'guardian' }
+// - Promote a guardian to parent (move from guardianIds to parentIds).
+// - Demote a parent to guardian (move from parentIds to guardianIds).
+// - Refuses to change the owner's own role.
+// Owner-only via requireOwner.
+app.put(
+  "/make-server-f116e23f/families/:familyId/members/:userId/role",
+  requireAuth,
+  requireParent,
+  requireFamilyAccess,
+  requireOwner,
+  async (c) => {
+    try {
+      const { familyId, userId: targetUserId } = c.req.param();
+      const callerId = getAuthUserId(c);
+
+      let body: any = {};
+      try { body = await c.req.json(); } catch { body = {}; }
+      const newRole = body?.role;
+      if (newRole !== 'parent' && newRole !== 'guardian') {
+        return c.json({ error: "role must be 'parent' or 'guardian'" }, 400);
+      }
+
+      const familyKey = `family:${familyId}`;
+      const family = await kv.get(familyKey);
+      if (!family) {
+        return c.json({ error: 'Family not found' }, 404);
+      }
+
+      const parentIds: string[] = Array.isArray(family.parentIds) ? family.parentIds : [];
+      const guardianIds: string[] = Array.isArray(family.guardianIds) ? family.guardianIds : [];
+      const primaryParentId = parentIds[0];
+
+      if (targetUserId === primaryParentId) {
+        return c.json({
+          error: "The family owner's role cannot be changed."
+        }, 400);
+      }
+      if (targetUserId === callerId) {
+        return c.json({
+          error: "You cannot change your own role."
+        }, 400);
+      }
+
+      const currentRole = getMemberRole(family, targetUserId);
+      if (currentRole === null) {
+        return c.json({ error: 'Target user is not a member of this family' }, 404);
+      }
+      if (currentRole === newRole) {
+        return c.json({ success: true, message: 'No change.', role: newRole });
+      }
+
+      // Mutate the lists. Don't double-list, don't accidentally drop the owner.
+      const stripFrom = (arr: string[], id: string) => arr.filter(x => x !== id);
+
+      let nextParentIds = stripFrom(parentIds, targetUserId);
+      let nextGuardianIds = stripFrom(guardianIds, targetUserId);
+
+      if (newRole === 'parent') {
+        nextParentIds.push(targetUserId);
+      } else {
+        nextGuardianIds.push(targetUserId);
+      }
+
+      family.parentIds = nextParentIds;
+      family.guardianIds = nextGuardianIds;
+      await kv.set(familyKey, family);
+
+      // Keep the user record's role hint in sync (best-effort).
+      const userMapping = await kv.get(`user:${targetUserId}`);
+      if (userMapping) {
+        userMapping.role = newRole;
+        await kv.set(`user:${targetUserId}`, userMapping);
+      }
+
+      return c.json({
+        success: true,
+        message: `Role updated to ${newRole}.`,
+        role: newRole,
+        familyId,
+        userId: targetUserId,
+      });
+    } catch (error) {
+      console.error('Update member role error:', error);
+      return c.json({ error: 'Failed to update member role' }, 500);
+    }
+  }
+);
+
+// v12: Remove a member from a family.
+// - Removes the user from parentIds OR guardianIds.
+// - Refuses to remove the owner (parentIds[0]).
+// - Does NOT delete the auth account (use cleanup-orphan-user.ps1 for that).
+// - Clears user:{id}.familyId if it points at this family.
+// Owner-only via requireOwner.
+app.delete(
+  "/make-server-f116e23f/families/:familyId/members/:userId",
+  requireAuth,
+  requireParent,
+  requireFamilyAccess,
+  requireOwner,
+  async (c) => {
+    try {
+      const { familyId, userId: targetUserId } = c.req.param();
+      const callerId = getAuthUserId(c);
+
+      const familyKey = `family:${familyId}`;
+      const family = await kv.get(familyKey);
+      if (!family) {
+        return c.json({ error: 'Family not found' }, 404);
+      }
+
+      const parentIds: string[] = Array.isArray(family.parentIds) ? family.parentIds : [];
+      const guardianIds: string[] = Array.isArray(family.guardianIds) ? family.guardianIds : [];
+      const primaryParentId = parentIds[0];
+
+      if (targetUserId === primaryParentId) {
+        return c.json({
+          error: "The family owner cannot be removed. Transfer ownership first."
+        }, 400);
+      }
+      if (targetUserId === callerId) {
+        return c.json({
+          error: "You cannot remove yourself from your own family."
+        }, 400);
+      }
+
+      const wasMember =
+        parentIds.includes(targetUserId) || guardianIds.includes(targetUserId);
+      if (!wasMember) {
+        return c.json({ error: 'Target user is not a member of this family' }, 404);
+      }
+
+      family.parentIds = parentIds.filter(x => x !== targetUserId);
+      family.guardianIds = guardianIds.filter(x => x !== targetUserId);
+      await kv.set(familyKey, family);
+
+      // Clear the user's familyId pointer if it points at us (best-effort).
+      try {
+        const userMapping = await kv.get(`user:${targetUserId}`);
+        if (userMapping && userMapping.familyId === familyId) {
+          userMapping.familyId = null;
+          userMapping.role = null;
+          await kv.set(`user:${targetUserId}`, userMapping);
+        }
+      } catch (_e) {
+        // non-fatal
+      }
+
+      return c.json({
+        success: true,
+        message: 'Member removed from family.',
+        familyId,
+        userId: targetUserId,
+      });
+    } catch (error) {
+      console.error('Remove member error:', error);
+      return c.json({ error: 'Failed to remove member' }, 500);
     }
   }
 );

@@ -343,6 +343,102 @@ export async function requireChildAccess(c: Context, next: () => Promise<void>) 
 }
 
 /**
+ * v12: Resolve a user's role within a family.
+ * - 'owner'    => family.parentIds[0]
+ * - 'parent'   => any other entry in family.parentIds
+ * - 'guardian' => entry in family.guardianIds (added in v12; missing on
+ *                 legacy families and treated as [])
+ * - null       => user is not a member of this family
+ */
+export function getMemberRole(family: any, userId: string):
+  'owner' | 'parent' | 'guardian' | null {
+  if (!family || !userId) return null;
+  const parentIds: string[] = Array.isArray(family.parentIds) ? family.parentIds : [];
+  const guardianIds: string[] = Array.isArray(family.guardianIds) ? family.guardianIds : [];
+  if (parentIds[0] === userId) return 'owner';
+  if (parentIds.includes(userId)) return 'parent';
+  if (guardianIds.includes(userId)) return 'guardian';
+  return null;
+}
+
+/**
+ * v12 middleware: Require the caller is the family owner (parentIds[0]).
+ * Must run AFTER requireAuth + requireFamilyAccess so we know the family
+ * exists and the caller is at least a parent-tier member.
+ */
+export async function requireOwner(c: Context, next: () => Promise<void>) {
+  const user = c.get("user");
+  const familyId = c.req.param("familyId") || c.req.param("id");
+
+  if (!user || !familyId) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  try {
+    const kv = await import("./kv_store.tsx");
+    const familyKey = familyId.startsWith('family:') ? familyId : `family:${familyId}`;
+    const family = await kv.get(familyKey);
+
+    if (!family) {
+      return c.json({ error: "Family not found" }, 404);
+    }
+
+    if (getMemberRole(family, user.id) !== 'owner') {
+      return c.json({
+        error: "Only the family owner can perform this action."
+      }, 403);
+    }
+
+    await next();
+  } catch (error) {
+    return c.json({ error: "Owner check failed" }, 500);
+  }
+}
+
+/**
+ * v12 middleware: Require the caller is ANY member of the family
+ * (owner, parent, or guardian). Use on read/limited-write routes that
+ * guardians need access to (e.g. members list, prayer marking).
+ *
+ * Distinct from requireFamilyAccess, which is parent-tier only.
+ */
+export async function requireAnyMember(c: Context, next: () => Promise<void>) {
+  const user = c.get("user");
+  const familyId = c.req.param("familyId") || c.req.param("id");
+
+  if (!user || !familyId) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  // Kid sessions use the same membership check as requireFamilyAccess.
+  if (user.isKidSession) {
+    if (user.familyId !== familyId) {
+      return c.json({ error: "Access denied to this family" }, 403);
+    }
+    await next();
+    return;
+  }
+
+  try {
+    const kv = await import("./kv_store.tsx");
+    const familyKey = familyId.startsWith('family:') ? familyId : `family:${familyId}`;
+    const family = await kv.get(familyKey);
+
+    if (!family) {
+      return c.json({ error: "Family not found" }, 404);
+    }
+
+    if (getMemberRole(family, user.id) === null) {
+      return c.json({ error: "Access denied to this family" }, 403);
+    }
+
+    await next();
+  } catch (error) {
+    return c.json({ error: "Access verification failed" }, 500);
+  }
+}
+
+/**
  * Helper: Get authenticated user ID from context
  */
 export function getAuthUserId(c: Context): string {

@@ -4,6 +4,7 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { Users, Mail, Lock, User, Home, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../../../utils/supabase/client';
@@ -28,6 +29,10 @@ export function ParentSignup() {
   const [relationship, setRelationship] = useState('spouse');
   
   const [loading, setLoading] = useState(false);
+  // v12: when the backend says EMAIL_EXISTS we open an actionable dialog
+  // instead of a dead-end toast, so the user can jump to login or kick
+  // off Forgot Password right away.
+  const [emailExistsOpen, setEmailExistsOpen] = useState(false);
 
   const handleCreateNewFamily = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,6 +71,15 @@ export function ParentSignup() {
       const data = await response.json();
 
       if (!response.ok) {
+        // v12: surface the EMAIL_EXISTS case as an actionable dialog
+        // (Go to Login) instead of a red dead-end toast.
+        if (
+          data?.code === 'EMAIL_EXISTS' ||
+          /already.*registered/i.test(String(data?.error || ''))
+        ) {
+          setEmailExistsOpen(true);
+          return;
+        }
         throw new Error(data.error || `Signup failed: ${response.status}`);
       }
 
@@ -153,6 +167,14 @@ export function ParentSignup() {
       const signupData = await signupResponse.json();
 
       if (!signupResponse.ok) {
+        // v12: actionable dialog when the email is already registered.
+        if (
+          signupData?.code === 'EMAIL_EXISTS' ||
+          /already.*registered/i.test(String(signupData?.error || ''))
+        ) {
+          setEmailExistsOpen(true);
+          return;
+        }
         throw new Error(signupData.error || 'Failed to create account');
       }
 
@@ -219,6 +241,39 @@ export function ParentSignup() {
       setLoading(false);
     }
   };
+
+  // v12: Reusable dialog for the "email already registered" case.
+  // Mounted into the new-family and join-family form trees.
+  const emailExistsDialog = (
+    <Dialog open={emailExistsOpen} onOpenChange={setEmailExistsOpen}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>This email is already registered</DialogTitle>
+          <DialogDescription>
+            An account already exists for <strong>{email || 'that email'}</strong>.
+            If it's yours, sign in instead. If you've forgotten the password,
+            use "Forgot password?" on the login screen to receive a reset link.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button
+            variant="outline"
+            onClick={() => setEmailExistsOpen(false)}
+          >
+            Use a different email
+          </Button>
+          <Button
+            onClick={() => {
+              setEmailExistsOpen(false);
+              navigate('/login');
+            }}
+          >
+            Go to Login
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 
   // Path Selection Screen
   if (!signupType) {
@@ -383,6 +438,7 @@ export function ParentSignup() {
             </form>
           </CardContent>
         </Card>
+        {emailExistsDialog}
       </div>
     );
   }
@@ -521,6 +577,7 @@ export function ParentSignup() {
           </form>
         </CardContent>
       </Card>
+      {emailExistsDialog}
     </div>
   );
 }
