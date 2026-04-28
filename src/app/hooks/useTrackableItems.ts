@@ -1,5 +1,10 @@
 import { useState, useEffect } from 'react';
-import { getTrackableItems, createTrackableItem, updateTrackableItem } from '../../utils/api';
+import {
+  getTrackableItems,
+  createTrackableItem,
+  updateTrackableItem,
+  deleteTrackableItem,
+} from '../../utils/api';
 import { TrackableItem } from '../data/mockData';
 import { useAuth } from '../contexts/AuthContext';
 import { getStorageSync } from '../../utils/storage';
@@ -96,5 +101,25 @@ export function useTrackableItems() {
     }
   };
 
-  return { items, loading, addItem, updateItem };
+  // v15: smart-delete — remove the item server-side, then drop it from local
+  // state. Past events keep their audit trail; only future logging is gated.
+  const deleteItem = async (itemId: string) => {
+    const previous = items;
+    setItems((current) => current.filter((i) => i.id !== itemId));
+    try {
+      await deleteTrackableItem(itemId);
+    } catch (error) {
+      console.error('Error deleting trackable item:', error);
+      setItems(previous);
+      throw error;
+    }
+  };
+
+  // v15: explicit refresh handle for callers that need to re-pull from server
+  // after an out-of-band change (e.g. seeding salah items, dedupe sweep).
+  const refreshItems = async () => {
+    await loadItems();
+  };
+
+  return { items, loading, addItem, updateItem, deleteItem, refreshItems };
 }

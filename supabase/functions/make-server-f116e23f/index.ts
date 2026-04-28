@@ -1,5 +1,5 @@
 // FGS Backend Server v1.0.3 - Accept challenge route flattened (no :childId in URL)
-const SERVER_VERSION = "v1.0.14-member-fixes";
+const SERVER_VERSION = "v1.0.15-behavior-fixes";
 
 // v14: Safe family-key resolver. Family records are stored under keys like
 // "family:1745234567890" - the "family:" prefix is baked into the ID at
@@ -1760,6 +1760,17 @@ app.post(
     }
     
     // === CREATE EVENT (all locks acquired) ===
+    // v15: Validate salahState (optional). Persist as-is if valid.
+    if (eventData.salahState !== undefined) {
+      const validStates = ['ontime', 'qadha', 'missed'];
+      if (!validStates.includes(eventData.salahState)) {
+        if (idempotencyKey) await kv.del(`eventclaim:${idempotencyKey}`);
+        return c.json({
+          error: `salahState must be one of: ${validStates.join(', ')}`
+        }, 400);
+      }
+    }
+
     const event = {
       id: eventId,
       ...eventData,
@@ -1767,7 +1778,7 @@ app.post(
       idempotencyKey: idempotencyKey || null,
       status: 'active'
     };
-    
+
     await kv.set(eventId, event);
     
     // Finalize idempotency claim (update status from PENDING to ACTIVE)
@@ -4105,6 +4116,220 @@ app.patch(
       return c.json(updated);
     } catch (error) {
       return c.json({ error: 'Failed to update trackable item' }, 500);
+    }
+  }
+);
+
+// v15: Get usage stats for a trackable item (powers smart-delete confirmation)
+app.get(
+  "/make-server-f116e23f/trackable-items/:id/usage-stats",
+  requireAuth,
+  requireParent,
+  async (c) => {
+    try {
+      const id = c.req.param('id');
+      const item = await kv.get(id);
+      if (!item) {
+        return c.json({ error: 'Trackable item not found' }, 404);
+      }
+
+      const allEvents = await kv.getByPrefix('event:');
+      const matching = allEvents.filter(
+        (e: any) => e.trackableItemId === id && e.status !== 'voided'
+      );
+
+      const now = Date.now();
+      const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
+      const monthAgo = now - 30 * 24 * 60 * 60 * 1000;
+
+      let lastUsed: string | null = null;
+      let weekCount = 0;
+      let monthCount = 0;
+
+      for (const e of matching) {
+        const ts = new Date(e.timestamp).getTime();
+        if (!isNaN(ts)) {
+          if (!lastUsed || ts > new Date(lastUsed).getTime()) {
+            lastUsed = e.timestamp;
+          }
+          if (ts >= weekAgo) weekCount++;
+          if (ts >= monthAgo) monthCount++;
+        }
+      }
+
+      return c.json({
+        itemId: id,
+        itemName: item.name,
+        totalUses: matching.length,
+        usesLast7Days: weekCount,
+        usesLast30Days: monthCount,
+        lastUsedAt: lastUsed,
+      });
+    } catch (error) {
+      return c.json({ error: 'Failed to get usage stats', details: String(error) }, 500);
+    }
+  }
+);
+
+// v15: Delete a trackable item (smart-delete; events keep their reference but
+// the item itself is removed so it stops appearing in the picker).
+app.delete(
+  "/make-server-f116e23f/trackable-items/:id",
+  requireAuth,
+  requireParent,
+  async (c) => {
+    try {
+      const id = c.req.param('id');
+      const item = await kv.get(id);
+      if (!item) {
+        return c.json({ error: 'Trackable item not found' }, 404);
+      }
+      await kv.del(id);
+      return c.json({ deleted: true, id });
+    } catch (error) {
+      return c.json({ error: 'Failed to delete trackable item', details: String(error) }, 500);
+    }
+  }
+);
+
+// v15: Kid-initiated qadha correction.
+// Voids the original missed-Salah event (with kid attribution) and creates a
+// new qadha event in its place. Audit trail keeps both records.
+// Auth: kid session OR parent (a parent helping the kid retroactively works
+// the same way - we only check that the calling user has access to the child).
+app.post(
+  "/make-server-f116e23f/events/:id/qadha-correction",
+  requireAuth,
+  async (c) => {
+    try {
+      const eventId = c.req.param('id');
+      const user = c.get("user");
+
+      const original = await kv.get(eventId);
+      if (!original) return c.json({ error: 'Event not found' }, 404);
+      if (original.status === 'voided') {
+        return c.json({ error: 'Event already voided' }, 400);
+      }
+
+      // Must be a Salah missed event
+      const item = await kv.get(original.trackableItemId);
+      if (!item || item.category !== 'salah') {
+        return c.json({ error: 'Only Salah events can be qadha-corrected' }, 400);
+      }
+      if (original.salahState !== 'missed') {
+        return c.json({ error: 'Only missed Salah events can be corrected to qadha' }, 400);
+      }
+
+      // Authorization: kid session must own this child; parent must be in family.
+      const child = await kv.get(original.childId);
+      if (!child) return c.json({ error: 'Child not found' }, 404);
+      if (user.isKidSession) {
+        if (user.id !== original.childId) {
+          return c.json({ error: 'Cannot correct another child\'s prayer' }, 403);
+        }
+      } else {
+        const family = await kv.get(familyKeyOf(child.familyId));
+        if (!family || !family.parentIds?.includes(user.id)) {
+          return c.json({ error: 'Access denied to this family' }, 403);
+        }
+      }
+
+      // 1) Void the original missed event
+      const voidedAt = new Date().toISOString();
+      const voidedEvent = {
+        ...original,
+        status: 'voided',
+        voidedBy: user.id,
+        voidedAt,
+        voidReason: 'Kid-initiated qadha correction (prayed the missed prayer later)',
+      };
+      await kv.set(eventId, voidedEvent);
+
+      // 2) Reverse the points hit on the child
+      // The original was negative; reversing means adding back the positive of it.
+      const reverseAmount = -1 * (original.points || 0);
+      if (reverseAmount !== 0) {
+        const fresh = await kv.get(original.childId);
+        if (fresh) {
+          await kv.set(original.childId, {
+            ...fresh,
+            currentPoints: (fresh.currentPoints || 0) + reverseAmount,
+          });
+        }
+      }
+
+      // 3) Create the qadha event
+      const family2 = await kv.get(familyKeyOf(child.familyId));
+      const qadhaPoints = family2?.salahQadhaPoints ?? 1;
+      const qadhaEventId = `event:${Date.now()}:${Math.random().toString(36).substr(2, 9)}`;
+      const qadhaEvent = {
+        id: qadhaEventId,
+        childId: original.childId,
+        trackableItemId: original.trackableItemId,
+        type: 'habit',
+        points: qadhaPoints,
+        loggedBy: user.id,
+        notes: '[Qadha correction] Made up later',
+        salahState: 'qadha',
+        timestamp: voidedAt,
+        status: 'active',
+        correctionOf: eventId,
+      };
+      await kv.set(qadhaEventId, qadhaEvent);
+
+      // 4) Add qadha points to the child
+      if (qadhaPoints !== 0) {
+        const fresh = await kv.get(original.childId);
+        if (fresh) {
+          let newPoints = (fresh.currentPoints || 0) + qadhaPoints;
+          if (newPoints < 0) newPoints = 0;
+          await kv.set(original.childId, { ...fresh, currentPoints: newPoints });
+        }
+      }
+
+      return c.json({
+        voided: voidedEvent,
+        qadha: qadhaEvent,
+      });
+    } catch (error) {
+      return c.json({ error: 'Failed to apply qadha correction', details: String(error) }, 500);
+    }
+  }
+);
+
+// v15: Update family Salah point config (qadha + missed). On-time amounts
+// continue to live on each Salah trackable item.
+app.put(
+  "/make-server-f116e23f/families/:familyId/salah-points",
+  requireAuth,
+  requireFamilyAccess,
+  async (c) => {
+    try {
+      const familyId = c.req.param('familyId');
+      const { salahQadhaPoints, salahMissedPoints } = await c.req.json();
+
+      // Bounds: -10..+10 to prevent runaway configs
+      if (typeof salahQadhaPoints !== 'number' || salahQadhaPoints < -10 || salahQadhaPoints > 10) {
+        return c.json({ error: 'salahQadhaPoints must be a number between -10 and 10' }, 400);
+      }
+      if (typeof salahMissedPoints !== 'number' || salahMissedPoints < -10 || salahMissedPoints > 10) {
+        return c.json({ error: 'salahMissedPoints must be a number between -10 and 10' }, 400);
+      }
+
+      const family = await kv.get(familyKeyOf(familyId));
+      if (!family) return c.json({ error: 'Family not found' }, 404);
+
+      const updated = {
+        ...family,
+        salahQadhaPoints,
+        salahMissedPoints,
+        updatedAt: new Date().toISOString(),
+      };
+      await kv.set(familyKeyOf(familyId), updated);
+
+      return c.json(updated);
+    } catch (error) {
+      return c.json({ error: 'Failed to update Salah points', details: String(error) }, 500);
     }
   }
 );
@@ -7197,6 +7422,7 @@ app.post(
       if (!child || child.familyId !== familyId) {
         return c.json({ error: 'Child not found' }, 404);
       }
+
 
       const gardenKey = `adventure-garden:${childId}`;
       let garden = await kv.get(gardenKey);

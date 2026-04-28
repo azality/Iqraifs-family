@@ -607,6 +607,33 @@ export async function deduplicateTrackableItems() {
   });
 }
 
+// v15: smart-delete + usage stats + Salah qadha correction + family Salah config
+export async function getTrackableItemUsageStats(itemId: string) {
+  return apiCall(`/trackable-items/${itemId}/usage-stats`);
+}
+
+export async function deleteTrackableItem(itemId: string) {
+  return apiCall(`/trackable-items/${itemId}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function applyQadhaCorrection(eventId: string) {
+  return apiCall(`/events/${eventId}/qadha-correction`, {
+    method: 'POST',
+  });
+}
+
+export async function updateSalahPoints(
+  familyId: string,
+  payload: { salahQadhaPoints: number; salahMissedPoints: number }
+) {
+  return apiCall(`/families/${familyId}/salah-points`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
 // ===== MILESTONES =====
 
 export async function createMilestone(milestoneData: any) {
@@ -953,6 +980,11 @@ export const api = {
   getTrackableItems,
   updateTrackableItem,
   deduplicateTrackableItems,
+  // v15
+  getTrackableItemUsageStats,
+  deleteTrackableItem,
+  applyQadhaCorrection,
+  updateSalahPoints,
   
   // Milestones
   createMilestone,

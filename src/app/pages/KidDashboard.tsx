@@ -17,7 +17,7 @@ import { RewardRequestCard } from "../components/kid-mode/RewardRequestCard";
 import { FloatingActionButton } from "../components/mobile/FloatingActionButton";
 import { projectId } from "../../../utils/supabase/info";
 import { toast } from "sonner";
-import { getTrackableItems, getMilestones, getRewards } from "../../utils/api";
+import { getTrackableItems, getMilestones, getRewards, applyQadhaCorrection } from "../../utils/api";
 
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f`;
 
@@ -42,6 +42,11 @@ export function KidDashboard() {
   // Track pending redemption requests
   const [pendingRequests, setPendingRequests] = useState<any[]>([]);
   const [loadingRequests, setLoadingRequests] = useState(false);
+
+  // v15: track which missed-prayer event the kid is currently catching up on
+  // (kid-initiated qadha correction). One in-flight correction at a time keeps
+  // double-clicks from creating duplicate qadha events on the audit trail.
+  const [qadhaSubmittingId, setQadhaSubmittingId] = useState<string | null>(null);
 
   // Game settings
   const [knowledgeQuestEnabled, setKnowledgeQuestEnabled] = useState(true);
@@ -229,6 +234,39 @@ export function KidDashboard() {
     } catch (error) {
       console.error('Failed to submit reward request:', error);
       toast.error('Failed to send request');
+    }
+  };
+
+  // v15: kid-initiated "I prayed qadha" correction. Voids the missed event +
+  // creates a new qadha event (audit trail only, no parent notification).
+  const handleQadhaCorrection = async (eventId: string) => {
+    if (isPreviewingAsKid) {
+      toast.info("You're previewing as a kid — actions are disabled 👀");
+      return;
+    }
+    if (!child || !accessToken) {
+      toast.error('Please log in first');
+      return;
+    }
+    if (qadhaSubmittingId) return; // already submitting
+    setQadhaSubmittingId(eventId);
+    try {
+      await applyQadhaCorrection(eventId);
+      toast.success("Alhamdulillah — counted as Qadha 🤲");
+      // Refresh events so the missed row drops off and the new qadha row appears.
+      const res = await fetch(
+        `${API_BASE}/children/${child.id}/events`,
+        { headers: { 'Authorization': `Bearer ${accessToken}` } }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setPointEvents(data || []);
+      }
+    } catch (err: any) {
+      console.error('Qadha correction failed:', err);
+      toast.error(err?.message || "Couldn't apply qadha correction");
+    } finally {
+      setQadhaSubmittingId(null);
     }
   };
 
@@ -756,13 +794,27 @@ export function KidDashboard() {
                   // (item lookup won't resolve 'prayer' / 'prayer_bonus' pseudo-IDs).
                   const displayName = item?.name || event.itemName || 'Activity';
 
+                  // v15: kid-initiated qadha correction — only show on:
+                  //   - missed Salah events (salahState === 'missed', or older
+                  //     events with notes tagged '[Missed]')
+                  //   - that aren't already voided / corrected
+                  const isSalahItem =
+                    item && (item.category || '').toLowerCase() === 'salah';
+                  const isMissedSalah =
+                    !event.voided &&
+                    !event.correctionOf &&
+                    isSalahItem &&
+                    (event.salahState === 'missed' ||
+                      (typeof event.notes === 'string' && event.notes.includes('[Missed]')));
+                  const qadhaInFlight = qadhaSubmittingId === event.id;
+
                   return (
                     <motion.div
                       key={event.id}
                       initial={{ opacity: 0, x: -20 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: index * 0.02 }}
-                      className={`flex items-center justify-between p-3 rounded-xl border-2 ${
+                      className={`p-3 rounded-xl border-2 ${
                         isBonus
                           ? 'bg-gradient-to-r from-amber-50 to-yellow-50 border-amber-300 shadow-[0_0_0_2px_rgba(251,191,36,0.15)]'
                           : isPositive
@@ -770,40 +822,59 @@ export function KidDashboard() {
                           : 'bg-red-50 border-red-200'
                       }`}
                     >
-                      <div className="flex items-center gap-3 min-w-0">
-                        {isBonus ? (
-                          <div className="bg-amber-400 rounded-full p-1.5 shrink-0">
-                            <Sparkles className="w-4 h-4 text-white" />
-                          </div>
-                        ) : isPositive ? (
-                          <TrendingUp className="w-5 h-5 text-green-600 shrink-0" />
-                        ) : (
-                          <TrendingDown className="w-5 h-5 text-red-600 shrink-0" />
-                        )}
-                        <div className="min-w-0">
-                          <p className="font-semibold text-gray-800 flex items-center gap-1.5 flex-wrap">
-                            <span className="truncate">{displayName}</span>
-                            {isBonus && (
-                              <span className="inline-flex items-center gap-0.5 text-[10px] font-bold uppercase tracking-wide bg-amber-400 text-white px-1.5 py-0.5 rounded">
-                                <Star className="w-2.5 h-2.5 fill-white" /> Bonus
-                              </span>
-                            )}
-                          </p>
-                          <p className="text-xs text-gray-500">{timeAgo}</p>
-                          {(event.bonusReason || event.notes) && (
-                            <p className={`text-xs italic mt-1 break-words ${isBonus ? 'text-amber-700 font-medium' : 'text-gray-600'}`}>
-                              "{event.bonusReason || event.notes}"
-                            </p>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3 min-w-0">
+                          {isBonus ? (
+                            <div className="bg-amber-400 rounded-full p-1.5 shrink-0">
+                              <Sparkles className="w-4 h-4 text-white" />
+                            </div>
+                          ) : isPositive ? (
+                            <TrendingUp className="w-5 h-5 text-green-600 shrink-0" />
+                          ) : (
+                            <TrendingDown className="w-5 h-5 text-red-600 shrink-0" />
                           )}
+                          <div className="min-w-0">
+                            <p className="font-semibold text-gray-800 flex items-center gap-1.5 flex-wrap">
+                              <span className="truncate">{displayName}</span>
+                              {isBonus && (
+                                <span className="inline-flex items-center gap-0.5 text-[10px] font-bold uppercase tracking-wide bg-amber-400 text-white px-1.5 py-0.5 rounded">
+                                  <Star className="w-2.5 h-2.5 fill-white" /> Bonus
+                                </span>
+                              )}
+                            </p>
+                            <p className="text-xs text-gray-500">{timeAgo}</p>
+                            {(event.bonusReason || event.notes) && (
+                              <p className={`text-xs italic mt-1 break-words ${isBonus ? 'text-amber-700 font-medium' : 'text-gray-600'}`}>
+                                "{event.bonusReason || event.notes}"
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <div className={`text-lg font-bold shrink-0 ml-2 ${
+                          isBonus
+                            ? 'text-amber-600'
+                            : isPositive ? 'text-green-600' : 'text-red-600'
+                        }`}>
+                          {isPositive ? '+' : ''}{event.points}
                         </div>
                       </div>
-                      <div className={`text-lg font-bold shrink-0 ml-2 ${
-                        isBonus
-                          ? 'text-amber-600'
-                          : isPositive ? 'text-green-600' : 'text-red-600'
-                      }`}>
-                        {isPositive ? '+' : ''}{event.points}
-                      </div>
+
+                      {isMissedSalah && (
+                        <div className="mt-3 pt-3 border-t border-red-200/70 flex items-center justify-between gap-3">
+                          <p className="text-xs text-red-800">
+                            Missed this prayer? You can still make it up.
+                          </p>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={qadhaInFlight || isPreviewingAsKid}
+                            onClick={() => handleQadhaCorrection(event.id)}
+                            className="bg-white border-emerald-300 text-emerald-700 hover:bg-emerald-50 shrink-0"
+                          >
+                            {qadhaInFlight ? "Saving…" : "🤲 I prayed Qadha"}
+                          </Button>
+                        </div>
+                      )}
                     </motion.div>
                   );
                 })}

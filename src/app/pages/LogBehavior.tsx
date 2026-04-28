@@ -17,9 +17,13 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { PrayerApprovalsWidget } from "../components/PrayerApprovalsWidget";
 import { PointEvent } from "../data/mockData";
 
+// v15: Salah tri-state. Each Salah event carries a salahState so the audit
+// trail can distinguish on-time prayer vs qadha (made up later) vs missed.
+type SalahState = 'ontime' | 'qadha' | 'missed';
+
 export function LogBehavior() {
   const { user, isParentMode, role } = useAuth();
-  const { getCurrentChild, logEvent, getChildEvents } = useFamilyContext();
+  const { getCurrentChild, logEvent, getChildEvents, family } = useFamilyContext();
   const { items: trackableItems, loading: itemsLoading } = useTrackableItems();
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
@@ -27,6 +31,10 @@ export function LogBehavior() {
   const [bonusReason, setBonusReason] = useState("");
   const [standaloneBonusPoints, setStandaloneBonusPoints] = useState<number>(0);
   const [standaloneBonusReason, setStandaloneBonusReason] = useState("");
+
+  // v15: per-family qadha / missed point values (default 1 / -1)
+  const salahQadhaPoints = (family as any)?.salahQadhaPoints ?? 1;
+  const salahMissedPoints = (family as any)?.salahMissedPoints ?? -1;
   const [showSingletonAlert, setShowSingletonAlert] = useState(false);
   const [singletonConflict, setSingletonConflict] = useState<any>(null);
   const [showDedupeAlert, setShowDedupeAlert] = useState(false);
@@ -146,7 +154,7 @@ export function LogBehavior() {
     );
   }
 
-  const handleLog = async () => {
+  const handleLog = async (salahStateOverride?: SalahState) => {
     if (!selectedItemId) {
       toast.error("Please select a behavior or habit");
       return;
@@ -160,53 +168,92 @@ export function LogBehavior() {
       return;
     }
 
-    // Check if this prayer was already logged today (for salah items)
+    // Check if this prayer was already logged today (for salah items).
+    // v15: This still applies for all three states (on-time / qadha / missed) -
+    // each prayer is one logged event per day. Kid corrections happen via the
+    // qadha-correction flow below, not by re-logging.
     if (item.category === 'salah' && todayPrayersLogged.has(selectedItemId)) {
       toast.error(`${item.name} has already been logged today! Each prayer can only be logged once per day.`);
       return;
     }
 
     try {
-      // Check for singleton conflicts
+      // Pre-flight singleton check is BEST-EFFORT only.
+      // The backend's POST /events handler enforces singleton locking inline
+      // and returns 409 with conflict details, so a missing/failed pre-flight
+      // is not fatal - we let performLog handle the conflict surface there.
+      // (Historic note: the /events/check-singleton endpoint was never wired
+      //  up in the backend, so this call previously 404'd and bubbled up as
+      //  a generic "Failed to log event" toast for any item flagged
+      //  isSingleton: true. v15 makes it non-blocking.)
       if (item.isSingleton) {
-        const singletonCheck = await api.checkSingleton(child.id, selectedItemId, user.id);
-        if (!singletonCheck.allowed) {
-          setSingletonConflict(singletonCheck.conflict);
-          setShowSingletonAlert(true);
-          return;
+        try {
+          const singletonCheck = await api.checkSingleton(child.id, selectedItemId, user.id);
+          if (singletonCheck && singletonCheck.allowed === false) {
+            setSingletonConflict(singletonCheck.conflict);
+            setShowSingletonAlert(true);
+            return;
+          }
+        } catch (preflightError) {
+          console.warn('[LogBehavior] singleton pre-flight skipped:', preflightError);
         }
       }
 
-      // Check for dedupe window
+      // Pre-flight dedupe check is also best-effort.
       if (item.dedupeWindow) {
-        const dedupeCheck = await api.checkDedupe(child.id, selectedItemId, user.id);
-        if (dedupeCheck.needsConfirmation) {
-          setDedupeData({ item, recentEvents: dedupeCheck.recentEvents });
-          setShowDedupeAlert(true);
-          return;
+        try {
+          const dedupeCheck = await api.checkDedupe(child.id, selectedItemId, user.id);
+          if (dedupeCheck && dedupeCheck.needsConfirmation) {
+            setDedupeData({ item, recentEvents: dedupeCheck.recentEvents });
+            setShowDedupeAlert(true);
+            return;
+          }
+        } catch (preflightError) {
+          console.warn('[LogBehavior] dedupe pre-flight skipped:', preflightError);
         }
       }
 
       // Proceed with logging
-      await performLog(item);
-    } catch (error) {
+      await performLog(item, salahStateOverride);
+    } catch (error: any) {
       console.error('Log behavior error:', error);
-      toast.error("Failed to log event");
+      // Surface the real error message so we don't lose diagnostic info
+      // behind a generic "Failed to log event" toast.
+      const message = error?.message || 'Failed to log event';
+      toast.error(message);
     }
   };
 
-  const performLog = async (item: any) => {
+  const performLog = async (item: any, salahState?: SalahState) => {
     if (!user) return;
 
     try {
-      // Calculate total points (base + bonus)
-      const totalPoints = item.points + bonusPoints;
-      
+      // v15: Resolve points by Salah state when applicable.
+      // - 'ontime' (or undefined) = item.points (the per-prayer on-time value)
+      // - 'qadha'                  = family.salahQadhaPoints (default +1)
+      // - 'missed'                 = family.salahMissedPoints (default -1)
+      const isSalah = item.category === 'salah';
+      let basePoints: number = item.points;
+      if (isSalah) {
+        if (salahState === 'qadha') basePoints = salahQadhaPoints;
+        else if (salahState === 'missed') basePoints = salahMissedPoints;
+        else basePoints = item.points; // ontime / default
+      }
+
+      // Bonus points only apply for positive logs (no bonus on missed)
+      const effectiveBonus = basePoints > 0 ? bonusPoints : 0;
+      const totalPoints = basePoints + effectiveBonus;
+
       // Build comprehensive notes
       let finalNotes = notes || '';
-      if (bonusPoints > 0 && bonusReason) {
-        const bonusNote = `⭐ Bonus (+${bonusPoints}): ${bonusReason}`;
+      if (effectiveBonus > 0 && bonusReason) {
+        const bonusNote = `⭐ Bonus (+${effectiveBonus}): ${bonusReason}`;
         finalNotes = finalNotes ? `${finalNotes}\n\n${bonusNote}` : bonusNote;
+      }
+      // Auto-tag the salah state into notes for parents reviewing the audit trail
+      if (isSalah && salahState && salahState !== 'ontime') {
+        const stateLabel = salahState === 'qadha' ? 'Qadha (made up)' : 'Missed';
+        finalNotes = finalNotes ? `${finalNotes}\n\n[${stateLabel}]` : `[${stateLabel}]`;
       }
 
       await logEvent(child.id, {
@@ -215,11 +262,15 @@ export function LogBehavior() {
         type: item.type,
         points: totalPoints, // Use total points (base + bonus)
         loggedBy: user.id,
-        notes: finalNotes || undefined
-      });
+        notes: finalNotes || undefined,
+        ...(isSalah ? { salahState: salahState || 'ontime' } : {})
+      } as any);
 
-      const bonusText = bonusPoints > 0 ? ` + ${bonusPoints} bonus` : '';
-      toast.success(`Logged ${item.name} for ${child.name} (${totalPoints > 0 ? '+' : ''}${totalPoints} points${bonusText})${bonusReason ? `: ${bonusReason}` : ''}`);
+      const bonusText = effectiveBonus > 0 ? ` + ${effectiveBonus} bonus` : '';
+      const stateText = isSalah && salahState && salahState !== 'ontime'
+        ? ` [${salahState === 'qadha' ? 'qadha' : 'missed'}]`
+        : '';
+      toast.success(`Logged ${item.name}${stateText} for ${child.name} (${totalPoints > 0 ? '+' : ''}${totalPoints} points${bonusText})${bonusReason ? `: ${bonusReason}` : ''}`);
       setSelectedItemId(null);
       setNotes("");
       setBonusPoints(0);
@@ -228,8 +279,10 @@ export function LogBehavior() {
       // Reload events to update prayer tracking
       const events = await getChildEvents(child.id);
       setPointEvents(events || []);
-    } catch (error) {
-      toast.error("Failed to log event");
+    } catch (error: any) {
+      console.error('[LogBehavior] performLog error:', error);
+      const message = error?.message || 'Failed to log event';
+      toast.error(message);
     }
   };
 
@@ -358,10 +411,15 @@ export function LogBehavior() {
                 })}
               </div>
               <p className="text-xs text-muted-foreground">
-                ℹ️ Salah tracking is positive-only by default (no penalties for missed prayers)
+                ℹ️ Tap a prayer to select, then pick <strong>On time</strong> /
+                <strong> Qadha</strong> /
+                <strong> Missed</strong>. Edit per-prayer point values in
+                Settings → Behaviors → Salah.
               </p>
               <p className="text-xs text-amber-600">
-                ⚠️ Each prayer can only be logged once per day
+                ⚠️ Each prayer can only be logged once per day. If a missed
+                prayer was made up later, the kid can correct it from their
+                dashboard (audit trail records the change).
               </p>
             </TabsContent>
 
@@ -487,26 +545,89 @@ export function LogBehavior() {
               />
             </div>
 
-            <div className="flex gap-2">
-              <Button 
-                onClick={handleLog}
-                disabled={!selectedItemId || (bonusPoints > 0 && !bonusReason)}
-                className="flex-1"
-              >
-                Log Event
-              </Button>
-              <Button 
-                variant="outline"
-                onClick={() => {
-                  setSelectedItemId(null);
-                  setNotes("");
-                  setBonusPoints(0);
-                  setBonusReason("");
-                }}
-              >
-                Clear
-              </Button>
-            </div>
+            {/* v15: Salah items log via three states (on-time / qadha / missed).
+                Non-Salah items use the single "Log Event" button. */}
+            {(() => {
+              const sel = selectedItemId
+                ? trackableItems.find(i => i.id === selectedItemId)
+                : null;
+              const isSalah = sel?.category === 'salah';
+
+              if (isSalah) {
+                const onTime = sel!.points;
+                const qadha = salahQadhaPoints;
+                const missed = salahMissedPoints;
+                return (
+                  <div className="space-y-2">
+                    <p className="text-xs text-muted-foreground">
+                      Choose how this prayer was performed:
+                    </p>
+                    <div className="grid grid-cols-3 gap-2">
+                      <Button
+                        onClick={() => handleLog('ontime')}
+                        disabled={bonusPoints > 0 && !bonusReason}
+                        className="h-12 flex flex-col gap-0"
+                      >
+                        <span className="text-xs">On time</span>
+                        <span className="font-semibold">+{onTime}</span>
+                      </Button>
+                      <Button
+                        onClick={() => handleLog('qadha')}
+                        variant="outline"
+                        className="h-12 flex flex-col gap-0 border-amber-300 text-amber-700 hover:bg-amber-50"
+                      >
+                        <span className="text-xs">Qadha</span>
+                        <span className="font-semibold">{qadha >= 0 ? '+' : ''}{qadha}</span>
+                      </Button>
+                      <Button
+                        onClick={() => handleLog('missed')}
+                        variant="outline"
+                        className="h-12 flex flex-col gap-0 border-red-300 text-red-700 hover:bg-red-50"
+                      >
+                        <span className="text-xs">Missed</span>
+                        <span className="font-semibold">{missed >= 0 ? '+' : ''}{missed}</span>
+                      </Button>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-full"
+                      onClick={() => {
+                        setSelectedItemId(null);
+                        setNotes("");
+                        setBonusPoints(0);
+                        setBonusReason("");
+                      }}
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="flex gap-2">
+                  <Button
+                    onClick={() => handleLog()}
+                    disabled={!selectedItemId || (bonusPoints > 0 && !bonusReason)}
+                    className="flex-1"
+                  >
+                    Log Event
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setSelectedItemId(null);
+                      setNotes("");
+                      setBonusPoints(0);
+                      setBonusReason("");
+                    }}
+                  >
+                    Clear
+                  </Button>
+                </div>
+              );
+            })()}
           </div>
         </CardContent>
       </Card>

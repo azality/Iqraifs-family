@@ -22,7 +22,12 @@ import { projectId, publicAnonKey } from "../../../utils/supabase/info.tsx";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../components/ui/alert-dialog";
 import { Alert, AlertDescription, AlertTitle } from "../components/ui/alert";
-import { deduplicateTrackableItems } from "../../utils/api";
+import {
+  deduplicateTrackableItems,
+  // v15
+  getTrackableItemUsageStats,
+  updateSalahPoints,
+} from "../../utils/api";
 import { supabase } from "../../../utils/supabase/client";
 import { QuestSettings } from "../components/QuestSettings";
 import { COMMON_TIMEZONES } from "../utils/timezone";
@@ -62,7 +67,14 @@ export function Settings() {
   const navigate = useNavigate();
   const { isParentMode, accessToken, userId } = useAuth();
   const { rewards, addReward } = useRewards();
-  const { items: trackableItems, addItem, updateItem: updateTrackableItem } = useTrackableItems();
+  // v15: useTrackableItems now also exposes deleteItem for smart-delete from
+  // the Settings page. The hook drops the item locally on success.
+  const {
+    items: trackableItems,
+    addItem,
+    updateItem: updateTrackableItem,
+    deleteItem: deleteTrackableItemFromHook,
+  } = useTrackableItems();
   const { milestones, addMilestone } = useMilestones();
   const { children, familyId, family, loadFamilyData } = useFamilyContext();
   const [dedupeLoading, setDedupeLoading] = useState(false);
@@ -140,6 +152,36 @@ export function Settings() {
   const [itemIsReligious, setItemIsReligious] = useState(false);
   const [showItemDialog, setShowItemDialog] = useState(false);
   const [showTemplates, setShowTemplates] = useState(true);
+  // v15: unified Kind picker. Replaces the separate Type + Category dropdowns
+  // with one selection. Kind drives type/category/sign-of-points underneath.
+  type ItemKind = "salah" | "habit" | "positive" | "negative";
+  const [itemKind, setItemKind] = useState<ItemKind>("habit");
+
+  // v15: smart-delete dialog state
+  const [deleteCandidate, setDeleteCandidate] = useState<any | null>(null);
+  const [deleteStats, setDeleteStats] = useState<any | null>(null);
+  const [deleteStatsLoading, setDeleteStatsLoading] = useState(false);
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false);
+
+  // v15: per-family Salah qadha / missed point config (defaults 1 / -1).
+  // On-time amounts continue to live on each Salah trackable item.
+  const [salahQadhaInput, setSalahQadhaInput] = useState<string>(
+    String((family as any)?.salahQadhaPoints ?? 1)
+  );
+  const [salahMissedInput, setSalahMissedInput] = useState<string>(
+    String((family as any)?.salahMissedPoints ?? -1)
+  );
+  const [salahPointsSaving, setSalahPointsSaving] = useState(false);
+
+  // Keep the Salah point inputs in sync when family loads/refreshes.
+  useEffect(() => {
+    if ((family as any)?.salahQadhaPoints !== undefined) {
+      setSalahQadhaInput(String((family as any).salahQadhaPoints));
+    }
+    if ((family as any)?.salahMissedPoints !== undefined) {
+      setSalahMissedInput(String((family as any).salahMissedPoints));
+    }
+  }, [family]);
 
   // Quest Settings State
   const [questEnabled, setQuestEnabled] = useState(true);
@@ -203,6 +245,14 @@ export function Settings() {
     setItemPoints(template.points.toString());
     if (template.tier) setItemTier(template.tier);
     if (template.isSingleton !== undefined) setItemIsSingleton(template.isSingleton);
+    // v15: also set the unified Kind picker so the form's Kind dropdown matches.
+    if (type === "habit") {
+      setItemKind("habit");
+    } else if (template.points < 0) {
+      setItemKind("negative");
+    } else {
+      setItemKind("positive");
+    }
     setShowTemplates(false);
   };
 
@@ -216,6 +266,8 @@ export function Settings() {
     setItemIsSingleton(true);
     setItemIsReligious(false);
     setShowTemplates(true);
+    // v15: also reset the unified Kind picker.
+    setItemKind("habit");
   };
 
   // Milestone Form State
@@ -295,10 +347,40 @@ export function Settings() {
       return;
     }
 
-    const points = parseInt(itemPoints);
+    let points = parseInt(itemPoints);
     if (isNaN(points) || points === 0) {
       toast.error("Points must be a non-zero number");
       return;
+    }
+
+    // v15: derive type/category/sign-of-points/singleton from the unified Kind
+    // picker. Any sign mismatch (e.g. user typed +5 for a Negative Behavior)
+    // is silently fixed so we don't reject the form on a polish issue.
+    let derivedType: "habit" | "behavior" = "habit";
+    let derivedCategory: string | undefined = undefined;
+    let derivedIsSingleton = itemIsSingleton;
+    switch (itemKind) {
+      case "salah":
+        derivedType = "habit";
+        derivedCategory = "salah";
+        derivedIsSingleton = true; // each prayer is a once-per-day singleton
+        if (points < 0) points = Math.abs(points);
+        break;
+      case "habit":
+        derivedType = "habit";
+        derivedCategory = itemCategory === "general" ? undefined : itemCategory;
+        if (points < 0) points = Math.abs(points);
+        break;
+      case "positive":
+        derivedType = "behavior";
+        derivedCategory = itemCategory === "general" ? undefined : itemCategory;
+        if (points < 0) points = Math.abs(points);
+        break;
+      case "negative":
+        derivedType = "behavior";
+        derivedCategory = itemCategory === "general" ? undefined : itemCategory;
+        if (points > 0) points = -Math.abs(points);
+        break;
     }
 
     const dedupeWindow = itemDedupeWindow ? parseInt(itemDedupeWindow) : undefined;
@@ -310,20 +392,91 @@ export function Settings() {
     try {
       await addItem({
         name: itemName,
-        type: itemType,
-        category: itemCategory === "general" ? undefined : itemCategory,
+        type: derivedType,
+        category: derivedCategory,
         points,
         tier: points < 0 ? itemTier : undefined,
         dedupeWindow,
-        isSingleton: itemIsSingleton,
+        isSingleton: derivedIsSingleton,
         isReligious: itemIsReligious
       });
 
-      toast.success(`${itemType === 'habit' ? 'Habit' : 'Behavior'} "${itemName}" added successfully!`);
+      const kindLabel =
+        itemKind === "salah"
+          ? "Salah"
+          : itemKind === "habit"
+          ? "Habit"
+          : itemKind === "positive"
+          ? "Positive behavior"
+          : "Negative behavior";
+      toast.success(`${kindLabel} "${itemName}" added successfully!`);
       resetItemForm();
       setShowItemDialog(false);
     } catch (error) {
       toast.error("Failed to add item");
+    }
+  };
+
+  // v15: smart-delete handlers. Open dialog → fetch usage stats → confirm → delete.
+  const openDeleteCandidate = async (item: any) => {
+    setDeleteCandidate(item);
+    setDeleteStats(null);
+    setDeleteStatsLoading(true);
+    try {
+      const stats = await getTrackableItemUsageStats(item.id);
+      setDeleteStats(stats);
+    } catch (err) {
+      console.error("Failed to load usage stats", err);
+      setDeleteStats({ totalUses: 0, usesLast7Days: 0, usesLast30Days: 0, lastUsedAt: null, error: true });
+    } finally {
+      setDeleteStatsLoading(false);
+    }
+  };
+
+  const closeDeleteCandidate = () => {
+    if (deleteSubmitting) return;
+    setDeleteCandidate(null);
+    setDeleteStats(null);
+  };
+
+  const confirmDeleteCandidate = async () => {
+    if (!deleteCandidate) return;
+    setDeleteSubmitting(true);
+    try {
+      // Use the hook's deleteItem so local state drops the row optimistically
+      // and reconciles on success.
+      await deleteTrackableItemFromHook(deleteCandidate.id);
+      toast.success(`Deleted "${deleteCandidate.name}"`);
+      setDeleteCandidate(null);
+      setDeleteStats(null);
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to delete item");
+    } finally {
+      setDeleteSubmitting(false);
+    }
+  };
+
+  // v15: save per-family salah qadha/missed point overrides.
+  const handleSaveSalahPoints = async () => {
+    if (!familyId) return;
+    const q = parseInt(salahQadhaInput);
+    const m = parseInt(salahMissedInput);
+    if (isNaN(q) || isNaN(m)) {
+      toast.error("Qadha and Missed point values must be numbers");
+      return;
+    }
+    if (q < -10 || q > 10 || m < -10 || m > 10) {
+      toast.error("Salah point overrides must be between -10 and +10");
+      return;
+    }
+    setSalahPointsSaving(true);
+    try {
+      await updateSalahPoints(familyId, { salahQadhaPoints: q, salahMissedPoints: m });
+      toast.success("Salah point values updated");
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to update salah point values");
+    } finally {
+      setSalahPointsSaving(false);
     }
   };
 
@@ -1225,9 +1378,24 @@ export function Settings() {
   const uniqueItems = deduplicateByName(trackableItems);
   
   const salahItems = uniqueItems.filter(i => i.category === 'salah');
-  const otherHabits = uniqueItems.filter(i => i.type === 'habit' && i.category !== 'salah');
-  const positiveBehaviors = uniqueItems.filter(i => i.type === 'behavior' && i.points > 0);
-  const negativeBehaviors = uniqueItems.filter(i => i.type === 'behavior' && i.points < 0);
+  // v15: 'Habits' should ONLY be positive habits (points > 0). Negative items
+  // belong in 'Negative Behaviors' regardless of whether the parent saved them
+  // as type 'habit' or type 'behavior'. The previous filter let a -3 habit
+  // slip into the otherHabits list, where it was rendered with a green '+-3'
+  // badge - misleading.
+  const otherHabits = uniqueItems.filter(
+    i => i.type === 'habit' && i.category !== 'salah' && i.points > 0
+  );
+  // Positive Behaviors: parent-tagged 'behavior' OR a habit-typed item that
+  // somehow has 0 points (edge case we keep visible so the parent can fix it).
+  const positiveBehaviors = uniqueItems.filter(
+    i => i.type === 'behavior' && i.points > 0
+  );
+  // Negative Behaviors: any item with negative points, whether saved as
+  // 'habit' or 'behavior' - we union here so nothing falls off the UI.
+  const negativeBehaviors = uniqueItems.filter(
+    i => i.points < 0 && i.category !== 'salah'
+  );
 
   return (
     <div className="space-y-6" data-testid="page-parent-settings">
@@ -2534,19 +2702,51 @@ export function Settings() {
                       )}
                       {!showTemplates && (
                         <div className="space-y-2">
-                          <Label htmlFor="item-type">Type *</Label>
-                          <Select value={itemType} onValueChange={(value: any) => setItemType(value)}>
-                            <SelectTrigger id="item-type">
+                          <Label htmlFor="item-kind">Kind *</Label>
+                          <Select
+                            value={itemKind}
+                            onValueChange={(value: any) => {
+                              const k = value as ItemKind;
+                              setItemKind(k);
+                              // Mirror to legacy state so the rest of the form
+                              // (tier visibility, dedupe-window section) keeps
+                              // its conditional logic.
+                              if (k === "salah") {
+                                setItemType("habit");
+                                setItemCategory("salah");
+                                setItemIsSingleton(true);
+                              } else if (k === "habit") {
+                                setItemType("habit");
+                                if (itemCategory === "salah") setItemCategory("general");
+                              } else {
+                                // positive | negative
+                                setItemType("behavior");
+                                if (itemCategory === "salah") setItemCategory("general");
+                              }
+                            }}
+                          >
+                            <SelectTrigger id="item-kind">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="habit">Habit (Regular activity)</SelectItem>
-                              <SelectItem value="behavior">Behavior (One-time action)</SelectItem>
+                              <SelectItem value="salah">🕌 Salah (one of the 5 daily prayers)</SelectItem>
+                              <SelectItem value="habit">✅ Habit (positive routine, e.g. brush teeth)</SelectItem>
+                              <SelectItem value="positive">⭐ Positive Behavior (one-time good action)</SelectItem>
+                              <SelectItem value="negative">⚠️ Negative Behavior (deducts points)</SelectItem>
                             </SelectContent>
                           </Select>
+                          <p className="text-xs text-muted-foreground">
+                            {itemKind === "salah"
+                              ? "Salah items belong to the 5 daily prayers and are once-per-day."
+                              : itemKind === "habit"
+                              ? "Earns points each time it's logged (e.g. Brush Teeth, Read Book)."
+                              : itemKind === "positive"
+                              ? "Awarded ad-hoc by a parent (e.g. Helped Sibling)."
+                              : "Deducts points (enter a positive number; we'll save it as negative)."}
+                          </p>
                         </div>
                       )}
-                      {!showTemplates && (
+                      {!showTemplates && itemKind !== "salah" && (
                         <div className="space-y-2">
                           <Label htmlFor="item-category">Category</Label>
                           <Select value={itemCategory} onValueChange={setItemCategory}>
@@ -2555,7 +2755,6 @@ export function Settings() {
                             </SelectTrigger>
                             <SelectContent>
                               <SelectItem value="general">General</SelectItem>
-                              <SelectItem value="salah">Salah</SelectItem>
                               <SelectItem value="quran">Quran</SelectItem>
                               <SelectItem value="homework">Homework</SelectItem>
                             </SelectContent>
@@ -2668,8 +2867,49 @@ export function Settings() {
                             <p className="font-medium">{item.name}</p>
                             <Badge variant="secondary" className="bg-green-100">+{item.points}</Badge>
                           </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0 text-muted-foreground hover:text-red-600"
+                            onClick={() => openDeleteCandidate(item)}
+                            aria-label={`Delete ${item.name}`}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
                         </div>
-                        
+
+                        {/* v15: editable on-time points per prayer. Fajr=5, Isha=5,
+                            Dhuhr/Asr/Maghrib=3 by default, but each parent can tune. */}
+                        <div className="mb-3 space-y-1">
+                          <Label className="text-sm">On-time points</Label>
+                          <Input
+                            type="number"
+                            min={0}
+                            max={20}
+                            defaultValue={item.points}
+                            onBlur={async (e) => {
+                              const next = parseInt(e.target.value);
+                              if (isNaN(next) || next < 0 || next > 20) {
+                                toast.error("Salah on-time points must be 0–20");
+                                e.target.value = String(item.points);
+                                return;
+                              }
+                              if (next === item.points) return;
+                              try {
+                                await updateTrackableItem(item.id, { points: next });
+                                toast.success(`Updated ${item.name} to +${next}`);
+                              } catch {
+                                toast.error(`Couldn't update ${item.name}.`);
+                                e.target.value = String(item.points);
+                              }
+                            }}
+                            className="h-9"
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Awarded when this prayer is logged on time.
+                          </p>
+                        </div>
+
                         <div className="space-y-2">
                           <Label className="text-sm">Religious Sensitivity Mode</Label>
                           <Select
@@ -2749,6 +2989,52 @@ export function Settings() {
                     <p className="text-sm text-muted-foreground">No salah items configured</p>
                   )}
                 </div>
+
+                {/* v15: family-level overrides for qadha (made-up) and missed prayers.
+                    On-time amounts live on each Salah card above; these two values
+                    apply across all five prayers. Defaults: qadha=+1, missed=-1. */}
+                <Card className="mt-4 border-l-4 border-l-amber-500">
+                  <CardContent className="p-4 space-y-3">
+                    <div>
+                      <p className="font-medium text-sm">Qadha & Missed prayer points</p>
+                      <p className="text-xs text-muted-foreground">
+                        Used when a prayer is logged late (made up) or missed.
+                        Applied across all five prayers.
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <Label htmlFor="salah-qadha" className="text-sm">Qadha (made up)</Label>
+                        <Input
+                          id="salah-qadha"
+                          type="number"
+                          min={-10}
+                          max={10}
+                          value={salahQadhaInput}
+                          onChange={(e) => setSalahQadhaInput(e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor="salah-missed" className="text-sm">Missed</Label>
+                        <Input
+                          id="salah-missed"
+                          type="number"
+                          min={-10}
+                          max={10}
+                          value={salahMissedInput}
+                          onChange={(e) => setSalahMissedInput(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={handleSaveSalahPoints}
+                      disabled={salahPointsSaving || !familyId}
+                    >
+                      {salahPointsSaving ? "Saving…" : "Save"}
+                    </Button>
+                  </CardContent>
+                </Card>
               </div>
 
               {/* Other Habits */}
@@ -2759,8 +3045,19 @@ export function Settings() {
                 </h3>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {otherHabits.map(item => (
-                    <div key={item.id} className="p-3 border rounded-lg">
-                      <p className="font-medium text-sm truncate">{item.name}</p>
+                    <div key={item.id} className="p-3 border rounded-lg relative group">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="font-medium text-sm truncate flex-1">{item.name}</p>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 w-6 p-0 -mr-1 -mt-1 text-muted-foreground hover:text-red-600 shrink-0"
+                          onClick={() => openDeleteCandidate(item)}
+                          aria-label={`Delete ${item.name}`}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                       <Badge variant="secondary" className="mt-1 text-xs bg-green-100">+{item.points}</Badge>
                     </div>
                   ))}
@@ -2778,8 +3075,19 @@ export function Settings() {
                 </h3>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {positiveBehaviors.map(item => (
-                    <div key={item.id} className="p-3 border rounded-lg">
-                      <p className="font-medium text-sm truncate">{item.name}</p>
+                    <div key={item.id} className="p-3 border rounded-lg relative group">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="font-medium text-sm truncate flex-1">{item.name}</p>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 w-6 p-0 -mr-1 -mt-1 text-muted-foreground hover:text-red-600 shrink-0"
+                          onClick={() => openDeleteCandidate(item)}
+                          aria-label={`Delete ${item.name}`}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                       <Badge variant="secondary" className="mt-1 text-xs bg-green-100">+{item.points}</Badge>
                     </div>
                   ))}
@@ -2797,8 +3105,19 @@ export function Settings() {
                 </h3>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {negativeBehaviors.map(item => (
-                    <div key={item.id} className="p-3 border rounded-lg">
-                      <p className="font-medium text-sm truncate">{item.name}</p>
+                    <div key={item.id} className="p-3 border rounded-lg relative group">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="font-medium text-sm truncate flex-1">{item.name}</p>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 w-6 p-0 -mr-1 -mt-1 text-muted-foreground hover:text-red-600 shrink-0"
+                          onClick={() => openDeleteCandidate(item)}
+                          aria-label={`Delete ${item.name}`}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                       <div className="flex items-center gap-2 mt-1">
                         <Badge variant="secondary" className="text-xs bg-red-100">{item.points}</Badge>
                         {item.tier && (
@@ -3277,6 +3596,81 @@ export function Settings() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* v15: Smart-delete confirmation dialog. Opens when a parent clicks the
+          × on any trackable item card. Shows usage stats so they know what
+          they're about to remove before confirming. */}
+      <AlertDialog
+        open={!!deleteCandidate}
+        onOpenChange={(open) => {
+          if (!open) closeDeleteCandidate();
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-red-600" />
+              Delete "{deleteCandidate?.name}"?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm">
+                <p>
+                  This removes the item from your family's tracked list. Past
+                  events that already used it will stay in the audit log, but
+                  parents and kids won't be able to log new events for it.
+                </p>
+                {deleteStatsLoading ? (
+                  <div className="rounded-md border border-muted bg-muted/30 p-3 text-muted-foreground">
+                    Loading usage stats…
+                  </div>
+                ) : deleteStats ? (
+                  <div className="rounded-md border border-muted bg-muted/20 p-3">
+                    <p className="font-medium mb-1">Usage so far</p>
+                    <ul className="space-y-1 text-muted-foreground">
+                      <li>
+                        Total uses: <strong>{deleteStats.totalUses ?? 0}</strong>
+                      </li>
+                      <li>
+                        Last 7 days: <strong>{deleteStats.usesLast7Days ?? 0}</strong>
+                      </li>
+                      <li>
+                        Last 30 days: <strong>{deleteStats.usesLast30Days ?? 0}</strong>
+                      </li>
+                      <li>
+                        Last used:{" "}
+                        <strong>
+                          {deleteStats.lastUsedAt
+                            ? new Date(deleteStats.lastUsedAt).toLocaleDateString()
+                            : "never"}
+                        </strong>
+                      </li>
+                    </ul>
+                    {deleteStats.totalUses > 0 && (
+                      <p className="mt-2 text-xs text-amber-700">
+                        ⚠️ This item has been logged {deleteStats.totalUses}×.
+                        Past point totals won't change.
+                      </p>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteSubmitting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                confirmDeleteCandidate();
+              }}
+              disabled={deleteSubmitting}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {deleteSubmitting ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
