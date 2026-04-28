@@ -25,3 +25,5 @@ ios-parent/App/*.xcuserstate
 ios-kids/App/*.xcuserstate
 ios-parent/App/*.xcuserdata/
 ios-kids/App/*.xcuserdata/
+# Local v15+ deploy staging - never commit, never stash
+_fgs-staging/
