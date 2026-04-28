@@ -50,8 +50,10 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   }
 
   if (!hasAuth) {
-    console.log('🔒 ProtectedRoute - No auth, redirecting to login');
-    return <Navigate to="/parent-login" replace />;
+    // Marketing landing is the front door; unauthenticated visitors land there
+    // and choose Sign In or Sign Up from the page itself.
+    console.log('🔒 ProtectedRoute - No auth, redirecting to landing');
+    return <Navigate to="/welcome" replace />;
   }
 
   return <>{children}</>;
