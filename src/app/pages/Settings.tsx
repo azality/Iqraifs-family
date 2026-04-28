@@ -1899,6 +1899,86 @@ export function Settings() {
               </AlertDialog>
             </CardContent>
           </Card>
+
+          {/* v14: Role Permissions reference card. Surfaces the same matrix
+              that lives in the v12 design doc so a parent can see at a glance
+              who can do what without having to dig through documentation. */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Lock className="h-5 w-5 text-blue-500" />
+                What each role can do
+              </CardTitle>
+              <CardDescription>
+                Anyone you approve from the join queue is automatically slotted into a role
+                based on how they signed up. The owner can promote or demote any member at any time.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left py-2 pr-3 font-medium">Action</th>
+                      <th className="text-center py-2 px-2 font-medium">Owner</th>
+                      <th className="text-center py-2 px-2 font-medium">Parent</th>
+                      <th className="text-center py-2 px-2 font-medium">Guardian</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    <tr>
+                      <td className="py-2 pr-3">View family dashboard &amp; kids</td>
+                      <td className="text-center">✓</td>
+                      <td className="text-center">✓</td>
+                      <td className="text-center">✓</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 pr-3">Mark prayers, approve behaviors, give points</td>
+                      <td className="text-center">✓</td>
+                      <td className="text-center">✓</td>
+                      <td className="text-center">✓</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 pr-3">Approve / decline join requests</td>
+                      <td className="text-center">✓</td>
+                      <td className="text-center">✓</td>
+                      <td className="text-center text-muted-foreground">—</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 pr-3">Add or edit children, set rules &amp; rewards</td>
+                      <td className="text-center">✓</td>
+                      <td className="text-center">✓</td>
+                      <td className="text-center text-muted-foreground">—</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 pr-3">Reset a child's PIN</td>
+                      <td className="text-center">✓</td>
+                      <td className="text-center">✓</td>
+                      <td className="text-center text-muted-foreground">—</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 pr-3">Promote / demote / remove members</td>
+                      <td className="text-center">✓</td>
+                      <td className="text-center text-muted-foreground">—</td>
+                      <td className="text-center text-muted-foreground">—</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 pr-3">Reset another member's password</td>
+                      <td className="text-center">✓</td>
+                      <td className="text-center text-muted-foreground">—</td>
+                      <td className="text-center text-muted-foreground">—</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-xs text-muted-foreground mt-3">
+                <strong>How roles get assigned:</strong> the first parent to sign up becomes the
+                Owner. Anyone who joins as <em>spouse</em> becomes a Parent. Anyone who joins as
+                <em> nanny / teacher / other</em> becomes a Guardian. The owner can change any
+                member's role from this tab.
+              </p>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* NOTIFICATIONS TAB */}

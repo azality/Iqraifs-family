@@ -11,6 +11,7 @@ import { supabase } from '../../../utils/supabase/client';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info.tsx';
 import { motion } from 'motion/react';
 import { clearStorageSync, getStorageSync, setStorageSync, removeStorageSync } from '../../utils/storage';
+import { setParentSession } from '../utils/authHelpers';
 
 export function ParentSignup() {
   const navigate = useNavigate();
@@ -110,12 +111,17 @@ export function ParentSignup() {
         tokenLength: loginData.session.access_token.length
       });
 
-      // Set parent mode - Supabase automatically stores the session
+      // Set parent mode - Supabase automatically stores the session.
+      // v14: setParentSession persists the user's name/email under both the
+      // canonical STORAGE_KEYS and the legacy fgs_user_name key, so the
+      // header + AuthContext show the real name instead of "User" on the
+      // very first dashboard load. Without this, only fgs_user_id was set
+      // and AuthContext fell back to "User" until the next full login.
+      setParentSession(loginData.session.user.id, name, email);
       setStorageSync('user_role', 'parent');
       setStorageSync('user_mode', 'parent');
       setStorageSync('fgs_mode', 'parent');
-      setStorageSync('fgs_user_id', loginData.session.user.id);
-      
+
       navigate('/onboarding');
     } catch (error: any) {
       console.error('Signup error:', error);
@@ -225,13 +231,17 @@ export function ParentSignup() {
         duration: 5000
       });
 
-      // Set parent mode - Supabase automatically stores the session
+      // Set parent mode - Supabase automatically stores the session.
+      // v14: Persist the user's name/email under canonical + legacy keys
+      // so the header shows "Rimsha Shamshad" instead of "User" the
+      // moment the spouse lands on the join-pending screen and any
+      // subsequent dashboard load.
+      setParentSession(loginData.session.user.id, name, email);
       setStorageSync('user_role', 'parent');
       setStorageSync('user_mode', 'parent');
       setStorageSync('fgs_mode', 'parent');
-      setStorageSync('fgs_user_id', loginData.session.user.id);
       setStorageSync('fgs_join_pending', 'true');
-      
+
       navigate('/join-pending');
       
     } catch (error: any) {

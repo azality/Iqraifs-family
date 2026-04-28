@@ -1,5 +1,20 @@
 // FGS Backend Server v1.0.3 - Accept challenge route flattened (no :childId in URL)
-const SERVER_VERSION = "v1.0.13-pin-management";
+const SERVER_VERSION = "v1.0.14-member-fixes";
+
+// v14: Safe family-key resolver. Family records are stored under keys like
+// "family:1745234567890" - the "family:" prefix is baked into the ID at
+// creation (see app.post("/families")). The middleware (requireFamilyAccess,
+// requireOwner) already handles this defensively, but several v12+v13
+// endpoints called kv.get(`family:${familyId}`) directly, which double-
+// prefixed the key to "family:family:174..." and returned null. That broke
+// /members, /reset-password, /role, DELETE /:userId, and quest/timezone
+// lookups - same pattern as the v6 quest-template bug (#48) and the v5
+// samples bug (#40).
+function familyKeyOf(familyId: string): string {
+  if (!familyId) return familyId;
+  return familyId.startsWith('family:') ? familyId : `family:${familyId}`;
+}
+
 import { Hono } from "npm:hono";
 import { cors } from "npm:hono/cors";
 import { logger } from "npm:hono/logger";
@@ -2454,7 +2469,7 @@ async function calculateChallengeProgress(challenge: any, childId: string) {
     try {
       const _child = await kv.get(childId);
       if (_child?.familyId) {
-        const _family = await kv.get(`family:${_child.familyId}`);
+        const _family = await kv.get(familyKeyOf(_child.familyId));
         if (_family?.timezone) _tz = _family.timezone;
       }
     } catch (_e) {
@@ -2798,7 +2813,7 @@ app.post(
       // v10: Anchor expiry to the family timezone (matches the daily/weekly
       // generator and progress window).
       const _cqChild = await kv.get(childId);
-      const _cqFamily = _cqChild?.familyId ? await kv.get(`family:${_cqChild.familyId}`) : null;
+      const _cqFamily = _cqChild?.familyId ? await kv.get(familyKeyOf(_cqChild.familyId)) : null;
       const _cqTz = _cqFamily?.timezone || 'UTC';
       const expiresAt = customQuest.type === 'daily'
         ? getEndOfDayInTimezone(_cqTz, now)
@@ -2845,13 +2860,13 @@ app.get(
   async (c) => {
     try {
       const { familyId } = c.req.param();
-      
+
       // Get family to find parent IDs
-      const family = await kv.get(`family:${familyId}`);
+      const family = await kv.get(familyKeyOf(familyId));
       if (!family) {
         return c.json({ error: 'Family not found' }, 404);
       }
-      
+
       // Get user info for each parent
       const users = [];
       for (const parentId of family.parentIds || []) {
@@ -2890,7 +2905,7 @@ app.get(
   async (c) => {
     try {
       const { familyId } = c.req.param();
-      const family = await kv.get(`family:${familyId}`);
+      const family = await kv.get(familyKeyOf(familyId));
       if (!family) {
         return c.json({ error: 'Family not found' }, 404);
       }
@@ -3026,7 +3041,7 @@ app.post(
       const { familyId, userId: targetUserId } = c.req.param();
       const callerId = getAuthUserId(c);
 
-      const family = await kv.get(`family:${familyId}`);
+      const family = await kv.get(familyKeyOf(familyId));
       if (!family) {
         return c.json({ error: 'Family not found' }, 404);
       }
@@ -3104,7 +3119,7 @@ app.put(
         return c.json({ error: "role must be 'parent' or 'guardian'" }, 400);
       }
 
-      const familyKey = `family:${familyId}`;
+      const familyKey = familyKeyOf(familyId);
       const family = await kv.get(familyKey);
       if (!family) {
         return c.json({ error: 'Family not found' }, 404);
@@ -3187,7 +3202,7 @@ app.delete(
       const { familyId, userId: targetUserId } = c.req.param();
       const callerId = getAuthUserId(c);
 
-      const familyKey = `family:${familyId}`;
+      const familyKey = familyKeyOf(familyId);
       const family = await kv.get(familyKey);
       if (!family) {
         return c.json({ error: 'Family not found' }, 404);
@@ -3281,8 +3296,9 @@ app.post(
 
       // Verify the child belongs to the family in the URL. Prevents a parent
       // of family A from resetting a child in family B even if they guess the
-      // child id.
-      if (child.familyId !== familyId) {
+      // child id. Normalize both sides through familyKeyOf so a URL value
+      // missing the "family:" prefix still compares cleanly.
+      if (familyKeyOf(child.familyId) !== familyKeyOf(familyId)) {
         return c.json({ error: 'Child does not belong to this family.' }, 403);
       }
 
@@ -3380,7 +3396,7 @@ app.post(
     // family-local. Without this, a quest generated late at night EST
     // would already be considered "for tomorrow" by server UTC, and a
     // re-generation request the next morning would NOT dedup against it.
-    const _family = child.familyId ? await kv.get(`family:${child.familyId}`) : null;
+    const _family = child.familyId ? await kv.get(familyKeyOf(child.familyId)) : null;
     const _tz = _family?.timezone || 'UTC';
     const _now = new Date();
     const _periodStart = type === 'daily'
