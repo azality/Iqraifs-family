@@ -267,20 +267,39 @@ export function PrayerApprovalsWidget({ compact = false, maxItems, priority = fa
                     </div>
                   </div>
 
-                  <div className="flex gap-2">
+                  {/* v21: inline approve buttons. The previous version
+                      opened a modal to choose On Time vs Late, which was
+                      three taps away from intent. We now show both inline
+                      so the common case (single tap on "On time") is one
+                      click. The Deny button still opens the modal because
+                      a reason for the kid is genuinely useful there. */}
+                  <div className="flex flex-wrap gap-2 sm:flex-nowrap sm:gap-2">
                     <Button
                       size="sm"
-                      onClick={() => setShowApproveModal(claim)}
+                      onClick={() => approveClaim(claim.id, true)}
                       disabled={isProcessing}
                       className="bg-green-500 hover:bg-green-600 text-white"
+                      title={`On time (+${claim.prayerName === 'Fajr' ? 5 : 3} pts)`}
                     >
-                      {isProcessing ? '...' : `✓ ${claim.points}pts`}
+                      {isProcessing ? '…' : <>✓ On time <span className="ml-1 opacity-90">+{claim.prayerName === 'Fajr' ? 5 : 3}</span></>}
                     </Button>
                     <Button
                       size="sm"
                       variant="outline"
+                      onClick={() => approveClaim(claim.id, false)}
+                      disabled={isProcessing}
+                      className="border-amber-400 text-amber-800 hover:bg-amber-50"
+                      title="Late / Qadha (+1 pt)"
+                    >
+                      ⏳ Late <span className="ml-1 opacity-90">+1</span>
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
                       onClick={() => setShowDenyModal(claim.id)}
                       disabled={isProcessing}
+                      className="text-gray-500 hover:text-red-700"
+                      aria-label="Deny prayer claim"
                     >
                       ✗
                     </Button>

@@ -43,6 +43,13 @@ export function KidDashboard() {
   const [pendingRequests, setPendingRequests] = useState<any[]>([]);
   const [loadingRequests, setLoadingRequests] = useState(false);
 
+  // v21: track the kid's prayer claims that are still waiting on a parent.
+  // Without this, the kid taps "I Prayed" and nothing visible changes —
+  // a 6-year-old reads that as "the button didn't work". The pending
+  // chip below the points header tells the kid the system saw it and
+  // is waiting for their parent.
+  const [pendingClaims, setPendingClaims] = useState<any[]>([]);
+
   // v15: track which missed-prayer event the kid is currently catching up on
   // (kid-initiated qadha correction). One in-flight correction at a time keeps
   // double-clicks from creating duplicate qadha events on the audit trail.
@@ -164,6 +171,33 @@ export function KidDashboard() {
     const interval = setInterval(loadPendingRequests, 30000);
     return () => clearInterval(interval);
   }, [child, accessToken, familyId]);
+
+  // v21: Poll the kid's own prayer claims so the "Waiting for Mama/Baba"
+  // chip stays accurate without a manual refresh. Same 20s cadence as the
+  // events poll. Filters out claims that are already approved/denied.
+  useEffect(() => {
+    if (!child || !accessToken) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const refresh = async () => {
+      try {
+        const res = await fetch(
+          `${API_BASE}/prayer-claims/child/${child.id}/date/${today}`,
+          { headers: { 'Authorization': `Bearer ${accessToken}` } }
+        );
+        if (res.ok) {
+          const claims = await res.json();
+          const stillPending = (Array.isArray(claims) ? claims : [])
+            .filter((c: any) => c.status === 'pending');
+          setPendingClaims(stillPending);
+        }
+      } catch (err) {
+        // Silent — kid surface should never error-toast on a background poll.
+      }
+    };
+    refresh();
+    const interval = setInterval(refresh, 20000);
+    return () => clearInterval(interval);
+  }, [child, accessToken]);
 
   // Poll point events so parent approvals (including bonus awards) show up
   // on the kid's dashboard in near-real-time without a manual refresh.
@@ -519,6 +553,34 @@ export function KidDashboard() {
               currentTitle={currentMilestone?.name || "Explorer"}
             />
           </div>
+
+          {/* v21: Pending prayer claims chip. After a kid taps "I Prayed",
+              the points don't move until a parent approves — the chip
+              tells the kid the app saw it and someone is on the way.
+              Words use a kid-friendly role label instead of names. */}
+          {pendingClaims.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
+              className="max-w-md mx-auto mt-4"
+            >
+              <div className="bg-amber-100/95 border-2 border-amber-300 rounded-2xl px-4 py-3 flex items-start gap-3 shadow-md">
+                <Clock className="w-6 h-6 text-amber-700 shrink-0 mt-0.5" />
+                <div className="text-sm">
+                  <p className="font-bold text-amber-900">
+                    {pendingClaims.length === 1
+                      ? '⏳ One prayer waiting to be approved'
+                      : `⏳ ${pendingClaims.length} prayers waiting to be approved`}
+                  </p>
+                  <p className="text-amber-800 text-xs mt-0.5">
+                    {pendingClaims.map((c: any) => c.prayerName).join(', ')}
+                    {' '}— your grown-up will say nice prayer soon, then you'll get your stars!
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+          )}
         </motion.div>
       </div>
 

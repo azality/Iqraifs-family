@@ -208,6 +208,35 @@ export function Dashboard() {
   const recentEvents = dedupedActivity.slice(0, activityVisible);
   const hasMoreActivity = dedupedActivity.length > activityVisible;
 
+  // v21: Group visible activity rows by date for legibility. Today /
+  // Yesterday / weekday name / full date — much easier to skim than
+  // 30+ rows each carrying a full ISO timestamp.
+  const groupActivityByDate = (rows: ActivityRow[]) => {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const yesterday = today - 86400000;
+    const weekAgo = today - 6 * 86400000;
+    const labelFor = (ts: string) => {
+      const d = new Date(ts);
+      const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+      if (dayStart === today) return 'Today';
+      if (dayStart === yesterday) return 'Yesterday';
+      if (dayStart >= weekAgo) {
+        return d.toLocaleDateString(undefined, { weekday: 'long' });
+      }
+      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: dayStart < new Date(now.getFullYear(), 0, 1).getTime() ? 'numeric' : undefined });
+    };
+    const groups: { label: string; rows: ActivityRow[] }[] = [];
+    for (const r of rows) {
+      const lbl = labelFor(r.event.timestamp);
+      const last = groups[groups.length - 1];
+      if (last && last.label === lbl) last.rows.push(r);
+      else groups.push({ label: lbl, rows: [r] });
+    }
+    return groups;
+  };
+  const activityGroups = groupActivityByDate(recentEvents);
+
   const handleVoid = async () => {
     if (!voidTarget) return;
     if (voidReason.trim().length < 10) {
@@ -595,9 +624,30 @@ export function Dashboard() {
         <CardContent>
           <div className="space-y-4">
             {recentEvents.length === 0 ? (
-              <p className="text-muted-foreground text-center py-4">No recent activity</p>
+              // v21: empty-state CTA. The previous "No recent activity"
+              // line was inert. New parents need to know what comes
+              // next — the cheapest place to teach them is here.
+              <div className="text-center py-8 space-y-3">
+                <div className="text-4xl">📜</div>
+                <p className="text-sm text-muted-foreground max-w-xs mx-auto">
+                  {isChildView
+                    ? "Your story will appear here as you log Salah, do good things, and complete quests."
+                    : "Nothing logged yet for this child. Start by logging a prayer or behavior."}
+                </p>
+                {isParentMode && (
+                  <Button asChild size="sm" variant="outline">
+                    <Link to="/log-behavior">Log first event →</Link>
+                  </Button>
+                )}
+              </div>
             ) : (
-              recentEvents.map(({ event, dupCount, itemName }) => {
+              // v21: grouped by date (Today / Yesterday / weekday / Mar 12).
+              activityGroups.flatMap((group) => [
+                <div key={`hdr-${group.label}`} className="flex items-center gap-2 pt-2 first:pt-0">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">{group.label}</span>
+                  <span className="flex-1 border-t border-gray-100" />
+                </div>,
+                ...group.rows.map(({ event, dupCount, itemName }) => {
                 const hasRecovery = pointEvents.some(e => e.recoveryFromEventId === event.id);
                 const canRecover = isChildView && event.points < 0 && !hasRecovery;
                 const canVoid = isParentMode && (event as any).status !== 'voided';
@@ -675,6 +725,7 @@ export function Dashboard() {
                   </div>
                 );
               })
+              ])
             )}
 
             {/* v20: Load more / show less controls. Also count any
