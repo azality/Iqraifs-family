@@ -530,6 +530,20 @@ export async function getChildEvents(childId: string) {
   return apiCall(`/children/${childId}/events`);
 }
 
+// v20: Soft-void an event. Backend (POST /events/:id/void) is idempotent
+// and reverses the kid's point total when applied. Used by the Recent
+// Activity row's Void action so parents can clean up duplicate or wrong
+// entries from the dashboard without leaving the page.
+export async function voidEvent(eventId: string, voidReason: string) {
+  if (!voidReason || voidReason.trim().length < 10) {
+    throw new Error('Void reason must be at least 10 characters.');
+  }
+  return apiCall(`/events/${eventId}/void`, {
+    method: 'POST',
+    body: JSON.stringify({ voidReason }),
+  });
+}
+
 // ===== EDIT REQUESTS =====
 
 export async function createEditRequest(requestData: any) {

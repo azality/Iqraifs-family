@@ -7,7 +7,10 @@ import { useTrackableItems } from "../hooks/useTrackableItems";
 import { useMilestones } from "../hooks/useMilestones";
 import { useRewards } from "../hooks/useRewards";
 import { useAuth } from "../contexts/AuthContext";
-import { logPointEvent } from "../../utils/api";
+import { logPointEvent, voidEvent } from "../../utils/api";
+import { toast } from "sonner";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "../components/ui/alert-dialog";
+import { Textarea } from "../components/ui/textarea";
 import { Badge } from "../components/ui/badge";
 import { Link } from "react-router";
 import { motion } from "motion/react";
@@ -42,6 +45,15 @@ export function Dashboard() {
   const [selectedNegativeEvent, setSelectedNegativeEvent] = useState<PointEvent | null>(null);
   const [pointEvents, setPointEvents] = useState<PointEvent[]>([]);
   const [loadingEvents, setLoadingEvents] = useState(false);
+
+  // v20: Recent Activity is now expandable. We show 5 by default and
+  // reveal +10 each time the parent taps "Load more". `voidTarget`
+  // drives the inline void confirmation dialog used to clean up
+  // duplicates or wrong entries directly from the dashboard.
+  const [activityVisible, setActivityVisible] = useState(5);
+  const [voidTarget, setVoidTarget] = useState<{ event: PointEvent; itemName: string } | null>(null);
+  const [voidReason, setVoidReason] = useState('');
+  const [voiding, setVoiding] = useState(false);
 
   // Load events for the current child
   useEffect(() => {
@@ -136,8 +148,100 @@ export function Dashboard() {
   }
 
   const childEvents = pointEvents.filter(e => e.childId === child.id);
-  const recentEvents = childEvents.slice(0, 5);
-  
+
+  // v20: Resolve a stable display name for an event. Order of preference:
+  //   1. event.itemName    — snapshot at write time (set in v20+ writes
+  //                          and by all prayer-claim approvals)
+  //   2. trackableItems    — current catalog lookup (works unless the
+  //                          item was renamed / smart-deleted)
+  //   3. notes parse       — old salah events sometimes carry the prayer
+  //                          name only inside notes ("Prayer: Asr - On Time")
+  //   4. category fallback — say "Salah" / "Adjustment" / "Recovery Bonus"
+  //                          before falling back to "Unknown"
+  const resolveItemName = (event: any): string => {
+    if (event.itemName) return event.itemName;
+    const item = trackableItems.find(i => i.id === event.trackableItemId);
+    if (item?.name) return item.name;
+    if (typeof event.notes === 'string') {
+      const m = event.notes.match(/Prayer:\s*([A-Za-z]+)/i);
+      if (m) return `Prayer: ${m[1]}`;
+    }
+    if (event.isAdjustment) return 'Adjustment';
+    if (event.isRecovery) return 'Recovery Bonus';
+    if (event.type === 'habit') return 'Habit';
+    if (event.type === 'behavior') return 'Behavior';
+    return 'Unknown';
+  };
+
+  // v20: Collapse near-duplicate rows for display only (the underlying
+  // events are still in the database). Two events are treated as
+  // duplicates if they share childId, trackableItemId (or itemName when
+  // the trackable id has shifted), points, and notes, AND were logged
+  // within 5 seconds of each other. The kept row carries the dupCount
+  // and the IDs of the collapsed siblings so the parent can void them
+  // in one go from the row's "..." menu. This is purely a render-side
+  // safety net for events that already exist; v19 prevents new ones.
+  type ActivityRow = { event: PointEvent; dupCount: number; dupIds: string[]; itemName: string };
+  const dedupedActivity: ActivityRow[] = (() => {
+    const out: ActivityRow[] = [];
+    for (const e of childEvents) {
+      const itemName = resolveItemName(e);
+      const eTime = new Date(e.timestamp).getTime();
+      const last = out[out.length - 1];
+      if (
+        last &&
+        last.event.childId === e.childId &&
+        last.event.points === e.points &&
+        (last.event.notes || '') === (e.notes || '') &&
+        (last.event.trackableItemId === e.trackableItemId || last.itemName === itemName) &&
+        Math.abs(new Date(last.event.timestamp).getTime() - eTime) <= 5000
+      ) {
+        last.dupCount += 1;
+        last.dupIds.push(e.id);
+      } else {
+        out.push({ event: e, dupCount: 0, dupIds: [], itemName });
+      }
+    }
+    return out;
+  })();
+
+  const recentEvents = dedupedActivity.slice(0, activityVisible);
+  const hasMoreActivity = dedupedActivity.length > activityVisible;
+
+  const handleVoid = async () => {
+    if (!voidTarget) return;
+    if (voidReason.trim().length < 10) {
+      toast.error('Please give a reason of at least 10 characters.');
+      return;
+    }
+    setVoiding(true);
+    try {
+      // Void the displayed event, then void any collapsed duplicate
+      // siblings so the parent can clean up "Tantrum × 3" with one
+      // confirmation. Backend is idempotent so re-runs are safe.
+      const targetRow = dedupedActivity.find(r => r.event.id === voidTarget.event.id);
+      const idsToVoid = [voidTarget.event.id, ...(targetRow?.dupIds || [])];
+      for (const id of idsToVoid) {
+        await voidEvent(id, voidReason.trim());
+      }
+      toast.success(idsToVoid.length > 1
+        ? `Voided ${idsToVoid.length} entries.`
+        : 'Entry voided.'
+      );
+      setVoidTarget(null);
+      setVoidReason('');
+      // Reload events so the row disappears (and points reverse).
+      const events = await getChildEvents(child.id);
+      setPointEvents(events || []);
+    } catch (err: any) {
+      console.error('Void failed:', err);
+      toast.error(err?.message || 'Could not void this entry.');
+    } finally {
+      setVoiding(false);
+    }
+  };
+
+
   const todayEvents = childEvents.filter(e => {
     const eventDate = new Date(e.timestamp);
     const today = new Date();
@@ -183,6 +287,13 @@ export function Dashboard() {
     <div className="space-y-6">
       {/* Getting Started checklist (parents only, dismissible, hides when complete) */}
       {isParentMode && <GettingStartedCard />}
+
+      {/* v20: Prayer Approvals hoisted to the TOP of the parent dashboard so
+          pending kid prayer claims are the first thing a parent sees. The
+          widget renders null when there are zero pending claims (no
+          empty-state clutter). When approvals are present this card is
+          impossible to miss above the stats grid. */}
+      {isParentMode && <PrayerApprovalsWidget priority />}
 
       {/* Child-Friendly Hero Section */}
       {isChildView && (
@@ -486,17 +597,21 @@ export function Dashboard() {
             {recentEvents.length === 0 ? (
               <p className="text-muted-foreground text-center py-4">No recent activity</p>
             ) : (
-              recentEvents.map((event) => {
-                const item = trackableItems.find(i => i.id === event.trackableItemId);
-                const itemName = item?.name || (event.isAdjustment ? 'Adjustment' : event.isRecovery ? 'Recovery Bonus' : 'Unknown');
+              recentEvents.map(({ event, dupCount, itemName }) => {
                 const hasRecovery = pointEvents.some(e => e.recoveryFromEventId === event.id);
                 const canRecover = isChildView && event.points < 0 && !hasRecovery;
-                
+                const canVoid = isParentMode && (event as any).status !== 'voided';
+
                 return (
                   <div key={event.id} className={`flex items-center justify-between border-b pb-3 last:border-0 ${canRecover ? 'bg-red-50 p-3 rounded-lg border border-red-200' : ''}`}>
                     <div className="space-y-1 flex-1">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <p className="font-medium">{itemName}</p>
+                        {dupCount > 0 && (
+                          <Badge variant="outline" className="text-xs bg-amber-50 border-amber-300 text-amber-800">
+                            ×{dupCount + 1} (likely duplicates)
+                          </Badge>
+                        )}
                         {event.isAdjustment && (
                           <Badge variant="outline" className="text-xs">Adjustment</Badge>
                         )}
@@ -521,7 +636,7 @@ export function Dashboard() {
                       )}
                     </div>
                     <div className="flex items-center gap-2">
-                      <Badge 
+                      <Badge
                         variant={event.points > 0 ? "default" : "destructive"}
                         className={event.points > 0 ? "bg-green-600" : ""}
                       >
@@ -541,14 +656,114 @@ export function Dashboard() {
                           Make It Right
                         </Button>
                       )}
+                      {canVoid && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-gray-500 hover:text-red-700 hover:bg-red-50"
+                          onClick={() => {
+                            setVoidTarget({ event, itemName });
+                            setVoidReason(dupCount > 0 ? 'Duplicate entries from a double-tap.' : '');
+                          }}
+                          aria-label="Void this entry"
+                          title={dupCount > 0 ? `Void this and ${dupCount} duplicate(s)` : 'Void this entry'}
+                        >
+                          {dupCount > 0 ? `Void all ×${dupCount + 1}` : 'Void'}
+                        </Button>
+                      )}
                     </div>
                   </div>
                 );
               })
             )}
+
+            {/* v20: Load more / show less controls. Also count any
+                duplicates that have been collapsed into visible rows so
+                the parent knows the actual underlying row count. */}
+            {dedupedActivity.length > 5 && (
+              <div className="flex items-center justify-between pt-2">
+                <p className="text-xs text-muted-foreground">
+                  Showing {Math.min(activityVisible, dedupedActivity.length)} of {dedupedActivity.length}
+                  {(() => {
+                    const collapsed = dedupedActivity
+                      .slice(0, Math.min(activityVisible, dedupedActivity.length))
+                      .reduce((s, r) => s + r.dupCount, 0);
+                    return collapsed > 0 ? ` (${collapsed} duplicate${collapsed === 1 ? '' : 's'} hidden)` : '';
+                  })()}
+                </p>
+                <div className="flex gap-2">
+                  {hasMoreActivity && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setActivityVisible(v => v + 10)}
+                    >
+                      Load more
+                    </Button>
+                  )}
+                  {activityVisible > 5 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setActivityVisible(5)}
+                    >
+                      Show less
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
+
+      {/* v20: Void confirmation dialog. Backend requires a >= 10-char
+          reason for the audit trail. The dialog also voids all
+          collapsed duplicate siblings of the targeted row so the
+          parent does not have to chase each one. */}
+      <AlertDialog open={!!voidTarget} onOpenChange={(open) => { if (!open) { setVoidTarget(null); setVoidReason(''); } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {voidTarget && (() => {
+                const row = dedupedActivity.find(r => r.event.id === voidTarget.event.id);
+                const total = (row?.dupCount || 0) + 1;
+                return total > 1 ? `Void ${total} entries?` : 'Void this entry?';
+              })()}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {voidTarget && (
+                <>
+                  <span className="block mb-1">
+                    <strong>{voidTarget.itemName}</strong> ({voidTarget.event.points > 0 ? '+' : ''}{voidTarget.event.points}) — {new Date(voidTarget.event.timestamp).toLocaleString()}
+                  </span>
+                  Voiding reverses the points and writes a void marker into the audit trail. The original entry stays visible with the void reason.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Reason (10+ characters)</label>
+            <Textarea
+              value={voidReason}
+              onChange={(e) => setVoidReason(e.target.value)}
+              placeholder="e.g. Duplicate from a double-tap; recorded twice by accident."
+              rows={3}
+            />
+            <p className="text-xs text-muted-foreground">{voidReason.trim().length} / 10</p>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={voiding}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleVoid}
+              disabled={voiding || voidReason.trim().length < 10}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {voiding ? 'Voiding…' : 'Void'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Recovery Dialog */}
       {child && selectedNegativeEvent && (
@@ -564,8 +779,9 @@ export function Dashboard() {
         />
       )}
 
-      {/* Prayer Approvals Widget (Parents Only) */}
-      {isParentMode && <PrayerApprovalsWidget maxItems={3} />}
+      {/* v20: Prayer Approvals moved to TOP of dashboard. Removed the
+          duplicate render here so parents do not see the same widget
+          twice when there are pending claims. */}
 
       {/* Wishlist Widget (Parents Only) */}
       {isParentMode && <WishlistWidget maxItems={3} />}

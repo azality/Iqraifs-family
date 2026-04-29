@@ -276,6 +276,12 @@ export function LogBehavior() {
         finalNotes = finalNotes ? `${finalNotes}\n\n[${stateLabel}]` : `[${stateLabel}]`;
       }
 
+      // v20: Snapshot itemName onto the event at write time so the activity
+      // feed renders correctly even if this trackable item is later renamed,
+      // soft-deleted, or recreated with a fresh ID. Prayer-claim approvals
+      // already do this (see prayerLogging.tsx); parent-logged events did
+      // not, which is why old salah events showed "Unknown" in the audit
+      // trail after the v15 smart-delete reset salah item IDs.
       await logEvent(child.id, {
         childId: child.id,
         trackableItemId: selectedItemId!,
@@ -283,6 +289,13 @@ export function LogBehavior() {
         points: totalPoints, // Use total points (base + bonus)
         loggedBy: user.id,
         notes: finalNotes || undefined,
+        itemName: isSalah
+          ? `Prayer: ${item.name}${
+              salahState === 'qadha' ? ' (Qadha)' :
+              salahState === 'missed' ? ' (Missed)' :
+              ' (On Time)'
+            }`
+          : item.name,
         ...(isSalah ? { salahState: salahState || 'ontime' } : {})
       } as any);
 

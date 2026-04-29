@@ -38,9 +38,15 @@ type PrayerClaim = {
 interface PrayerApprovalsWidgetProps {
   compact?: boolean; // For dashboard widget
   maxItems?: number; // Limit number of items shown
+  // v20: When true, render NULL when there are zero pending claims
+  // (no "No pending prayer approvals" empty card cluttering the page),
+  // and lift the visual emphasis (yellow ring + pulse on the count
+  // badge) so the card is impossible to miss when it does appear.
+  // Used at the TOP of the parent dashboard.
+  priority?: boolean;
 }
 
-export function PrayerApprovalsWidget({ compact = false, maxItems }: PrayerApprovalsWidgetProps) {
+export function PrayerApprovalsWidget({ compact = false, maxItems, priority = false }: PrayerApprovalsWidgetProps) {
   const [pendingClaims, setPendingClaims] = useState<PrayerClaim[]>([]);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState<string | null>(null);
@@ -187,7 +193,12 @@ export function PrayerApprovalsWidget({ compact = false, maxItems }: PrayerAppro
 
   const displayClaims = maxItems ? pendingClaims.slice(0, maxItems) : pendingClaims;
 
+  // v20: priority mode renders nothing when there are zero pending
+  // claims, so the dashboard is not cluttered with a permanent
+  // "No pending prayer approvals" empty card. Non-priority placements
+  // keep the empty card for explicit prayer-approval pages.
   if (pendingClaims.length === 0) {
+    if (priority) return null;
     return (
       <Card>
         <CardHeader>
@@ -207,15 +218,24 @@ export function PrayerApprovalsWidget({ compact = false, maxItems }: PrayerAppro
   }
 
   return (
-    <Card>
+    <Card className={priority ? 'border-2 border-yellow-400 bg-yellow-50/40 shadow-lg' : ''}>
       <CardHeader>
         <CardTitle className="flex items-center justify-between">
           <span className="flex items-center gap-2">
-            <Clock className="h-5 w-5" />
-            Prayer Approvals
-            <span className="ml-2 inline-flex items-center justify-center h-6 w-6 rounded-full bg-yellow-500 text-white text-xs font-bold">
-              {pendingClaims.length}
-            </span>
+            <Clock className={priority ? "h-5 w-5 text-yellow-700" : "h-5 w-5"} />
+            {priority
+              ? `${pendingClaims.length} prayer${pendingClaims.length === 1 ? '' : 's'} waiting for your approval`
+              : 'Prayer Approvals'}
+            {!priority && (
+              <span className="ml-2 inline-flex items-center justify-center h-6 w-6 rounded-full bg-yellow-500 text-white text-xs font-bold">
+                {pendingClaims.length}
+              </span>
+            )}
+            {priority && (
+              <span className="ml-2 inline-flex items-center justify-center h-6 min-w-6 px-2 rounded-full bg-yellow-500 text-white text-xs font-bold animate-pulse">
+                {pendingClaims.length} new
+              </span>
+            )}
           </span>
         </CardTitle>
       </CardHeader>
