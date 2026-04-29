@@ -12,6 +12,53 @@ import { motion } from 'motion/react';
 import { setStorageSync } from '../../utils/storage';
 import { setParentSession } from '../utils/authHelpers';
 
+// v22 hotfix: Chrome MUST live outside the ParentSignup function. When it
+// was defined inside, every keystroke re-created a fresh component
+// reference; React then unmounted and remounted the whole subtree —
+// including the form Inputs — which made them lose focus on every char.
+// Symptom: typing one letter into Email or Password kicked the cursor
+// out and the user had to click back into the field to type the next
+// char. Defining it at module scope with `onHome` passed in fixes it.
+const Chrome = ({
+  onBack,
+  onHome,
+  children,
+}: {
+  onBack: () => void;
+  onHome: () => void;
+  children: React.ReactNode;
+}) => (
+  <div className="min-h-screen bg-white relative overflow-hidden">
+    <div className="absolute inset-0 bg-gradient-to-br from-blue-50 via-purple-50/40 to-pink-50/30 pointer-events-none" />
+    <div className="absolute -top-32 -left-32 h-96 w-96 rounded-full bg-blue-200/30 blur-3xl pointer-events-none" />
+    <div className="absolute -bottom-32 -right-32 h-96 w-96 rounded-full bg-indigo-200/30 blur-3xl pointer-events-none" />
+
+    <div className="relative z-10 flex items-center justify-between px-4 sm:px-8 py-5">
+      <button
+        onClick={onBack}
+        className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        Back
+      </button>
+      <button
+        onClick={onHome}
+        className="flex items-center gap-2"
+        aria-label="Iqra home"
+      >
+        <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold">
+          ﷽
+        </div>
+        <span className="hidden sm:inline font-bold text-gray-900">Iqra</span>
+      </button>
+    </div>
+
+    <div className="relative z-10 px-4 pb-12 pt-2 sm:pt-4 flex items-center justify-center min-h-[calc(100vh-80px)]">
+      {children}
+    </div>
+  </div>
+);
+
 export function ParentSignup() {
   const navigate = useNavigate();
 
@@ -277,43 +324,15 @@ export function ParentSignup() {
     </Dialog>
   );
 
-  // Shared chrome (decorative bg + top bar) used by all three states.
-  const Chrome = ({ onBack, children }: { onBack: () => void; children: React.ReactNode }) => (
-    <div className="min-h-screen bg-white relative overflow-hidden">
-      <div className="absolute inset-0 bg-gradient-to-br from-blue-50 via-purple-50/40 to-pink-50/30 pointer-events-none" />
-      <div className="absolute -top-32 -left-32 h-96 w-96 rounded-full bg-blue-200/30 blur-3xl pointer-events-none" />
-      <div className="absolute -bottom-32 -right-32 h-96 w-96 rounded-full bg-indigo-200/30 blur-3xl pointer-events-none" />
-
-      <div className="relative z-10 flex items-center justify-between px-4 sm:px-8 py-5">
-        <button
-          onClick={onBack}
-          className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 transition-colors"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back
-        </button>
-        <button
-          onClick={() => navigate('/welcome')}
-          className="flex items-center gap-2"
-          aria-label="Iqra home"
-        >
-          <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold">
-            ﷽
-          </div>
-          <span className="hidden sm:inline font-bold text-gray-900">Iqra</span>
-        </button>
-      </div>
-
-      <div className="relative z-10 px-4 pb-12 pt-2 sm:pt-4 flex items-center justify-center min-h-[calc(100vh-80px)]">
-        {children}
-      </div>
-    </div>
-  );
+  // v22 hotfix: Chrome moved to module scope (above) so it isn't a fresh
+  // function on every render. If you re-add a Chrome wrapper here later,
+  // it MUST live outside this function or the email/password inputs will
+  // lose focus on every keystroke.
 
   // Path Selection Screen
   if (!signupType) {
     return (
-      <Chrome onBack={() => navigate('/welcome')}>
+      <Chrome onBack={() => navigate('/welcome')} onHome={() => navigate('/welcome')}>
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
@@ -401,7 +420,7 @@ export function ParentSignup() {
   // Create New Family Form
   if (signupType === 'new') {
     return (
-      <Chrome onBack={() => setSignupType(null)}>
+      <Chrome onBack={() => setSignupType(null)} onHome={() => navigate('/welcome')}>
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
@@ -518,7 +537,7 @@ export function ParentSignup() {
 
   // Join Existing Family Form
   return (
-    <Chrome onBack={() => setSignupType(null)}>
+    <Chrome onBack={() => setSignupType(null)} onHome={() => navigate('/welcome')}>
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
