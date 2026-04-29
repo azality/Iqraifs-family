@@ -3,32 +3,31 @@ import { useNavigate } from 'react-router';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
-import { Users, Mail, Lock, User, Home, UserPlus } from 'lucide-react';
+import { Mail, Lock, User, Home, UserPlus, ArrowLeft, Sparkles, Shield, Heart } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../../../utils/supabase/client';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info.tsx';
 import { motion } from 'motion/react';
-import { clearStorageSync, getStorageSync, setStorageSync, removeStorageSync } from '../../utils/storage';
+import { setStorageSync } from '../../utils/storage';
 import { setParentSession } from '../utils/authHelpers';
 
 export function ParentSignup() {
   const navigate = useNavigate();
-  
+
   // Two-path selection
   const [signupType, setSignupType] = useState<'new' | 'join' | null>(null);
-  
+
   // Common fields
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  
+
   // Join existing family fields
   const [inviteCode, setInviteCode] = useState('');
   const [relationship, setRelationship] = useState('spouse');
-  
+
   const [loading, setLoading] = useState(false);
   // v12: when the backend says EMAIL_EXISTS we open an actionable dialog
   // instead of a dead-end toast, so the user can jump to login or kick
@@ -37,7 +36,7 @@ export function ParentSignup() {
 
   const handleCreateNewFamily = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (password !== confirmPassword) {
       toast.error('Passwords do not match');
       return;
@@ -85,7 +84,7 @@ export function ParentSignup() {
       }
 
       toast.success('Account created! Redirecting to onboarding...');
-      
+
       // Auto-login and redirect to onboarding
       const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
         email,
@@ -115,8 +114,7 @@ export function ParentSignup() {
       // v14: setParentSession persists the user's name/email under both the
       // canonical STORAGE_KEYS and the legacy fgs_user_name key, so the
       // header + AuthContext show the real name instead of "User" on the
-      // very first dashboard load. Without this, only fgs_user_id was set
-      // and AuthContext fell back to "User" until the next full login.
+      // very first dashboard load.
       setParentSession(loginData.session.user.id, name, email);
       setStorageSync('user_role', 'parent');
       setStorageSync('user_mode', 'parent');
@@ -133,7 +131,7 @@ export function ParentSignup() {
 
   const handleJoinExistingFamily = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (password !== confirmPassword) {
       toast.error('Passwords do not match');
       return;
@@ -173,7 +171,6 @@ export function ParentSignup() {
       const signupData = await signupResponse.json();
 
       if (!signupResponse.ok) {
-        // v12: actionable dialog when the email is already registered.
         if (
           signupData?.code === 'EMAIL_EXISTS' ||
           /already.*registered/i.test(String(signupData?.error || ''))
@@ -231,11 +228,6 @@ export function ParentSignup() {
         duration: 5000
       });
 
-      // Set parent mode - Supabase automatically stores the session.
-      // v14: Persist the user's name/email under canonical + legacy keys
-      // so the header shows "Rimsha Shamshad" instead of "User" the
-      // moment the spouse lands on the join-pending screen and any
-      // subsequent dashboard load.
       setParentSession(loginData.session.user.id, name, email);
       setStorageSync('user_role', 'parent');
       setStorageSync('user_mode', 'parent');
@@ -243,7 +235,7 @@ export function ParentSignup() {
       setStorageSync('fgs_join_pending', 'true');
 
       navigate('/join-pending');
-      
+
     } catch (error: any) {
       console.error('Join request error:', error);
       toast.error(error.message || 'Failed to submit join request');
@@ -253,7 +245,6 @@ export function ParentSignup() {
   };
 
   // v12: Reusable dialog for the "email already registered" case.
-  // Mounted into the new-family and join-family form trees.
   const emailExistsDialog = (
     <Dialog open={emailExistsOpen} onOpenChange={setEmailExistsOpen}>
       <DialogContent>
@@ -277,6 +268,7 @@ export function ParentSignup() {
               setEmailExistsOpen(false);
               navigate('/login');
             }}
+            className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
           >
             Go to Login
           </Button>
@@ -285,222 +277,290 @@ export function ParentSignup() {
     </Dialog>
   );
 
+  // Shared chrome (decorative bg + top bar) used by all three states.
+  const Chrome = ({ onBack, children }: { onBack: () => void; children: React.ReactNode }) => (
+    <div className="min-h-screen bg-white relative overflow-hidden">
+      <div className="absolute inset-0 bg-gradient-to-br from-blue-50 via-purple-50/40 to-pink-50/30 pointer-events-none" />
+      <div className="absolute -top-32 -left-32 h-96 w-96 rounded-full bg-blue-200/30 blur-3xl pointer-events-none" />
+      <div className="absolute -bottom-32 -right-32 h-96 w-96 rounded-full bg-indigo-200/30 blur-3xl pointer-events-none" />
+
+      <div className="relative z-10 flex items-center justify-between px-4 sm:px-8 py-5">
+        <button
+          onClick={onBack}
+          className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back
+        </button>
+        <button
+          onClick={() => navigate('/welcome')}
+          className="flex items-center gap-2"
+          aria-label="Iqra home"
+        >
+          <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold">
+            ﷽
+          </div>
+          <span className="hidden sm:inline font-bold text-gray-900">Iqra</span>
+        </button>
+      </div>
+
+      <div className="relative z-10 px-4 pb-12 pt-2 sm:pt-4 flex items-center justify-center min-h-[calc(100vh-80px)]">
+        {children}
+      </div>
+    </div>
+  );
+
   // Path Selection Screen
   if (!signupType) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 px-4 py-8">
-        <Card className="w-full max-w-2xl">
-          <CardHeader className="text-center">
-            <div className="flex justify-center mb-4">
-              <div className="bg-blue-100 p-4 rounded-full">
-                <Users className="h-12 w-12 text-blue-600" />
+      <Chrome onBack={() => navigate('/welcome')}>
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
+          className="w-full max-w-3xl"
+        >
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center justify-center h-14 w-14 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white text-2xl font-bold shadow-lg shadow-blue-600/20 mb-4">
+              ﷽
+            </div>
+            <h1 className="text-3xl sm:text-4xl font-bold text-gray-900">Let's get you set up</h1>
+            <p className="mt-3 text-base text-gray-600">
+              Are you starting a new family on Iqra, or joining one that's already here?
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-5">
+            {/* Create New Family */}
+            <motion.button
+              type="button"
+              whileHover={{ y: -4 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => setSignupType('new')}
+              className="group text-left rounded-3xl bg-white/90 backdrop-blur shadow-xl ring-1 ring-gray-200 hover:ring-blue-300 p-7 transition-all"
+            >
+              <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-blue-100 to-indigo-100 flex items-center justify-center mb-5 group-hover:scale-105 transition-transform">
+                <Home className="h-7 w-7 text-blue-600" />
               </div>
-            </div>
-            <CardTitle className="text-3xl">Welcome to Family Growth System</CardTitle>
-            <CardDescription className="text-lg">
-              How would you like to get started?
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid md:grid-cols-2 gap-4">
-              {/* Create New Family */}
-              <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-                <Button
-                  onClick={() => setSignupType('new')}
-                  variant="outline"
-                  className="w-full h-auto flex flex-col items-center gap-4 p-8 border-2 hover:border-blue-500 hover:bg-blue-50"
-                >
-                  <div className="w-20 h-20 rounded-full bg-gradient-to-br from-blue-100 to-blue-200 flex items-center justify-center">
-                    <Home className="w-10 h-10 text-blue-600" />
-                  </div>
-                  <div className="text-center">
-                    <h3 className="text-xl font-semibold mb-2">Create New Family</h3>
-                    <p className="text-sm text-gray-600">I'm the first parent setting up my family</p>
-                  </div>
-                </Button>
-              </motion.div>
+              <h3 className="text-xl font-bold text-gray-900 mb-1.5">Create a new family</h3>
+              <p className="text-sm text-gray-600 leading-relaxed">
+                I'm the first parent setting things up. I'll add my kids and invite my spouse later.
+              </p>
+              <div className="mt-5 inline-flex items-center text-sm font-semibold text-blue-600">
+                Start fresh →
+              </div>
+            </motion.button>
 
-              {/* Join Existing Family */}
-              <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-                <Button
-                  onClick={() => setSignupType('join')}
-                  variant="outline"
-                  className="w-full h-auto flex flex-col items-center gap-4 p-8 border-2 hover:border-purple-500 hover:bg-purple-50"
-                >
-                  <div className="w-20 h-20 rounded-full bg-gradient-to-br from-purple-100 to-purple-200 flex items-center justify-center">
-                    <UserPlus className="w-10 h-10 text-purple-600" />
-                  </div>
-                  <div className="text-center">
-                    <h3 className="text-xl font-semibold mb-2">Join Existing Family</h3>
-                    <p className="text-sm text-gray-600">I have an invite code from my spouse</p>
-                  </div>
-                </Button>
-              </motion.div>
-            </div>
+            {/* Join Existing Family */}
+            <motion.button
+              type="button"
+              whileHover={{ y: -4 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => setSignupType('join')}
+              className="group text-left rounded-3xl bg-white/90 backdrop-blur shadow-xl ring-1 ring-gray-200 hover:ring-purple-300 p-7 transition-all"
+            >
+              <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-purple-100 to-pink-100 flex items-center justify-center mb-5 group-hover:scale-105 transition-transform">
+                <UserPlus className="h-7 w-7 text-purple-600" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 mb-1.5">Join an existing family</h3>
+              <p className="text-sm text-gray-600 leading-relaxed">
+                I have an invite code from my spouse, a guardian, or a caregiver who's already on Iqra.
+              </p>
+              <div className="mt-5 inline-flex items-center text-sm font-semibold text-purple-600">
+                I have a code →
+              </div>
+            </motion.button>
+          </div>
 
-            <div className="mt-6 text-center text-sm">
-              <span className="text-gray-600">Already have an account? </span>
-              <button
-                onClick={() => navigate('/login')}
-                className="text-blue-600 hover:underline font-medium"
-              >
-                Log in
-              </button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+          <div className="mt-8 text-center text-sm">
+            <span className="text-gray-600">Already have an account? </span>
+            <button
+              onClick={() => navigate('/login')}
+              className="text-blue-600 hover:text-blue-700 hover:underline font-semibold"
+            >
+              Sign in
+            </button>
+          </div>
+
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-xs text-gray-500">
+            <span className="inline-flex items-center gap-1.5">
+              <Shield className="h-3.5 w-3.5" /> Family-private by design
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <Heart className="h-3.5 w-3.5" /> Built for the Muslim home
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <Sparkles className="h-3.5 w-3.5" /> Web, iOS &amp; Android
+            </span>
+          </div>
+        </motion.div>
+      </Chrome>
     );
   }
 
   // Create New Family Form
   if (signupType === 'new') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 px-4 py-8">
-        <Card className="w-full max-w-md">
-          <CardHeader className="text-center">
-            <Button
-              variant="ghost"
-              onClick={() => setSignupType(null)}
-              className="absolute top-4 left-4"
-            >
-              ← Back
-            </Button>
-            <div className="flex justify-center mb-4">
-              <div className="bg-blue-100 p-4 rounded-full">
-                <Home className="h-12 w-12 text-blue-600" />
+      <Chrome onBack={() => setSignupType(null)}>
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
+          className="w-full max-w-md"
+        >
+          <div className="rounded-3xl bg-white/90 backdrop-blur shadow-xl ring-1 ring-gray-200 p-7 sm:p-9">
+            <div className="text-center mb-6">
+              <div className="inline-flex items-center justify-center h-14 w-14 rounded-2xl bg-gradient-to-br from-blue-100 to-indigo-100 mb-4">
+                <Home className="h-7 w-7 text-blue-600" />
               </div>
+              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Create your family</h1>
+              <p className="mt-2 text-sm text-gray-600">
+                You'll be the family admin. You can invite your spouse and add kids next.
+              </p>
             </div>
-            <CardTitle className="text-2xl">Create New Family</CardTitle>
-            <CardDescription>
-              Set up your family account - you'll be the admin
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
+
             <form onSubmit={handleCreateNewFamily} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="name">Full Name</Label>
+              <div className="space-y-1.5">
+                <Label htmlFor="name" className="text-sm font-medium text-gray-700">Full name</Label>
                 <div className="relative">
-                  <User className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <Input
                     id="name"
                     type="text"
                     placeholder="Your name"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    className="pl-10"
+                    className="pl-10 h-11 rounded-xl border-gray-200 focus-visible:ring-blue-500"
                     required
+                    autoComplete="name"
                   />
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
+              <div className="space-y-1.5">
+                <Label htmlFor="email" className="text-sm font-medium text-gray-700">Email</Label>
                 <div className="relative">
-                  <Mail className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <Input
                     id="email"
                     type="email"
                     placeholder="parent@example.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="pl-10"
+                    className="pl-10 h-11 rounded-xl border-gray-200 focus-visible:ring-blue-500"
                     required
+                    autoComplete="email"
                   />
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
+              <div className="space-y-1.5">
+                <Label htmlFor="password" className="text-sm font-medium text-gray-700">Password</Label>
                 <div className="relative">
-                  <Lock className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <Input
                     id="password"
                     type="password"
-                    placeholder="••••••••"
+                    placeholder="At least 8 characters"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="pl-10"
+                    className="pl-10 h-11 rounded-xl border-gray-200 focus-visible:ring-blue-500"
                     required
+                    autoComplete="new-password"
+                    minLength={8}
                   />
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="confirmPassword">Confirm Password</Label>
+              <div className="space-y-1.5">
+                <Label htmlFor="confirmPassword" className="text-sm font-medium text-gray-700">Confirm password</Label>
                 <div className="relative">
-                  <Lock className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <Input
                     id="confirmPassword"
                     type="password"
                     placeholder="••••••••"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
-                    className="pl-10"
+                    className="pl-10 h-11 rounded-xl border-gray-200 focus-visible:ring-blue-500"
                     required
+                    autoComplete="new-password"
+                    minLength={8}
                   />
                 </div>
               </div>
 
-              <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? 'Creating Account...' : 'Create Family Account'}
+              <Button
+                type="submit"
+                className="w-full h-11 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold shadow-md shadow-blue-600/20"
+                disabled={loading}
+              >
+                {loading ? 'Creating account…' : 'Create family account'}
               </Button>
             </form>
-          </CardContent>
-        </Card>
+
+            <div className="mt-6 text-center text-sm">
+              <span className="text-gray-600">Already have an account? </span>
+              <button
+                type="button"
+                onClick={() => navigate('/login')}
+                className="text-blue-600 hover:text-blue-700 hover:underline font-semibold"
+              >
+                Sign in
+              </button>
+            </div>
+          </div>
+        </motion.div>
         {emailExistsDialog}
-      </div>
+      </Chrome>
     );
   }
 
   // Join Existing Family Form
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-pink-100 px-4 py-8">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <Button
-            variant="ghost"
-            onClick={() => setSignupType(null)}
-            className="absolute top-4 left-4"
-          >
-            ← Back
-          </Button>
-          <div className="flex justify-center mb-4">
-            <div className="bg-purple-100 p-4 rounded-full">
-              <UserPlus className="h-12 w-12 text-purple-600" />
+    <Chrome onBack={() => setSignupType(null)}>
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+        className="w-full max-w-md"
+      >
+        <div className="rounded-3xl bg-white/90 backdrop-blur shadow-xl ring-1 ring-gray-200 p-7 sm:p-9">
+          <div className="text-center mb-6">
+            <div className="inline-flex items-center justify-center h-14 w-14 rounded-2xl bg-gradient-to-br from-purple-100 to-pink-100 mb-4">
+              <UserPlus className="h-7 w-7 text-purple-600" />
             </div>
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Join a family</h1>
+            <p className="mt-2 text-sm text-gray-600">
+              Enter the invite code your family admin shared with you.
+            </p>
           </div>
-          <CardTitle className="text-2xl">Join Existing Family</CardTitle>
-          <CardDescription>
-            Create your account and request to join
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+
           <form onSubmit={handleJoinExistingFamily} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="inviteCode">Family Invite Code</Label>
+            <div className="space-y-1.5">
+              <Label htmlFor="inviteCode" className="text-sm font-medium text-gray-700">Family invite code</Label>
               <Input
                 id="inviteCode"
                 type="text"
                 placeholder="ABC123"
                 value={inviteCode}
                 onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
-                className="text-center font-mono text-xl tracking-widest"
+                className="h-12 rounded-xl border-gray-200 text-center font-mono text-xl tracking-widest focus-visible:ring-purple-500"
                 maxLength={10}
                 required
               />
-              <p className="text-xs text-gray-600">
-                Ask your spouse for the invite code from their Settings page
+              <p className="text-xs text-gray-500">
+                Ask your family admin for the code from their Settings page.
               </p>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="relationship">Your Relationship</Label>
+            <div className="space-y-1.5">
+              <Label htmlFor="relationship" className="text-sm font-medium text-gray-700">Your relationship</Label>
               <select
                 id="relationship"
                 value={relationship}
                 onChange={(e) => setRelationship(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                className="w-full h-11 px-3 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
               >
                 <option value="spouse">Spouse</option>
                 <option value="caregiver">Caregiver / Nanny</option>
@@ -509,85 +569,107 @@ export function ParentSignup() {
               </select>
             </div>
 
-            <hr className="my-4" />
+            <div className="border-t border-gray-100 pt-4 space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="name" className="text-sm font-medium text-gray-700">Full name</Label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Input
+                    id="name"
+                    type="text"
+                    placeholder="Your name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="pl-10 h-11 rounded-xl border-gray-200 focus-visible:ring-purple-500"
+                    required
+                    autoComplete="name"
+                  />
+                </div>
+              </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="name">Full Name</Label>
-              <div className="relative">
-                <User className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                <Input
-                  id="name"
-                  type="text"
-                  placeholder="Your name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="pl-10"
-                  required
-                />
+              <div className="space-y-1.5">
+                <Label htmlFor="email" className="text-sm font-medium text-gray-700">Email</Label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="pl-10 h-11 rounded-xl border-gray-200 focus-visible:ring-purple-500"
+                    required
+                    autoComplete="email"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="password" className="text-sm font-medium text-gray-700">Password</Label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Input
+                    id="password"
+                    type="password"
+                    placeholder="At least 8 characters"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="pl-10 h-11 rounded-xl border-gray-200 focus-visible:ring-purple-500"
+                    required
+                    autoComplete="new-password"
+                    minLength={8}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="confirmPassword" className="text-sm font-medium text-gray-700">Confirm password</Label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Input
+                    id="confirmPassword"
+                    type="password"
+                    placeholder="••••••••"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="pl-10 h-11 rounded-xl border-gray-200 focus-visible:ring-purple-500"
+                    required
+                    autoComplete="new-password"
+                    minLength={8}
+                  />
+                </div>
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="your@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="pl-10"
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="pl-10"
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="confirmPassword">Confirm Password</Label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                <Input
-                  id="confirmPassword"
-                  type="password"
-                  placeholder="••••••••"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="pl-10"
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
-              <p className="text-sm text-purple-800">
-                <strong>📝 Note:</strong> Your request will be sent to the family admin for approval. You'll be notified when approved!
+            <div className="rounded-xl bg-purple-50 border border-purple-100 p-3.5 flex gap-3">
+              <div className="text-lg leading-none">📝</div>
+              <p className="text-sm text-purple-900 leading-relaxed">
+                Your request will be sent to the family admin for approval. You'll be notified when you're approved.
               </p>
             </div>
 
-            <Button type="submit" className="w-full bg-purple-600 hover:bg-purple-700" disabled={loading}>
-              {loading ? 'Submitting Request...' : 'Submit Join Request'}
+            <Button
+              type="submit"
+              className="w-full h-11 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-semibold shadow-md shadow-purple-600/20"
+              disabled={loading}
+            >
+              {loading ? 'Submitting request…' : 'Submit join request'}
             </Button>
           </form>
-        </CardContent>
-      </Card>
+
+          <div className="mt-6 text-center text-sm">
+            <span className="text-gray-600">Already on Iqra? </span>
+            <button
+              type="button"
+              onClick={() => navigate('/login')}
+              className="text-purple-600 hover:text-purple-700 hover:underline font-semibold"
+            >
+              Sign in
+            </button>
+          </div>
+        </div>
+      </motion.div>
       {emailExistsDialog}
-    </div>
+    </Chrome>
   );
 }

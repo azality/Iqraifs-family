@@ -2199,8 +2199,8 @@ export function Settings() {
                       <BellOff className="h-4 w-4" />
                       <AlertTitle>Notifications Blocked</AlertTitle>
                       <AlertDescription>
-                        You've blocked notifications. To enable them, please go to your device's Settings → 
-                        FGS Parent → Notifications and turn them on.
+                        You've blocked notifications. To enable them, please go to your device's Settings →
+                        Iqra → Notifications and turn them on.
                       </AlertDescription>
                     </Alert>
                   )}

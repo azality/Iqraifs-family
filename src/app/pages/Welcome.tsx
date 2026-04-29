@@ -29,18 +29,16 @@ import {
   ArrowRight,
 } from 'lucide-react';
 
-// ---- Section: Top Nav ---------------------------------------------------
+// ---- Top Nav ------------------------------------------------------------
 function TopNav() {
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
-
   const links = [
-    { label: 'Why FGS', href: '#why' },
+    { label: 'Why Iqra', href: '#why' },
     { label: 'How it works', href: '#how' },
     { label: 'Features', href: '#features' },
     { label: 'FAQ', href: '#faq' },
   ];
-
   const goTo = (hash: string) => {
     setMenuOpen(false);
     const el = document.querySelector(hash);
@@ -53,16 +51,14 @@ function TopNav() {
         <button
           onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
           className="flex items-center gap-2"
-          aria-label="FGS home"
         >
           <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold">
             ﷽
           </div>
-          <span className="font-bold text-gray-900 text-lg">FGS</span>
-          <span className="hidden sm:inline text-gray-500 text-sm">Family Goal System</span>
+          <span className="font-bold text-gray-900 text-lg">Iqra</span>
+          <span className="hidden sm:inline text-gray-500 text-sm">Islamic Family System</span>
         </button>
 
-        {/* Desktop nav */}
         <nav className="hidden md:flex items-center gap-7">
           {links.map((l) => (
             <button
@@ -87,7 +83,6 @@ function TopNav() {
           </Button>
         </div>
 
-        {/* Mobile burger */}
         <button
           className="md:hidden p-2 -mr-2 text-gray-700"
           onClick={() => setMenuOpen((v) => !v)}
@@ -97,7 +92,6 @@ function TopNav() {
         </button>
       </div>
 
-      {/* Mobile menu */}
       {menuOpen && (
         <div className="md:hidden border-t border-gray-100 bg-white">
           <div className="px-4 py-4 space-y-2">
@@ -128,20 +122,17 @@ function TopNav() {
   );
 }
 
-// ---- Section: Hero ------------------------------------------------------
+// ---- Hero ---------------------------------------------------------------
 function Hero() {
   const navigate = useNavigate();
-
   return (
     <section className="relative overflow-hidden">
-      {/* soft background */}
       <div className="absolute inset-0 bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50" />
       <div className="absolute -top-32 -right-32 h-72 w-72 rounded-full bg-blue-200/40 blur-3xl" />
       <div className="absolute -bottom-40 -left-32 h-80 w-80 rounded-full bg-purple-200/40 blur-3xl" />
 
       <div className="relative max-w-6xl mx-auto px-4 sm:px-6 py-16 sm:py-24 lg:py-28">
         <div className="grid lg:grid-cols-2 gap-12 items-center">
-          {/* Left: copy */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -149,22 +140,19 @@ function Hero() {
           >
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/80 border border-blue-100 text-blue-700 text-sm mb-6">
               <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
-              Built for Muslim families
+              The Islamic Family System
             </div>
-
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-gray-900 leading-[1.05]">
-              Build better habits.{' '}
+              Build practicing Muslim kids{' '}
               <span className="bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
-                Stronger values.
-              </span>{' '}
-              A closer family.
+                without the nagging.
+              </span>
             </h1>
-
             <p className="mt-6 text-lg sm:text-xl text-gray-600 max-w-xl">
-              FGS turns the things that matter — salah, character, knowledge of the deen — into
-              real, observable progress. Honest by construction. Built for the Muslim home.
+              Iqra turns Salah, akhlaq, Islamic knowledge, and sadaqah into a daily practice your
+              kids actually want to come back to. A gamified Islamic character system for the
+              whole family.
             </p>
-
             <div className="mt-8 flex flex-col sm:flex-row gap-3">
               <Button
                 size="lg"
@@ -182,7 +170,6 @@ function Hero() {
                 Sign In
               </Button>
             </div>
-
             <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-gray-500">
               <span className="inline-flex items-center gap-1.5">
                 <CheckCircle2 className="h-4 w-4 text-emerald-500" /> No credit card
@@ -196,7 +183,6 @@ function Hero() {
             </div>
           </motion.div>
 
-          {/* Right: phone-style mock */}
           <motion.div
             initial={{ opacity: 0, scale: 0.96 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -273,7 +259,6 @@ function Hero() {
               </div>
             </div>
 
-            {/* floating little badges */}
             <div className="absolute -top-3 -right-3 hidden sm:flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 shadow-md ring-1 ring-gray-100 text-xs font-semibold text-emerald-700">
               <Sparkles className="h-3.5 w-3.5 text-emerald-600" /> +25 points
             </div>
@@ -287,8 +272,8 @@ function Hero() {
   );
 }
 
-// ---- Section: Why FGS ---------------------------------------------------
-function WhyFGS() {
+// ---- Why Iqra -----------------------------------------------------------
+function WhyIqra() {
   const pillars = [
     {
       icon: Heart,
@@ -296,7 +281,7 @@ function WhyFGS() {
       iconColor: 'text-rose-600',
       title: 'Built for the Muslim home',
       body:
-        'Salah with on-time / qadha / missed semantics. Sadqa, knowledge of the deen, and ahadith are first-class concepts — not afterthoughts.',
+        'Salah with on-time / qadha / missed semantics. Sadqa, knowledge of the deen, and ahadith are first-class concepts.',
     },
     {
       icon: Shield,
@@ -304,7 +289,7 @@ function WhyFGS() {
       iconColor: 'text-blue-600',
       title: 'Honest by construction',
       body:
-        'Every credit and debit is a row in an append-only event log. Corrections are recorded as new events. Nothing is silently rewritten.',
+        'Every credit and debit is a row in an append-only event log. Corrections write a new event. Nothing is silently rewritten.',
     },
     {
       icon: Sparkles,
@@ -312,7 +297,7 @@ function WhyFGS() {
       iconColor: 'text-amber-600',
       title: 'Engages without shame',
       body:
-        'Game mechanics, badges, streaks, and an Adventure World — but kids never see negative entries. Correction happens through conversation, not punishment.',
+        'Game mechanics, badges, streaks, and an Adventure World. Kids never see negative entries; correction happens through conversation.',
     },
   ];
 
@@ -321,15 +306,16 @@ function WhyFGS() {
       <div className="max-w-6xl mx-auto px-4 sm:px-6">
         <div className="text-center max-w-2xl mx-auto">
           <div className="inline-block px-3 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-semibold uppercase tracking-wide">
-            Why FGS
+            Why Iqra
           </div>
           <h2 className="mt-4 text-3xl sm:text-4xl font-bold text-gray-900">
-            A different kind of family app
+            An Islamic life OS for kids &mdash; not another chore app
           </h2>
           <p className="mt-4 text-lg text-gray-600">
-            Most chore apps are toy economies. FGS is built around the things that actually matter
-            in a Muslim household — and treats your family&rsquo;s data with the seriousness it
-            deserves.
+            Most habit apps are toy economies. Iqra is built around what actually matters in a
+            Muslim home: Salah on time, akhlaq feedback loops, knowledge of the deen, and sadaqah
+            &mdash; with audit-grade history that treats your family&rsquo;s data with the
+            seriousness it deserves.
           </p>
         </div>
 
@@ -344,7 +330,9 @@ function WhyFGS() {
             >
               <Card className="h-full border-gray-100 hover:shadow-xl transition-shadow">
                 <CardContent className="p-7">
-                  <div className={`h-12 w-12 rounded-xl ${p.iconBg} flex items-center justify-center mb-4`}>
+                  <div
+                    className={`h-12 w-12 rounded-xl ${p.iconBg} flex items-center justify-center mb-4`}
+                  >
                     <p.icon className={`h-6 w-6 ${p.iconColor}`} />
                   </div>
                   <h3 className="text-xl font-semibold text-gray-900">{p.title}</h3>
@@ -359,29 +347,13 @@ function WhyFGS() {
   );
 }
 
-// ---- Section: How it works ----------------------------------------------
+// ---- How It Works -------------------------------------------------------
 function HowItWorks() {
   const steps = [
-    {
-      n: '1',
-      title: 'Set up your family',
-      body: 'Add your children, configure salah for your madhhab, and define the behaviors that matter in your home.',
-    },
-    {
-      n: '2',
-      title: 'Log and approve',
-      body: 'A tap to log a behavior. A tap to approve a prayer. Everything goes into the family ledger automatically.',
-    },
-    {
-      n: '3',
-      title: 'Kids engage and grow',
-      body: 'Kids see their dashboard, complete quests, earn badges, and explore the Adventure World — Makkah, Madinah, Quran Valley.',
-    },
-    {
-      n: '4',
-      title: 'Audit, correct, never lie',
-      body: 'Every event is reconstructable. Disagree with an entry? Correct it as a new event. The original stays visible.',
-    },
+    { n: '1', title: 'Set up your family', body: 'Add your children, configure salah for your madhhab, and define the behaviors that matter in your home.' },
+    { n: '2', title: 'Log and approve',     body: 'A tap to log a behavior. A tap to approve a prayer. Everything goes into the family ledger automatically.' },
+    { n: '3', title: 'Kids engage and grow', body: 'Kids see their dashboard, complete quests, earn badges, and explore the Adventure World.' },
+    { n: '4', title: 'Audit, correct, never lie', body: 'Every event is reconstructable. Disagree with an entry? Correct it as a new event. The original stays visible.' },
   ];
 
   return (
@@ -392,9 +364,7 @@ function HowItWorks() {
             How it works
           </div>
           <h2 className="mt-4 text-3xl sm:text-4xl font-bold text-gray-900">Four steps. Then habit.</h2>
-          <p className="mt-4 text-lg text-gray-600">
-            FGS is designed to be set up in an evening and used for years.
-          </p>
+          <p className="mt-4 text-lg text-gray-600">Iqra is designed to be set up in an evening and used for years.</p>
         </div>
 
         <div className="mt-14 grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -405,7 +375,6 @@ function HowItWorks() {
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, margin: '-50px' }}
               transition={{ duration: 0.5, delay: i * 0.08 }}
-              className="relative"
             >
               <div className="flex items-start gap-4 lg:flex-col lg:gap-3">
                 <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white font-bold text-xl flex items-center justify-center shadow-lg shrink-0">
@@ -424,33 +393,14 @@ function HowItWorks() {
   );
 }
 
-// ---- Section: For Parents -----------------------------------------------
+// ---- For Parents --------------------------------------------------------
 function ForParents() {
+  const navigate = useNavigate();
   const features = [
-    {
-      icon: Calendar,
-      title: 'A real command center',
-      body:
-        'Quick log, pending approvals, recent points, and per-child summaries on a single dashboard. The frequent things sit at the top.',
-    },
-    {
-      icon: Users,
-      title: 'Roles for the whole family',
-      body:
-        'Primary parent, secondary parent, and per-kid guardians (a tutor, a grandparent). Each role sees exactly what it should.',
-    },
-    {
-      icon: ScrollText,
-      title: 'Audit-grade history',
-      body:
-        'Every point on a kid&rsquo;s total can be traced to a specific event, item, and approval. Manual adjustments require a reason.',
-    },
-    {
-      icon: KeyRound,
-      title: 'Kid PINs, not kid passwords',
-      body:
-        '4-digit PINs for kids, rate-limited on the server, with weak-PIN warnings on creation and parent-triggered resets.',
-    },
+    { icon: Calendar,   title: 'A real command center',    body: 'Quick log, pending approvals, recent points, and per-child summaries on a single dashboard.' },
+    { icon: Users,      title: 'Roles for the whole family', body: 'Primary parent, secondary parent, and per-kid guardians. Each role sees exactly what it should.' },
+    { icon: ScrollText, title: 'Audit-grade history',      body: 'Every point on a kid\'s total can be traced to a specific event, item, and approval.' },
+    { icon: KeyRound,   title: 'Kid PINs, not kid passwords', body: '4-digit PINs, rate-limited on the server, with weak-PIN warnings and parent-triggered resets.' },
   ];
 
   return (
@@ -470,7 +420,7 @@ function ForParents() {
             </p>
             <Button
               className="mt-6 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
-              onClick={() => (window.location.href = '/signup')}
+              onClick={() => navigate('/signup')}
             >
               Create your family <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
@@ -498,29 +448,14 @@ function ForParents() {
   );
 }
 
-// ---- Section: For Kids --------------------------------------------------
+// ---- For Kids -----------------------------------------------------------
 function ForKids() {
+  const navigate = useNavigate();
   const features = [
-    {
-      emoji: '🕋',
-      title: 'Adventure World',
-      body: 'Explore Makkah, Madinah, Quran Valley, and Desert Trials. Learn the deen as a long-form story, not a flashcard deck.',
-    },
-    {
-      emoji: '🌟',
-      title: 'Knowledge Quest',
-      body: 'Multiple-choice quests pulled from your family&rsquo;s question bank. Plus immersive plays — Dua Spell Casting, Ayah Puzzle.',
-    },
-    {
-      emoji: '🌳',
-      title: 'Jannah Garden',
-      body: 'A persistent garden that grows as kids progress. Long-tail meta-progression that rewards consistency over weeks.',
-    },
-    {
-      emoji: '🏆',
-      title: 'Titles &amp; Badges',
-      body: 'Streak King, Sadqa Champion, Knowledge Seeker, Hafidh of the Month — earned by event-driven rules, not granted by hand.',
-    },
+    { emoji: '🕋', title: 'Adventure World', body: 'Explore Makkah, Madinah, Quran Valley, and Desert Trials. Learn the deen as a long-form story.' },
+    { emoji: '🌟', title: 'Knowledge Quest', body: 'Multiple-choice quests pulled from your family\'s question bank. Plus immersive plays.' },
+    { emoji: '🌳', title: 'Jannah Garden',   body: 'A persistent garden that grows as kids progress. Long-tail meta-progression.' },
+    { emoji: '🏆', title: 'Titles & Badges', body: 'Streak King, Sadqa Champion, Knowledge Seeker. Earned by event-driven rules, not granted by hand.' },
   ];
 
   return (
@@ -551,10 +486,7 @@ function ForKids() {
                 <CardContent className="p-6">
                   <div className="text-4xl mb-3">{f.emoji}</div>
                   <h3 className="font-semibold text-gray-900">{f.title}</h3>
-                  <p
-                    className="mt-1.5 text-sm text-gray-600 leading-relaxed"
-                    dangerouslySetInnerHTML={{ __html: f.body }}
-                  />
+                  <p className="mt-1.5 text-sm text-gray-600 leading-relaxed">{f.body}</p>
                 </CardContent>
               </Card>
             </motion.div>
@@ -565,7 +497,7 @@ function ForKids() {
           <Button
             size="lg"
             variant="outline"
-            onClick={() => (window.location.href = '/kid-login-new')}
+            onClick={() => navigate('/kid-login-new')}
             className="h-12 px-7 border-2 border-amber-400 hover:bg-amber-50"
           >
             <span className="text-2xl mr-2">👶</span> I&rsquo;m a Kid &mdash; Sign In
@@ -576,21 +508,21 @@ function ForKids() {
   );
 }
 
-// ---- Section: Features Grid ---------------------------------------------
+// ---- Features grid ------------------------------------------------------
 function FeaturesGrid() {
   const items = [
-    { icon: Calendar, label: 'Salah tracking', detail: 'On-time, qadha, or missed.' },
-    { icon: Trophy, label: 'Quests', detail: 'Daily and weekly objectives.' },
-    { icon: Sparkles, label: 'Challenges', detail: 'Time-bounded specific goals.' },
-    { icon: BookOpen, label: 'Knowledge Quest', detail: 'Family-curated MCQ bank.' },
-    { icon: Compass, label: 'Adventure World', detail: 'Four immersive zones.' },
-    { icon: Gift, label: 'Wishlist', detail: 'Kid-requested rewards.' },
-    { icon: Heart, label: 'Sadqa', detail: 'Voluntary giving tracker.' },
-    { icon: Star, label: 'Titles &amp; Badges', detail: 'Long-tail recognition.' },
-    { icon: ScrollText, label: 'Audit Trail', detail: 'Append-only event log.' },
-    { icon: Users, label: 'Roles &amp; Guardians', detail: 'Owner, parent, guardian.' },
-    { icon: Bell, label: 'Push notifications', detail: 'Approval reminders.' },
-    { icon: Shield, label: 'Family-private', detail: 'Namespaced data, no leakage.' },
+    { icon: Calendar,   label: 'Salah tracking',       detail: 'On-time, qadha, or missed.' },
+    { icon: Trophy,     label: 'Quests',               detail: 'Daily and weekly objectives.' },
+    { icon: Sparkles,   label: 'Challenges',           detail: 'Time-bounded specific goals.' },
+    { icon: BookOpen,   label: 'Knowledge Quest',      detail: 'Family-curated MCQ bank.' },
+    { icon: Compass,    label: 'Adventure World',      detail: 'Four immersive zones.' },
+    { icon: Gift,       label: 'Wishlist',             detail: 'Kid-requested rewards.' },
+    { icon: Heart,      label: 'Sadqa',                detail: 'Voluntary giving tracker.' },
+    { icon: Star,       label: 'Titles & Badges',      detail: 'Long-tail recognition.' },
+    { icon: ScrollText, label: 'Audit Trail',          detail: 'Append-only event log.' },
+    { icon: Users,      label: 'Roles & Guardians',    detail: 'Owner, parent, guardian.' },
+    { icon: Bell,       label: 'Push notifications',   detail: 'Approval reminders.' },
+    { icon: Shield,     label: 'Family-private',       detail: 'Namespaced data, no leakage.' },
   ];
 
   return (
@@ -612,14 +544,8 @@ function FeaturesGrid() {
               className="rounded-xl border border-gray-100 p-4 hover:border-blue-200 hover:bg-blue-50/30 transition-colors"
             >
               <it.icon className="h-5 w-5 text-blue-600 mb-2" />
-              <div
-                className="font-semibold text-gray-900 text-sm"
-                dangerouslySetInnerHTML={{ __html: it.label }}
-              />
-              <div
-                className="text-xs text-gray-500 mt-0.5"
-                dangerouslySetInnerHTML={{ __html: it.detail }}
-              />
+              <div className="font-semibold text-gray-900 text-sm">{it.label}</div>
+              <div className="text-xs text-gray-500 mt-0.5">{it.detail}</div>
             </div>
           ))}
         </div>
@@ -628,37 +554,16 @@ function FeaturesGrid() {
   );
 }
 
-// ---- Section: FAQ -------------------------------------------------------
+// ---- FAQ ----------------------------------------------------------------
 function FAQ() {
   const items = [
-    {
-      q: 'Does FGS work on iPhone and Android?',
-      a: 'Yes. FGS runs in the browser today and ships as a native iOS and Android app via Capacitor. The same family data syncs across all of them.',
-    },
-    {
-      q: 'How much does it cost?',
-      a: 'FGS is free to use right now. Monetization is a deliberate future decision — when and how we charge will be transparent and family-friendly.',
-    },
-    {
-      q: 'How does kid login work?',
-      a: 'Each child has a 4-digit PIN. PINs are rate-limited on the server, weak combinations (1234, 0000, sequential digits) are flagged on creation, and parents can reset a PIN at any time.',
-    },
-    {
-      q: 'What happens if I log something wrong?',
-      a: 'You can correct any event. Corrections write a new event that references the original — the original is voided but never deleted, so the audit trail stays honest.',
-    },
-    {
-      q: 'Is my family data private?',
-      a: 'Yes. Every key in the database is prefixed with your family ID, so cross-family leakage is structurally impossible. Auth is handled by Supabase. There is no third-party analytics inside the kid surface.',
-    },
-    {
-      q: 'Can I add a tutor or grandparent?',
-      a: 'Yes. The Guardian role lets you scope another adult&rsquo;s access to specific children — they can log behaviors and approve prayers for the kids you choose, and nothing else.',
-    },
-    {
-      q: 'What if my kid disputes a logged event?',
-      a: 'Kids can flag any event as an edit request. It lands in your Edit Requests queue with the original entry and the kid&rsquo;s note, and you can confirm, correct, or dismiss it.',
-    },
+    { q: 'Does Iqra work on iPhone and Android?', a: 'Yes. Iqra runs in the browser today and ships as a native iOS and Android app via Capacitor. The same family data syncs across all of them.' },
+    { q: 'How much does it cost?', a: 'Iqra is free to use right now. Monetization is a deliberate future decision \u2014 when and how we charge will be transparent and family-friendly.' },
+    { q: 'How does kid login work?', a: 'Each child has a 4-digit PIN. PINs are rate-limited on the server, weak combinations are flagged on creation, and parents can reset a PIN at any time.' },
+    { q: 'What happens if I log something wrong?', a: 'You can correct any event. Corrections write a new event that references the original \u2014 the original is voided but never deleted, so the audit trail stays honest.' },
+    { q: 'Is my family data private?', a: 'Yes. Every key in the database is prefixed with your family ID, so cross-family leakage is structurally impossible. There is no third-party analytics inside the kid surface.' },
+    { q: 'Can I add a tutor or grandparent?', a: 'Yes. The Guardian role lets you scope another adult\u2019s access to specific children \u2014 they can log behaviors and approve prayers for the kids you choose, and nothing else.' },
+    { q: 'What if my kid disputes a logged event?', a: 'Kids can flag any event as an edit request. It lands in your Edit Requests queue with the original entry and the kid\u2019s note, and you can confirm, correct, or dismiss it.' },
   ];
 
   return (
@@ -668,9 +573,7 @@ function FAQ() {
           <div className="inline-block px-3 py-1 rounded-full bg-gray-100 text-gray-700 text-xs font-semibold uppercase tracking-wide">
             FAQ
           </div>
-          <h2 className="mt-4 text-3xl sm:text-4xl font-bold text-gray-900">
-            Frequently asked
-          </h2>
+          <h2 className="mt-4 text-3xl sm:text-4xl font-bold text-gray-900">Frequently asked</h2>
         </div>
 
         <Accordion type="single" collapsible className="mt-10">
@@ -679,9 +582,7 @@ function FAQ() {
               <AccordionTrigger className="text-left text-gray-900 font-semibold hover:no-underline">
                 {it.q}
               </AccordionTrigger>
-              <AccordionContent className="text-gray-600 leading-relaxed">
-                <span dangerouslySetInnerHTML={{ __html: it.a }} />
-              </AccordionContent>
+              <AccordionContent className="text-gray-600 leading-relaxed">{it.a}</AccordionContent>
             </AccordionItem>
           ))}
         </Accordion>
@@ -690,17 +591,15 @@ function FAQ() {
   );
 }
 
-// ---- Section: Final CTA -------------------------------------------------
+// ---- Final CTA ----------------------------------------------------------
 function FinalCTA() {
   const navigate = useNavigate();
-
   return (
     <section className="py-20 sm:py-24">
       <div className="max-w-5xl mx-auto px-4 sm:px-6">
         <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-600 p-10 sm:p-14 text-center shadow-2xl">
           <div className="absolute -top-20 -right-20 h-64 w-64 rounded-full bg-white/10 blur-3xl" />
           <div className="absolute -bottom-20 -left-20 h-64 w-64 rounded-full bg-white/10 blur-3xl" />
-
           <div className="relative">
             <h2 className="text-3xl sm:text-4xl font-bold text-white">
               Start your family&rsquo;s growth today
@@ -708,7 +607,6 @@ function FinalCTA() {
             <p className="mt-4 text-blue-50 text-lg max-w-xl mx-auto">
               Set up in an evening. Use it for years. Free to start, no credit card required.
             </p>
-
             <div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center">
               <Button
                 size="lg"
@@ -733,10 +631,9 @@ function FinalCTA() {
   );
 }
 
-// ---- Section: Footer ----------------------------------------------------
+// ---- Footer -------------------------------------------------------------
 function Footer() {
   const navigate = useNavigate();
-
   return (
     <footer className="py-12 bg-gray-50 border-t border-gray-100">
       <div className="max-w-6xl mx-auto px-4 sm:px-6">
@@ -746,7 +643,7 @@ function Footer() {
               ﷽
             </div>
             <div>
-              <div className="font-bold text-gray-900">Family Goal System</div>
+              <div className="font-bold text-gray-900">Iqra <span className="text-gray-400 font-normal">&middot; Islamic Family System</span></div>
               <div className="text-xs text-gray-500">
                 Built on consistency, accountability &amp; Islamic values
               </div>
@@ -754,35 +651,20 @@ function Footer() {
           </div>
 
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
-            <button
-              onClick={() => navigate('/login')}
-              className="text-gray-600 hover:text-gray-900"
-            >
+            <button onClick={() => navigate('/login')} className="text-gray-600 hover:text-gray-900">
               Parent Sign In
             </button>
-            <button
-              onClick={() => navigate('/signup')}
-              className="text-gray-600 hover:text-gray-900"
-            >
+            <button onClick={() => navigate('/signup')} className="text-gray-600 hover:text-gray-900">
               Sign Up
             </button>
-            <button
-              onClick={() => navigate('/kid-login-new')}
-              className="text-gray-600 hover:text-gray-900"
-            >
+            <button onClick={() => navigate('/kid-login-new')} className="text-gray-600 hover:text-gray-900">
               Kid Login
-            </button>
-            <button
-              onClick={() => navigate('/network-test')}
-              className="text-gray-500 hover:text-gray-700 text-xs"
-            >
-              Network Diagnostics
             </button>
           </div>
         </div>
 
         <div className="mt-8 pt-6 border-t border-gray-200 text-center text-xs text-gray-500">
-          &copy; {new Date().getFullYear()} Family Goal System. All rights reserved.
+          &copy; {new Date().getFullYear()} Iqra &middot; Islamic Family System. All rights reserved.
         </div>
       </div>
     </footer>
@@ -796,7 +678,7 @@ export function Welcome() {
       <TopNav />
       <main>
         <Hero />
-        <WhyFGS />
+        <WhyIqra />
         <HowItWorks />
         <ForParents />
         <ForKids />

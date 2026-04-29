@@ -1,16 +1,14 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { toast } from 'sonner';
 import { ArrowLeft } from 'lucide-react';
-import { supabase } from '../../../utils/supabase/client';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { projectId, publicAnonKey } from '/utils/supabase/info.tsx';
 import { setKidMode } from '../utils/auth';
-import { getStorageSync, setStorageSync, removeStorageSync } from '../../utils/storage';
+import { getStorageSync } from '../../utils/storage';
 
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f`;
 
@@ -20,11 +18,12 @@ interface Kid {
   avatar: string;
 }
 
+type Step = 'code' | 'select' | 'pin';
+
 export function KidLoginNew() {
   const navigate = useNavigate();
-  const [step, setStep] = useState<'code' | 'select' | 'pin'>('code');
+  const [step, setStep] = useState<Step>('code');
   const [familyCode, setFamilyCode] = useState('');
-  const [familyId, setFamilyId] = useState('');
   const [familyName, setFamilyName] = useState('');
   const [kids, setKids] = useState<Kid[]>([]);
   const [selectedKid, setSelectedKid] = useState<Kid | null>(null);
@@ -33,7 +32,7 @@ export function KidLoginNew() {
 
   const handleCodeSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (familyCode.length < 4) {
       toast.error('Please enter your family code');
       return;
@@ -56,7 +55,6 @@ export function KidLoginNew() {
       const response = await res.json();
 
       if (response.success) {
-        setFamilyId(response.familyId);
         setFamilyName(response.familyName);
         setKids(response.kids);
         toast.success(response.message);
@@ -81,11 +79,10 @@ export function KidLoginNew() {
     if (pin.length < 4) {
       const newPin = pin + digit;
       setPin(newPin);
-      
+
       // Auto-submit when 4 digits entered
       if (newPin.length === 4) {
         setTimeout(() => {
-          // Call verification directly with the new pin value
           verifyPin(newPin);
         }, 300);
       }
@@ -106,31 +103,29 @@ export function KidLoginNew() {
     setLoading(true);
 
     try {
-      console.log('🔐 Attempting kid login with:', { 
-        familyCode, 
-        childId: selectedKid, 
-        hasPin: !!pin 
+      console.log('🔐 Attempting kid login with:', {
+        familyCode,
+        childId: selectedKid,
+        hasPin: !!pin
       });
 
       const res = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f/kid/login`,
         {
           method: 'POST',
-          headers: { 
+          headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${publicAnonKey}`
           },
           body: JSON.stringify({
             familyCode,
-            childId: selectedKid.id, // CRITICAL FIX: Send kid ID, not the whole object
-            pin: pinValue, // CRITICAL FIX: Use pinValue parameter instead of pin state
+            childId: selectedKid.id,
+            pin: pinValue,
           }),
         }
       );
 
       console.log('📡 Kid login response status:', res.status, res.statusText);
-      console.log('📡 Response headers:', Object.fromEntries(res.headers.entries()));
-      console.log('📡 Response ok:', res.ok);
 
       if (!res.ok) {
         const errorData = await res.json();
@@ -142,10 +137,7 @@ export function KidLoginNew() {
       }
 
       const rawResponseText = await res.text();
-      console.log('📡 RAW response text:', rawResponseText);
-      console.log('📡 RAW response length:', rawResponseText.length);
-      
-      // CRITICAL: Check if response is empty or malformed
+
       if (!rawResponseText || rawResponseText.trim().length === 0) {
         console.error('❌ CRITICAL: Backend returned empty response!');
         toast.error('Server returned empty response');
@@ -153,45 +145,26 @@ export function KidLoginNew() {
         setLoading(false);
         return;
       }
-      
+
       let response: any;
       try {
         response = JSON.parse(rawResponseText);
-        console.log('✅ Parsed JSON response:', response);
-        console.log('✅ Response keys:', Object.keys(response));
-        console.log('✅ Response.success:', response.success);
-        console.log('✅ Response.kidAccessToken exists:', !!response.kidAccessToken);
-        console.log('✅ Response.kidAccessToken value:', response.kidAccessToken);
-        console.log('✅ Response.kid:', response.kid);
-        console.log('✅ Full response JSON:', JSON.stringify(response, null, 2));
       } catch (parseError) {
         console.error('❌ CRITICAL: Failed to parse response JSON!', parseError);
-        console.error('❌ Raw text that failed to parse:', rawResponseText);
         toast.error('Invalid response from server');
         setPin('');
         setLoading(false);
         return;
       }
-      
-      // CRITICAL: Clear any existing kid session first to prevent conflicts
-      // UPDATE: Removed this clearing - setKidMode will handle it properly
-      // Clearing here then setting in setKidMode creates a race condition
-      console.log('✅ Skipping pre-clear - setKidMode will handle session setup');
-      
-      // Store kid session
-      console.log('✅ Kid login successful, RAW RESPONSE:', response);
-      console.log('✅ Checking response data:', {
+
+      console.log('✅ Kid login successful:', {
         kidId: response.kid?.id,
         kidName: response.kid?.name,
         hasFamilyId: !!response.kid?.familyId,
-        familyId: response.kid?.familyId,
         hasToken: !!response.kidAccessToken,
         tokenLength: response.kidAccessToken?.length,
-        tokenType: typeof response.kidAccessToken,
-        tokenPreview: response.kidAccessToken?.substring(0, 30),
-        fullResponse: JSON.stringify(response, null, 2)
       });
-      
+
       // CRITICAL VALIDATION: Ensure backend returned all required data
       if (!response.kidAccessToken) {
         console.error('❌ CRITICAL: Backend did not return kidAccessToken!', response);
@@ -200,7 +173,7 @@ export function KidLoginNew() {
         setLoading(false);
         return;
       }
-      
+
       if (!response.kid?.id) {
         console.error('❌ CRITICAL: Backend did not return kid.id!', response);
         toast.error('Login error: No kid ID received');
@@ -208,7 +181,7 @@ export function KidLoginNew() {
         setLoading(false);
         return;
       }
-      
+
       if (!response.kid?.familyId) {
         console.error('❌ CRITICAL: Backend did not return kid.familyId!', response);
         toast.error('Login error: No family ID received');
@@ -216,108 +189,51 @@ export function KidLoginNew() {
         setLoading(false);
         return;
       }
-      
-      console.log('✅ Backend response validation passed, calling setKidMode...');
-      
+
       try {
         // CRITICAL: Set flag to skip session validation on next app load
-        // This prevents race condition where App.tsx tries to validate before KV store write completes
         sessionStorage.setItem('kid_just_logged_in', 'true');
-        
+
         setKidMode(
           response.kidAccessToken,
           response.kid,
           response.familyCode
         );
-        
-        console.log('✅ setKidMode completed successfully');
-        
-        // CRITICAL: Immediately verify localStorage was actually written
-        console.log('🔍 IMMEDIATE localStorage verification after setKidMode:');
+
         const immediateCheck = {
-          user_mode: getStorageSync('user_mode'),
-          user_role: getStorageSync('user_role'),
           kid_access_token: getStorageSync('kid_access_token'),
           kid_session_token: getStorageSync('kid_session_token'),
-          kid_id: getStorageSync('kid_id'),
-          child_id: getStorageSync('child_id'),
-          kid_name: getStorageSync('kid_name'),
-          kid_avatar: getStorageSync('kid_avatar'),
-          fgs_family_id: getStorageSync('fgs_family_id'),
-          allKeys: Object.keys(localStorage)
         };
-        console.log('📊 Immediate check results:', immediateCheck);
-        
-        // CRITICAL: If token is still not in localStorage, something is very wrong
+
         if (!immediateCheck.kid_access_token && !immediateCheck.kid_session_token) {
           console.error('❌ CRITICAL: setKidMode completed but tokens are STILL not in localStorage!');
-          console.error('❌ This should be IMPOSSIBLE - setKidMode has write verification');
-          console.error('❌ Response data:', { response });
-          console.error('❌ Something is clearing localStorage AFTER setKidMode writes');
           throw new Error('CRITICAL: localStorage tokens disappeared after setKidMode completed');
         }
-        
-        console.log('✅ Immediate verification passed - tokens are in localStorage');
       } catch (error) {
         console.error('❌ CRITICAL: setKidMode failed!', error);
-        console.error('❌ Error name:', error instanceof Error ? error.name : 'unknown');
-        console.error('❌ Error message:', error instanceof Error ? error.message : String(error));
-        console.error('❌ Error stack:', error instanceof Error ? error.stack : 'no stack');
-        console.error('❌ Error details:', {
-          message: error instanceof Error ? error.message : String(error),
-          stack: error instanceof Error ? error.stack : undefined,
-          responseData: response
-        });
         toast.error(`Failed to save login session: ${error instanceof Error ? error.message : 'Unknown error'}`);
         setPin('');
         setLoading(false);
         return;
       }
-      
-      console.log('✅ Kid session stored, checking localStorage:', {
-        user_role: getStorageSync('user_role'),
-        user_mode: getStorageSync('user_mode'),
-        kid_session_token: !!getStorageSync('kid_session_token'),
-        kid_session_token_length: getStorageSync('kid_session_token')?.length,
-        kid_access_token: !!getStorageSync('kid_access_token'),
-        kid_access_token_length: getStorageSync('kid_access_token')?.length,
-        child_id: getStorageSync('child_id'),
-        kid_id: getStorageSync('kid_id'),
-        fgs_family_id: getStorageSync('fgs_family_id')
-      });
 
       // CRITICAL: Force trigger FamilyContext to reload data with kid session
-      console.log('🔄 Dispatching family-data-reload event to force FamilyContext refresh');
       window.dispatchEvent(new CustomEvent('family-data-reload', {
-        detail: { 
+        detail: {
           reason: 'kid-login-complete',
           kidId: response.kid.id,
           familyId: response.kid.familyId
         }
       }));
-      
-      // CRITICAL: Add a small delay to ensure FamilyContext picks up the new session
+
+      // Small delay to ensure FamilyContext picks up the new session
       await new Promise(resolve => setTimeout(resolve, 100));
-      
-      console.log('📍 Redirecting to kid dashboard...');
-      
+
       toast.success(response.message || `Welcome back, ${response.kid.name}! 🌟`);
-      
-      console.log('🚀 Navigating to /kid/home...');
-      
+
       // Small delay to ensure localStorage is fully written
       setTimeout(() => {
-        console.log('🚀 Executing navigate() now...');
-        console.log('🔍 Final localStorage check before navigate:', {
-          user_mode: getStorageSync('user_mode'),
-          kid_access_token: !!getStorageSync('kid_access_token'),
-          user_role: getStorageSync('user_role')
-        });
-        
-        // Navigate to kid dashboard
         navigate('/kid/home');
-        
-        console.log('✅ navigate() called, should be routing now');
       }, 100);
     } catch (error) {
       console.error('Kid login error:', error);
@@ -326,11 +242,6 @@ export function KidLoginNew() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handlePinSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    await verifyPin(pin);
   };
 
   const handlePinDelete = () => {
@@ -346,163 +257,258 @@ export function KidLoginNew() {
       setStep('select');
       setPin('');
     } else {
-      navigate('/');
+      navigate('/welcome');
     }
   };
 
+  // Step indicator
+  const stepIndex = step === 'code' ? 0 : step === 'select' ? 1 : 2;
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#FFF8E7] to-[#FFE5CC] px-4 py-8">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center relative">
-          <Button
-            variant="ghost"
-            onClick={handleBack}
-            className="absolute top-4 left-4"
-            disabled={loading}
-          >
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back
-          </Button>
-          
-          <div className="text-6xl mb-4">👶</div>
-          <CardTitle className="text-3xl">Kid Login</CardTitle>
-          <CardDescription className="text-lg">
-            {step === 'code' && 'Enter your family code'}
-            {step === 'select' && "Select your name"}
-            {step === 'pin' && 'Enter your secret PIN'}
-          </CardDescription>
-        </CardHeader>
+    <div className="min-h-screen bg-white relative overflow-hidden">
+      {/* Warm decorative background — kid-friendly */}
+      <div className="absolute inset-0 bg-gradient-to-br from-amber-50 via-orange-50/60 to-rose-50/40 pointer-events-none" />
+      <div className="absolute -top-32 -left-32 h-96 w-96 rounded-full bg-amber-200/40 blur-3xl pointer-events-none" />
+      <div className="absolute -bottom-32 -right-32 h-96 w-96 rounded-full bg-rose-200/40 blur-3xl pointer-events-none" />
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-[28rem] w-[28rem] rounded-full bg-orange-200/20 blur-3xl pointer-events-none" />
 
-        <CardContent>
-          {/* Step 1: Family Code */}
-          {step === 'code' && (
-            <form onSubmit={handleCodeSubmit} className="space-y-4">
-              <div>
-                <Label htmlFor="familyCode" className="text-lg">Family Code</Label>
-                <Input
-                  id="familyCode"
-                  type="text"
-                  value={familyCode}
-                  onChange={(e) => setFamilyCode(e.target.value.toUpperCase())}
-                  placeholder="ABC123"
-                  className="text-2xl text-center font-mono tracking-wider"
-                  maxLength={10}
-                  autoFocus
-                />
-                <p className="text-sm text-gray-600 mt-2">
-                  Ask a parent for the family code
-                </p>
-              </div>
-              
-              <Button type="submit" className="w-full" size="lg">
-                Next
-              </Button>
-            </form>
-          )}
+      {/* Top bar */}
+      <div className="relative z-10 flex items-center justify-between px-4 sm:px-8 py-5">
+        <button
+          onClick={handleBack}
+          disabled={loading}
+          className="inline-flex items-center gap-2 text-sm text-gray-700 hover:text-gray-900 transition-colors disabled:opacity-50"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back
+        </button>
+        <button
+          onClick={() => navigate('/welcome')}
+          className="flex items-center gap-2"
+          aria-label="Iqra home"
+        >
+          <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center text-white font-bold shadow-md">
+            ﷽
+          </div>
+          <span className="hidden sm:inline font-bold text-gray-900">Iqra</span>
+        </button>
+      </div>
 
-          {/* Step 2: Kid Name */}
-          {step === 'select' && (
-            <div className="space-y-4">
-              <div>
-                <p className="text-sm text-gray-600 mb-4 text-center">
-                  Welcome to <span className="font-semibold">{familyName}</span>! 🏡
-                </p>
-                
-                <div className="grid grid-cols-2 gap-4 mb-4">
-                  {kids.map((kid) => (
-                    <motion.button
-                      key={kid.id}
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => handleKidSelect(kid)}
-                      className={`p-6 rounded-2xl border-4 transition-all flex flex-col items-center gap-3 ${
-                        selectedKid?.id === kid.id
-                          ? 'border-[#F4C430] bg-[#F4C430]/20'
-                          : 'border-gray-300 bg-white hover:border-[#F4C430]/50'
-                      }`}
+      <div className="relative z-10 px-4 pb-12 pt-2 sm:pt-4 flex items-center justify-center min-h-[calc(100vh-80px)]">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
+          className="w-full max-w-md"
+        >
+          {/* Step pips */}
+          <div className="flex items-center justify-center gap-2 mb-6">
+            {[0, 1, 2].map((i) => (
+              <div
+                key={i}
+                className={`h-2 rounded-full transition-all duration-300 ${
+                  i === stepIndex
+                    ? 'w-8 bg-gradient-to-r from-amber-500 to-orange-500'
+                    : i < stepIndex
+                    ? 'w-2 bg-amber-300'
+                    : 'w-2 bg-gray-200'
+                }`}
+              />
+            ))}
+          </div>
+
+          <div className="rounded-3xl bg-white/90 backdrop-blur shadow-xl ring-1 ring-amber-100 p-6 sm:p-8">
+            <AnimatePresence mode="wait">
+              {/* STEP 1: Family code */}
+              {step === 'code' && (
+                <motion.div
+                  key="code"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  transition={{ duration: 0.25 }}
+                >
+                  <div className="text-center mb-6">
+                    <div className="inline-flex items-center justify-center h-16 w-16 rounded-3xl bg-gradient-to-br from-amber-400 to-orange-500 text-white text-3xl shadow-lg shadow-amber-500/20 mb-4">
+                      🏡
+                    </div>
+                    <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Hi there!</h1>
+                    <p className="mt-2 text-sm text-gray-600">
+                      Ask a parent for your <span className="font-semibold">family code</span> to get started.
+                    </p>
+                  </div>
+
+                  <form onSubmit={handleCodeSubmit} className="space-y-5">
+                    <div className="space-y-2">
+                      <Label htmlFor="familyCode" className="text-sm font-medium text-gray-700">
+                        Family code
+                      </Label>
+                      <Input
+                        id="familyCode"
+                        type="text"
+                        value={familyCode}
+                        onChange={(e) => setFamilyCode(e.target.value.toUpperCase())}
+                        placeholder="ABC123"
+                        className="h-14 rounded-xl border-amber-200 bg-white text-center text-2xl font-mono tracking-widest focus-visible:ring-amber-500"
+                        maxLength={10}
+                        autoFocus
+                        autoCapitalize="characters"
+                        autoComplete="off"
+                      />
+                    </div>
+
+                    <Button
+                      type="submit"
+                      disabled={loading || familyCode.length < 4}
+                      className="w-full h-12 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-semibold text-base shadow-md shadow-amber-500/20"
                     >
-                      <div className="text-5xl">{kid.avatar}</div>
-                      <div className="text-lg font-semibold">{kid.name}</div>
-                    </motion.button>
-                  ))}
-                </div>
-                
-                <p className="text-xs text-gray-500 text-center">
-                  Family code: <span className="font-mono font-semibold">{familyCode}</span>
-                </p>
-              </div>
-            </div>
-          )}
+                      {loading ? 'Checking…' : 'Next'}
+                    </Button>
+                  </form>
+                </motion.div>
+              )}
 
-          {/* Step 3: PIN Entry */}
-          {step === 'pin' && (
-            <div className="space-y-6">
-              <div className="text-center">
-                <p className="text-sm text-gray-600 mb-4">
-                  Hi, <span className="font-semibold">{selectedKid?.name}</span>!
-                </p>
-                
-                {/* PIN Display */}
-                <div className="flex justify-center gap-3 mb-8">
-                  {[0, 1, 2, 3].map((i) => (
-                    <motion.div
-                      key={i}
-                      initial={{ scale: 0.8 }}
-                      animate={{ scale: pin.length > i ? 1 : 0.8 }}
-                      className={`w-16 h-16 rounded-2xl border-4 flex items-center justify-center text-3xl font-bold transition-all ${
-                        pin.length > i
-                          ? 'border-[#F4C430] bg-[#F4C430]/20 text-[#F4C430]'
-                          : 'border-gray-300 bg-white text-gray-400'
-                      }`}
-                    >
-                      {pin.length > i ? '●' : '○'}
-                    </motion.div>
-                  ))}
-                </div>
+              {/* STEP 2: Pick a kid */}
+              {step === 'select' && (
+                <motion.div
+                  key="select"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  transition={{ duration: 0.25 }}
+                >
+                  <div className="text-center mb-6">
+                    <div className="inline-flex items-center justify-center h-14 w-14 rounded-2xl bg-gradient-to-br from-amber-100 to-orange-100 text-3xl mb-3">
+                      👋
+                    </div>
+                    <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Welcome to {familyName}!</h1>
+                    <p className="mt-2 text-sm text-gray-600">Tap your name to continue.</p>
+                  </div>
 
-                {/* Number Pad */}
-                <div className="grid grid-cols-3 gap-3 max-w-xs mx-auto">
-                  {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
+                  <div className="grid grid-cols-2 gap-3 mb-4">
+                    {kids.map((kid) => (
+                      <motion.button
+                        key={kid.id}
+                        type="button"
+                        whileHover={{ y: -2, scale: 1.02 }}
+                        whileTap={{ scale: 0.97 }}
+                        onClick={() => handleKidSelect(kid)}
+                        className="p-5 rounded-2xl bg-white border-2 border-amber-100 hover:border-amber-400 hover:shadow-lg transition-all flex flex-col items-center gap-2.5"
+                      >
+                        <div className="h-16 w-16 rounded-2xl bg-gradient-to-br from-amber-100 to-orange-100 flex items-center justify-center text-4xl">
+                          {kid.avatar}
+                        </div>
+                        <div className="text-base font-semibold text-gray-900 text-center">{kid.name}</div>
+                      </motion.button>
+                    ))}
+                  </div>
+
+                  <p className="text-center text-xs text-gray-500">
+                    Family code: <span className="font-mono font-semibold text-gray-700">{familyCode}</span>
+                  </p>
+                </motion.div>
+              )}
+
+              {/* STEP 3: PIN */}
+              {step === 'pin' && (
+                <motion.div
+                  key="pin"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  transition={{ duration: 0.25 }}
+                >
+                  <div className="text-center mb-5">
+                    {selectedKid && (
+                      <div className="inline-flex items-center justify-center h-16 w-16 rounded-3xl bg-gradient-to-br from-amber-100 to-orange-100 text-4xl mb-3">
+                        {selectedKid.avatar}
+                      </div>
+                    )}
+                    <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
+                      Hi, {selectedKid?.name}!
+                    </h1>
+                    <p className="mt-1.5 text-sm text-gray-600">Enter your secret PIN.</p>
+                  </div>
+
+                  {/* PIN Display */}
+                  <div className="flex justify-center gap-2.5 mb-6">
+                    {[0, 1, 2, 3].map((i) => (
+                      <motion.div
+                        key={i}
+                        animate={{
+                          scale: pin.length === i + 1 ? [1, 1.15, 1] : 1
+                        }}
+                        transition={{ duration: 0.25 }}
+                        className={`w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center text-3xl font-bold transition-all ${
+                          pin.length > i
+                            ? 'bg-gradient-to-br from-amber-400 to-orange-500 text-white shadow-md shadow-amber-500/30'
+                            : 'bg-amber-50 border-2 border-dashed border-amber-200 text-amber-300'
+                        }`}
+                      >
+                        {pin.length > i ? '●' : ''}
+                      </motion.div>
+                    ))}
+                  </div>
+
+                  {/* Number pad */}
+                  <div className="grid grid-cols-3 gap-2.5 max-w-xs mx-auto">
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
+                      <motion.button
+                        key={num}
+                        type="button"
+                        whileTap={{ scale: 0.92 }}
+                        onClick={() => handlePinInput(num.toString())}
+                        disabled={loading || pin.length >= 4}
+                        className="h-14 sm:h-16 rounded-2xl bg-white border border-amber-100 hover:bg-amber-50 hover:border-amber-300 active:bg-amber-100 text-2xl font-semibold text-gray-800 transition-colors disabled:opacity-40 shadow-sm"
+                      >
+                        {num}
+                      </motion.button>
+                    ))}
+
+                    <div /> {/* empty cell */}
+
                     <motion.button
-                      key={num}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => handlePinInput(num.toString())}
+                      type="button"
+                      whileTap={{ scale: 0.92 }}
+                      onClick={() => handlePinInput('0')}
                       disabled={loading || pin.length >= 4}
-                      className="h-16 rounded-xl bg-white border-2 border-gray-300 hover:border-[#F4C430] hover:bg-[#F4C430]/10 text-2xl font-bold transition-all disabled:opacity-50"
+                      className="h-14 sm:h-16 rounded-2xl bg-white border border-amber-100 hover:bg-amber-50 hover:border-amber-300 active:bg-amber-100 text-2xl font-semibold text-gray-800 transition-colors disabled:opacity-40 shadow-sm"
                     >
-                      {num}
+                      0
                     </motion.button>
-                  ))}
-                  
-                  <div /> {/* Empty space */}
-                  
-                  <motion.button
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => handlePinInput('0')}
-                    disabled={loading || pin.length >= 4}
-                    className="h-16 rounded-xl bg-white border-2 border-gray-300 hover:border-[#F4C430] hover:bg-[#F4C430]/10 text-2xl font-bold transition-all disabled:opacity-50"
-                  >
-                    0
-                  </motion.button>
-                  
-                  <motion.button
-                    whileTap={{ scale: 0.95 }}
-                    onClick={handlePinDelete}
-                    disabled={loading || pin.length === 0}
-                    className="h-16 rounded-xl bg-red-100 border-2 border-red-300 hover:bg-red-200 text-red-600 font-bold transition-all disabled:opacity-50"
-                  >
-                    ⌫
-                  </motion.button>
-                </div>
 
-                {loading && (
-                  <p className="text-sm text-gray-600 mt-4">Logging in...</p>
-                )}
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                    <motion.button
+                      type="button"
+                      whileTap={{ scale: 0.92 }}
+                      onClick={handlePinDelete}
+                      disabled={loading || pin.length === 0}
+                      aria-label="Delete last digit"
+                      className="h-14 sm:h-16 rounded-2xl bg-rose-50 border border-rose-100 hover:bg-rose-100 active:bg-rose-200 text-2xl font-semibold text-rose-600 transition-colors disabled:opacity-40"
+                    >
+                      ⌫
+                    </motion.button>
+                  </div>
+
+                  {loading && (
+                    <p className="text-center text-sm text-gray-600 mt-5">Logging in…</p>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          <div className="mt-5 text-center text-sm">
+            <span className="text-gray-600">Are you a parent? </span>
+            <button
+              type="button"
+              onClick={() => navigate('/login')}
+              className="text-amber-700 hover:text-amber-800 hover:underline font-semibold"
+            >
+              Sign in here
+            </button>
+          </div>
+        </motion.div>
+      </div>
     </div>
   );
 }
