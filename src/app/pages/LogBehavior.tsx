@@ -42,6 +42,11 @@ export function LogBehavior() {
   const [todayPrayersLogged, setTodayPrayersLogged] = useState<Set<string>>(new Set());
   const [pointEvents, setPointEvents] = useState<PointEvent[]>([]);
   const [eventsLoading, setEventsLoading] = useState(false);
+  // v19: in-flight submit lock so a fast double-click does not POST /events
+  // twice. Without this, Tantrum logged once was creating 2-3 duplicate
+  // rows because the click handlers ran before setSelectedItemId(null) cleared
+  // the form state. This lock blocks the second invocation cleanly.
+  const [submitting, setSubmitting] = useState(false);
   const child = getCurrentChild();
 
   // Load point events for prayer tracking
@@ -155,6 +160,15 @@ export function LogBehavior() {
   }
 
   const handleLog = async (salahStateOverride?: SalahState) => {
+    // v19: Submit lock - if a previous click is still in flight, ignore the
+    // new one. Without this guard, a fast double-click was creating 2-3
+    // duplicate event rows because the click handlers ran before
+    // setSelectedItemId(null) cleared the form state at the end of performLog.
+    if (submitting) {
+      console.log('[LogBehavior] Submit already in flight, ignoring duplicate click');
+      return;
+    }
+
     if (!selectedItemId) {
       toast.error("Please select a behavior or habit");
       return;
@@ -167,6 +181,8 @@ export function LogBehavior() {
       toast.error("Please sign in to log events");
       return;
     }
+
+    setSubmitting(true);
 
     // Check if this prayer was already logged today (for salah items).
     // v15: This still applies for all three states (on-time / qadha / missed) -
@@ -221,6 +237,10 @@ export function LogBehavior() {
       // behind a generic "Failed to log event" toast.
       const message = error?.message || 'Failed to log event';
       toast.error(message);
+    } finally {
+      // v19: Always release the submit lock, even on error / pre-flight
+      // conflict alert short-circuit, so the user can retry.
+      setSubmitting(false);
     }
   };
 
@@ -318,11 +338,14 @@ export function LogBehavior() {
   };
 
   const handleBonusLog = async () => {
+    // v19: same submit lock applies to the standalone Log Bonus button
+    if (submitting) return;
     if (!user) {
       toast.error("Please sign in to log events");
       return;
     }
 
+    setSubmitting(true);
     try {
       await logEvent(child.id, {
         childId: child.id,
@@ -337,12 +360,14 @@ export function LogBehavior() {
       toast.success(`Logged bonus for ${child.name} (+${standaloneBonusPoints} points)`);
       setStandaloneBonusPoints(0);
       setStandaloneBonusReason("");
-      
+
       // Reload events to update prayer tracking
       const events = await getChildEvents(child.id);
       setPointEvents(events || []);
     } catch (error) {
       toast.error("Failed to log bonus event");
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -359,10 +384,22 @@ export function LogBehavior() {
     });
   };
 
+  // v19: Align tab filters with Settings (Settings.tsx 1380-1397). Previously
+  // a habit-typed item with negative points (e.g. "Washroom accident", -3)
+  // would render in the Habits tab with a "+-3" badge AND go missing from the
+  // Negative tab because Negative was filtering on type === 'behavior'. We
+  // now union by sign for negative items and require positive points for the
+  // habit/positive tabs, matching the Settings filters exactly.
   const salahItems = deduplicateItems(trackableItems.filter(i => i.category === 'salah'));
-  const otherHabits = deduplicateItems(trackableItems.filter(i => i.type === 'habit' && i.category !== 'salah'));
-  const positiveBehaviors = deduplicateItems(trackableItems.filter(i => i.type === 'behavior' && i.points > 0));
-  const negativeBehaviors = deduplicateItems(trackableItems.filter(i => i.type === 'behavior' && i.points < 0));
+  const otherHabits = deduplicateItems(trackableItems.filter(
+    i => i.type === 'habit' && i.category !== 'salah' && i.points > 0
+  ));
+  const positiveBehaviors = deduplicateItems(trackableItems.filter(
+    i => i.type === 'behavior' && i.points > 0
+  ));
+  const negativeBehaviors = deduplicateItems(trackableItems.filter(
+    i => i.points < 0 && i.category !== 'salah'
+  ));
   
   console.log('📊 Item counts after deduplication:', {
     salah: salahItems.length,
@@ -565,7 +602,7 @@ export function LogBehavior() {
                     <div className="grid grid-cols-3 gap-2">
                       <Button
                         onClick={() => handleLog('ontime')}
-                        disabled={bonusPoints > 0 && !bonusReason}
+                        disabled={submitting || (bonusPoints > 0 && !bonusReason)}
                         className="h-12 flex flex-col gap-0"
                       >
                         <span className="text-xs">On time</span>
@@ -573,6 +610,7 @@ export function LogBehavior() {
                       </Button>
                       <Button
                         onClick={() => handleLog('qadha')}
+                        disabled={submitting}
                         variant="outline"
                         className="h-12 flex flex-col gap-0 border-amber-300 text-amber-700 hover:bg-amber-50"
                       >
@@ -581,6 +619,7 @@ export function LogBehavior() {
                       </Button>
                       <Button
                         onClick={() => handleLog('missed')}
+                        disabled={submitting}
                         variant="outline"
                         className="h-12 flex flex-col gap-0 border-red-300 text-red-700 hover:bg-red-50"
                       >
@@ -609,10 +648,10 @@ export function LogBehavior() {
                 <div className="flex gap-2">
                   <Button
                     onClick={() => handleLog()}
-                    disabled={!selectedItemId || (bonusPoints > 0 && !bonusReason)}
+                    disabled={submitting || !selectedItemId || (bonusPoints > 0 && !bonusReason)}
                     className="flex-1"
                   >
-                    Log Event
+                    {submitting ? 'Logging…' : 'Log Event'}
                   </Button>
                   <Button
                     variant="outline"
@@ -677,12 +716,12 @@ export function LogBehavior() {
             </div>
 
             <div className="flex gap-2">
-              <Button 
+              <Button
                 onClick={handleBonusLog}
-                disabled={standaloneBonusPoints <= 0}
+                disabled={submitting || standaloneBonusPoints <= 0}
                 className="flex-1"
               >
-                Log Bonus
+                {submitting ? 'Logging…' : 'Log Bonus'}
               </Button>
               <Button 
                 variant="outline"
