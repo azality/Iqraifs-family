@@ -534,6 +534,28 @@ export async function getChildEvents(childId: string, opts?: { includeVoided?: b
   return apiCall(`/children/${childId}/events${qs}`);
 }
 
+// v26: Parent → kid encouragement notes. Tight constraints by design:
+// 140-char body, parent-only POST, idempotent ack. The kid surface
+// uses the latest-unread endpoint to drive the ParentNoteCard.
+export async function sendFamilyNote(args: {
+  childId: string;
+  body: string;
+  fromName: string;
+}) {
+  return apiCall('/family-notes', {
+    method: 'POST',
+    body: JSON.stringify(args),
+  });
+}
+
+export async function getLatestUnreadFamilyNote(childId: string) {
+  return apiCall(`/family-notes/child/${childId}/latest-unread`);
+}
+
+export async function ackFamilyNote(noteId: string) {
+  return apiCall(`/family-notes/${noteId}/ack`, { method: 'POST' });
+}
+
 // v20: Soft-void an event. Backend (POST /events/:id/void) is idempotent
 // and reverses the kid's point total when applied. Used by the Recent
 // Activity row's Void action so parents can clean up duplicate or wrong
@@ -1021,4 +1043,4 @@ export const api = {
   
   // Initialization
   initializeDefaultData,
-};
+};

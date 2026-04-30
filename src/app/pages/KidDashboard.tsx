@@ -14,10 +14,16 @@ import { QuestCard } from "../components/kid-mode/QuestCard";
 import { MosqueBuild } from "../components/kid-mode/MosqueBuild";
 import { GentleCorrection } from "../components/kid-mode/GentleCorrection";
 import { RewardRequestCard } from "../components/kid-mode/RewardRequestCard";
+// v26: new launch-ready components — central kid-as-driver surface.
+import { DailyMission } from "../components/kid-mode/DailyMission";
+import { IdentityHero } from "../components/kid-mode/IdentityHero";
+import { BarakahGarden } from "../components/kid-mode/BarakahGarden";
+import { PointsFlash } from "../components/kid-mode/PointsFlash";
+import { ParentNoteCard } from "../components/kid-mode/ParentNoteCard";
 import { FloatingActionButton } from "../components/mobile/FloatingActionButton";
 import { projectId } from "../../../utils/supabase/info";
 import { toast } from "sonner";
-import { getTrackableItems, getMilestones, getRewards, applyQadhaCorrection } from "../../utils/api";
+import { getTrackableItems, getMilestones, getRewards, applyQadhaCorrection, getLatestUnreadFamilyNote, ackFamilyNote } from "../../utils/api";
 
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f`;
 
@@ -49,6 +55,11 @@ export function KidDashboard() {
   // chip below the points header tells the kid the system saw it and
   // is waiting for their parent.
   const [pendingClaims, setPendingClaims] = useState<any[]>([]);
+
+  // v26: latest unread parent → kid note. Polled on the same cadence
+  // as point events so a note sent while the kid is on the dashboard
+  // shows up within 20s without a manual refresh.
+  const [parentNote, setParentNote] = useState<any | null>(null);
 
   // v15: track which missed-prayer event the kid is currently catching up on
   // (kid-initiated qadha correction). One in-flight correction at a time keeps
@@ -171,6 +182,23 @@ export function KidDashboard() {
     const interval = setInterval(loadPendingRequests, 30000);
     return () => clearInterval(interval);
   }, [child, accessToken, familyId]);
+
+  // v26: Poll for the latest unread parent → kid note.
+  useEffect(() => {
+    if (!child || !accessToken) return;
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const res = await getLatestUnreadFamilyNote(child.id);
+        if (!cancelled) setParentNote(res?.note ?? null);
+      } catch {
+        // Silent; the kid surface should never error-toast on background polls.
+      }
+    };
+    refresh();
+    const interval = setInterval(refresh, 20000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [child, accessToken]);
 
   // v21: Poll the kid's own prayer claims so the "Waiting for Mama/Baba"
   // chip stays accurate without a manual refresh. Same 20s cadence as the
@@ -484,6 +512,73 @@ export function KidDashboard() {
   const salahProgress = todaySalahEvents.length;
   const salahTotal = salahItems.length;
 
+  // v26: Daily mission tasks. Friendly, prioritized list of what's
+  // left today. Pure derivation from data already on the dashboard.
+  const dailyTasks = [
+    {
+      id: 'salah',
+      emoji: '🕌',
+      label: salahTotal === 0
+        ? 'Set up Salah with a parent'
+        : salahProgress >= salahTotal
+        ? `All ${salahTotal} prayers done — mashallah!`
+        : `Pray ${salahTotal - salahProgress} more today`,
+      done: salahTotal > 0 && salahProgress >= salahTotal,
+      detail: salahTotal > 0 && salahProgress < salahTotal
+        ? `${salahProgress} of ${salahTotal} prayed`
+        : undefined,
+    },
+    ...(activeChallenges.length > 0 ? [{
+      id: 'quest',
+      emoji: '⚔️',
+      label: activeChallenges.length === 1
+        ? 'Continue your quest'
+        : `${activeChallenges.length} quests in progress`,
+      done: false,
+      detail: activeChallenges[0]?.name,
+    }] : []),
+    {
+      id: 'good-deed',
+      emoji: '❤️',
+      label: 'Do one kind thing',
+      // Done if any positive non-salah event today
+      done: todayEvents.some(e =>
+        e.points > 0 && !salahItems.some(s => s.id === e.trackableItemId)
+      ),
+      detail: 'Help, share, or say something nice',
+    },
+  ];
+
+  // v26: Salah weekly score. Counts approved on-time-or-qadha salah
+  // events in this week (Mon..Sun based on local timezone).
+  const startOfWeek = (() => {
+    const d = new Date();
+    const dow = d.getDay(); // 0=Sun
+    const offsetToMon = (dow + 6) % 7;
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - offsetToMon);
+    return d.getTime();
+  })();
+  const weeklySalahScore = childEvents.filter(e =>
+    salahItems.some(s => s.id === e.trackableItemId) &&
+    e.points > 0 &&
+    new Date(e.timestamp).getTime() >= startOfWeek
+  ).length;
+  const weeklySalahMax = salahTotal * 7;
+
+  // v26: Salah on-time streak (days). We use the longest current
+  // streak among the kid's salah items as a proxy — if any prayer
+  // has been on-time N days in a row, the kid earns the crown.
+  const salahStreak = habitStreaks
+    .filter(s => salahItems.some(si => si.id === s.itemId))
+    .reduce((max, s) => Math.max(max, s.current || 0), 0);
+
+  // v26: Garden deeds — count of approved positive events that count
+  // as "good deeds." We use lifetime so the garden persists. Excludes
+  // bonuses (those are recognition for the same deed) and recoveries.
+  const totalDeeds = childEvents.filter(e => e.points > 0 && !e.isBonus && !e.isRecovery).length;
+  const todayDeeds = todayEvents.filter(e => e.points > 0 && !e.isBonus && !e.isRecovery).length;
+
   return (
     <div className="min-h-screen bg-[var(--kid-soft-cream)] pb-12">
       {/* Bonus celebration — confetti + banner on arrival of new bonus event */}
@@ -584,7 +679,58 @@ export function KidDashboard() {
         </motion.div>
       </div>
 
-      <div className="max-w-6xl mx-auto px-4 md:px-6 space-y-8">
+      {/* v26: instant-feedback chips for any new positive event.
+          Mounted once, listens to pointEvents, fires +X chips on
+          arrival. Skips bonuses (the celebration banner handles
+          those) and negatives (kid never sees those). */}
+      <PointsFlash childId={child.id} pointEvents={pointEvents} />
+
+      <div className="max-w-6xl mx-auto px-4 md:px-6 space-y-6">
+        {/* v26: Identity + Salah-sacred treatment. Surfaces the kid's
+            current title prominently (this is who I am) and gives
+            Salah its own weekly metric so it's visibly more important
+            than other habits. */}
+        <IdentityHero
+          title={currentMilestone?.name || 'Explorer'}
+          childName={child.name}
+          salahStreak={salahStreak}
+          weeklySalahScore={weeklySalahScore}
+          weeklySalahMax={weeklySalahMax}
+        />
+
+        {/* v26: Daily Mission. Closed by default → "Start my day" CTA.
+            Open → checklist of what's left today. The kid-as-driver
+            surface — they decide what to do next, not the parent. */}
+        <DailyMission
+          childName={child.name}
+          tasks={dailyTasks}
+          onSelectTask={(taskId) => {
+            if (taskId === 'salah') navigate('/kid/prayers');
+            else if (taskId === 'quest') navigate('/kid/challenges');
+            // good-deed has no destination; surfacing the line is enough
+          }}
+        />
+
+        {/* v26: Parent → kid note. One unread note at a time. Renders
+            null when no note. Shows above the garden so a freshly-sent
+            note from a parent gets attention before the kid scrolls. */}
+        <ParentNoteCard
+          note={parentNote}
+          onAcknowledge={async (noteId) => {
+            await ackFamilyNote(noteId);
+            setParentNote(null);
+          }}
+        />
+
+        {/* v26: Barakah Garden — promoted to a core surface for every
+            reading level (was pre-reader-only in v25). Driven by total
+            positive events; visual evolves across 12 levels. */}
+        <BarakahGarden
+          childName={child.name}
+          totalDeeds={totalDeeds}
+          todayDeeds={todayDeeds}
+        />
+
         {/* v25: Reading-level adaptive surface. Same KidDashboard for
             4–6, 7–9, 10–12. Pre-readers see fewer tiles, bigger type. */}
         {(() => {
@@ -1130,4 +1276,4 @@ function getTimeAgo(timestamp: string): string {
   } else {
     return `${seconds} second${seconds > 1 ? 's' : ''} ago`;
   }
-}
+}

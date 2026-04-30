@@ -18,6 +18,9 @@ import { RecoveryDialog } from "../components/RecoveryDialog";
 import { PrayerApprovalsWidget } from "../components/PrayerApprovalsWidget";
 import { WishlistWidget } from "../components/WishlistWidget";
 import { GettingStartedCard } from "../components/GettingStartedCard";
+// v26: parent insights + send-note card
+import { ParentInsights } from "../components/parent-mode/ParentInsights";
+import { SendNoteCard } from "../components/parent-mode/SendNoteCard";
 import { PointEvent } from "../data/mockData";
 import { 
   Award, 
@@ -330,6 +333,18 @@ export function Dashboard() {
           empty-state clutter). When approvals are present this card is
           impossible to miss above the stats grid. */}
       {isParentMode && <PrayerApprovalsWidget priority />}
+
+      {/* v26: Weekly insights — derived from event patterns, not just
+          counts. Shows trends (Salah improving, weekly concerns
+          cluster, quiet week, etc). Hides itself when data is too
+          thin to be honest. */}
+      {isParentMode && child && (
+        <ParentInsights
+          childName={child.name}
+          pointEvents={childEvents}
+          salahItemIds={trackableItems.filter(i => i.category === 'salah').map(i => i.id)}
+        />
+      )}
 
       {/* Child-Friendly Hero Section */}
       {isChildView && (
@@ -874,6 +889,18 @@ export function Dashboard() {
           duplicate render here so parents do not see the same widget
           twice when there are pending claims. */}
 
+      {/* v26: Send a note — short encouragement to the selected kid.
+          Lives below Recent Activity so it doesn't crowd the
+          attention-required surfaces, but above Quick Actions so
+          it's easy to find. */}
+      {isParentMode && child && (
+        <SendNoteCard
+          childId={child.id}
+          childName={child.name}
+          fromName={user?.name || 'Your grown-up'}
+        />
+      )}
+
       {/* Wishlist Widget (Parents Only) */}
       {isParentMode && <WishlistWidget maxItems={3} />}
 
@@ -962,4 +989,4 @@ function QuickActionsCard() {
       </CardContent>
     </Card>
   );
-}
+}

@@ -1,5 +1,5 @@
 // FGS Backend Server v1.0.3 - Accept challenge route flattened (no :childId in URL)
-const SERVER_VERSION = "v1.0.16-include-voided";
+const SERVER_VERSION = "v1.0.17-family-notes";
 
 // v14: Safe family-key resolver. Family records are stored under keys like
 // "family:1745234567890" - the "family:" prefix is baked into the ID at
@@ -7464,6 +7464,121 @@ app.post(
     } catch (error: any) {
       console.error('Unlock garden item error:', error);
       return c.json({ error: error.message }, 500);
+    }
+  }
+);
+
+// =====================================================================
+// v26: Family notes (parent → kid encouragement)
+// =====================================================================
+//
+// Notes are simple, short (<=140 chars), parent-authored messages
+// targeted at a single kid. They live as a small kv list keyed by
+// kid id; the most-recent unread one is what the kid surface
+// renders. Acknowledging marks the note as read.
+//
+// Storage shape:
+//   note:<id>     -> { id, childId, body, fromName, fromUserId, sentAt, readAt? }
+//   note-index:<childId> -> string[] of note ids (most recent last)
+//
+// We deliberately do not use the existing event log: notes are not
+// part of the audit/points trail.
+
+app.post(
+  "/make-server-f116e23f/family-notes",
+  requireAuth,
+  requireParent,
+  async (c) => {
+    try {
+      const userId = getAuthUserId(c);
+      const body = await c.req.json().catch(() => ({}));
+      const childId = String(body?.childId || '').trim();
+      const noteBody = String(body?.body || '').trim();
+      const fromName = String(body?.fromName || '').trim().slice(0, 40);
+
+      if (!childId) return c.json({ error: 'childId required' }, 400);
+      if (!noteBody) return c.json({ error: 'note body required' }, 400);
+      if (noteBody.length > 140) return c.json({ error: 'note must be 140 chars or fewer' }, 400);
+      if (!fromName) return c.json({ error: 'fromName required' }, 400);
+
+      // Confirm the kid exists
+      const child = await kv.get(childId);
+      if (!child || !child.familyId) return c.json({ error: 'child not found' }, 404);
+
+      const id = `note:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const note = {
+        id,
+        childId,
+        familyId: child.familyId,
+        body: noteBody,
+        fromName,
+        fromUserId: userId,
+        sentAt: new Date().toISOString(),
+        readAt: null as string | null,
+      };
+      await kv.set(id, note);
+
+      const indexKey = `note-index:${childId}`;
+      const idx = (await kv.get(indexKey)) || [];
+      idx.push(id);
+      // Keep last 50 to bound storage; older notes are still
+      // retrievable by id but won't show in the kid's feed.
+      const trimmed = idx.slice(-50);
+      await kv.set(indexKey, trimmed);
+
+      return c.json({ ok: true, note });
+    } catch (error: any) {
+      console.error('Send family note error:', error);
+      return c.json({ error: error.message || 'Failed to send note' }, 500);
+    }
+  }
+);
+
+// Latest unread note for a kid. Used by the kid dashboard. Auth
+// required; we deliberately do NOT require parent auth here so the
+// kid surface (kid_access_token) can read its own kid's notes.
+app.get(
+  "/make-server-f116e23f/family-notes/child/:childId/latest-unread",
+  requireAuth,
+  requireChildAccess,
+  async (c) => {
+    try {
+      const childId = c.req.param('childId');
+      const indexKey = `note-index:${childId}`;
+      const idx: string[] = (await kv.get(indexKey)) || [];
+      // Walk backwards (newest first) for the first unread note.
+      for (let i = idx.length - 1; i >= 0; i--) {
+        const note = await kv.get(idx[i]);
+        if (note && !note.readAt) {
+          return c.json({ note });
+        }
+      }
+      return c.json({ note: null });
+    } catch (error: any) {
+      console.error('Get latest unread note error:', error);
+      return c.json({ error: error.message || 'Failed to load note' }, 500);
+    }
+  }
+);
+
+// Acknowledge a note (kid taps "Got it ❤️"). Idempotent — re-acking
+// an already-read note is a no-op success.
+app.post(
+  "/make-server-f116e23f/family-notes/:id/ack",
+  requireAuth,
+  async (c) => {
+    try {
+      const id = c.req.param('id');
+      const note = await kv.get(id);
+      if (!note) return c.json({ error: 'note not found' }, 404);
+      if (!note.readAt) {
+        note.readAt = new Date().toISOString();
+        await kv.set(id, note);
+      }
+      return c.json({ ok: true });
+    } catch (error: any) {
+      console.error('Ack family note error:', error);
+      return c.json({ error: error.message || 'Failed to ack note' }, 500);
     }
   }
 );
