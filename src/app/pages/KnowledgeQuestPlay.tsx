@@ -76,6 +76,10 @@ export function KnowledgeQuestPlay() {
   const [correctCount, setCorrectCount] = useState(0);
   const [difficulty, setDifficulty] = useState<'easy' | 'medium' | 'hard' | null>(null);
   const [loading, setLoading] = useState(false);
+  // v27: question IDs shown in this session so we don't repeat any.
+  // Sent to the backend as ?excludeIds=. Reset implicitly on page
+  // remount (start a new session → new exclude list).
+  const [shownIds, setShownIds] = useState<string[]>([]);
 
   const loadQuestion = async (selectedDifficulty: 'easy' | 'medium' | 'hard') => {
     if (!accessToken) return;
@@ -85,13 +89,19 @@ export function KnowledgeQuestPlay() {
 
     try {
       // Build query params
-      let url = `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f/questions/random/${selectedDifficulty}`;
-      
-      // Add category filter if categories selected
+      const params = new URLSearchParams();
       if (selectedCategories.length > 0) {
         const randomCategory = selectedCategories[Math.floor(Math.random() * selectedCategories.length)];
-        url += `?category=${encodeURIComponent(randomCategory)}`;
+        params.set('category', randomCategory);
       }
+      // v27: exclude already-shown questions from this session.
+      if (shownIds.length > 0) {
+        params.set('excludeIds', shownIds.join(','));
+      }
+      const qs = params.toString();
+      const url =
+        `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f/questions/random/${selectedDifficulty}` +
+        (qs ? `?${qs}` : '');
 
       const response = await fetch(url, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -103,24 +113,36 @@ export function KnowledgeQuestPlay() {
         setSelectedAnswer(null);
         setShowHint(false);
         setIsAnswered(false);
+        // v27: remember this question id so we don't fetch it again
+        // this session.
+        if (question?.id) {
+          setShownIds(prev => prev.includes(question.id) ? prev : [...prev, question.id]);
+        }
       } else {
-        const errorText = await response.text();
+        // v27: parse the structured reason from the backend so the
+        // toast is genuinely useful instead of "Failed to load."
+        let body: any = null;
+        try { body = await response.json(); } catch { /* not JSON */ }
         if (response.status === 404) {
-          // More specific message: name the selected category/difficulty
-          // rather than the generic "no questions" text.
           const scope = selectedCategories.length > 0
             ? `${selectedDifficulty} ${selectedCategories.join(' / ')}`
             : `${selectedDifficulty} questions`;
-          toast.error(`No ${scope} available. Try a different difficulty or topic.`);
+          if (body?.reason === 'all_seen') {
+            toast.success(
+              `You've answered every ${selectedDifficulty} question this session — try another difficulty or finish the quest!`
+            );
+          } else {
+            toast.error(`No ${scope} available. Ask a parent to add questions, or pick a different difficulty.`);
+          }
         } else {
-          console.error('Load question error:', errorText);
-          toast.error('Failed to load question');
+          console.error('Load question error:', response.status, body);
+          toast.error(body?.error || `Failed to load question (status ${response.status})`);
         }
         setDifficulty(null);
       }
     } catch (error) {
       console.error('Load question error:', error);
-      toast.error('Failed to load question');
+      toast.error('Failed to load question — check your connection.');
       setDifficulty(null);
     } finally {
       setLoading(false);

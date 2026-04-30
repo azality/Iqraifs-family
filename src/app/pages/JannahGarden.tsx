@@ -1,13 +1,40 @@
 import { useState, useEffect } from "react";
 import { motion } from "motion/react";
 import { useNavigate } from "react-router";
-import { ArrowLeft, Sparkles, TreePine, Flower2, Droplets } from "lucide-react";
+import { ArrowLeft, Sparkles, TreePine, Flower2, Droplets, Info } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { useFamilyContext } from "../contexts/FamilyContext";
 import { projectId } from "../../../utils/supabase/info";
 import { toast } from "sonner";
+import { getChildEvents } from "../../utils/api";
 
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f`;
+
+// v27: keep this in sync with BarakahGarden.tsx on the home page so
+// both surfaces show the SAME level/total. Previously the home page
+// derived from event log while this page used a separate
+// `adventure-garden:<childId>` kv counter that never got incremented
+// — so the home page would say "level 2 / 14 deeds" while this page
+// said "level 1 / 0 deeds." Single source of truth = lifetime
+// positive event count.
+function gardenLevelFromDeeds(totalDeeds: number): number {
+  if (totalDeeds < 5)   return 1;
+  if (totalDeeds < 15)  return 2;
+  if (totalDeeds < 30)  return 3;
+  if (totalDeeds < 50)  return 4;
+  if (totalDeeds < 80)  return 5;
+  if (totalDeeds < 120) return 6;
+  if (totalDeeds < 180) return 7;
+  if (totalDeeds < 260) return 8;
+  if (totalDeeds < 360) return 9;
+  if (totalDeeds < 500) return 10;
+  if (totalDeeds < 700) return 11;
+  return 12;
+}
+function nextLevelThreshold(level: number): number {
+  const thresholds = [5, 15, 30, 50, 80, 120, 180, 260, 360, 500, 700, 700];
+  return thresholds[level - 1] ?? 700;
+}
 
 interface GardenItem {
   id: string;
@@ -135,42 +162,47 @@ export function JannahGarden() {
     try {
       setLoading(true);
 
-      const response = await fetch(
-        `${API_BASE}/families/${familyId}/adventure/garden/${child.id}`,
-        {
-          headers: { 'Authorization': `Bearer ${accessToken}` }
-        }
+      // v27: derive garden state from the kid's lifetime point-events,
+      // matching the home page BarakahGarden. Previously this page
+      // read a separate `adventure-garden:<childId>` kv that was never
+      // incremented in the v26+ flow — so the home page showed level
+      // 2 / 14 deeds while this page showed level 1 / 0 deeds. Single
+      // source of truth = lifetime positive events.
+      const events = await getChildEvents(child.id);
+      const myEvents = (events || []).filter(
+        (e: any) => e.childId === child.id && e.points > 0 && !e.isBonus && !e.isRecovery
       );
+      const totalDeeds = myEvents.length;
+      const prayersCompleted = myEvents.filter(
+        (e: any) => /prayer\s*:|salah/i.test(e.itemName || e.notes || '')
+      ).length;
 
-      if (response.ok) {
-        const data = await response.json();
-        setProgress(data.progress);
-        
-        // Update garden items based on unlocked status
-        const updatedItems = defaultGardenItems.map(item => ({
-          ...item,
-          unlocked: data.progress.unlockedItems.includes(item.id)
-        }));
-        setGardenItems(updatedItems);
-      } else {
-        // Create default progress
-        const defaultProgress = {
-          childId: child.id,
-          level: 1,
-          unlockedItems: ['flower-1'], // Start with one flower
-          totalGoodDeeds: 0,
-          prayersCompleted: 0,
-          quranMemorized: 0,
-          helpedOthers: 0
-        };
-        setProgress(defaultProgress);
-        
-        const updatedItems = defaultGardenItems.map(item => ({
-          ...item,
-          unlocked: item.id === 'flower-1'
-        }));
-        setGardenItems(updatedItems);
-      }
+      const level = gardenLevelFromDeeds(totalDeeds);
+      // Unlock items progressively based on level. Each item maps to a
+      // specific tier so the visual progression mirrors the home
+      // page's level metaphor — but the per-item names/descriptions
+      // here remain the existing rich Adventure World copy.
+      const tierToUnlock = (idx: number) => Math.min(level - 1, idx) >= idx;
+      const unlockedIds = defaultGardenItems
+        .map((it, i) => (tierToUnlock(i) ? it.id : null))
+        .filter((x): x is string => !!x);
+
+      const computed: GardenProgress = {
+        childId: child.id,
+        level,
+        unlockedItems: unlockedIds,
+        totalGoodDeeds: totalDeeds,
+        prayersCompleted,
+        quranMemorized: 0,
+        helpedOthers: 0,
+      };
+      setProgress(computed);
+
+      const updatedItems = defaultGardenItems.map(item => ({
+        ...item,
+        unlocked: unlockedIds.includes(item.id),
+      }));
+      setGardenItems(updatedItems);
     } catch (error) {
       console.error('Failed to load garden data:', error);
       toast.error('Failed to load your garden');
@@ -238,8 +270,45 @@ export function JannahGarden() {
         </div>
       </div>
 
+      {/* v27: How does my garden grow? — explainer card. The previous
+          page never told a kid how to earn anything; the level was a
+          mystery. Now we say it plainly: every good thing you log
+          plants a flower; the level moves up at clear thresholds. */}
+      <div className="max-w-4xl mx-auto px-6 pt-6">
+        <div className="bg-white/90 backdrop-blur rounded-2xl shadow-lg ring-1 ring-emerald-200 p-5 mb-6">
+          <div className="flex items-start gap-3">
+            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-400 to-green-500 flex items-center justify-center text-white shrink-0">
+              <Info className="w-5 h-5" />
+            </div>
+            <div className="flex-1">
+              <h3 className="font-bold text-emerald-900 mb-1">How does my garden grow?</h3>
+              <p className="text-sm text-emerald-800 leading-relaxed">
+                Every time you do a good thing — Salah, helping, kindness,
+                Sadaqa, learning — you plant a flower 🌸. Your garden moves
+                up a level at <strong>5, 15, 30, 50, 80, 120</strong> and
+                more deeds.
+              </p>
+              {progress && progress.level < 12 && (
+                <p className="text-sm text-emerald-700 mt-2">
+                  You have <strong>{progress.totalGoodDeeds}</strong> good
+                  deed{progress.totalGoodDeeds === 1 ? '' : 's'}.
+                  {' '}
+                  <strong>{Math.max(0, nextLevelThreshold(progress.level) - progress.totalGoodDeeds)}</strong>
+                  {' '}more to reach Level {progress.level + 1}!
+                </p>
+              )}
+              {progress && progress.level >= 12 && (
+                <p className="text-sm text-emerald-700 mt-2 font-semibold">
+                  ✨ You've grown the full Jannah garden — alhamdulillah!
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Stats Cards */}
-      <div className="max-w-4xl mx-auto p-6">
+      <div className="max-w-4xl mx-auto px-6 pb-6">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
           <div className="bg-white rounded-xl p-4 text-center shadow-lg">
             <div className="text-3xl mb-1">🤲</div>

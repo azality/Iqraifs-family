@@ -556,6 +556,39 @@ export async function ackFamilyNote(noteId: string) {
   return apiCall(`/family-notes/${noteId}/ack`, { method: 'POST' });
 }
 
+// v27: Chore-claims — kid logs "I did this" on a positive trackable
+// item, parent approves, point event is written. Models on the
+// existing prayer-claims pattern.
+export async function createChoreClaim(args: {
+  childId: string;
+  trackableItemId: string;
+  note?: string;
+}) {
+  return apiCall('/chore-claims', {
+    method: 'POST',
+    body: JSON.stringify(args),
+  });
+}
+
+export async function getPendingChoreClaims() {
+  return apiCall('/chore-claims/family/pending');
+}
+
+export async function getTodayChoreClaims(childId: string) {
+  return apiCall(`/chore-claims/child/${childId}/today`);
+}
+
+export async function approveChoreClaim(claimId: string) {
+  return apiCall(`/chore-claims/${claimId}/approve`, { method: 'POST' });
+}
+
+export async function denyChoreClaim(claimId: string, reason?: string) {
+  return apiCall(`/chore-claims/${claimId}/deny`, {
+    method: 'POST',
+    body: JSON.stringify({ reason: reason || '' }),
+  });
+}
+
 // v20: Soft-void an event. Backend (POST /events/:id/void) is idempotent
 // and reverses the kid's point total when applied. Used by the Recent
 // Activity row's Void action so parents can clean up duplicate or wrong

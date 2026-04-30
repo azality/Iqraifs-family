@@ -34,6 +34,8 @@ import { RootLayout } from "./layouts/RootLayout";
 import { KidLayout } from "./layouts/KidLayout";
 import { ProvidersLayout } from "./layouts/ProvidersLayout";
 import { PrayerLogging } from "./pages/PrayerLogging";
+// v27: kid-driven chore claims
+import { KidChores } from "./pages/KidChores";
 import { PrayerApprovals } from "./pages/PrayerApprovals";
 import { DiagnosticPage } from "./pages/DiagnosticPage";
 import { WishlistDebug } from "./pages/WishlistDebug";
@@ -256,6 +258,7 @@ export const router = createBrowserRouter([
           { path: "/kid/rewards",        element: <KidRewardsGallery /> },
           { path: "/kid/challenges",     element: <Challenges /> },
           { path: "/kid/prayers",        element: <PrayerLogging /> },
+          { path: "/kid/chores",         element: <KidChores /> },
           { path: "/kid/knowledge-quest",element: <KnowledgeQuest /> },
           { path: "/kid/titles-badges",  element: <TitlesBadgesPage /> },
           { path: "/kid/sadqa",          element: <SadqaPage /> },

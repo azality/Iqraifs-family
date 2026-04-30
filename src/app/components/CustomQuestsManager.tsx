@@ -11,6 +11,13 @@ import { CustomQuestCreator } from './CustomQuestCreator';
 
 interface CustomQuestsManagerProps {
   familyId: string;
+  // v27: list of children in the current family. When a parent creates
+  // or activates a custom quest we now auto-generate a challenge for
+  // every kid so the quest actually shows up in their feed (the older
+  // flow created the quest *definition* only, leaving kids with
+  // nothing to see). Optional so existing call sites that don't pass
+  // this still work — but they'll just skip the auto-generation.
+  childIds?: string[];
 }
 
 interface CustomQuest {
@@ -29,7 +36,42 @@ interface CustomQuest {
   updatedAt: string;
 }
 
-export function CustomQuestsManager({ familyId }: CustomQuestsManagerProps) {
+// v27: helper that loops every kid in the family and POSTs to the
+// per-child generate endpoint. Idempotent on the server (a new
+// challenge id is created per call) so calling repeatedly does not
+// fail — but we still surface "already running" duplicates by
+// returning early on 4xx. Returns { ok: count, failed: count }.
+async function fanOutGenerate(
+  familyId: string,
+  childIds: string[],
+  customQuestId: string,
+  accessToken: string
+): Promise<{ ok: number; failed: number }> {
+  let ok = 0;
+  let failed = 0;
+  for (const childId of childIds) {
+    try {
+      const res = await fetch(
+        `https://${(await import('/utils/supabase/info.tsx')).projectId}.supabase.co/functions/v1/make-server-f116e23f/children/${childId}/custom-quests/generate`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({ customQuestId, familyId }),
+        }
+      );
+      if (res.ok) ok += 1;
+      else failed += 1;
+    } catch {
+      failed += 1;
+    }
+  }
+  return { ok, failed };
+}
+
+export function CustomQuestsManager({ familyId, childIds = [] }: CustomQuestsManagerProps) {
   const [customQuests, setCustomQuests] = useState<CustomQuest[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreator, setShowCreator] = useState(false);
@@ -90,7 +132,27 @@ export function CustomQuestsManager({ familyId }: CustomQuestsManagerProps) {
       );
 
       if (response.ok) {
-        toast.success(quest.active ? 'Custom quest paused' : 'Custom quest activated!');
+        const isActivating = !quest.active; // we're flipping FROM the old value
+        if (isActivating && childIds.length > 0) {
+          // v27: when a parent activates a custom quest, fan out the
+          // generate call to every kid in the family. Without this the
+          // quest is just a definition; nothing actually shows up in
+          // the kid view. The toast tells the parent how many kids
+          // got it (so they notice if it failed for some).
+          const { ok, failed } = await fanOutGenerate(
+            familyId,
+            childIds,
+            quest.id,
+            session.access_token
+          );
+          if (failed === 0) {
+            toast.success(`Activated — sent to ${ok} kid${ok === 1 ? '' : 's'}.`);
+          } else {
+            toast.warning(`Activated — sent to ${ok} of ${ok + failed} kids. Try refreshing.`);
+          }
+        } else {
+          toast.success(quest.active ? 'Custom quest paused' : 'Custom quest activated!');
+        }
         loadCustomQuests();
       } else {
         const error = await response.json();
@@ -147,8 +209,42 @@ export function CustomQuestsManager({ familyId }: CustomQuestsManagerProps) {
 
   const handleCreatorClose = () => {
     setShowCreator(false);
+    const wasEditing = !!editingQuest;
     setEditingQuest(null);
-    loadCustomQuests();
+    // v27: after a brand-new (not edit) custom quest is created, fan
+    // out to every kid in the family so the quest actually appears
+    // in their feed. Reload first so we have the freshly-created
+    // quest's id, then generate for active quests only. Edit flow
+    // already triggers generate via the active toggle when needed.
+    (async () => {
+      const before = customQuests.map(q => q.id);
+      await loadCustomQuests();
+      if (wasEditing || childIds.length === 0) return;
+      // Find the newly-added active quest. We re-read from state
+      // after loadCustomQuests by querying the server one more time;
+      // simpler than waiting for React to flush.
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) return;
+        const res = await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f/families/${familyId}/custom-quests`,
+          { headers: { 'Authorization': `Bearer ${session.access_token}`, 'apikey': publicAnonKey } }
+        );
+        if (!res.ok) return;
+        const all: CustomQuest[] = await res.json();
+        const fresh = all.filter(q => !before.includes(q.id) && q.active);
+        for (const q of fresh) {
+          const { ok, failed } = await fanOutGenerate(familyId, childIds, q.id, session.access_token);
+          if (failed === 0) {
+            toast.success(`"${q.title}" sent to ${ok} kid${ok === 1 ? '' : 's'}.`);
+          } else if (ok > 0) {
+            toast.warning(`"${q.title}" sent to ${ok} of ${ok + failed} kids.`);
+          }
+        }
+      } catch (err) {
+        console.warn('Custom quest auto-generate after create failed:', err);
+      }
+    })();
   };
 
   const getDifficultyColor = (difficulty: 'easy' | 'medium' | 'hard') => {

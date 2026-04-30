@@ -16,6 +16,7 @@ import { Link } from "react-router";
 import { motion } from "motion/react";
 import { RecoveryDialog } from "../components/RecoveryDialog";
 import { PrayerApprovalsWidget } from "../components/PrayerApprovalsWidget";
+import { ChoreApprovalsWidget } from "../components/ChoreApprovalsWidget";
 import { WishlistWidget } from "../components/WishlistWidget";
 import { GettingStartedCard } from "../components/GettingStartedCard";
 // v26: parent insights + send-note card
@@ -333,6 +334,11 @@ export function Dashboard() {
           empty-state clutter). When approvals are present this card is
           impossible to miss above the stats grid. */}
       {isParentMode && <PrayerApprovalsWidget priority />}
+
+      {/* v27: Chore approvals — kid-claimed positive habits/behaviors
+          waiting for parent approval. Same priority semantics: hidden
+          when nothing pending, loud yellow card when there is. */}
+      {isParentMode && <ChoreApprovalsWidget priority />}
 
       {/* v26: Weekly insights — derived from event patterns, not just
           counts. Shows trends (Salah improving, weekly concerns

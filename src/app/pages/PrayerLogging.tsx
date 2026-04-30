@@ -54,6 +54,20 @@ const PRAYER_ICONS: Record<string, string> = {
   Isha: '🌙'
 };
 
+// v27: parent-logged salah events also count as "prayed today." The
+// page used to only look at prayer-claims, so when a parent logged Asr
+// from Log Behavior the kid still saw the "I Prayed" button — felt
+// broken. Now we also pull point events and treat any approved prayer
+// event for today as already-credited.
+interface CreditedPrayer {
+  prayerName: string;
+  points: number;
+  bonusPoints: number;
+  bonusReason: string | null;
+  source: 'claim' | 'parent-log';
+  state?: 'ontime' | 'qadha' | 'missed' | null;
+}
+
 export function PrayerLogging() {
   const navigate = useNavigate();
   const [prayers, setPrayers] = useState<string[]>([]);
@@ -63,6 +77,10 @@ export function PrayerLogging() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // v27: today's credited prayer events from the kid's event log.
+  // Indexed by prayer name (e.g. "Asr") so the prayer card can show
+  // the actual points + bonus the kid earned.
+  const [creditedToday, setCreditedToday] = useState<Record<string, CreditedPrayer>>({});
 
   // CRITICAL: Use correct localStorage keys for kid mode
   const childId = getStorageSync('kid_id') || getStorageSync('child_id');
@@ -146,6 +164,68 @@ export function PrayerLogging() {
       if (statsRes.ok) {
         const statsData = await statsRes.json();
         setStats(statsData);
+      }
+
+      // v27: pull today's point events and surface any salah credits
+      // (whether they came from a kid claim or a parent direct log).
+      // The kid's prayer card then shows "MashAllah for praying Asr —
+      // +3 points" instead of still offering the "I Prayed" button.
+      try {
+        const eventsRes = await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f/children/${childId}/events`,
+          {
+            headers: {
+              'Authorization': `Bearer ${sessionToken}`,
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+        if (eventsRes.ok) {
+          const events = await eventsRes.json();
+          const todayStr = new Date().toDateString();
+          const credited: Record<string, CreditedPrayer> = {};
+          // Sum base + bonus per prayer for today.
+          for (const e of events as any[]) {
+            const isToday = new Date(e.timestamp).toDateString() === todayStr;
+            if (!isToday || e.points <= 0) continue;
+            // Identify prayer events: prefer event.itemName / notes
+            // ("Prayer: Asr"), fall back to salahState presence.
+            const text = `${e.itemName || ''} ${e.notes || ''}`;
+            const m = text.match(/Prayer:\s*([A-Za-z]+)/i);
+            const prayerName = m
+              ? m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase()
+              : null;
+            if (!prayerName) continue;
+
+            const existing = credited[prayerName] || {
+              prayerName,
+              points: 0,
+              bonusPoints: 0,
+              bonusReason: null as string | null,
+              source: 'parent-log' as const,
+              state: null as any,
+            };
+            if (e.isBonus) {
+              existing.bonusPoints += e.points;
+              if (!existing.bonusReason) {
+                existing.bonusReason = e.bonusReason || e.notes || null;
+              }
+            } else {
+              existing.points += e.points;
+              if (e.salahState) existing.state = e.salahState;
+            }
+            // If this came from a prayer-claim approval, label as 'claim'.
+            if ((e.itemName || '').includes('Prayer:') && (e.notes || '').includes('claim')) {
+              existing.source = 'claim';
+            }
+            credited[prayerName] = existing;
+          }
+          setCreditedToday(credited);
+        }
+      } catch (eventsErr) {
+        // Non-fatal — the page still works, kid just won't see the
+        // parent-logged prayers reflected as already-credited.
+        console.warn('Could not load events for prayer recognition:', eventsErr);
       }
     } catch (err: any) {
       console.error('Error loading prayer data:', err);
@@ -305,10 +385,13 @@ export function PrayerLogging() {
             const icon = PRAYER_ICONS[prayerName] || '🕌';
             const time = prayerTimes[prayerName];
             const isSubmitting = submitting === prayerName;
-            const isClaimed = !!claim;
-            const isApproved = claim?.status === 'approved';
-            const isPending = claim?.status === 'pending';
-            const isDenied = claim?.status === 'denied';
+            // v27: a prayer is "done today" if EITHER there's a claim
+            // OR there's a credited point event (parent direct-logged it).
+            const credited = creditedToday[prayerName];
+            const isClaimed = !!claim || !!credited;
+            const isApproved = claim?.status === 'approved' || !!credited;
+            const isPending = claim?.status === 'pending' && !credited;
+            const isDenied = claim?.status === 'denied' && !credited;
 
             return (
               <motion.div
@@ -336,11 +419,54 @@ export function PrayerLogging() {
                         )}
                       </div>
                     </div>
-                    {getStatusBadge(claim)}
-                    {isDenied && claim.denialReason && (
-                      <p className="text-sm text-gray-600 mt-2">
-                        💬 {claim.denialReason}
-                      </p>
+
+                    {/* v27: when a prayer is credited (claim approved OR
+                        parent direct-logged), show a celebratory line
+                        instead of just an emoji. The kid sees exactly
+                        why they got the points and any bonus reason. */}
+                    {isApproved && credited && (
+                      <div className="mt-2 space-y-1">
+                        <p className="text-sm font-semibold text-green-800">
+                          🌟 MashAllah for praying {prayerName}!
+                        </p>
+                        <p className="text-sm text-green-700">
+                          You earned <strong>+{credited.points}</strong> point{credited.points === 1 ? '' : 's'}
+                          {credited.state === 'qadha' && ' (qadha)'}
+                          {credited.bonusPoints > 0 && (
+                            <>
+                              {' '}plus <strong>+{credited.bonusPoints}</strong> bonus
+                            </>
+                          )}
+                          .
+                        </p>
+                        {credited.bonusPoints > 0 && credited.bonusReason && (
+                          <p className="text-xs text-amber-700">
+                            ✨ Bonus: {credited.bonusReason}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {isApproved && !credited && claim && (
+                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                        ✅ Approved (+{claim.points}pts)
+                      </span>
+                    )}
+                    {isPending && (
+                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                        ⏳ Waiting for your grown-up to approve
+                      </span>
+                    )}
+                    {isDenied && (
+                      <>
+                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                          ❌ Not approved
+                        </span>
+                        {claim?.denialReason && (
+                          <p className="text-sm text-gray-600 mt-2">
+                            💬 {claim.denialReason}
+                          </p>
+                        )}
+                      </>
                     )}
                   </div>
 

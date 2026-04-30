@@ -738,10 +738,11 @@ export function KidDashboard() {
           const isPreReader = level === 'pre-reader';
           const tiles: { label: string; emoji?: string; icon?: any; gradient: string; route: string; iconClass?: string }[] = [
             { label: 'Prayers', emoji: '🕌', gradient: 'from-blue-500 to-blue-700', route: '/kid/prayers' },
+            { label: 'My Chores', emoji: '✨', gradient: 'from-amber-500 to-orange-600', route: '/kid/chores' },
             { label: 'Quests', emoji: '⚔️', gradient: 'from-purple-500 to-purple-700', route: '/kid/challenges' },
             { label: 'Give Sadqa', icon: Heart, gradient: 'from-green-500 to-green-700', route: '/kid/sadqa', iconClass: 'fill-white' },
-            { label: 'My Wishlist', icon: Gift, gradient: 'from-[var(--kid-warm-gold)] to-[var(--kid-lantern-glow)]', route: '/kid/wishlist' },
             ...(isPreReader ? [] : [
+              { label: 'My Wishlist', icon: Gift, gradient: 'from-[var(--kid-warm-gold)] to-[var(--kid-lantern-glow)]', route: '/kid/wishlist' },
               { label: 'My Badges', icon: Award, gradient: 'from-[var(--kid-warm-gold)] to-[var(--kid-lantern-glow)]', route: '/kid/titles-badges' },
               { label: 'Adventure World', emoji: '🗺️', gradient: 'from-purple-600 to-pink-600', route: '/kid/adventure-world' },
             ]),

@@ -1,5 +1,5 @@
 // FGS Backend Server v1.0.3 - Accept challenge route flattened (no :childId in URL)
-const SERVER_VERSION = "v1.0.17-family-notes";
+const SERVER_VERSION = "v1.0.19-chore-claims";
 
 // v14: Safe family-key resolver. Family records are stored under keys like
 // "family:1745234567890" - the "family:" prefix is baked into the ID at
@@ -5622,33 +5622,60 @@ app.get(
   try {
     const difficulty = c.req.param('difficulty');
     const category = c.req.query('category');
-    
+    // v27: comma-separated list of question IDs the kid has already
+    // seen this session. We filter them out so the same question
+    // doesn't repeat. Caller (KnowledgeQuestPlay) accumulates
+    // session-shown ids client-side and passes them in.
+    const excludeIdsRaw = c.req.query('excludeIds') || '';
+    const excludeIds = new Set(
+      excludeIdsRaw.split(',').map(s => s.trim()).filter(Boolean)
+    );
+
     if (!['easy', 'medium', 'hard'].includes(difficulty)) {
       return c.json({ error: 'Invalid difficulty' }, 400);
     }
-    
-    const userId = getAuthUserId(c);
+
     const familyId = await getUserFamilyId(c);
-    
+
     const allQuestions = await kv.getByPrefix('question:');
-    
+
     // Filter by family/public, difficulty, and optionally category
-    let questions = allQuestions.filter((q: any) => 
+    let questions = allQuestions.filter((q: any) =>
       (q.familyId === familyId || q.isPublic === true) &&
       q.difficulty === difficulty
     );
-    
+
     if (category) {
       questions = questions.filter((q: any) => q.category === category);
     }
-    
+
+    // v27: surface why we're empty so the kid surface can show a
+    // useful message instead of a generic "Failed to load."
     if (questions.length === 0) {
-      return c.json({ error: 'No questions found' }, 404);
+      return c.json({
+        error: 'No questions found',
+        reason: category ? 'no_questions_in_category' : 'no_questions_for_difficulty',
+        familyId,
+        difficulty,
+        category: category || null,
+      }, 404);
     }
-    
-    // Return random question
-    const randomIndex = Math.floor(Math.random() * questions.length);
-    return c.json(questions[randomIndex]);
+
+    // v27: dedup against session-seen ids first; if everything has
+    // been seen, fall back to the unfiltered pool with an "all_seen"
+    // hint so the kid surface can offer a "start over" message.
+    const fresh = questions.filter((q: any) => !excludeIds.has(q.id));
+    if (fresh.length > 0) {
+      const randomIndex = Math.floor(Math.random() * fresh.length);
+      return c.json(fresh[randomIndex]);
+    }
+
+    // All available questions already seen this session.
+    return c.json({
+      error: 'All questions seen this session',
+      reason: 'all_seen',
+      pool: questions.length,
+    }, 404);
   } catch (error) {
     console.error('Get random question error:', error);
     return c.json({ error: 'Failed to get random question' }, 500);
@@ -7579,6 +7606,218 @@ app.post(
     } catch (error: any) {
       console.error('Ack family note error:', error);
       return c.json({ error: error.message || 'Failed to ack note' }, 500);
+    }
+  }
+);
+
+// =====================================================================
+// v27: Chore-claims (kid-driven approval flow for non-Salah events)
+// =====================================================================
+//
+// Mirrors the prayer-claims pattern but works for any positive
+// trackable item the kid wants credit for. The kid taps "I did this!"
+// → claim is created in pending state. Parent sees a queue, taps
+// approve, and we write a normal point event with the trackable
+// item's points. Denying just marks the claim denied (no event).
+//
+// Storage:
+//   chore-claim:<id>            -> { id, childId, familyId, trackableItemId, itemName, points, note, status, ... }
+//   chore-claim-index:<childId> -> string[] of claim ids (most recent last)
+
+app.post(
+  "/make-server-f116e23f/chore-claims",
+  requireAuth,
+  async (c) => {
+    try {
+      const userId = getAuthUserId(c);
+      const body = await c.req.json().catch(() => ({}));
+      const childId = String(body?.childId || '').trim();
+      const trackableItemId = String(body?.trackableItemId || '').trim();
+      const note = String(body?.note || '').trim().slice(0, 200);
+
+      if (!childId || !trackableItemId) {
+        return c.json({ error: 'childId and trackableItemId required' }, 400);
+      }
+
+      const child = await kv.get(childId);
+      if (!child || !child.familyId) return c.json({ error: 'child not found' }, 404);
+
+      // The kid surface (kid_access_token) only allows the kid to
+      // claim for themselves. requireChildAccess would help here but
+      // we keep this open to parent direct-claim too (for guardians).
+      const item = await kv.get(trackableItemId);
+      if (!item || item.familyId !== child.familyId) {
+        return c.json({ error: 'trackable item not found' }, 404);
+      }
+      // Only positive items are kid-claimable. Negative items are
+      // parent-only and should never reach this endpoint anyway.
+      if (typeof item.points !== 'number' || item.points <= 0) {
+        return c.json({ error: 'item is not a positive chore' }, 400);
+      }
+
+      const id = `chore-claim:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const claim = {
+        id,
+        childId,
+        familyId: child.familyId,
+        trackableItemId,
+        itemName: item.name,
+        points: item.points,
+        note: note || null,
+        status: 'pending' as 'pending' | 'approved' | 'denied',
+        claimedBy: userId,
+        claimedAt: new Date().toISOString(),
+      };
+      await kv.set(id, claim);
+
+      const indexKey = `chore-claim-index:${childId}`;
+      const idx = (await kv.get(indexKey)) || [];
+      idx.push(id);
+      await kv.set(indexKey, idx.slice(-200));
+
+      return c.json({ ok: true, claim });
+    } catch (error: any) {
+      console.error('Create chore-claim error:', error);
+      return c.json({ error: error.message || 'Failed to create chore claim' }, 500);
+    }
+  }
+);
+
+// Family-level pending list — parent approval queue.
+app.get(
+  "/make-server-f116e23f/chore-claims/family/pending",
+  requireAuth,
+  requireParent,
+  async (c) => {
+    try {
+      const familyId = await getUserFamilyId(c);
+      if (!familyId) return c.json([]);
+      const all = await kv.getByPrefix('chore-claim:');
+      const mine = all
+        .filter((cl: any) => cl.familyId === familyId && cl.status === 'pending')
+        .sort((a: any, b: any) => new Date(b.claimedAt).getTime() - new Date(a.claimedAt).getTime());
+      // Decorate with child name
+      const decorated = await Promise.all(
+        mine.map(async (cl: any) => {
+          const child = await kv.get(cl.childId);
+          return { ...cl, childName: child?.name || 'Kid' };
+        })
+      );
+      return c.json(decorated);
+    } catch (error: any) {
+      console.error('List pending chore-claims error:', error);
+      return c.json({ error: error.message || 'Failed to load chore claims' }, 500);
+    }
+  }
+);
+
+// Per-kid recent claims (for the kid surface to show pending state).
+app.get(
+  "/make-server-f116e23f/chore-claims/child/:childId/today",
+  requireAuth,
+  requireChildAccess,
+  async (c) => {
+    try {
+      const childId = c.req.param('childId');
+      const indexKey = `chore-claim-index:${childId}`;
+      const idx: string[] = (await kv.get(indexKey)) || [];
+      const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+      const out: any[] = [];
+      // Walk newest-first; cap at 30 to bound work.
+      for (let i = idx.length - 1; i >= 0 && out.length < 30; i--) {
+        const cl = await kv.get(idx[i]);
+        if (!cl) continue;
+        if (new Date(cl.claimedAt).getTime() >= todayStart.getTime()) {
+          out.push(cl);
+        } else {
+          // Index is chronological; once we cross the day boundary stop.
+          break;
+        }
+      }
+      return c.json(out);
+    } catch (error: any) {
+      console.error('Get child chore-claims error:', error);
+      return c.json({ error: error.message || 'Failed to load chore claims' }, 500);
+    }
+  }
+);
+
+app.post(
+  "/make-server-f116e23f/chore-claims/:id/approve",
+  requireAuth,
+  requireParent,
+  async (c) => {
+    try {
+      const id = c.req.param('id');
+      const claim = await kv.get(id);
+      if (!claim) return c.json({ error: 'claim not found' }, 404);
+      if (claim.status !== 'pending') {
+        return c.json({ ok: true, claim }); // idempotent
+      }
+      const userId = getAuthUserId(c);
+
+      // Write the real point event using the snapshot from the claim.
+      const eventId = `event:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const event = {
+        id: eventId,
+        childId: claim.childId,
+        familyId: claim.familyId,
+        trackableItemId: claim.trackableItemId,
+        itemName: claim.itemName,
+        type: 'behavior',
+        points: claim.points,
+        loggedBy: userId,
+        notes: claim.note ? `Kid-claimed chore: ${claim.note}` : 'Kid-claimed chore',
+        timestamp: new Date().toISOString(),
+        status: 'active',
+      };
+      await kv.set(eventId, event);
+
+      // Bump kid's points
+      const child = await kv.get(claim.childId);
+      if (child) {
+        child.currentPoints = (child.currentPoints || 0) + claim.points;
+        await kv.set(claim.childId, child);
+      }
+
+      // Mark the claim approved
+      claim.status = 'approved';
+      claim.approvedBy = userId;
+      claim.approvedAt = new Date().toISOString();
+      claim.eventId = eventId;
+      await kv.set(id, claim);
+
+      return c.json({ ok: true, claim, event });
+    } catch (error: any) {
+      console.error('Approve chore-claim error:', error);
+      return c.json({ error: error.message || 'Failed to approve' }, 500);
+    }
+  }
+);
+
+app.post(
+  "/make-server-f116e23f/chore-claims/:id/deny",
+  requireAuth,
+  requireParent,
+  async (c) => {
+    try {
+      const id = c.req.param('id');
+      const body = await c.req.json().catch(() => ({}));
+      const reason = String(body?.reason || '').trim().slice(0, 200);
+      const claim = await kv.get(id);
+      if (!claim) return c.json({ error: 'claim not found' }, 404);
+      if (claim.status !== 'pending') {
+        return c.json({ ok: true, claim }); // idempotent
+      }
+      claim.status = 'denied';
+      claim.deniedBy = getAuthUserId(c);
+      claim.deniedAt = new Date().toISOString();
+      claim.denialReason = reason || null;
+      await kv.set(id, claim);
+      return c.json({ ok: true, claim });
+    } catch (error: any) {
+      console.error('Deny chore-claim error:', error);
+      return c.json({ error: error.message || 'Failed to deny' }, 500);
     }
   }
 );

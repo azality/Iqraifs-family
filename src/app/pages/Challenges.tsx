@@ -686,7 +686,10 @@ export function Challenges() {
 
           {/* Custom quests — parent can write their own templates alongside
               the auto-generated ones. */}
-          <CustomQuestsManager familyId={familyId} />
+          {/* v27: pass childIds so custom-quest activation auto-generates
+              a per-kid challenge instance. Without this the quest stays
+              a family-level definition that never reaches kids. */}
+          <CustomQuestsManager familyId={familyId} childIds={(children || []).map(c => c.id)} />
 
           {/* Active Challenges */}
           {active.length > 0 && (
