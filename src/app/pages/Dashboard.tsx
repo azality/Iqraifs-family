@@ -50,16 +50,23 @@ export function Dashboard() {
   // reveal +10 each time the parent taps "Load more". `voidTarget`
   // drives the inline void confirmation dialog used to clean up
   // duplicates or wrong entries directly from the dashboard.
+  // v25: parents can opt to surface voided events struck-through
+  // (instead of having them disappear) so the audit trail reads
+  // honestly. Off by default — most-of-the-time the parent wants the
+  // active feed.
+  const [showVoided, setShowVoided] = useState(false);
   const [activityVisible, setActivityVisible] = useState(5);
   const [voidTarget, setVoidTarget] = useState<{ event: PointEvent; itemName: string } | null>(null);
   const [voidReason, setVoidReason] = useState('');
   const [voiding, setVoiding] = useState(false);
 
-  // Load events for the current child
+  // v25: refetch when showVoided toggles so the activity feed actually
+  // reflects the choice. Calling getChildEvents with includeVoided=true
+  // hits the new ?include_voided=true backend flag.
   useEffect(() => {
     if (child?.id) {
       setLoadingEvents(true);
-      getChildEvents(child.id)
+      getChildEvents(child.id, { includeVoided: showVoided })
         .then(events => setPointEvents(events || []))
         .catch(err => {
           console.error('Error loading events:', err);
@@ -69,7 +76,7 @@ export function Dashboard() {
     } else {
       setPointEvents([]);
     }
-  }, [child?.id, getChildEvents]);
+  }, [child?.id, getChildEvents, showVoided]);
 
   // Point values awarded for each recovery action. Must match RecoveryDialog.tsx.
   const RECOVERY_POINTS: Record<'apology' | 'reflection' | 'correction', number> = {
@@ -108,7 +115,7 @@ export function Dashboard() {
     });
 
     // Reload events so the new recovery entry shows in the timeline
-    const events = await getChildEvents(child.id);
+    const events = await getChildEvents(child.id, { includeVoided: showVoided });
     setPointEvents(events || []);
   };
 
@@ -618,8 +625,27 @@ export function Dashboard() {
       {/* Recent Activity */}
       <Card>
         <CardHeader>
-          <CardTitle>{isChildView ? "📜 My Recent Activities" : "Recent Activity"}</CardTitle>
-          <CardDescription>{isChildView ? "See what you've been up to!" : "Latest events and behaviors"}</CardDescription>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <CardTitle>{isChildView ? "📜 My Recent Activities" : "Recent Activity"}</CardTitle>
+              <CardDescription>{isChildView ? "See what you've been up to!" : "Latest events and behaviors"}</CardDescription>
+            </div>
+            {/* v25: parent-only "Show voided" toggle. Surfaces previously
+                voided events struck-through with their reason on hover —
+                that IS the audit signal. Off by default to keep the daily
+                feed clean. */}
+            {isParentMode && (
+              <label className="inline-flex items-center gap-2 text-xs text-gray-600 cursor-pointer select-none shrink-0">
+                <input
+                  type="checkbox"
+                  checked={showVoided}
+                  onChange={(e) => setShowVoided(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                Show voided
+              </label>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
@@ -650,10 +676,24 @@ export function Dashboard() {
                 ...group.rows.map(({ event, dupCount, itemName }) => {
                 const hasRecovery = pointEvents.some(e => e.recoveryFromEventId === event.id);
                 const canRecover = isChildView && event.points < 0 && !hasRecovery;
-                const canVoid = isParentMode && (event as any).status !== 'voided';
+                const isVoided = (event as any).status === 'voided';
+                const canVoid = isParentMode && !isVoided;
+                // v25: voided rows render struck-through with reduced
+                // contrast and a tooltip carrying the void reason.
+                const rowBase = 'flex items-center justify-between border-b pb-3 last:border-0';
+                const rowMod = isVoided
+                  ? 'opacity-60'
+                  : canRecover
+                    ? 'bg-red-50 p-3 rounded-lg border border-red-200'
+                    : '';
+                const textMod = isVoided ? 'line-through decoration-gray-400' : '';
 
                 return (
-                  <div key={event.id} className={`flex items-center justify-between border-b pb-3 last:border-0 ${canRecover ? 'bg-red-50 p-3 rounded-lg border border-red-200' : ''}`}>
+                  <div
+                    key={event.id}
+                    className={`${rowBase} ${rowMod} ${textMod}`.trim()}
+                    title={isVoided ? `Voided${(event as any).voidReason ? `: ${(event as any).voidReason}` : ''}` : undefined}
+                  >
                     <div className="space-y-1 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="font-medium">{itemName}</p>

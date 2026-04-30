@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -8,9 +8,16 @@ import { ArrowLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { projectId, publicAnonKey } from '/utils/supabase/info.tsx';
 import { setKidMode } from '../utils/auth';
-import { getStorageSync } from '../../utils/storage';
+import { getStorageSync, setStorageSync, removeStorageSync } from '../../utils/storage';
 
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f`;
+
+// v24: device-trust for kid login. After the first successful family-code
+// verification on a device, store the verified code so subsequent kid
+// logins skip step 1 entirely. The token is family-scoped (not user-scoped)
+// so it survives parent log-out — appropriate for a shared family tablet.
+// A single Settings affordance ("Untrust this device") clears it.
+const TRUSTED_FAMILY_KEY = 'iqra_trusted_family_code';
 
 interface Kid {
   id: string;
@@ -29,45 +36,87 @@ export function KidLoginNew() {
   const [selectedKid, setSelectedKid] = useState<Kid | null>(null);
   const [pin, setPin] = useState('');
   const [loading, setLoading] = useState(false);
+  // v24: when we auto-skipped step 1 from a trusted-device token, expose
+  // a "Use a different family" link on step 2 so a switched tablet can
+  // override and re-enter the code manually.
+  const [trustedAutoFilled, setTrustedAutoFilled] = useState(false);
+
+  // v24: shared verifier — used both by the explicit form submit AND by
+  // the auto-skip path on mount. Returns true on success.
+  const verifyFamilyCode = async (rawCode: string, opts: { silent?: boolean } = {}) => {
+    const code = rawCode.trim().toUpperCase();
+    if (code.length < 4) return false;
+    try {
+      const res = await fetch(`${API_BASE}/public/verify-family-code`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': publicAnonKey },
+        body: JSON.stringify({ familyCode: code }),
+      });
+      const response = await res.json();
+      if (response.success) {
+        setFamilyCode(code);
+        setFamilyName(response.familyName);
+        setKids(response.kids);
+        setStep('select');
+        if (!opts.silent) toast.success(response.message);
+        // Persist verified-good code so future logins on this device skip step 1.
+        setStorageSync(TRUSTED_FAMILY_KEY, code);
+        return true;
+      } else {
+        if (!opts.silent) toast.error(response.error || 'Invalid family code');
+        return false;
+      }
+    } catch (error) {
+      console.error('Family code verification error:', error);
+      if (!opts.silent) toast.error('Failed to verify family code');
+      return false;
+    }
+  };
+
+  // v24: on mount, if this device has a trusted family token, verify it
+  // silently and skip step 1. If verification fails (rotated code, removed
+  // family) we clear the bad token and let the user enter the code
+  // manually. No error toast — the kid never sees that we tried.
+  useEffect(() => {
+    const stored = getStorageSync(TRUSTED_FAMILY_KEY) as string | null;
+    if (!stored || typeof stored !== 'string' || stored.length < 4) return;
+    let cancelled = false;
+    (async () => {
+      const ok = await verifyFamilyCode(stored, { silent: true });
+      if (cancelled) return;
+      if (ok) {
+        setTrustedAutoFilled(true);
+      } else {
+        removeStorageSync(TRUSTED_FAMILY_KEY);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleCodeSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
     if (familyCode.length < 4) {
       toast.error('Please enter your family code');
       return;
     }
-
     setLoading(true);
-
     try {
-      const res = await fetch(`${API_BASE}/public/verify-family-code`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': publicAnonKey
-        },
-        body: JSON.stringify({
-          familyCode: familyCode.trim().toUpperCase()
-        })
-      });
-
-      const response = await res.json();
-
-      if (response.success) {
-        setFamilyName(response.familyName);
-        setKids(response.kids);
-        toast.success(response.message);
-        setStep('select');
-      } else {
-        toast.error(response.error || 'Invalid family code');
-      }
-    } catch (error) {
-      console.error('Family code verification error:', error);
-      toast.error('Failed to verify family code');
+      await verifyFamilyCode(familyCode);
     } finally {
       setLoading(false);
     }
+  };
+
+  // v24: "Not your family?" — clears the trusted token, drops back to step 1.
+  const handleSwitchFamily = () => {
+    removeStorageSync(TRUSTED_FAMILY_KEY);
+    setTrustedAutoFilled(false);
+    setKids([]);
+    setSelectedKid(null);
+    setFamilyCode('');
+    setFamilyName('');
+    setStep('code');
   };
 
   const handleKidSelect = (kid: Kid) => {
@@ -406,6 +455,19 @@ export function KidLoginNew() {
                   <p className="text-center text-xs text-gray-500">
                     Family code: <span className="font-mono font-semibold text-gray-700">{familyCode}</span>
                   </p>
+
+                  {/* v24: when we auto-skipped step 1 from a trusted-device
+                      token, expose a way to switch families on a shared
+                      tablet (visiting cousin) without entering Settings. */}
+                  {trustedAutoFilled && (
+                    <button
+                      type="button"
+                      onClick={handleSwitchFamily}
+                      className="mt-2 block mx-auto text-xs text-amber-700 hover:text-amber-800 hover:underline"
+                    >
+                      Not your family? Use a different code
+                    </button>
+                  )}
                 </motion.div>
               )}
 

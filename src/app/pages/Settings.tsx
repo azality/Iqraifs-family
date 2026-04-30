@@ -15,7 +15,7 @@ import { useFamilyContext } from "../contexts/FamilyContext";
 import { useRewards } from "../hooks/useRewards";
 import { useTrackableItems } from "../hooks/useTrackableItems";
 import { useMilestones } from "../hooks/useMilestones";
-import { createChild, generateInviteCode } from "../../utils/api";
+import { createChild, generateInviteCode, updateChild } from "../../utils/api";
 import { toast } from "sonner";
 import { Lock, Plus, X, Gift, Target, Award, Sparkles, TrendingUp, TrendingDown, Users, AlertTriangle, Heart, UserCheck, UserX, Trash2, Globe, Bell, BellOff, Gamepad2, Brain } from "lucide-react";
 import { projectId, publicAnonKey } from "../../../utils/supabase/info.tsx";
@@ -1452,6 +1452,12 @@ export function Settings() {
 
         {/* CHILDREN TAB */}
         <TabsContent value="children" className="space-y-4">
+          {/* v24: device-trust controls. After a successful family-code
+              entry on a device, kids can log in without re-typing the code.
+              This card lets a parent see whether THIS device is trusted
+              and revoke that trust (e.g. shared tablet leaving the home). */}
+          <DeviceTrustCard />
+
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -1531,6 +1537,38 @@ export function Settings() {
                         </p>
                       </div>
                     </div>
+
+                    {/* v25: Reading level. Drives KidDashboard density,
+                        copy, and streak presentation. Saved on the child
+                        record via existing PATCH /children/:id endpoint
+                        (no new backend route needed — updateChild accepts
+                        arbitrary fields). Pre-readers (4–6) get fewer
+                        tiles, larger type, and a garden metaphor instead
+                        of streak counts. */}
+                    <div className="mt-3">
+                      <Label className="text-xs text-blue-900 font-medium">
+                        Reading level
+                      </Label>
+                      <select
+                        value={(child as any).readingLevel || 'reader'}
+                        onChange={async (e) => {
+                          const next = e.target.value as 'pre-reader' | 'reader' | 'older';
+                          try {
+                            await updateChild(child.id, { readingLevel: next });
+                            toast.success(`Reading level set to ${next}.`);
+                          } catch (err) {
+                            console.error('Failed to update reading level:', err);
+                            toast.error('Could not save reading level.');
+                          }
+                        }}
+                        className="mt-1 w-full text-xs px-2 py-1.5 rounded border border-blue-200 bg-white"
+                      >
+                        <option value="pre-reader">Pre-reader (4–6)</option>
+                        <option value="reader">Reader (7–9)</option>
+                        <option value="older">Older (10–12)</option>
+                      </select>
+                    </div>
+
                     {/* v13: Reset PIN action - parents only (guardians don't manage child credentials). */}
                     <div className="mt-3 flex justify-end">
                       <Button
@@ -2732,7 +2770,7 @@ export function Settings() {
                               <SelectItem value="salah">🕌 Salah (one of the 5 daily prayers)</SelectItem>
                               <SelectItem value="habit">✅ Habit (positive routine, e.g. brush teeth)</SelectItem>
                               <SelectItem value="positive">⭐ Positive Behavior (one-time good action)</SelectItem>
-                              <SelectItem value="negative">⚠️ Negative Behavior (deducts points)</SelectItem>
+                              <SelectItem value="negative">⚠️ Concern (deducts points)</SelectItem>
                             </SelectContent>
                           </Select>
                           <p className="text-xs text-muted-foreground">
@@ -3097,11 +3135,13 @@ export function Settings() {
                 </div>
               </div>
 
-              {/* Negative Behaviors */}
+              {/* v23: section heading softened from "Negative Behaviors"
+                  to "Concerns". Same items, same filter (points < 0).
+                  Less punishing framing on the parent's catalog screen. */}
               <div>
                 <h3 className="font-semibold mb-3 flex items-center gap-2">
                   <TrendingDown className="h-4 w-4 text-red-600" />
-                  Negative Behaviors
+                  Concerns
                 </h3>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {negativeBehaviors.map(item => (
@@ -3672,5 +3712,68 @@ export function Settings() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+// v24: Device-trust card. Lives in Children tab. Shows whether THIS
+// device has a stored family code (kids skip step 1 of login on this
+// device) and lets the parent revoke that trust. The token is the
+// family code itself, stored under iqra_trusted_family_code; this
+// component just reads / clears it. Module-scoped to avoid the inner
+// component refresh-loop bug that caused v22.
+function DeviceTrustCard() {
+  const TRUSTED_FAMILY_KEY = 'iqra_trusted_family_code';
+  const [trusted, setTrusted] = useState<string | null>(
+    () => (typeof window !== 'undefined'
+      ? (window.localStorage.getItem(TRUSTED_FAMILY_KEY) || null)
+      : null)
+  );
+
+  const revoke = () => {
+    try {
+      window.localStorage.removeItem(TRUSTED_FAMILY_KEY);
+    } catch (e) {
+      console.warn('Could not clear trusted-family token:', e);
+    }
+    setTrusted(null);
+    toast.success('Device trust cleared. Kids will need the family code to log in here.');
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Lock className="h-5 w-5" />
+          Kid login on this device
+        </CardTitle>
+        <CardDescription>
+          When a family code is verified once on a device, kids can log in
+          without re-typing it. Useful for the family tablet. Revoke trust
+          if you lend the device or share it with another family.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {trusted ? (
+          <div className="flex items-center justify-between gap-3 rounded-lg border bg-emerald-50/60 border-emerald-200 p-4">
+            <div className="text-sm">
+              <p className="font-semibold text-emerald-900">This device is trusted</p>
+              <p className="text-emerald-800">
+                Family code{' '}
+                <span className="font-mono font-semibold">{trusted}</span> is
+                remembered. Kids skip the code step at login.
+              </p>
+            </div>
+            <Button variant="outline" size="sm" onClick={revoke}>
+              Untrust this device
+            </Button>
+          </div>
+        ) : (
+          <div className="rounded-lg border border-gray-200 p-4 text-sm text-gray-600">
+            This device is not trusted. Kids will need to enter the family
+            code each time they log in here.
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

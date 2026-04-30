@@ -1,5 +1,5 @@
 // FGS Backend Server v1.0.3 - Accept challenge route flattened (no :childId in URL)
-const SERVER_VERSION = "v1.0.15-behavior-fixes";
+const SERVER_VERSION = "v1.0.16-include-voided";
 
 // v14: Safe family-key resolver. Family records are stored under keys like
 // "family:1745234567890" - the "family:" prefix is baked into the ID at
@@ -1889,9 +1889,18 @@ app.get(
   async (c) => {
   try {
     const childId = c.req.param('childId');
+    // v25: optional include_voided flag. Default still strips voided
+    // events so nothing relying on the old behaviour breaks. The parent
+    // activity feed opts in via ?include_voided=true to surface voided
+    // events struck-through with their void reason — that IS the audit
+    // signal we promised.
+    const includeVoided = c.req.query('include_voided') === 'true';
     const allEvents = await kv.getByPrefix('event:');
     const childEvents = allEvents
-      .filter((event: any) => event.childId === childId && event.status !== 'voided') // Exclude voided events
+      .filter((event: any) =>
+        event.childId === childId &&
+        (includeVoided || event.status !== 'voided')
+      )
       .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     
     // ✅ CRITICAL FIX: Add logged_by_display to each event

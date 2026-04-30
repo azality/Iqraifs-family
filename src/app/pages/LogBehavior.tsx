@@ -434,7 +434,12 @@ export function LogBehavior() {
               <TabsTrigger value="salah">Salah</TabsTrigger>
               <TabsTrigger value="habits">Habits</TabsTrigger>
               <TabsTrigger value="positive">Positive</TabsTrigger>
-              <TabsTrigger value="negative">Negative</TabsTrigger>
+              {/* v23: tab label softened from "Negative" to "Concerns".
+                  Underlying data filter unchanged (points < 0). The kid
+                  never sees this label. The intent is to stop framing
+                  the parent's daily logging surface as a punishment
+                  console — concerns are noticed, not negative. */}
+              <TabsTrigger value="negative">Concerns</TabsTrigger>
             </TabsList>
 
             <TabsContent value="salah" className="space-y-4">

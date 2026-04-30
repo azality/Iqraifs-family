@@ -585,63 +585,72 @@ export function KidDashboard() {
       </div>
 
       <div className="max-w-6xl mx-auto px-4 md:px-6 space-y-8">
-        {/* Quick Access Buttons */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="grid grid-cols-2 gap-4 md:grid-cols-4"
-        >
-          <button
-            onClick={() => navigate('/kid/titles-badges')}
-            className="bg-gradient-to-br from-[var(--kid-warm-gold)] to-[var(--kid-lantern-glow)] rounded-[1rem] p-4 text-white shadow-lg hover:shadow-xl transition-all hover:scale-105"
-          >
-            <Award className="w-8 h-8 mx-auto mb-2" />
-            <p className="text-sm font-semibold">My Badges</p>
-          </button>
+        {/* v25: Reading-level adaptive surface. Same KidDashboard for
+            4–6, 7–9, 10–12. Pre-readers see fewer tiles, bigger type. */}
+        {(() => {
+          const level: 'pre-reader' | 'reader' | 'older' = (child as any).readingLevel || 'reader';
+          const isPreReader = level === 'pre-reader';
+          const tiles: { label: string; emoji?: string; icon?: any; gradient: string; route: string; iconClass?: string }[] = [
+            { label: 'Prayers', emoji: '🕌', gradient: 'from-blue-500 to-blue-700', route: '/kid/prayers' },
+            { label: 'Quests', emoji: '⚔️', gradient: 'from-purple-500 to-purple-700', route: '/kid/challenges' },
+            { label: 'Give Sadqa', icon: Heart, gradient: 'from-green-500 to-green-700', route: '/kid/sadqa', iconClass: 'fill-white' },
+            { label: 'My Wishlist', icon: Gift, gradient: 'from-[var(--kid-warm-gold)] to-[var(--kid-lantern-glow)]', route: '/kid/wishlist' },
+            ...(isPreReader ? [] : [
+              { label: 'My Badges', icon: Award, gradient: 'from-[var(--kid-warm-gold)] to-[var(--kid-lantern-glow)]', route: '/kid/titles-badges' },
+              { label: 'Adventure World', emoji: '🗺️', gradient: 'from-purple-600 to-pink-600', route: '/kid/adventure-world' },
+            ]),
+          ];
+          const gridCls = isPreReader ? 'grid grid-cols-2 gap-5' : 'grid grid-cols-2 gap-4 md:grid-cols-4';
+          const tileCls = isPreReader
+            ? 'rounded-2xl p-6 text-white shadow-lg active:scale-95 transition-transform'
+            : 'rounded-[1rem] p-4 text-white shadow-lg hover:shadow-xl transition-all hover:scale-105';
+          const labelCls = isPreReader ? 'text-base font-bold' : 'text-sm font-semibold';
+          const iconCls = isPreReader ? 'w-10 h-10 mx-auto mb-2' : 'w-8 h-8 mx-auto mb-2';
+          const emojiCls = isPreReader ? 'text-4xl block mb-1' : 'text-3xl block mb-1';
+          return (
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className={gridCls}>
+              {tiles.map(t => (
+                <button key={t.label} onClick={() => navigate(t.route)} className={`bg-gradient-to-br ${t.gradient} ${tileCls}`}>
+                  {t.icon ? <t.icon className={`${iconCls} ${t.iconClass || ''}`.trim()} /> : <span className={emojiCls}>{t.emoji}</span>}
+                  <p className={labelCls}>{t.label}</p>
+                </button>
+              ))}
+            </motion.div>
+          );
+        })()}
 
-          <button
-            onClick={() => navigate('/kid/sadqa')}
-            className="bg-gradient-to-br from-green-500 to-green-700 rounded-[1rem] p-4 text-white shadow-lg hover:shadow-xl transition-all hover:scale-105"
-          >
-            <Heart className="w-8 h-8 mx-auto mb-2 fill-white" />
-            <p className="text-sm font-semibold">Give Sadqa</p>
-          </button>
-
-          <button
-            onClick={() => navigate('/kid/challenges')}
-            className="bg-gradient-to-br from-purple-500 to-purple-700 rounded-[1rem] p-4 text-white shadow-lg hover:shadow-xl transition-all hover:scale-105"
-          >
-            <span className="text-3xl block mb-1">⚔️</span>
-            <p className="text-sm font-semibold">Quests</p>
-          </button>
-
-          <button
-            onClick={() => navigate('/kid/prayers')}
-            className="bg-gradient-to-br from-blue-500 to-blue-700 rounded-[1rem] p-4 text-white shadow-lg hover:shadow-xl transition-all hover:scale-105"
-          >
-            <span className="text-3xl block mb-1">🕌</span>
-            <p className="text-sm font-semibold">Prayers</p>
-          </button>
-
-          <button
-            onClick={() => navigate('/kid/wishlist')}
-            className="bg-gradient-to-br from-[var(--kid-warm-gold)] to-[var(--kid-lantern-glow)] rounded-[1rem] p-4 text-white shadow-lg hover:shadow-xl transition-all hover:scale-105"
-          >
-            <Gift className="w-8 h-8 mx-auto mb-2" />
-            <p className="text-sm font-semibold">My Wishlist</p>
-          </button>
-
-          <button
-            onClick={() => navigate('/kid/adventure-world')}
-            className="bg-gradient-to-br from-purple-600 to-pink-600 rounded-[1rem] p-4 text-white shadow-lg hover:shadow-xl transition-all hover:scale-105"
-          >
-            <span className="text-3xl block mb-1">🗺️</span>
-            <p className="text-sm font-semibold">Adventure World</p>
-          </button>
-        </motion.div>
-
-        {/* Streaks Section */}
-        {habitStreaks.length > 0 && (
+        {/* v25: Streaks → Garden for pre-readers. Streak counts are
+            anxiety, not motivation, for a 5-year-old. We render a
+            persistent garden metaphor — every consecutive day plants a
+            flower; missing one fades into a sprout but the garden never
+            resets to bare ground. Older kids keep the streak counter. */}
+        {habitStreaks.length > 0 && ((child as any).readingLevel === 'pre-reader' ? (
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+            <h2 className="text-2xl font-bold text-[var(--kid-midnight-blue)] mb-4 flex items-center gap-2">
+              🌱 Your Garden
+            </h2>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {habitStreaks.map((streak) => {
+                const flowers = Math.min(streak.current, 14);
+                const empties = Math.max(0, 14 - flowers);
+                return (
+                  <div key={streak.itemId} className="bg-gradient-to-br from-emerald-50 to-green-100 rounded-2xl p-4 border-2 border-emerald-200 shadow-md">
+                    <div className="font-bold text-emerald-900 mb-2">{streak.name}</div>
+                    <div className="text-2xl leading-none flex flex-wrap gap-1">
+                      {Array.from({ length: flowers }).map((_, i) => <span key={`f-${i}`} aria-hidden>🌸</span>)}
+                      {Array.from({ length: empties }).map((_, i) => <span key={`e-${i}`} className="opacity-30" aria-hidden>🌱</span>)}
+                    </div>
+                    <div className="mt-2 text-xs text-emerald-800">
+                      {streak.current === 0
+                        ? 'Plant your first flower today!'
+                        : `Your garden has ${streak.current} flower${streak.current === 1 ? '' : 's'} so far!`}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </motion.div>
+        ) : (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -674,7 +683,7 @@ export function KidDashboard() {
               ))}
             </div>
           </motion.div>
-        )}
+        ))}
 
         {/* Today's Prayer Quest */}
         {salahItems.length > 0 && (

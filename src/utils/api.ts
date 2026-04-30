@@ -526,8 +526,12 @@ export async function logPointEvent(eventData: any) {
   });
 }
 
-export async function getChildEvents(childId: string) {
-  return apiCall(`/children/${childId}/events`);
+export async function getChildEvents(childId: string, opts?: { includeVoided?: boolean }) {
+  // v25: opt-in include_voided. Default off so nothing relying on the old
+  // behaviour breaks. Parent activity feed passes true; everything else
+  // still gets the voided-stripped list.
+  const qs = opts?.includeVoided ? '?include_voided=true' : '';
+  return apiCall(`/children/${childId}/events${qs}`);
 }
 
 // v20: Soft-void an event. Backend (POST /events/:id/void) is idempotent
