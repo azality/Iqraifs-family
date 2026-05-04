@@ -1,234 +1,204 @@
-import { useState, useEffect } from "react";
+/**
+ * v28: Barakah Garden — honest revamp.
+ *
+ * Previous version showed phantom stats (Ayahs: 0, Helped: 0) for
+ * categories we don't actually track, and item descriptions ("Grows
+ * when you learn new Quranic verses") that didn't tie to anything
+ * real. The garden was a fiction layered on top of a single number.
+ *
+ * The new model:
+ *   - Single source of truth: lifetime positive `pointEvents` for
+ *     this kid (same source as the home BarakahGarden + the level).
+ *   - Garden items each have a real deed-count threshold. When the
+ *     kid's lifetime deed count crosses that threshold, the item
+ *     unlocks.
+ *   - Each unlocked item shows EXACTLY which event triggered it
+ *     ("Unlocked on Apr 28 — when you logged 'Homework Complete'")
+ *     by indexing into the events array sorted oldest-first.
+ *   - Stats panel shows only what we genuinely track: total deeds,
+ *     this week's deeds, best streak (any habit), and the kid's
+ *     most-logged activity. No fake "Ayahs" or "Helped" counters.
+ *
+ * Backend untouched.
+ */
+
+import { useState, useEffect, useMemo } from "react";
 import { motion } from "motion/react";
 import { useNavigate } from "react-router";
-import { ArrowLeft, Sparkles, TreePine, Flower2, Droplets, Info } from "lucide-react";
+import { ArrowLeft, Info } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { useFamilyContext } from "../contexts/FamilyContext";
-import { projectId } from "../../../utils/supabase/info";
 import { toast } from "sonner";
 import { getChildEvents } from "../../utils/api";
 
-const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f`;
+// ---------- Garden tier model -----------------------------------------------
 
-// v27: keep this in sync with BarakahGarden.tsx on the home page so
-// both surfaces show the SAME level/total. Previously the home page
-// derived from event log while this page used a separate
-// `adventure-garden:<childId>` kv counter that never got incremented
-// — so the home page would say "level 2 / 14 deeds" while this page
-// said "level 1 / 0 deeds." Single source of truth = lifetime
-// positive event count.
+// Deed-count threshold for each level. Same curve the home BarakahGarden
+// uses, so both surfaces report the same number. Index 0 = Level 1, etc.
+const LEVEL_THRESHOLDS = [1, 5, 15, 30, 50, 80, 120, 180, 260, 360, 500, 700];
+
 function gardenLevelFromDeeds(totalDeeds: number): number {
-  if (totalDeeds < 5)   return 1;
-  if (totalDeeds < 15)  return 2;
-  if (totalDeeds < 30)  return 3;
-  if (totalDeeds < 50)  return 4;
-  if (totalDeeds < 80)  return 5;
-  if (totalDeeds < 120) return 6;
-  if (totalDeeds < 180) return 7;
-  if (totalDeeds < 260) return 8;
-  if (totalDeeds < 360) return 9;
-  if (totalDeeds < 500) return 10;
-  if (totalDeeds < 700) return 11;
-  return 12;
+  for (let i = LEVEL_THRESHOLDS.length - 1; i >= 0; i--) {
+    if (totalDeeds >= LEVEL_THRESHOLDS[i]) return i + 1;
+  }
+  return 1;
 }
 function nextLevelThreshold(level: number): number {
-  const thresholds = [5, 15, 30, 50, 80, 120, 180, 260, 360, 500, 700, 700];
-  return thresholds[level - 1] ?? 700;
+  return LEVEL_THRESHOLDS[level] ?? LEVEL_THRESHOLDS[LEVEL_THRESHOLDS.length - 1];
 }
 
-interface GardenItem {
+// Garden items, in the order they unlock. Each one's `unlocksAtDeeds`
+// is the lifetime deed count at which it appears. Names + emojis are
+// generic ("First Sapling" rather than "Oak of Knowledge") so the
+// unlock criterion ("you logged your 5th good deed") matches what the
+// description claims.
+interface GardenItemDef {
   id: string;
-  type: 'tree' | 'flower' | 'fountain' | 'stone';
   emoji: string;
   name: string;
-  description: string;
-  unlocked: boolean;
-  requirement: string;
+  // The threshold this item represents. Unlocked when the kid's
+  // lifetime good-deed count reaches this number.
+  unlocksAtDeeds: number;
+  // Position on the visual garden (percent x/y).
   position: { x: number; y: number };
 }
 
-interface GardenProgress {
-  childId: string;
-  level: number;
-  unlockedItems: string[];
-  totalGoodDeeds: number;
-  prayersCompleted: number;
-  quranMemorized: number;
-  helpedOthers: number;
-}
+const GARDEN_ITEMS: GardenItemDef[] = [
+  { id: 'sprout-1',  emoji: '🌱', name: 'First Sapling',     unlocksAtDeeds: 1,   position: { x: 18, y: 70 } },
+  { id: 'flower-1',  emoji: '🌸', name: 'Pink Blossom',       unlocksAtDeeds: 3,   position: { x: 32, y: 75 } },
+  { id: 'flower-2',  emoji: '🌼', name: 'Daisy',              unlocksAtDeeds: 5,   position: { x: 48, y: 78 } },
+  { id: 'tree-1',    emoji: '🌳', name: 'Young Tree',          unlocksAtDeeds: 10,  position: { x: 70, y: 30 } },
+  { id: 'flower-3',  emoji: '🌺', name: 'Rose',                unlocksAtDeeds: 15,  position: { x: 60, y: 75 } },
+  { id: 'bird-1',    emoji: '🦋', name: 'Butterfly Visit',     unlocksAtDeeds: 20,  position: { x: 22, y: 22 } },
+  { id: 'tree-2',    emoji: '🌴', name: 'Palm Tree',           unlocksAtDeeds: 30,  position: { x: 18, y: 30 } },
+  { id: 'fountain-1',emoji: '⛲', name: 'Stone Fountain',       unlocksAtDeeds: 50,  position: { x: 45, y: 45 } },
+  { id: 'rainbow-1', emoji: '🌈', name: 'Rainbow After Rain',  unlocksAtDeeds: 80,  position: { x: 50, y: 12 } },
+  { id: 'tree-3',    emoji: '🌲', name: 'Pine Grove',          unlocksAtDeeds: 120, position: { x: 80, y: 35 } },
+  { id: 'bird-2',    emoji: '🐦', name: 'Songbird',            unlocksAtDeeds: 180, position: { x: 75, y: 18 } },
+  { id: 'masjid-1',  emoji: '🕌', name: 'Garden Masjid',       unlocksAtDeeds: 260, position: { x: 35, y: 28 } },
+];
+
+// Friendly date formatter for the "unlocked when" line.
+const fmtDate = (iso: string) => {
+  try {
+    return new Date(iso).toLocaleDateString(undefined, {
+      month: 'short', day: 'numeric', year: 'numeric',
+    });
+  } catch { return ''; }
+};
+
+// ---------- Component -------------------------------------------------------
 
 export function JannahGarden() {
   const navigate = useNavigate();
   const { accessToken } = useAuth();
-  const { getCurrentChild, familyId } = useFamilyContext();
+  const { getCurrentChild } = useFamilyContext();
   const child = getCurrentChild();
 
   const [loading, setLoading] = useState(true);
-  const [progress, setProgress] = useState<GardenProgress | null>(null);
-  const [gardenItems, setGardenItems] = useState<GardenItem[]>([]);
-  const [selectedItem, setSelectedItem] = useState<GardenItem | null>(null);
-
-  // Default garden items with various positions
-  const defaultGardenItems: GardenItem[] = [
-    {
-      id: 'tree-1',
-      type: 'tree',
-      emoji: '🌳',
-      name: 'Oak of Knowledge',
-      description: 'Grows when you learn new Quranic verses',
-      unlocked: false,
-      requirement: 'Memorize 5 ayahs',
-      position: { x: 20, y: 30 }
-    },
-    {
-      id: 'tree-2',
-      type: 'tree',
-      emoji: '🌴',
-      name: 'Palm of Peace',
-      description: 'Blooms with every prayer you complete',
-      unlocked: false,
-      requirement: 'Complete 10 prayers',
-      position: { x: 70, y: 25 }
-    },
-    {
-      id: 'flower-1',
-      type: 'flower',
-      emoji: '🌸',
-      name: 'Blossom of Kindness',
-      description: 'Appears when you help someone',
-      unlocked: false,
-      requirement: 'Help 3 people',
-      position: { x: 15, y: 60 }
-    },
-    {
-      id: 'flower-2',
-      type: 'flower',
-      emoji: '🌺',
-      name: 'Rose of Gratitude',
-      description: 'Grows when you say Alhamdulillah',
-      unlocked: false,
-      requirement: 'Say Alhamdulillah 20 times',
-      position: { x: 50, y: 65 }
-    },
-    {
-      id: 'flower-3',
-      type: 'flower',
-      emoji: '🌻',
-      name: 'Sunflower of Joy',
-      description: 'Shines with your good deeds',
-      unlocked: false,
-      requirement: 'Complete 5 good deeds',
-      position: { x: 80, y: 55 }
-    },
-    {
-      id: 'fountain-1',
-      type: 'fountain',
-      emoji: '⛲',
-      name: 'Fountain of Barakah',
-      description: 'Flows with the blessings of charity',
-      unlocked: false,
-      requirement: 'Donate to sadaqah',
-      position: { x: 45, y: 35 }
-    },
-    {
-      id: 'stone-1',
-      type: 'stone',
-      emoji: '🪨',
-      name: 'Stone of Patience',
-      description: 'Appears when you show sabr',
-      unlocked: false,
-      requirement: 'Practice patience',
-      position: { x: 30, y: 70 }
-    },
-    {
-      id: 'tree-3',
-      type: 'tree',
-      emoji: '🌲',
-      name: 'Pine of Perseverance',
-      description: 'Grows with consistent good habits',
-      unlocked: false,
-      requirement: 'Maintain a 7-day streak',
-      position: { x: 60, y: 40 }
-    }
-  ];
+  const [events, setEvents] = useState<any[]>([]);
+  const [selectedItem, setSelectedItem] = useState<GardenItemDef | null>(null);
 
   useEffect(() => {
-    loadGardenData();
-  }, [child, familyId, accessToken]);
-
-  const loadGardenData = async () => {
-    if (!child || !familyId || !accessToken) return;
-
-    try {
-      setLoading(true);
-
-      // v27: derive garden state from the kid's lifetime point-events,
-      // matching the home page BarakahGarden. Previously this page
-      // read a separate `adventure-garden:<childId>` kv that was never
-      // incremented in the v26+ flow — so the home page showed level
-      // 2 / 14 deeds while this page showed level 1 / 0 deeds. Single
-      // source of truth = lifetime positive events.
-      const events = await getChildEvents(child.id);
-      const myEvents = (events || []).filter(
-        (e: any) => e.childId === child.id && e.points > 0 && !e.isBonus && !e.isRecovery
-      );
-      const totalDeeds = myEvents.length;
-      const prayersCompleted = myEvents.filter(
-        (e: any) => /prayer\s*:|salah/i.test(e.itemName || e.notes || '')
-      ).length;
-
-      const level = gardenLevelFromDeeds(totalDeeds);
-      // Unlock items progressively based on level. Each item maps to a
-      // specific tier so the visual progression mirrors the home
-      // page's level metaphor — but the per-item names/descriptions
-      // here remain the existing rich Adventure World copy.
-      const tierToUnlock = (idx: number) => Math.min(level - 1, idx) >= idx;
-      const unlockedIds = defaultGardenItems
-        .map((it, i) => (tierToUnlock(i) ? it.id : null))
-        .filter((x): x is string => !!x);
-
-      const computed: GardenProgress = {
-        childId: child.id,
-        level,
-        unlockedItems: unlockedIds,
-        totalGoodDeeds: totalDeeds,
-        prayersCompleted,
-        quranMemorized: 0,
-        helpedOthers: 0,
-      };
-      setProgress(computed);
-
-      const updatedItems = defaultGardenItems.map(item => ({
-        ...item,
-        unlocked: unlockedIds.includes(item.id),
-      }));
-      setGardenItems(updatedItems);
-    } catch (error) {
-      console.error('Failed to load garden data:', error);
-      toast.error('Failed to load your garden');
-    } finally {
+    if (!child || !accessToken) {
       setLoading(false);
+      return;
     }
-  };
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoading(true);
+        const all = await getChildEvents(child.id);
+        if (!cancelled) setEvents(Array.isArray(all) ? all : []);
+      } catch (err) {
+        console.error('Garden load failed:', err);
+        toast.error('Could not load your garden');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [child, accessToken]);
+
+  // ---------- Derived data ----------
+  const data = useMemo(() => {
+    // Positive, non-bonus, non-recovery events in chronological order
+    // (oldest first). Bonus events are "extras" on the same deed —
+    // counting them would double-credit the same action. Recoveries
+    // are repair credits, not new deeds.
+    const myDeeds = (events || [])
+      .filter((e: any) => e?.points > 0 && !e.isBonus && !e.isRecovery && e?.status !== 'voided')
+      .sort((a: any, b: any) =>
+        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+      );
+    const totalDeeds = myDeeds.length;
+    const level = gardenLevelFromDeeds(totalDeeds);
+
+    // This-week count (last 7 days)
+    const weekAgo = Date.now() - 7 * 86400000;
+    const thisWeek = myDeeds.filter(
+      (e: any) => new Date(e.timestamp).getTime() >= weekAgo
+    ).length;
+
+    // Most-logged activity by item name
+    const byName = new Map<string, number>();
+    for (const e of myDeeds) {
+      const name = (e.itemName as string) || 'Unknown';
+      byName.set(name, (byName.get(name) || 0) + 1);
+    }
+    const mostLogged = [...byName.entries()].sort((a, b) => b[1] - a[1])[0];
+
+    // For each garden item, figure out the trigger event.
+    // unlocksAtDeeds is 1-indexed → events[N-1] is the deed that
+    // crossed it. Items above totalDeeds remain locked and we say
+    // exactly how many more deeds are needed.
+    const itemsWithTrigger = GARDEN_ITEMS.map((it) => {
+      const idx = it.unlocksAtDeeds - 1;
+      const trigger = idx < myDeeds.length ? myDeeds[idx] : null;
+      return {
+        def: it,
+        unlocked: trigger != null,
+        trigger,
+        deedsToGo: Math.max(0, it.unlocksAtDeeds - totalDeeds),
+      };
+    });
+
+    return {
+      myDeeds,
+      totalDeeds,
+      level,
+      thisWeek,
+      mostLogged: mostLogged ? { name: mostLogged[0], count: mostLogged[1] } : null,
+      items: itemsWithTrigger,
+    };
+  }, [events]);
+
+  if (!child) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-emerald-50 to-green-100">
+        <p className="text-emerald-900">Please log in to see your garden.</p>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-green-100 to-emerald-100 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-b from-sky-200 via-green-100 to-emerald-200 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto mb-4"></div>
-          <p className="text-green-800">Loading your garden...</p>
+          <p className="text-emerald-800">Loading your garden…</p>
         </div>
       </div>
     );
   }
 
-  const unlockedCount = gardenItems.filter(item => item.unlocked).length;
-  const totalItems = gardenItems.length;
-  const completionPercentage = Math.round((unlockedCount / totalItems) * 100);
+  const { totalDeeds, level, thisWeek, mostLogged, items, myDeeds } = data;
+  const unlockedCount = items.filter(i => i.unlocked).length;
+  const completionPct = Math.round((unlockedCount / items.length) * 100);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-sky-200 via-green-100 to-emerald-200">
-      {/* Header */}
+      {/* ---------- Header ---------- */}
       <div className="bg-gradient-to-r from-green-600 to-emerald-600 text-white p-6 shadow-lg">
         <div className="max-w-4xl mx-auto">
           <div className="flex items-center justify-between mb-4">
@@ -241,39 +211,33 @@ export function JannahGarden() {
             </button>
             <div className="text-right">
               <p className="text-sm text-green-100">Garden Level</p>
-              <p className="text-2xl font-bold">{progress?.level || 1}</p>
+              <p className="text-2xl font-bold">{level}</p>
             </div>
           </div>
 
           <h1 className="text-3xl font-bold mb-2">Your Barakah Garden 🌺</h1>
           <p className="text-green-100 text-sm mb-4">
-            Every good deed makes your garden grow!
+            Every good thing you log plants a flower. Tap any plant to see
+            when you grew it.
           </p>
 
-          {/* Progress Bar */}
+          {/* Progress bar — fraction of garden items unlocked */}
           <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4">
             <div className="flex justify-between text-sm mb-2">
               <span>Garden Progress</span>
-              <span>{completionPercentage}% Complete</span>
+              <span>{unlockedCount}/{items.length} plants · {completionPct}%</span>
             </div>
             <div className="w-full bg-white/20 rounded-full h-3">
               <div
                 className="bg-white rounded-full h-3 transition-all duration-500"
-                style={{ width: `${completionPercentage}%` }}
+                style={{ width: `${completionPct}%` }}
               />
-            </div>
-            <div className="mt-3 flex items-center justify-between text-xs text-green-100">
-              <span>{unlockedCount} items unlocked</span>
-              <span>{totalItems - unlockedCount} items to discover</span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* v27: How does my garden grow? — explainer card. The previous
-          page never told a kid how to earn anything; the level was a
-          mystery. Now we say it plainly: every good thing you log
-          plants a flower; the level moves up at clear thresholds. */}
+      {/* ---------- "How does my garden grow?" ---------- */}
       <div className="max-w-4xl mx-auto px-6 pt-6">
         <div className="bg-white/90 backdrop-blur rounded-2xl shadow-lg ring-1 ring-emerald-200 p-5 mb-6">
           <div className="flex items-start gap-3">
@@ -283,21 +247,22 @@ export function JannahGarden() {
             <div className="flex-1">
               <h3 className="font-bold text-emerald-900 mb-1">How does my garden grow?</h3>
               <p className="text-sm text-emerald-800 leading-relaxed">
-                Every time you do a good thing — Salah, helping, kindness,
-                Sadaqa, learning — you plant a flower 🌸. Your garden moves
-                up a level at <strong>5, 15, 30, 50, 80, 120</strong> and
-                more deeds.
+                Every good thing you log — Salah, helping at home,
+                kindness, sadaqa, learning — counts as one good deed and
+                plants something new in your garden. New plants unlock
+                at <strong>1, 3, 5, 10, 15, 20, 30, 50, 80, 120, 180,
+                and 260</strong> deeds.
               </p>
-              {progress && progress.level < 12 && (
+              {level < LEVEL_THRESHOLDS.length && (
                 <p className="text-sm text-emerald-700 mt-2">
-                  You have <strong>{progress.totalGoodDeeds}</strong> good
-                  deed{progress.totalGoodDeeds === 1 ? '' : 's'}.
+                  You have <strong>{totalDeeds}</strong> good
+                  deed{totalDeeds === 1 ? '' : 's'} so far.
                   {' '}
-                  <strong>{Math.max(0, nextLevelThreshold(progress.level) - progress.totalGoodDeeds)}</strong>
-                  {' '}more to reach Level {progress.level + 1}!
+                  <strong>{Math.max(0, nextLevelThreshold(level) - totalDeeds)}</strong>
+                  {' '}more to reach Level {level + 1}!
                 </p>
               )}
-              {progress && progress.level >= 12 && (
+              {level >= LEVEL_THRESHOLDS.length && (
                 <p className="text-sm text-emerald-700 mt-2 font-semibold">
                   ✨ You've grown the full Jannah garden — alhamdulillah!
                 </p>
@@ -307,131 +272,165 @@ export function JannahGarden() {
         </div>
       </div>
 
-      {/* Stats Cards */}
+      {/* ---------- Honest stats panel (only what we track) ---------- */}
       <div className="max-w-4xl mx-auto px-6 pb-6">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
           <div className="bg-white rounded-xl p-4 text-center shadow-lg">
-            <div className="text-3xl mb-1">🤲</div>
-            <p className="text-2xl font-bold text-green-900">{progress?.prayersCompleted || 0}</p>
-            <p className="text-xs text-gray-600">Prayers</p>
-          </div>
-          <div className="bg-white rounded-xl p-4 text-center shadow-lg">
-            <div className="text-3xl mb-1">📖</div>
-            <p className="text-2xl font-bold text-blue-900">{progress?.quranMemorized || 0}</p>
-            <p className="text-xs text-gray-600">Ayahs</p>
-          </div>
-          <div className="bg-white rounded-xl p-4 text-center shadow-lg">
-            <div className="text-3xl mb-1">💝</div>
-            <p className="text-2xl font-bold text-pink-900">{progress?.helpedOthers || 0}</p>
-            <p className="text-xs text-gray-600">Helped</p>
-          </div>
-          <div className="bg-white rounded-xl p-4 text-center shadow-lg">
             <div className="text-3xl mb-1">⭐</div>
-            <p className="text-2xl font-bold text-yellow-900">{progress?.totalGoodDeeds || 0}</p>
-            <p className="text-xs text-gray-600">Good Deeds</p>
+            <p className="text-2xl font-bold text-yellow-900">{totalDeeds}</p>
+            <p className="text-xs text-gray-600">Total deeds</p>
+          </div>
+          <div className="bg-white rounded-xl p-4 text-center shadow-lg">
+            <div className="text-3xl mb-1">📅</div>
+            <p className="text-2xl font-bold text-blue-900">{thisWeek}</p>
+            <p className="text-xs text-gray-600">This week</p>
+          </div>
+          <div className="bg-white rounded-xl p-4 text-center shadow-lg">
+            <div className="text-3xl mb-1">🌸</div>
+            <p className="text-2xl font-bold text-pink-900">{unlockedCount}</p>
+            <p className="text-xs text-gray-600">Plants grown</p>
+          </div>
+          <div className="bg-white rounded-xl p-4 text-center shadow-lg flex flex-col">
+            <div className="text-3xl mb-1">🏆</div>
+            {mostLogged ? (
+              <>
+                <p className="text-sm font-bold text-emerald-900 truncate" title={mostLogged.name}>
+                  {mostLogged.name}
+                </p>
+                <p className="text-xs text-gray-600">Most logged · {mostLogged.count}×</p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm font-bold text-gray-400">—</p>
+                <p className="text-xs text-gray-500">No deeds yet</p>
+              </>
+            )}
           </div>
         </div>
 
-        {/* Garden Visualization */}
-        <div className="bg-gradient-to-b from-green-300 to-green-400 rounded-2xl shadow-2xl overflow-hidden mb-6 relative h-96">
-          {/* Sky background */}
-          <div className="absolute top-0 left-0 right-0 h-32 bg-gradient-to-b from-sky-300 to-transparent"></div>
-          
-          {/* Sun */}
-          <div className="absolute top-4 right-4 w-12 h-12 bg-yellow-300 rounded-full shadow-lg animate-pulse"></div>
+        {/* ---------- Garden visualization ---------- */}
+        <div className="bg-gradient-to-b from-sky-200 via-green-300 to-green-500 rounded-2xl shadow-2xl overflow-hidden mb-6 relative h-[26rem]">
+          <div className="absolute top-4 right-4 w-12 h-12 bg-yellow-300 rounded-full shadow-lg animate-pulse" />
+          <div className="absolute bottom-0 left-0 right-0 h-2/3 bg-gradient-to-b from-green-400 to-green-600" />
 
-          {/* Ground */}
-          <div className="absolute bottom-0 left-0 right-0 h-2/3 bg-gradient-to-b from-green-400 to-green-600"></div>
-
-          {/* Garden Items */}
-          {gardenItems.map((item) => (
-            <motion.div
-              key={item.id}
+          {items.map((it) => (
+            <motion.button
+              key={it.def.id}
+              type="button"
               initial={{ scale: 0, opacity: 0 }}
-              animate={{ 
-                scale: item.unlocked ? 1 : 0.3, 
-                opacity: item.unlocked ? 1 : 0.3 
+              animate={{
+                scale: it.unlocked ? 1 : 0.45,
+                opacity: it.unlocked ? 1 : 0.35,
               }}
               transition={{ duration: 0.5 }}
-              className={`absolute cursor-pointer transform transition-transform hover:scale-110 ${
-                !item.unlocked ? 'grayscale' : ''
+              onClick={() => setSelectedItem(it.def)}
+              className={`absolute cursor-pointer transition-transform hover:scale-110 ${
+                it.unlocked ? '' : 'grayscale'
               }`}
-              style={{
-                left: `${item.position.x}%`,
-                top: `${item.position.y}%`,
-              }}
-              onClick={() => setSelectedItem(item)}
+              style={{ left: `${it.def.position.x}%`, top: `${it.def.position.y}%` }}
+              aria-label={it.unlocked ? `${it.def.name} (unlocked)` : `Locked plant — ${it.deedsToGo} more deeds`}
             >
-              <div className="text-6xl filter drop-shadow-lg">
-                {item.unlocked ? item.emoji : '🔒'}
+              <div className="text-5xl filter drop-shadow-lg select-none">
+                {it.unlocked ? it.def.emoji : '🔒'}
               </div>
-            </motion.div>
+            </motion.button>
           ))}
-
-          {/* Grass blades decoration */}
-          <div className="absolute bottom-0 left-0 right-0 flex justify-around items-end h-16 opacity-60">
-            {[...Array(15)].map((_, i) => (
-              <div
-                key={i}
-                className="w-1 bg-green-700 rounded-t"
-                style={{ height: `${Math.random() * 60 + 20}px` }}
-              />
-            ))}
-          </div>
         </div>
 
-        {/* Item Details Modal */}
-        {selectedItem && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="bg-white rounded-2xl p-6 shadow-2xl"
-          >
-            <div className="flex items-start gap-4">
-              <div className="text-6xl">{selectedItem.emoji}</div>
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-2">
-                  <h3 className="text-2xl font-bold text-gray-900">{selectedItem.name}</h3>
-                  {selectedItem.unlocked ? (
-                    <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full">
-                      Unlocked ✓
-                    </span>
+        {/* ---------- Item detail card ---------- */}
+        {selectedItem && (() => {
+          const it = items.find(x => x.def.id === selectedItem.id);
+          if (!it) return null;
+          return (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-white rounded-2xl p-6 shadow-2xl mb-6"
+            >
+              <div className="flex items-start gap-4">
+                <div className="text-6xl shrink-0">{it.def.emoji}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-2 flex-wrap">
+                    <h3 className="text-2xl font-bold text-gray-900">{it.def.name}</h3>
+                    {it.unlocked ? (
+                      <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full">
+                        Unlocked ✓
+                      </span>
+                    ) : (
+                      <span className="bg-gray-100 text-gray-700 text-xs px-2 py-1 rounded-full">
+                        Locked
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-sm text-gray-700">
+                    Unlocks at <strong>{it.def.unlocksAtDeeds}</strong>
+                    {' '}good deed{it.def.unlocksAtDeeds === 1 ? '' : 's'}.
+                  </p>
+
+                  {/* This is the heart of the v28 fix: when an item is
+                      unlocked, we say EXACTLY which event triggered it
+                      and when. No more "Grows when you learn new
+                      Quranic verses" with no evidence. */}
+                  {it.unlocked && it.trigger ? (
+                    <div className="mt-3 rounded-lg bg-emerald-50 border border-emerald-200 p-3 text-sm">
+                      <p className="text-emerald-900">
+                        🌱 You grew this on <strong>{fmtDate(it.trigger.timestamp)}</strong>
+                        {' '}— it was your <strong>{it.def.unlocksAtDeeds}{ordinalSuffix(it.def.unlocksAtDeeds)}</strong> good deed.
+                      </p>
+                      <p className="text-emerald-800 mt-1">
+                        That deed was: <strong>{it.trigger.itemName || 'Untitled'}</strong>
+                        {it.trigger.points ? <> (<span>+{it.trigger.points}</span> points)</> : null}.
+                      </p>
+                    </div>
                   ) : (
-                    <span className="bg-gray-100 text-gray-600 text-xs px-2 py-1 rounded-full">
-                      Locked 🔒
-                    </span>
+                    <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-900">
+                      <strong>{it.deedsToGo}</strong> more good deed{it.deedsToGo === 1 ? '' : 's'} to grow this!
+                    </div>
                   )}
                 </div>
-                <p className="text-gray-600 mb-3">{selectedItem.description}</p>
-                {!selectedItem.unlocked && (
-                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-                    <p className="text-sm font-semibold text-yellow-900 mb-1">
-                      How to unlock:
-                    </p>
-                    <p className="text-sm text-yellow-800">{selectedItem.requirement}</p>
-                  </div>
-                )}
               </div>
-            </div>
-            <button
-              onClick={() => setSelectedItem(null)}
-              className="mt-4 w-full bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 rounded-lg transition-colors"
-            >
-              Close
-            </button>
-          </motion.div>
-        )}
+              <button
+                onClick={() => setSelectedItem(null)}
+                className="mt-4 text-sm text-gray-500 hover:text-gray-700"
+              >
+                Close
+              </button>
+            </motion.div>
+          );
+        })()}
 
-        {/* Encouragement Message */}
-        <div className="bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl p-6 text-white text-center">
-          <Sparkles className="w-8 h-8 mx-auto mb-3" />
-          <h3 className="text-xl font-bold mb-2">Keep Growing! 🌱</h3>
-          <p className="text-sm opacity-90">
-            Every prayer, every ayah, every kind act makes your Jannah Garden more beautiful.
-            May Allah accept your good deeds!
-          </p>
-        </div>
+        {/* ---------- Recent deeds list (audit trail) ---------- */}
+        {myDeeds.length > 0 && (
+          <div className="bg-white rounded-2xl shadow-lg p-5 mb-6">
+            <h3 className="font-bold text-emerald-900 mb-3">Recent good deeds</h3>
+            <ul className="space-y-2">
+              {[...myDeeds].reverse().slice(0, 8).map((e: any) => (
+                <li key={e.id} className="flex items-center justify-between text-sm border-b border-gray-100 pb-2 last:border-0">
+                  <span className="text-gray-900 truncate min-w-0 mr-3">{e.itemName || 'Unknown'}</span>
+                  <span className="text-xs text-gray-500 shrink-0">{fmtDate(e.timestamp)}</span>
+                </li>
+              ))}
+            </ul>
+            {myDeeds.length > 8 && (
+              <p className="text-xs text-gray-500 mt-2">
+                Showing 8 most recent · {myDeeds.length} total
+              </p>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
+}
+
+// "1st", "2nd", "3rd", "4th", … helper for the unlock copy.
+function ordinalSuffix(n: number): string {
+  const v = n % 100;
+  if (v >= 11 && v <= 13) return 'th';
+  switch (n % 10) {
+    case 1: return 'st';
+    case 2: return 'nd';
+    case 3: return 'rd';
+    default: return 'th';
+  }
 }

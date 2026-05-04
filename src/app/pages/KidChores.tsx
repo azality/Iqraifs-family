@@ -43,6 +43,10 @@ export function KidChores() {
   const [claims, setClaims] = useState<ChoreClaim[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState<string | null>(null);
+  // v28: explicit "submitted to your grown-up" banner. Kid taps
+  // "I did this!" → 6s confirmation that their tap reached us and
+  // tells them what happens next.
+  const [justSubmitted, setJustSubmitted] = useState<string | null>(null);
 
   useEffect(() => {
     if (!child || !accessToken) return;
@@ -78,7 +82,12 @@ export function KidChores() {
       await createChoreClaim({ childId: child.id, trackableItemId: item.id });
       const fresh = await getTodayChoreClaims(child.id);
       setClaims(fresh || []);
+      // v28: dual confirmation — toast for the immediate "got it",
+      // plus a banner at the top of the page so the kid can see
+      // exactly what was sent and what happens next.
       toast.success(`MashAllah! "${item.name}" sent for approval.`);
+      setJustSubmitted(item.name);
+      setTimeout(() => setJustSubmitted(null), 6000);
     } catch (err: any) {
       console.error('Chore claim error:', err);
       toast.error(err?.message || 'Could not log this. Try again.');
@@ -114,6 +123,28 @@ export function KidChores() {
             Did something good? Tap "I did this!" and your grown-up will give you the points.
           </p>
         </div>
+
+        {/* v28: confirmation banner — kid sees it after each "I did
+            this!" tap so they know it was sent and what comes next. */}
+        {justSubmitted && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            className="mb-4 bg-gradient-to-r from-amber-100 to-yellow-100 border-2 border-amber-300 rounded-xl px-4 py-3 flex items-start gap-3 shadow-md"
+          >
+            <span className="text-2xl shrink-0">📬</span>
+            <div className="text-sm">
+              <p className="font-bold text-amber-900">
+                Sent to your grown-up — {justSubmitted}
+              </p>
+              <p className="text-amber-800 mt-0.5">
+                They'll see it on their screen and approve. You'll get
+                your points then!
+              </p>
+            </div>
+          </motion.div>
+        )}
 
         {(loading || itemsLoading) && (
           <div className="bg-white rounded-xl shadow p-8 text-center">

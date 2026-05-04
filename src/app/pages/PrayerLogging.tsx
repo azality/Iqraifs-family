@@ -166,35 +166,62 @@ export function PrayerLogging() {
         setStats(statsData);
       }
 
-      // v27: pull today's point events and surface any salah credits
-      // (whether they came from a kid claim or a parent direct log).
-      // The kid's prayer card then shows "MashAllah for praying Asr —
-      // +3 points" instead of still offering the "I Prayed" button.
+      // v27/v28: pull today's point events AND the family's trackable
+      // items so we can robustly identify salah events. The v27 fix
+      // matched on "Prayer:" text in itemName/notes — that misses
+      // events written before v20 (which only had trackableItemId)
+      // and any events whose snapshot uses different copy. v28 adds
+      // a lookup against trackable items where category === 'salah';
+      // any event whose trackableItemId matches one of those is a
+      // salah event for the matching prayer name.
       try {
-        const eventsRes = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f/children/${childId}/events`,
-          {
-            headers: {
-              'Authorization': `Bearer ${sessionToken}`,
-              'Content-Type': 'application/json',
-            },
+        const [eventsRes, itemsRes] = await Promise.all([
+          fetch(`https://${projectId}.supabase.co/functions/v1/make-server-f116e23f/children/${childId}/events`, {
+            headers: { 'Authorization': `Bearer ${sessionToken}`, 'Content-Type': 'application/json' },
+          }),
+          fetch(`https://${projectId}.supabase.co/functions/v1/make-server-f116e23f/trackable-items`, {
+            headers: { 'Authorization': `Bearer ${sessionToken}`, 'Content-Type': 'application/json' },
+          }),
+        ]);
+
+        // Build a map: trackableItemId -> prayerName, for salah items.
+        let salahByItemId: Record<string, string> = {};
+        if (itemsRes.ok) {
+          const items = await itemsRes.json();
+          for (const it of (Array.isArray(items) ? items : [])) {
+            if (it?.category === 'salah' && it?.id && it?.name) {
+              salahByItemId[it.id] = it.name;
+            }
           }
-        );
+        }
+
         if (eventsRes.ok) {
           const events = await eventsRes.json();
           const todayStr = new Date().toDateString();
           const credited: Record<string, CreditedPrayer> = {};
-          // Sum base + bonus per prayer for today.
           for (const e of events as any[]) {
             const isToday = new Date(e.timestamp).toDateString() === todayStr;
-            if (!isToday || e.points <= 0) continue;
-            // Identify prayer events: prefer event.itemName / notes
-            // ("Prayer: Asr"), fall back to salahState presence.
-            const text = `${e.itemName || ''} ${e.notes || ''}`;
-            const m = text.match(/Prayer:\s*([A-Za-z]+)/i);
-            const prayerName = m
-              ? m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase()
-              : null;
+            if (!isToday || e.points <= 0 || e.status === 'voided') continue;
+
+            // Identify prayer events: in priority order
+            //   1. trackableItemId matches a salah trackable item
+            //   2. event.itemName has "Prayer: <name>"
+            //   3. event.notes has "Prayer: <name>"
+            //   4. event.salahState present (legacy)
+            let prayerName: string | null = null;
+            if (e.trackableItemId && salahByItemId[e.trackableItemId]) {
+              prayerName = salahByItemId[e.trackableItemId];
+            } else {
+              const text = `${e.itemName || ''} ${e.notes || ''}`;
+              const m = text.match(/Prayer:\s*([A-Za-z]+)/i);
+              if (m) {
+                prayerName = m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase();
+              } else if (e.salahState && e.itemName) {
+                // Fallback: an event with a salahState almost certainly
+                // is a salah event; trust the itemName as the prayer.
+                prayerName = e.itemName;
+              }
+            }
             if (!prayerName) continue;
 
             const existing = credited[prayerName] || {
@@ -214,7 +241,6 @@ export function PrayerLogging() {
               existing.points += e.points;
               if (e.salahState) existing.state = e.salahState;
             }
-            // If this came from a prayer-claim approval, label as 'claim'.
             if ((e.itemName || '').includes('Prayer:') && (e.notes || '').includes('claim')) {
               existing.source = 'claim';
             }
@@ -223,7 +249,7 @@ export function PrayerLogging() {
           setCreditedToday(credited);
         }
       } catch (eventsErr) {
-        // Non-fatal — the page still works, kid just won't see the
+        // Non-fatal — the page still works; the kid just won't see
         // parent-logged prayers reflected as already-credited.
         console.warn('Could not load events for prayer recognition:', eventsErr);
       }
@@ -234,6 +260,13 @@ export function PrayerLogging() {
       setLoading(false);
     }
   }
+
+  // v28: kids should KNOW their tap was received. We surface a
+  // transient banner saying "Sent to your grown-up — they'll see it
+  // and approve" right after a successful claim; the prayer card
+  // also flips to the pending state immediately. Tracked here so we
+  // can render a one-line confirmation banner under the page header.
+  const [justSubmitted, setJustSubmitted] = useState<string | null>(null);
 
   async function claimPrayer(prayerName: string) {
     if (!childId || !sessionToken) return;
@@ -263,7 +296,11 @@ export function PrayerLogging() {
         throw new Error(errorData.error || 'Failed to claim prayer');
       }
 
-      // Reload data
+      // v28: confirm to the kid in plain language
+      setJustSubmitted(prayerName);
+      setTimeout(() => setJustSubmitted(null), 6000);
+
+      // Reload data so the card flips to pending state
       await loadData();
     } catch (err: any) {
       console.error('Error claiming prayer:', err);
@@ -341,6 +378,31 @@ export function PrayerLogging() {
           <h1 className="text-3xl font-bold text-gray-900 mb-2">🌙 Daily Prayers</h1>
           <p className="text-gray-600">Claim your prayers and earn points!</p>
         </div>
+
+        {/* v28: confirmation banner — fires for ~6s after a kid claims
+            a prayer so they can SEE the tap was received and what
+            happens next. Without this, the page just silently flips
+            from "I Prayed!" to a clock emoji and a small badge, and
+            kids don't always read state changes. */}
+        {justSubmitted && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            className="mb-4 bg-gradient-to-r from-amber-100 to-yellow-100 border-2 border-amber-300 rounded-xl px-4 py-3 flex items-start gap-3 shadow-md"
+          >
+            <span className="text-2xl shrink-0">📬</span>
+            <div className="text-sm">
+              <p className="font-bold text-amber-900">
+                Sent to your grown-up — {justSubmitted}
+              </p>
+              <p className="text-amber-800 mt-0.5">
+                Now they'll see it on their screen and approve. You'll get
+                your stars when they say nice prayer!
+              </p>
+            </div>
+          </motion.div>
+        )}
 
         {/* Stats Card */}
         {stats && (
