@@ -202,6 +202,48 @@ export function CustomQuestsManager({ familyId, childIds = [] }: CustomQuestsMan
     setShowCreator(true);
   };
 
+  // v29: "Generate now" — explicit fan-out trigger for the active
+  // quest. Useful for:
+  //   - Pre-v27 active customs whose definitions exist but no
+  //     per-child challenge was ever created
+  //   - Cases where the auto-fan-out at activate time silently
+  //     failed (network blip, expired token, etc.)
+  // Surfaces the per-child success/fail count in a toast so the
+  // parent can see EXACTLY what reached which kid.
+  const handleGenerateNow = async (quest: CustomQuest) => {
+    if (!quest.active) {
+      toast.error('Activate the quest first, then tap Generate.');
+      return;
+    }
+    if (childIds.length === 0) {
+      toast.error('Add at least one child to the family first.');
+      return;
+    }
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        toast.error('Please sign in again.');
+        return;
+      }
+      const { ok, failed } = await fanOutGenerate(
+        familyId,
+        childIds,
+        quest.id,
+        session.access_token
+      );
+      if (failed === 0) {
+        toast.success(`"${quest.title}" sent to ${ok} kid${ok === 1 ? '' : 's'}.`);
+      } else if (ok > 0) {
+        toast.warning(`"${quest.title}" sent to ${ok} of ${ok + failed} kids — try again for the rest.`);
+      } else {
+        toast.error(`Could not send "${quest.title}" to any kid. Check the parent permissions and try again.`);
+      }
+    } catch (err: any) {
+      console.error('Generate now error:', err);
+      toast.error(err?.message || 'Could not generate.');
+    }
+  };
+
   const handleCreateNew = () => {
     setEditingQuest(null);
     setShowCreator(true);
@@ -324,7 +366,25 @@ export function CustomQuestsManager({ familyId, childIds = [] }: CustomQuestsMan
                       </p>
                     )}
 
-                    <div className="flex gap-2 pt-2">
+                    <div className="flex gap-2 pt-2 flex-wrap">
+                      {/* v29: "Generate now" — surfaces an explicit
+                          fan-out trigger so existing active customs
+                          can be retroactively pushed to kids. The
+                          auto-fan-out at activate time still runs
+                          first; this is the safety net + the answer
+                          to "I made a quest yesterday and my kid
+                          still doesn't see it." */}
+                      {quest.active && (
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={() => handleGenerateNow(quest)}
+                          className="flex-1 gap-1 bg-purple-600 hover:bg-purple-700"
+                        >
+                          <Play className="h-3 w-3" />
+                          Generate now
+                        </Button>
+                      )}
                       <Button
                         variant="outline"
                         size="sm"

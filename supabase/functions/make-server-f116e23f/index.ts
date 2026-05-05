@@ -1,5 +1,5 @@
 // FGS Backend Server v1.0.3 - Accept challenge route flattened (no :childId in URL)
-const SERVER_VERSION = "v1.0.19-chore-claims";
+const SERVER_VERSION = "v1.0.20-quest-engine";
 
 // v14: Safe family-key resolver. Family records are stored under keys like
 // "family:1745234567890" - the "family:" prefix is baked into the ID at
@@ -2397,16 +2397,22 @@ async function generateQuestTemplates(familyId: string, type: 'daily' | 'weekly'
             id: `tpl_weekly_fajr_streak_${familyId}`,
             type: 'weekly',
             title: '🔥 Fajr Streak Master',
-            description: 'Pray Fajr every day this week (7 days)',
+            description: 'Pray Fajr 7 days in a row',
             difficulty: 'medium',
             bonusPoints: calculateBonus('medium'),
             category: 'salah',
             icon: '🔥',
-            requirements: [{ 
-              type: 'specific-items', 
-              target: 7, 
-              itemIds: [fajr.id], 
-              description: 'Maintain 7-day Fajr streak' 
+            // v29: real consecutive-days streak. Old version used
+            // 'specific-items' target:7 which counted 7 *occurrences*
+            // of Fajr — 7 backdated qadhas in one day would have
+            // completed the challenge. Now we count consecutive
+            // days with at least one Fajr event.
+            requirements: [{
+              type: 'consecutive-days',
+              target: 7,
+              days: 7,
+              itemIds: [fajr.id],
+              description: 'Pray Fajr 7 days in a row'
             }]
           });
         }
@@ -2539,6 +2545,48 @@ async function calculateChallengeProgress(challenge: any, childId: string) {
     } else if (challenge.requirements[0].type === 'count') {
       // Count negative events (for "zero negatives" challenges)
       current = relevantEvents.filter((e: any) => e.points < 0).length;
+    } else if (challenge.requirements[0].type === 'consecutive-days') {
+      // v29: real consecutive-days streak. The previous "Fajr Streak"
+      // template was a misnomer — it counted 7 occurrences of Fajr,
+      // not 7 consecutive days of Fajr. A kid could log Fajr 7×
+      // backdated on one day and "complete" it.
+      //
+      // Now: the requirement carries { type, itemIds, days } and we
+      // compute the LONGEST run of family-tz days within the
+      // window in which the kid logged at least one matching event
+      // with positive points.
+      const itemIds: string[] = challenge.requirements[0].itemIds || [];
+      const matching = relevantEvents.filter(
+        (e: any) => itemIds.includes(e.trackableItemId) && e.points > 0
+      );
+      // Bucket the matching events by the family-tz date string
+      // (YYYY-MM-DD) so we count *days*, not events.
+      const daysWithMatch = new Set<string>();
+      for (const e of matching) {
+        try {
+          const dt = new Date(e.timestamp);
+          const local = new Date(dt.toLocaleString('en-US', { timeZone: _tz }));
+          const key = `${local.getFullYear()}-${String(local.getMonth() + 1).padStart(2, '0')}-${String(local.getDate()).padStart(2, '0')}`;
+          daysWithMatch.add(key);
+        } catch { /* skip on parse */ }
+      }
+      // Find the longest run of consecutive days in daysWithMatch.
+      const sortedKeys = [...daysWithMatch].sort();
+      let longest = 0;
+      let run = 0;
+      let prev: number | null = null;
+      const dayMs = 24 * 60 * 60 * 1000;
+      for (const k of sortedKeys) {
+        const t = new Date(k + 'T00:00:00').getTime();
+        if (prev !== null && Math.abs(t - prev) === dayMs) {
+          run += 1;
+        } else {
+          run = 1;
+        }
+        longest = Math.max(longest, run);
+        prev = t;
+      }
+      current = longest;
     }
 
     const percentage = Math.min(100, Math.round((current / target) * 100));
@@ -3504,13 +3552,71 @@ app.get(
   try {
     const { childId } = c.req.param();
     const challenges = await kv.getByPrefix(`challenge:${childId}:`);
-    
-    // Update progress for all challenges (READ-ONLY - no side effects)
+
+    // v29: progress used to be computed read-only on every GET, but
+    // never persisted. So even when a kid genuinely completed the
+    // challenge, status stayed 'available'/'accepted' forever and
+    // bonusPoints were never awarded. Now: when we detect
+    // isComplete=true on a still-active challenge, we flip status
+    // to 'completed', stamp completedAt, and credit the bonus
+    // points exactly once (idempotent via a claim key per challenge).
     const updatedChallenges = await Promise.all(
       challenges.map(async (challenge: any) => {
         if (challenge.status === 'accepted' || challenge.status === 'available') {
           const progress = await calculateChallengeProgress(challenge, childId);
-          // Return challenge with updated progress, but don't modify stored challenge
+
+          // Auto-complete + auto-credit when the threshold is hit.
+          if (progress.isComplete) {
+            const claimKey = `challenge-bonus:${challenge.id}`;
+            const alreadyAwarded = await kv.get(claimKey);
+            if (!alreadyAwarded) {
+              try {
+                await kv.set(claimKey, { awardedAt: new Date().toISOString() });
+                const completed = {
+                  ...challenge,
+                  status: 'completed',
+                  completedAt: new Date().toISOString(),
+                  finalProgress: progress,
+                };
+                await kv.set(challenge.id, completed);
+
+                // Credit the bonus points as a real event so it
+                // shows up in the audit trail like every other point.
+                if (typeof challenge.bonusPoints === 'number' && challenge.bonusPoints > 0) {
+                  const eventId = `event:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+                  const event = {
+                    id: eventId,
+                    childId,
+                    familyId: challenge.familyId,
+                    type: 'quest',
+                    points: challenge.bonusPoints,
+                    loggedBy: 'system',
+                    notes: `Quest complete: ${challenge.title}`,
+                    itemName: `Quest: ${challenge.title}`,
+                    timestamp: new Date().toISOString(),
+                    status: 'active',
+                    challengeId: challenge.id,
+                  };
+                  await kv.set(eventId, event);
+                  // Bump kid's points
+                  const child = await kv.get(childId);
+                  if (child) {
+                    child.currentPoints = (child.currentPoints || 0) + challenge.bonusPoints;
+                    await kv.set(childId, child);
+                  }
+                }
+                return { ...completed, progress };
+              } catch (e) {
+                console.warn('Auto-complete challenge failed:', e);
+                // Fall through to plain read-only return
+              }
+            } else {
+              // Already awarded — return persisted completed state if
+              // it exists; otherwise present the challenge as completed.
+              return { ...challenge, status: 'completed', progress };
+            }
+          }
+
           return { ...challenge, progress };
         }
         return challenge;
@@ -5622,14 +5728,16 @@ app.get(
   try {
     const difficulty = c.req.param('difficulty');
     const category = c.req.query('category');
-    // v27: comma-separated list of question IDs the kid has already
-    // seen this session. We filter them out so the same question
-    // doesn't repeat. Caller (KnowledgeQuestPlay) accumulates
-    // session-shown ids client-side and passes them in.
+    // Keep the v27 session-only excludeIds support (cheap and works
+    // on the same request). v29 adds the persistent layer below.
     const excludeIdsRaw = c.req.query('excludeIds') || '';
-    const excludeIds = new Set(
+    const sessionExcludes = new Set(
       excludeIdsRaw.split(',').map(s => s.trim()).filter(Boolean)
     );
+    // v29: childId is required so we can scope persistent dedup +
+    // daily limit per kid. Old callers without childId still work
+    // (no persistence), but the kid surface always passes it.
+    const childId = c.req.query('childId') || '';
 
     if (!['easy', 'medium', 'hard'].includes(difficulty)) {
       return c.json({ error: 'Invalid difficulty' }, 400);
@@ -5637,9 +5745,48 @@ app.get(
 
     const familyId = await getUserFamilyId(c);
 
+    // v29: Daily limit. Default 10/day; family can override via
+    // family.knowledgeQuestDailyLimit. When the kid has hit the cap,
+    // we 429 with reason: 'daily_limit' so the frontend can show a
+    // friendly "come back tomorrow" message instead of a fail toast.
+    let dailyLimit = 10;
+    if (familyId) {
+      const fam = await kv.get(familyKeyOf(familyId));
+      if (typeof fam?.knowledgeQuestDailyLimit === 'number' && fam.knowledgeQuestDailyLimit >= 0) {
+        dailyLimit = fam.knowledgeQuestDailyLimit;
+      }
+    }
+    if (childId && dailyLimit > 0) {
+      const today = new Date().toISOString().slice(0, 10);
+      const dailyKey = `kq-daily:${childId}:${today}`;
+      const todayCount = (await kv.get(dailyKey)) || 0;
+      if (todayCount >= dailyLimit) {
+        return c.json({
+          error: 'Daily limit reached',
+          reason: 'daily_limit',
+          limit: dailyLimit,
+          answeredToday: todayCount,
+        }, 429);
+      }
+    }
+
+    // v29: Persistent dedup. We keep a per-kid list of question IDs
+    // the kid has SEEN (i.e. at least loaded once) with a timestamp,
+    // and exclude any seen within the last 30 days. The shape is
+    // kept small (just {id, t}) and capped at 500 entries so the
+    // record never grows unbounded.
+    const persistentExcludes = new Set<string>();
+    if (childId) {
+      const seenKey = `kq-seen:${childId}`;
+      const seen: Array<{ id: string; t: number }> = (await kv.get(seenKey)) || [];
+      const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+      for (const e of seen) {
+        if (e?.id && (e.t ?? 0) >= cutoff) persistentExcludes.add(e.id);
+      }
+    }
+
     const allQuestions = await kv.getByPrefix('question:');
 
-    // Filter by family/public, difficulty, and optionally category
     let questions = allQuestions.filter((q: any) =>
       (q.familyId === familyId || q.isPublic === true) &&
       q.difficulty === difficulty
@@ -5649,8 +5796,6 @@ app.get(
       questions = questions.filter((q: any) => q.category === category);
     }
 
-    // v27: surface why we're empty so the kid surface can show a
-    // useful message instead of a generic "Failed to load."
     if (questions.length === 0) {
       return c.json({
         error: 'No questions found',
@@ -5661,21 +5806,55 @@ app.get(
       }, 404);
     }
 
-    // v27: dedup against session-seen ids first; if everything has
-    // been seen, fall back to the unfiltered pool with an "all_seen"
-    // hint so the kid surface can offer a "start over" message.
-    const fresh = questions.filter((q: any) => !excludeIds.has(q.id));
-    if (fresh.length > 0) {
-      const randomIndex = Math.floor(Math.random() * fresh.length);
-      return c.json(fresh[randomIndex]);
+    // Apply session + persistent excludes.
+    let fresh = questions.filter((q: any) =>
+      !sessionExcludes.has(q.id) && !persistentExcludes.has(q.id)
+    );
+
+    // Soft fallback: if the persistent dedup leaves nothing AND the
+    // family's bank is small, we still want to show *something* — but
+    // we tag the response so the frontend can warn "all seen recently."
+    let allSeen = false;
+    if (fresh.length === 0) {
+      // Re-allow questions excluded by persistent dedup but still
+      // honour the session excludes.
+      fresh = questions.filter((q: any) => !sessionExcludes.has(q.id));
+      if (fresh.length === 0) {
+        return c.json({
+          error: 'All questions seen this session',
+          reason: 'all_seen',
+          pool: questions.length,
+        }, 404);
+      }
+      allSeen = true;
     }
 
-    // All available questions already seen this session.
-    return c.json({
-      error: 'All questions seen this session',
-      reason: 'all_seen',
-      pool: questions.length,
-    }, 404);
+    const random = fresh[Math.floor(Math.random() * fresh.length)];
+
+    // Record this question as seen (persistent). We mark on LOAD
+    // rather than on ANSWER so a kid can't repeatedly skip past a
+    // question to avoid the dedup; and so a refresh shows a fresh
+    // question rather than the same one. Failures here are
+    // non-fatal — the question still returns.
+    if (childId && random?.id) {
+      try {
+        const seenKey = `kq-seen:${childId}`;
+        const seen: Array<{ id: string; t: number }> = (await kv.get(seenKey)) || [];
+        const filtered = seen.filter((e) => e?.id !== random.id);
+        filtered.push({ id: random.id, t: Date.now() });
+        // Keep last 500 entries bounded — older entries naturally
+        // age out via the 30-day cutoff anyway.
+        const trimmed = filtered.slice(-500);
+        await kv.set(seenKey, trimmed);
+      } catch (e) {
+        console.warn('Could not persist seen question:', e);
+      }
+    }
+
+    if (allSeen) {
+      return c.json({ ...random, _hint: 'recycled_after_30d' });
+    }
+    return c.json(random);
   } catch (error) {
     console.error('Get random question error:', error);
     return c.json({ error: 'Failed to get random question' }, 500);
@@ -5778,6 +5957,22 @@ app.post(
       totalPointsEarned: session.totalPointsEarned + answerData.pointsEarned,
       hintsUsed: session.hintsUsed + (answerData.hintUsed ? 1 : 0)
     };
+
+    // v29: bump per-kid daily-counter so the limit on the next
+    // /questions/random call is enforced. Failures are non-fatal —
+    // worst case the counter drifts and the kid gets one extra
+    // question that day.
+    try {
+      const childIdForCounter = session.childId;
+      if (childIdForCounter) {
+        const today = new Date().toISOString().slice(0, 10);
+        const dailyKey = `kq-daily:${childIdForCounter}:${today}`;
+        const cur = (await kv.get(dailyKey)) || 0;
+        await kv.set(dailyKey, cur + 1);
+      }
+    } catch (e) {
+      console.warn('Could not bump daily question counter:', e);
+    }
     
     // Update difficulty breakdown
     if (answerData.difficulty === 'easy') {

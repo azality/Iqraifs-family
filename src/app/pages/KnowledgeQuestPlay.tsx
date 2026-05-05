@@ -98,6 +98,13 @@ export function KnowledgeQuestPlay() {
       if (shownIds.length > 0) {
         params.set('excludeIds', shownIds.join(','));
       }
+      // v29: childId so the backend can apply persistent dedup +
+      // daily limit per kid. Also reset the kid's session-shownIds
+      // every page mount, but the BACKEND remembers across sessions
+      // for 30 days.
+      if (child?.id) {
+        params.set('childId', child.id);
+      }
       const qs = params.toString();
       const url =
         `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f/questions/random/${selectedDifficulty}` +
@@ -119,11 +126,19 @@ export function KnowledgeQuestPlay() {
           setShownIds(prev => prev.includes(question.id) ? prev : [...prev, question.id]);
         }
       } else {
-        // v27: parse the structured reason from the backend so the
-        // toast is genuinely useful instead of "Failed to load."
+        // v27/v29: parse the structured reason from the backend so the
+        // toast is genuinely useful. v29 adds daily_limit (429) and
+        // recycled-after-30d hints.
         let body: any = null;
         try { body = await response.json(); } catch { /* not JSON */ }
-        if (response.status === 404) {
+        if (response.status === 429 && body?.reason === 'daily_limit') {
+          // v29: per-kid daily question limit. Friendly stop instead
+          // of a generic error — kids accept "come back tomorrow"
+          // when the system says it plainly.
+          toast.success(
+            `You've answered ${body.answeredToday || body.limit} questions today — come back tomorrow for more! 🌙`
+          );
+        } else if (response.status === 404) {
           const scope = selectedCategories.length > 0
             ? `${selectedDifficulty} ${selectedCategories.join(' / ')}`
             : `${selectedDifficulty} questions`;
