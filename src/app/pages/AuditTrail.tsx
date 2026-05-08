@@ -17,6 +17,11 @@ export function AuditTrail() {
   const [filter, setFilter] = useState<'all' | 'adjustments' | 'recovery'>('all');
   const [pointEvents, setPointEvents] = useState<PointEvent[]>([]);
   const [loading, setLoading] = useState(true);
+  // v30: include voided events in the audit view by default. The
+  // whole point of an audit trail is to show what happened, including
+  // events that were later reversed. Toggle off if the parent wants
+  // to see only the active ledger.
+  const [showVoided, setShowVoided] = useState(true);
   
   const child = getCurrentChild();
 
@@ -31,7 +36,9 @@ export function AuditTrail() {
 
       try {
         setLoading(true);
-        const events = await getChildEvents(child.id);
+        // v30: thread the showVoided opt — when on, the backend
+        // returns voided rows too so the audit trail is honest.
+        const events = await getChildEvents(child.id, { includeVoided: showVoided });
         setPointEvents(events || []);
       } catch (error) {
         console.error('Error loading point events:', error);
@@ -42,7 +49,7 @@ export function AuditTrail() {
     };
 
     loadEvents();
-  }, [child, getChildEvents]);
+  }, [child, getChildEvents, showVoided]);
 
   // ✅ SIMPLIFIED: No need to fetch names - server now sends logged_by_display
   const getUserName = (event: any): string => {
@@ -109,14 +116,28 @@ export function AuditTrail() {
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
             <div>
               <CardTitle>Complete Audit Trail</CardTitle>
               <CardDescription>
                 Full transparency of all point events for {child.name}
               </CardDescription>
             </div>
-            <Filter className="h-5 w-5 text-muted-foreground" />
+            <div className="flex items-center gap-3">
+              {/* v30: voided toggle — off-by-default would hide what
+                  the audit trail is FOR. Default on; turn off to see
+                  the active ledger only. */}
+              <label className="inline-flex items-center gap-2 text-xs text-gray-700 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={showVoided}
+                  onChange={(e) => setShowVoided(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                Include voided
+              </label>
+              <Filter className="h-5 w-5 text-muted-foreground" />
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -146,19 +167,37 @@ export function AuditTrail() {
                     <TableBody>
                       {filteredEvents.map((event) => {
                         const item = trackableItems.find(i => i.id === event.trackableItemId);
-                        const itemName = item?.name || (event.isAdjustment ? 'Manual Adjustment' : event.isRecovery ? 'Recovery Bonus' : 'Unknown');
-                        
+                        // v30: prefer event.itemName snapshot (set in
+                        // v20+ writes), fall back to catalog lookup,
+                        // then to category fallbacks. Same resolver
+                        // shape as Dashboard's recent activity.
+                        const itemName = (event as any).itemName
+                          || item?.name
+                          || (event.isAdjustment ? 'Manual Adjustment' : event.isRecovery ? 'Recovery Bonus' : 'Unknown');
+                        const isVoided = (event as any).status === 'voided';
+
                         return (
-                          <TableRow key={event.id}>
+                          <TableRow
+                            key={event.id}
+                            className={isVoided ? 'opacity-60' : ''}
+                            title={isVoided ? `Voided${(event as any).voidReason ? `: ${(event as any).voidReason}` : ''}` : undefined}
+                          >
                             <TableCell className="text-sm">
                               {format(new Date(event.timestamp), 'MMM d, yyyy h:mm a')}
                             </TableCell>
                             <TableCell>
                               <div className="flex flex-col gap-1">
-                                <span className="font-medium">{itemName}</span>
+                                <span className={`font-medium ${isVoided ? 'line-through decoration-gray-400' : ''}`}>
+                                  {itemName}
+                                </span>
                                 {item?.category && (
                                   <Badge variant="outline" className="w-fit text-xs">
                                     {item.category}
+                                  </Badge>
+                                )}
+                                {isVoided && (
+                                  <Badge variant="outline" className="w-fit text-xs bg-gray-100 text-gray-700">
+                                    Voided
                                   </Badge>
                                 )}
                               </div>

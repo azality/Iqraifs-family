@@ -803,7 +803,7 @@ export function Dashboard() {
                     return collapsed > 0 ? ` (${collapsed} duplicate${collapsed === 1 ? '' : 's'} hidden)` : '';
                   })()}
                 </p>
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
                   {hasMoreActivity && (
                     <Button
                       variant="outline"
@@ -822,7 +822,30 @@ export function Dashboard() {
                       Show less
                     </Button>
                   )}
+                  {/* v30: explicit "View full history" link to the
+                      audit trail page. Recent Activity intentionally
+                      stays focused on the last few items; the audit
+                      trail page is where parents go to see EVERY
+                      point credit and how it was earned. Parent-only,
+                      since the audit page itself gates on parent
+                      mode. */}
+                  {isParentMode && (
+                    <Button asChild variant="ghost" size="sm" className="text-blue-600 hover:text-blue-700">
+                      <Link to="/audit">View full history →</Link>
+                    </Button>
+                  )}
                 </div>
+              </div>
+            )}
+
+            {/* v30: when there is activity but it's tiny (<5 items),
+                still surface the audit-trail link so a parent who
+                wants to dig deeper has a path. */}
+            {isParentMode && recentEvents.length > 0 && dedupedActivity.length <= 5 && (
+              <div className="flex justify-end pt-2">
+                <Button asChild variant="ghost" size="sm" className="text-blue-600 hover:text-blue-700">
+                  <Link to="/audit">View full history →</Link>
+                </Button>
               </div>
             )}
           </div>

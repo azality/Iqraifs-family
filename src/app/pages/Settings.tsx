@@ -3096,7 +3096,40 @@ export function Settings() {
                           <X className="h-3.5 w-3.5" />
                         </Button>
                       </div>
-                      <Badge variant="secondary" className="mt-1 text-xs bg-green-100">+{item.points}</Badge>
+                      {/* v30: editable points. Was a static badge —
+                          parents had no way to lower a behavior's
+                          point value (e.g. Homework Complete +10 → +5)
+                          without deleting and recreating the item.
+                          On blur, PATCH /trackable-items/:id via
+                          updateTrackableItem. */}
+                      <div className="mt-1 flex items-center gap-1.5">
+                        <span className="text-xs text-green-700 font-semibold">+</span>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={50}
+                          defaultValue={item.points}
+                          onBlur={async (e) => {
+                            const next = parseInt(e.target.value, 10);
+                            if (isNaN(next) || next < 1 || next > 50) {
+                              toast.error('Points must be 1–50');
+                              e.target.value = String(item.points);
+                              return;
+                            }
+                            if (next === item.points) return;
+                            try {
+                              await updateTrackableItem(item.id, { points: next });
+                              toast.success(`${item.name}: +${item.points} → +${next}`);
+                            } catch {
+                              toast.error(`Couldn't update ${item.name}.`);
+                              e.target.value = String(item.points);
+                            }
+                          }}
+                          className="h-7 w-16 text-xs px-2"
+                          aria-label={`${item.name} points`}
+                        />
+                        <span className="text-xs text-muted-foreground">pts</span>
+                      </div>
                     </div>
                   ))}
                   {otherHabits.length === 0 && (
@@ -3126,7 +3159,35 @@ export function Settings() {
                           <X className="h-3.5 w-3.5" />
                         </Button>
                       </div>
-                      <Badge variant="secondary" className="mt-1 text-xs bg-green-100">+{item.points}</Badge>
+                      {/* v30: editable points (positive behaviors). */}
+                      <div className="mt-1 flex items-center gap-1.5">
+                        <span className="text-xs text-green-700 font-semibold">+</span>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={50}
+                          defaultValue={item.points}
+                          onBlur={async (e) => {
+                            const next = parseInt(e.target.value, 10);
+                            if (isNaN(next) || next < 1 || next > 50) {
+                              toast.error('Points must be 1–50');
+                              e.target.value = String(item.points);
+                              return;
+                            }
+                            if (next === item.points) return;
+                            try {
+                              await updateTrackableItem(item.id, { points: next });
+                              toast.success(`${item.name}: +${item.points} → +${next}`);
+                            } catch {
+                              toast.error(`Couldn't update ${item.name}.`);
+                              e.target.value = String(item.points);
+                            }
+                          }}
+                          className="h-7 w-16 text-xs px-2"
+                          aria-label={`${item.name} points`}
+                        />
+                        <span className="text-xs text-muted-foreground">pts</span>
+                      </div>
                     </div>
                   ))}
                   {positiveBehaviors.length === 0 && (
@@ -3158,10 +3219,40 @@ export function Settings() {
                           <X className="h-3.5 w-3.5" />
                         </Button>
                       </div>
-                      <div className="flex items-center gap-2 mt-1">
-                        <Badge variant="secondary" className="text-xs bg-red-100">{item.points}</Badge>
+                      {/* v30: editable points (concerns). Negative
+                          values are stored as-is; UI accepts an
+                          absolute magnitude and we re-sign on save
+                          to keep things intuitive for the parent. */}
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <span className="text-xs text-red-700 font-semibold">−</span>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={50}
+                          defaultValue={Math.abs(item.points)}
+                          onBlur={async (e) => {
+                            const magnitude = parseInt(e.target.value, 10);
+                            if (isNaN(magnitude) || magnitude < 1 || magnitude > 50) {
+                              toast.error('Points must be 1–50');
+                              e.target.value = String(Math.abs(item.points));
+                              return;
+                            }
+                            const next = -magnitude;
+                            if (next === item.points) return;
+                            try {
+                              await updateTrackableItem(item.id, { points: next });
+                              toast.success(`${item.name}: ${item.points} → ${next}`);
+                            } catch {
+                              toast.error(`Couldn't update ${item.name}.`);
+                              e.target.value = String(Math.abs(item.points));
+                            }
+                          }}
+                          className="h-7 w-16 text-xs px-2"
+                          aria-label={`${item.name} points magnitude`}
+                        />
+                        <span className="text-xs text-muted-foreground">pts</span>
                         {item.tier && (
-                          <span className="text-xs">
+                          <span className="text-xs ml-auto">
                             {item.tier === 'minor' && '🟢'}
                             {item.tier === 'moderate' && '🟡'}
                             {item.tier === 'major' && '🔴'}
