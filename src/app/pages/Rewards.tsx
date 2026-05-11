@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { useFamilyContext } from "../contexts/FamilyContext";
+import { useAuth } from "../contexts/AuthContext";
 import { useMilestones } from "../hooks/useMilestones";
 import { useRewards } from "../hooks/useRewards";
 import { Badge } from "../components/ui/badge";
@@ -10,11 +12,13 @@ import { toast } from "sonner";
 import { useNavigate } from "react-router";
 
 export function Rewards() {
-  const { getCurrentChild, updateChildPoints } = useFamilyContext();
+  const { getCurrentChild, logEvent, refreshChild } = useFamilyContext();
+  const { user } = useAuth();
   const { milestones } = useMilestones();
   const { rewards } = useRewards();
   const child = getCurrentChild();
   const navigate = useNavigate();
+  const [redeeming, setRedeeming] = useState(false);
 
   if (!child) {
     return (
@@ -24,9 +28,15 @@ export function Rewards() {
     );
   }
 
-  const handleRedeem = (rewardId: string) => {
+  const handleRedeem = async (rewardId: string) => {
+    if (redeeming) return;
     const reward = rewards.find(r => r.id === rewardId);
     if (!reward) return;
+
+    if (!user) {
+      toast.error("Please sign in to redeem rewards");
+      return;
+    }
 
     if (child.currentPoints < reward.pointCost) {
       toast.error("Not enough points to redeem this reward");
@@ -37,9 +47,27 @@ export function Rewards() {
       `Redeem ${reward.name} for ${reward.pointCost} points?\n\nThis will reduce ${child.name}'s points from ${child.currentPoints} to ${child.currentPoints - reward.pointCost}.`
     );
 
-    if (confirmed) {
-      updateChildPoints(child.id, -reward.pointCost);
+    if (!confirmed) return;
+
+    setRedeeming(true);
+    try {
+      await logEvent(child.id, {
+        childId: child.id,
+        trackableItemId: 'reward-redemption',
+        type: 'redemption' as any,
+        points: -reward.pointCost,
+        loggedBy: user.id,
+        isAdjustment: true,
+        itemName: `Redeemed: ${reward.name}`,
+        notes: `Redeemed: ${reward.name} (${reward.pointCost} pts)`,
+      } as any);
+      await refreshChild(child.id);
       toast.success(`${reward.name} redeemed! 🎉`);
+    } catch (err: any) {
+      console.error('Redeem failed:', err);
+      toast.error(err?.message || 'Could not redeem this reward.');
+    } finally {
+      setRedeeming(false);
     }
   };
 
@@ -230,10 +258,10 @@ export function Rewards() {
                     <Badge variant="secondary">{reward.pointCost} points</Badge>
                     <Button 
                       size="sm"
-                      disabled={!canAfford}
+                      disabled={!canAfford || redeeming}
                       onClick={() => handleRedeem(reward.id)}
                     >
-                      {canAfford ? 'Redeem' : 'Locked'}
+                      {canAfford ? (redeeming ? 'Redeeming…' : 'Redeem') : 'Locked'}
                     </Button>
                   </div>
                 </div>
@@ -287,10 +315,10 @@ export function Rewards() {
                     <Badge variant="secondary">{reward.pointCost} points</Badge>
                     <Button 
                       size="sm"
-                      disabled={!canAfford}
+                      disabled={!canAfford || redeeming}
                       onClick={() => handleRedeem(reward.id)}
                     >
-                      {canAfford ? 'Redeem' : 'Locked'}
+                      {canAfford ? (redeeming ? 'Redeeming…' : 'Redeem') : 'Locked'}
                     </Button>
                   </div>
                 </div>
@@ -344,10 +372,10 @@ export function Rewards() {
                     <Badge variant="secondary" className="text-base">{reward.pointCost} points</Badge>
                     <Button 
                       size="sm"
-                      disabled={!canAfford}
+                      disabled={!canAfford || redeeming}
                       onClick={() => handleRedeem(reward.id)}
                     >
-                      {canAfford ? 'Redeem' : 'Locked'}
+                      {canAfford ? (redeeming ? 'Redeeming…' : 'Redeem') : 'Locked'}
                     </Button>
                   </div>
                 </div>
