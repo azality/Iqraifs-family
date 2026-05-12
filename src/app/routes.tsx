@@ -30,6 +30,13 @@ import { KidRewardsGallery } from "./pages/KidRewardsGallery";
 import { Onboarding } from "./pages/Onboarding";
 import { JoinPending } from "./pages/JoinPending";
 import { NetworkTest } from "./pages/NetworkTest";
+// School (Iqra Academy pilot) — principal + teacher surfaces.
+// Visible only to users with a school role; auth/role checks live inside
+// the components since the same routes serve principals and teachers.
+import { SchoolHome } from "./pages/school/SchoolHome";
+import { PrincipalDashboard } from "./pages/school/PrincipalDashboard";
+import { SchoolSetup } from "./pages/school/SchoolSetup";
+import { ClassDetail } from "./pages/school/ClassDetail";
 import { RootLayout } from "./layouts/RootLayout";
 import { KidLayout } from "./layouts/KidLayout";
 import { ProvidersLayout } from "./layouts/ProvidersLayout";
@@ -237,6 +244,15 @@ export const router = createBrowserRouter([
           { path: "titles-badges", element: <TitlesBadgesPage /> },
           { path: "sadqa", element: <SadqaPage /> },
           { path: "prayer-approvals", element: <RequireParentRole><PrayerApprovals /></RequireParentRole> },
+          // School (Iqra Academy pilot). RequireParentRole gates entry —
+          // any school user signs in via the parent flow (school roles are
+          // an additional layer on top). Components themselves render
+          // "no school access" if the user has neither principal nor
+          // teacher rows in user_roles.
+          { path: "school", element: <RequireParentRole><SchoolHome /></RequireParentRole> },
+          { path: "school/orgs/:orgId", element: <RequireParentRole><PrincipalDashboard /></RequireParentRole> },
+          { path: "school/orgs/:orgId/setup", element: <RequireParentRole><SchoolSetup /></RequireParentRole> },
+          { path: "school/classes/:classId", element: <RequireParentRole><ClassDetail /></RequireParentRole> },
           // Redirect old routes to homepage
           { path: "kid", element: <Navigate to="/" replace /> },
           { path: "parent", element: <Navigate to="/" replace /> },
