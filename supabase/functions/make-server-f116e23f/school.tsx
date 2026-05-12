@@ -1107,4 +1107,537 @@ school.get("/classes/:classId/roster", async (c) => {
   });
 });
 
+// =============================================================================
+// HIFZ LOGGING — sabaq, sabaq-para, manzil
+// =============================================================================
+// The qari's daily surface. Each log:
+//   1. Writes a structured row to sabaq_logs / sabaq_para_logs / manzil_logs
+//      (used by the progress visualizations — juz bar, manzil due-list).
+//   2. ALSO writes a point_event with source='school' so the entry shows
+//      in the unified parent+child timeline alongside Salah / behavior.
+//
+// The two writes are linked: point_events.id is stored on the hifz log row
+// (point_event_id FK). If voiding a hifz event later, void the
+// point_event; the hifz log row stays for history.
+//
+// Authorization: any teacher of the child's class, or the org's principal.
+// =============================================================================
+
+// Helper — assert the caller can log Hifz for this child
+async function canLogHifzFor(userId: string, childId: string): Promise<{
+  ok: boolean;
+  classId?: string;
+  orgId?: string;
+  reason?: string;
+}> {
+  // Find the child's active enrollment
+  const { data: enrollment } = await serviceRoleClient
+    .from("enrollments")
+    .select("class_id, classes:class_id(id, organization_id)")
+    .eq("child_id", childId)
+    .is("withdrawn_at", null)
+    .maybeSingle();
+  if (!enrollment) {
+    return { ok: false, reason: "child is not enrolled in any school class" };
+  }
+  const classId = (enrollment as any).class_id;
+  const orgId = (enrollment as any).classes?.organization_id;
+  if (!orgId) return { ok: false, reason: "could not resolve class org" };
+
+  // Principal of org can do anything
+  if (await isPrincipalOf(userId, orgId)) {
+    return { ok: true, classId, orgId };
+  }
+  // Teacher of the child's class can log
+  if (await hasRole(userId, "teacher", "class", classId)) {
+    return { ok: true, classId, orgId };
+  }
+  return { ok: false, reason: "you are not a teacher of this student's class" };
+}
+
+
+// Helper — write a school-source point event linked to a Hifz log.
+// Returns the inserted point_event id (or null on failure — we treat
+// hifz write as primary; ledger write is best-effort but logged).
+async function writeHifzPointEvent(args: {
+  childId: string;
+  loggedBy: string;
+  loggedByName: string;
+  points: number;
+  orgId: string;
+  classId: string;
+  itemNameSnapshot: string;
+  notes?: string;
+}): Promise<string | null> {
+  const { data, error } = await serviceRoleClient
+    .from("point_events")
+    .insert({
+      child_id: args.childId,
+      points: args.points,
+      logged_by: args.loggedBy,
+      logged_by_name_snapshot: args.loggedByName,
+      source: "school",
+      source_org_id: args.orgId,
+      source_class_id: args.classId,
+      item_name_snapshot: args.itemNameSnapshot,
+      notes: args.notes ?? null,
+    })
+    .select("id")
+    .single();
+  if (error) {
+    console.error("[school.writeHifzPointEvent] failed:", error);
+    return null;
+  }
+  return data?.id ?? null;
+}
+
+// Helper — resolve a friendly name for the caller (snapshotted onto events).
+async function resolveCallerName(userId: string): Promise<string> {
+  try {
+    const { data } = await serviceRoleClient.auth.admin.getUserById(userId);
+    return data?.user?.user_metadata?.name || data?.user?.email || "Teacher";
+  } catch {
+    return "Teacher";
+  }
+}
+
+
+// -----------------------------------------------------------------------------
+// POST /school/children/:childId/sabaq
+// Body: {
+//   surahNumber?: number (1..114),
+//   ayahStart?: number,
+//   ayahEnd?: number,
+//   juzNumber?: number,
+//   pageNumber?: number,
+//   tajweedRating?: number (1..5),
+//   notes?: string,
+//   points?: number (default 5)
+// }
+// School chose surah+ayah as their input style during onboarding, but the
+// schema supports both so a school that picks juz+page later still works.
+// -----------------------------------------------------------------------------
+school.post("/children/:childId/sabaq", async (c) => {
+  const userId = getAuthUserId(c);
+  if (!userId) return c.json({ error: "unauthenticated" }, 401);
+  const childId = c.req.param("childId");
+
+  let body: any;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "invalid JSON body" }, 400);
+  }
+
+  const allow = await canLogHifzFor(userId, childId);
+  if (!allow.ok) return c.json({ error: "forbidden", reason: allow.reason }, 403);
+
+  // Light validation
+  if (body.tajweedRating !== undefined && body.tajweedRating !== null) {
+    const r = Number(body.tajweedRating);
+    if (!Number.isInteger(r) || r < 1 || r > 5) {
+      return c.json({ error: "tajweedRating must be an integer 1..5" }, 400);
+    }
+  }
+  if (body.surahNumber !== undefined && body.surahNumber !== null) {
+    const s = Number(body.surahNumber);
+    if (!Number.isInteger(s) || s < 1 || s > 114) {
+      return c.json({ error: "surahNumber must be 1..114" }, 400);
+    }
+  }
+
+  const points = Number.isInteger(body.points) ? body.points : 5;
+  const callerName = await resolveCallerName(userId);
+
+  // Build a human-readable item name snapshot for the audit trail.
+  // e.g. "Sabaq · Al-Baqarah 100–110" — if we have surah/ayah, format it;
+  // otherwise fall back to "Sabaq".
+  let label = "Sabaq";
+  if (body.surahNumber && body.ayahStart) {
+    label = `Sabaq · Surah ${body.surahNumber}, ${body.ayahStart}${
+      body.ayahEnd && body.ayahEnd !== body.ayahStart ? `–${body.ayahEnd}` : ""
+    }`;
+  } else if (body.juzNumber && body.pageNumber) {
+    label = `Sabaq · Juz ${body.juzNumber}, page ${body.pageNumber}`;
+  }
+
+  // 1. Write the point event first so the FK on sabaq_logs is satisfiable
+  const pointEventId = await writeHifzPointEvent({
+    childId,
+    loggedBy: userId,
+    loggedByName: callerName,
+    points,
+    orgId: allow.orgId!,
+    classId: allow.classId!,
+    itemNameSnapshot: label,
+    notes: body.notes,
+  });
+
+  // 2. Write the structured sabaq log
+  const { data, error } = await serviceRoleClient
+    .from("sabaq_logs")
+    .insert({
+      child_id: childId,
+      logged_by: userId,
+      point_event_id: pointEventId,
+      surah_number: body.surahNumber ?? null,
+      ayah_start: body.ayahStart ?? null,
+      ayah_end: body.ayahEnd ?? null,
+      juz_number: body.juzNumber ?? null,
+      page_number: body.pageNumber ?? null,
+      tajweed_rating: body.tajweedRating ?? null,
+      notes: body.notes ?? null,
+    })
+    .select()
+    .single();
+  if (error) return c.json({ error: error.message }, 500);
+
+  // 3. Bump the child's currentPoints aggregate (best-effort).
+  // TODO: convert to a Postgres trigger on point_events so this is atomic.
+  if (points) {
+    const { data: child } = await serviceRoleClient
+      .from("children")
+      .select("current_points")
+      .eq("id", childId)
+      .maybeSingle();
+    if (child) {
+      await serviceRoleClient
+        .from("children")
+        .update({ current_points: (child.current_points ?? 0) + points })
+        .eq("id", childId);
+    }
+  }
+
+  return c.json({ sabaqLog: data, pointEventId, awardedPoints: points }, 201);
+});
+
+
+// -----------------------------------------------------------------------------
+// POST /school/children/:childId/sabaq-para
+// Body: {
+//   coversFromSabaqId?: uuid,
+//   coversToSabaqId?: uuid,
+//   qualityRating?: number (1..5),
+//   notes?: string,
+//   points?: number (default 3)
+// }
+// -----------------------------------------------------------------------------
+school.post("/children/:childId/sabaq-para", async (c) => {
+  const userId = getAuthUserId(c);
+  if (!userId) return c.json({ error: "unauthenticated" }, 401);
+  const childId = c.req.param("childId");
+
+  let body: any;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "invalid JSON body" }, 400);
+  }
+
+  const allow = await canLogHifzFor(userId, childId);
+  if (!allow.ok) return c.json({ error: "forbidden", reason: allow.reason }, 403);
+
+  if (body.qualityRating !== undefined && body.qualityRating !== null) {
+    const r = Number(body.qualityRating);
+    if (!Number.isInteger(r) || r < 1 || r > 5) {
+      return c.json({ error: "qualityRating must be 1..5" }, 400);
+    }
+  }
+
+  const points = Number.isInteger(body.points) ? body.points : 3;
+  const callerName = await resolveCallerName(userId);
+
+  const pointEventId = await writeHifzPointEvent({
+    childId,
+    loggedBy: userId,
+    loggedByName: callerName,
+    points,
+    orgId: allow.orgId!,
+    classId: allow.classId!,
+    itemNameSnapshot: "Sabaq-para revision",
+    notes: body.notes,
+  });
+
+  const { data, error } = await serviceRoleClient
+    .from("sabaq_para_logs")
+    .insert({
+      child_id: childId,
+      logged_by: userId,
+      point_event_id: pointEventId,
+      covers_from_sabaq_id: body.coversFromSabaqId ?? null,
+      covers_to_sabaq_id: body.coversToSabaqId ?? null,
+      quality_rating: body.qualityRating ?? null,
+      notes: body.notes ?? null,
+    })
+    .select()
+    .single();
+  if (error) return c.json({ error: error.message }, 500);
+
+  if (points) {
+    const { data: child } = await serviceRoleClient
+      .from("children").select("current_points").eq("id", childId).maybeSingle();
+    if (child) {
+      await serviceRoleClient
+        .from("children")
+        .update({ current_points: (child.current_points ?? 0) + points })
+        .eq("id", childId);
+    }
+  }
+
+  return c.json({ sabaqParaLog: data, pointEventId, awardedPoints: points }, 201);
+});
+
+
+// -----------------------------------------------------------------------------
+// POST /school/children/:childId/manzil
+// Body: {
+//   manzilNumber: number (1..7),
+//   qualityRating?: number (1..5),
+//   notes?: string,
+//   points?: number (default 4)
+// }
+// -----------------------------------------------------------------------------
+school.post("/children/:childId/manzil", async (c) => {
+  const userId = getAuthUserId(c);
+  if (!userId) return c.json({ error: "unauthenticated" }, 401);
+  const childId = c.req.param("childId");
+
+  let body: any;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "invalid JSON body" }, 400);
+  }
+
+  const allow = await canLogHifzFor(userId, childId);
+  if (!allow.ok) return c.json({ error: "forbidden", reason: allow.reason }, 403);
+
+  const m = Number(body.manzilNumber);
+  if (!Number.isInteger(m) || m < 1 || m > 7) {
+    return c.json({ error: "manzilNumber must be 1..7" }, 400);
+  }
+  if (body.qualityRating !== undefined && body.qualityRating !== null) {
+    const r = Number(body.qualityRating);
+    if (!Number.isInteger(r) || r < 1 || r > 5) {
+      return c.json({ error: "qualityRating must be 1..5" }, 400);
+    }
+  }
+
+  const points = Number.isInteger(body.points) ? body.points : 4;
+  const callerName = await resolveCallerName(userId);
+
+  const pointEventId = await writeHifzPointEvent({
+    childId,
+    loggedBy: userId,
+    loggedByName: callerName,
+    points,
+    orgId: allow.orgId!,
+    classId: allow.classId!,
+    itemNameSnapshot: `Manzil ${m}`,
+    notes: body.notes,
+  });
+
+  const { data, error } = await serviceRoleClient
+    .from("manzil_logs")
+    .insert({
+      child_id: childId,
+      logged_by: userId,
+      point_event_id: pointEventId,
+      manzil_number: m,
+      quality_rating: body.qualityRating ?? null,
+      notes: body.notes ?? null,
+    })
+    .select()
+    .single();
+  if (error) return c.json({ error: error.message }, 500);
+
+  if (points) {
+    const { data: child } = await serviceRoleClient
+      .from("children").select("current_points").eq("id", childId).maybeSingle();
+    if (child) {
+      await serviceRoleClient
+        .from("children")
+        .update({ current_points: (child.current_points ?? 0) + points })
+        .eq("id", childId);
+    }
+  }
+
+  return c.json({ manzilLog: data, pointEventId, awardedPoints: points }, 201);
+});
+
+
+// -----------------------------------------------------------------------------
+// GET /school/children/:childId/hifz
+// Returns:
+//   - sabaqLogs: last 30 sabaqs (most recent first)
+//   - sabaqParaLogs: last 10
+//   - manzilLogs: last per-manzil (one each, freshest)
+//   - manzilStatus: for each of 7 manzils, daysSinceLastReview
+//   - currentStreak: consecutive days of any sabaq logged
+//
+// Accessible to: principal of org, teacher of child's class, OR any family
+// member of the child's family (parent view).
+// -----------------------------------------------------------------------------
+school.get("/children/:childId/hifz", async (c) => {
+  const userId = getAuthUserId(c);
+  if (!userId) return c.json({ error: "unauthenticated" }, 401);
+  const childId = c.req.param("childId");
+
+  // Authorization: family member OR (principal/teacher of the child's class)
+  const { data: child } = await serviceRoleClient
+    .from("children")
+    .select("id, name, family_id, hifz_progress")
+    .eq("id", childId)
+    .maybeSingle();
+  if (!child) return c.json({ error: "child not found" }, 404);
+
+  let allowed = false;
+
+  // Family member check
+  const { data: fam } = await serviceRoleClient
+    .from("family_members")
+    .select("id")
+    .eq("family_id", child.family_id)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (fam) allowed = true;
+
+  // School-side check
+  if (!allowed) {
+    const allow = await canLogHifzFor(userId, childId);
+    if (allow.ok) allowed = true;
+  }
+
+  if (!allowed) return c.json({ error: "forbidden" }, 403);
+
+  // Pull logs
+  const [sabaqRes, sabaqParaRes, manzilRes] = await Promise.all([
+    serviceRoleClient
+      .from("sabaq_logs")
+      .select("*")
+      .eq("child_id", childId)
+      .order("logged_at", { ascending: false })
+      .limit(30),
+    serviceRoleClient
+      .from("sabaq_para_logs")
+      .select("*")
+      .eq("child_id", childId)
+      .order("logged_at", { ascending: false })
+      .limit(10),
+    serviceRoleClient
+      .from("manzil_logs")
+      .select("*")
+      .eq("child_id", childId)
+      .order("logged_at", { ascending: false }),
+  ]);
+
+  // Per-manzil freshest = last review date by manzil_number
+  const manzilFreshest: Record<number, string | null> = {};
+  for (let i = 1; i <= 7; i++) manzilFreshest[i] = null;
+  for (const m of manzilRes.data ?? []) {
+    const n = (m as any).manzil_number as number;
+    if (manzilFreshest[n] === null) manzilFreshest[n] = (m as any).logged_at;
+  }
+  const now = Date.now();
+  const manzilStatus = Object.entries(manzilFreshest).map(([n, last]) => ({
+    manzilNumber: Number(n),
+    lastReviewedAt: last,
+    daysSinceLastReview: last ? Math.floor((now - new Date(last).getTime()) / 86400000) : null,
+  }));
+
+  // Streak: count consecutive days ending today that have at least one sabaq.
+  const dayKeys = new Set<string>();
+  for (const s of sabaqRes.data ?? []) {
+    const d = new Date((s as any).logged_at);
+    dayKeys.add(d.toISOString().slice(0, 10));
+  }
+  let streak = 0;
+  const today = new Date();
+  for (let i = 0; i < 60; i++) {
+    const k = new Date(today.getTime() - i * 86400000).toISOString().slice(0, 10);
+    if (dayKeys.has(k)) streak += 1;
+    else break;
+  }
+
+  return c.json({
+    child: { id: child.id, name: child.name, hifzProgress: child.hifz_progress },
+    sabaqLogs: sabaqRes.data ?? [],
+    sabaqParaLogs: sabaqParaRes.data ?? [],
+    manzilLogs: manzilRes.data ?? [],
+    manzilStatus,
+    currentStreak: streak,
+  });
+});
+
+
+// -----------------------------------------------------------------------------
+// POST /school/point-events/:id/void  — void a school-side event
+// Body: { reason: string (>=10 chars) }
+// Mirror of the existing parent void flow but scoped to school events.
+// Reverses points on the child.
+// -----------------------------------------------------------------------------
+school.post("/point-events/:id/void", async (c) => {
+  const userId = getAuthUserId(c);
+  if (!userId) return c.json({ error: "unauthenticated" }, 401);
+  const eventId = c.req.param("id");
+
+  let body: any;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "invalid JSON body" }, 400);
+  }
+  if (typeof body?.reason !== "string" || body.reason.trim().length < 10) {
+    return c.json({ error: "reason of at least 10 characters required" }, 400);
+  }
+
+  const { data: ev, error: evErr } = await serviceRoleClient
+    .from("point_events")
+    .select("id, child_id, points, status, source, source_org_id, source_class_id")
+    .eq("id", eventId)
+    .maybeSingle();
+  if (evErr) return c.json({ error: evErr.message }, 500);
+  if (!ev) return c.json({ error: "event not found" }, 404);
+  if (ev.source !== "school") {
+    return c.json({ error: "this endpoint voids school events only" }, 400);
+  }
+  if (ev.status === "voided") {
+    return c.json({ error: "already voided" }, 409);
+  }
+
+  const callerIsPrincipal = ev.source_org_id
+    ? await isPrincipalOf(userId, ev.source_org_id)
+    : false;
+  const callerIsTeacher = ev.source_class_id
+    ? await hasRole(userId, "teacher", "class", ev.source_class_id)
+    : false;
+  if (!callerIsPrincipal && !callerIsTeacher) {
+    return c.json({ error: "forbidden" }, 403);
+  }
+
+  const { error: updErr } = await serviceRoleClient
+    .from("point_events")
+    .update({
+      status: "voided",
+      voided_by: userId,
+      voided_at: new Date().toISOString(),
+      void_reason: body.reason.trim(),
+    })
+    .eq("id", eventId);
+  if (updErr) return c.json({ error: updErr.message }, 500);
+
+  // Reverse points on child (best-effort)
+  const { data: child } = await serviceRoleClient
+    .from("children")
+    .select("current_points")
+    .eq("id", ev.child_id)
+    .maybeSingle();
+  if (child) {
+    const newPoints = Math.max(0, (child.current_points ?? 0) - ev.points);
+    await serviceRoleClient.from("children").update({ current_points: newPoints }).eq("id", ev.child_id);
+  }
+
+  return c.json({ ok: true });
+});
+
 export default school;
