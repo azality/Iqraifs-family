@@ -4,7 +4,7 @@ import { ModeSwitcher } from "../components/ModeSwitcher";
 import {
   Home, FileText, BarChart3, Settings, Calendar, Gift, Shield,
   Menu, X, Trophy, Sliders, Edit, LogOut, Compass,
-  Sparkles, Database, ChevronDown, Eye,
+  Sparkles, Database, ChevronDown, Eye, School,
 } from "lucide-react";
 import { cn } from "../components/ui/utils";
 import { useViewMode } from "../contexts/ViewModeContext";
@@ -76,6 +76,18 @@ const parentNavGroups: NavGroup[] = [
     accent: 'bg-slate-500',
     items: [
       { name: 'Settings', href: '/settings', icon: Settings, childAccess: false, description: 'Family, rules, preferences' },
+    ],
+  },
+  // School (Iqra Academy pilot) — visible to all parent-mode users. The
+  // /school page itself shows a polite "no school access" message for
+  // users without a principal or teacher role, so adding it here doesn't
+  // leak anything sensitive.
+  {
+    label: 'School',
+    key: 'school',
+    accent: 'bg-indigo-500',
+    items: [
+      { name: 'School', href: '/school', icon: School, childAccess: false, description: 'Principal & teacher surfaces' },
     ],
   },
 ];

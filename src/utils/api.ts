@@ -48,7 +48,7 @@ async function redirectToLogin(reason: string) {
 }
 
 // Helper for API calls with automatic token refresh
-async function apiCall(endpoint: string, options: RequestInit = {}, retryCount = 0): Promise<any> {
+export async function apiCall(endpoint: string, options: RequestInit = {}, retryCount = 0): Promise<any> {
   // Prevent API calls if we're already redirecting to login
   if (isRedirecting) {
     console.log('⏭️ API call blocked - redirect to login in progress');
