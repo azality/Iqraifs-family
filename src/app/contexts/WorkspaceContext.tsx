@@ -23,6 +23,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { getStorageSync, setStorageSync } from "../../utils/storage";
 import { getSchoolMe, type SchoolMeResponse } from "../../utils/schoolApi";
+import { AuthContext } from "./AuthContext";
 
 export type WorkspaceKind = "family" | "school";
 
@@ -69,11 +70,28 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<SchoolMeResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Discover school roles once per session.
-  // Errors are swallowed — failing /school/me just means we treat the user
-  // as having no school access, which is the conservative default.
+  // CRITICAL: do NOT call getSchoolMe until the user is authenticated.
+  // ProvidersLayout wraps PUBLIC routes too (welcome, login, signup),
+  // and apiCall's "no access token" branch hard-redirects to /parent-login,
+  // which causes an infinite redirect loop on the login page itself.
+  //
+  // We watch AuthContext.accessToken — falsy = unauthenticated, don't
+  // fetch. As soon as a token appears (post-login), the effect re-runs
+  // and discovers school roles.
+  const auth = useContext(AuthContext);
+  const accessToken = auth?.accessToken ?? null;
+
   useEffect(() => {
+    if (!accessToken) {
+      // Unauthenticated — treat as no school access. The user is on
+      // a public route or hasn't signed in yet.
+      setMe(null);
+      setLoading(false);
+      return;
+    }
+
     let cancelled = false;
+    setLoading(true);
     getSchoolMe()
       .then((r) => {
         if (cancelled) return;
@@ -96,7 +114,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [accessToken]);
 
   const setWorkspace = (w: Workspace) => {
     setWorkspaceState(w);
