@@ -12,7 +12,7 @@ import { Link, useNavigate, useParams } from "react-router";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
-import { Plus, School, Users, BookOpen, Settings as SettingsIcon } from "lucide-react";
+import { Plus, School, Users, BookOpen, Settings as SettingsIcon, Heart } from "lucide-react";
 import {
   getOrganization,
   getClasses,
@@ -120,6 +120,26 @@ export function PrincipalDashboard() {
           </CardContent>
         </Card>
       )}
+
+      {/* School-wide settings shortcuts */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">School settings</CardTitle>
+          <CardDescription>School-wide configuration. Teachers see/use these but only you can edit.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Link
+            to={`/school/orgs/${orgId}/behavior-catalog`}
+            className="flex items-center gap-3 p-3 border rounded-lg hover:border-blue-400 hover:bg-blue-50/50 transition-colors max-w-md"
+          >
+            <Heart className="h-5 w-5 text-blue-600" />
+            <div className="flex-1">
+              <p className="font-medium text-sm">Behavior catalog</p>
+              <p className="text-xs text-muted-foreground">Positives + concerns teachers can log</p>
+            </div>
+          </Link>
+        </CardContent>
+      </Card>
 
       {/* Classes list */}
       <Card>
