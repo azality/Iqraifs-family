@@ -25,7 +25,7 @@ import {
 } from "../../components/ui/dropdown-menu";
 import {
   ChevronLeft, Plus, Copy, Check, AlertCircle, UsersRound, MoreVertical,
-  BookOpen, Heart, Hand, TrendingUp,
+  BookOpen, Heart, Hand, TrendingUp, ClipboardCheck,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -38,6 +38,7 @@ import {
 import { BulkSalahDialog } from "./components/BulkSalahDialog";
 import { LogSabaqDialog } from "./components/LogSabaqDialog";
 import { LogBehaviorDialog } from "./components/LogBehaviorDialog";
+import { AttendanceDialog } from "./components/AttendanceDialog";
 
 export function ClassDetail() {
   const { classId = "" } = useParams();
@@ -50,6 +51,7 @@ export function ClassDetail() {
   // Dialog state
   const [addStudentOpen, setAddStudentOpen] = useState(false);
   const [bulkSalahOpen, setBulkSalahOpen] = useState(false);
+  const [attendanceOpen, setAttendanceOpen] = useState(false);
   const [sabaqTarget, setSabaqTarget] = useState<{ id: string; name: string } | null>(null);
   const [behaviorTarget, setBehaviorTarget] = useState<{ id: string; name: string } | null>(null);
 
@@ -158,6 +160,10 @@ export function ClassDetail() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button onClick={() => setAttendanceOpen(true)} variant="outline" disabled={students.length === 0}>
+            <ClipboardCheck className="h-4 w-4 mr-2" />
+            Take attendance
+          </Button>
           <Button onClick={() => setBulkSalahOpen(true)} variant="outline" disabled={students.length === 0}>
             <Hand className="h-4 w-4 mr-2" />
             Log Salah for class
@@ -330,6 +336,15 @@ export function ClassDetail() {
         classId={classId}
         students={students.map((s) => ({ child: s.child }))}
         onLogged={reload}
+      />
+
+      {/* Attendance */}
+      <AttendanceDialog
+        open={attendanceOpen}
+        onOpenChange={setAttendanceOpen}
+        classId={classId}
+        students={students.map((s) => ({ child: s.child }))}
+        onRecorded={reload}
       />
 
       {/* Log Sabaq (per-student) */}
