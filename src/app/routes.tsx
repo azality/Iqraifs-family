@@ -39,6 +39,9 @@ import { SchoolSetup } from "./pages/school/SchoolSetup";
 import { ClassDetail } from "./pages/school/ClassDetail";
 import { BehaviorCatalog } from "./pages/school/BehaviorCatalog";
 import { HifzProgress } from "./pages/school/HifzProgress";
+// Parent-facing redemption page for school invite codes — lands here from
+// the SMS/WhatsApp links the school sends.
+import { ParentConnect } from "./pages/ParentConnect";
 import { RootLayout } from "./layouts/RootLayout";
 import { KidLayout } from "./layouts/KidLayout";
 import { ProvidersLayout } from "./layouts/ProvidersLayout";
@@ -213,6 +216,13 @@ export const router = createBrowserRouter([
       {
         path: "/join-pending",
         element: <ProtectedRoute><JoinPending /></ProtectedRoute>,
+      },
+      // Parent invite redemption — requires auth (we need to know who's
+      // claiming) but NOT family (brand-new parents land here from the
+      // school's SMS/WhatsApp and may not have a family yet).
+      {
+        path: "/parent/connect",
+        element: <ProtectedRoute><ParentConnect /></ProtectedRoute>,
       },
       {
         path: "/diagnostic",
