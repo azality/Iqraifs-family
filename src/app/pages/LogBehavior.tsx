@@ -215,17 +215,33 @@ export function LogBehavior() {
         }
       }
 
-      // Pre-flight dedupe check is also best-effort.
-      if (item.dedupeWindow) {
-        try {
-          const dedupeCheck = await api.checkDedupe(child.id, selectedItemId, user.id);
-          if (dedupeCheck && dedupeCheck.needsConfirmation) {
-            setDedupeData({ item, recentEvents: dedupeCheck.recentEvents });
-            setShowDedupeAlert(true);
-            return;
-          }
-        } catch (preflightError) {
-          console.warn('[LogBehavior] dedupe pre-flight skipped:', preflightError);
+      // Dedupe check (client-side). The /events/check-dedupe backend
+      // endpoint was never implemented, so checking server-side just
+      // 404'd and we proceeded with no protection — that's how a parent
+      // could accidentally log the same negative behavior 5 times in a
+      // row. We now use the already-loaded pointEvents to enforce a
+      // recent-duplicate confirmation prompt.
+      //
+      // Default a 15-minute dedupe window for any negative behavior
+      // that doesn't have one explicitly configured. The seed items
+      // (Tantrum, Disrespect, etc.) ship with values; custom negatives
+      // added via Settings without a window now still get protection.
+      const effectiveDedupeWindow = item.dedupeWindow ?? (item.points < 0 ? 15 : undefined);
+      if (effectiveDedupeWindow) {
+        const cutoff = Date.now() - effectiveDedupeWindow * 60 * 1000;
+        const recentEvents = pointEvents.filter((e) =>
+          e.childId === child.id &&
+          e.trackableItemId === selectedItemId &&
+          (e as any).status !== 'voided' &&
+          new Date(e.timestamp).getTime() >= cutoff
+        );
+        if (recentEvents.length > 0) {
+          setDedupeData({
+            item: { ...item, dedupeWindow: effectiveDedupeWindow },
+            recentEvents,
+          });
+          setShowDedupeAlert(true);
+          return;
         }
       }
 
@@ -783,16 +799,30 @@ export function LogBehavior() {
       <AlertDialog open={showDedupeAlert} onOpenChange={setShowDedupeAlert}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Duplicate Detection</AlertDialogTitle>
+            <AlertDialogTitle>Already logged recently</AlertDialogTitle>
             <AlertDialogDescription>
-              This behavior was logged recently (within {dedupeData?.item.dedupeWindow} minutes).
-              Are you sure this is a separate incident?
+              {dedupeData && (
+                <>
+                  <strong>{dedupeData.item.name}</strong> was logged{' '}
+                  {dedupeData.recentEvents.length === 1
+                    ? 'once'
+                    : `${dedupeData.recentEvents.length} times`}{' '}
+                  in the last {dedupeData.item.dedupeWindow} minutes
+                  {dedupeData.recentEvents[0]?.timestamp && (
+                    <>
+                      {' '}(most recent at{' '}
+                      {new Date(dedupeData.recentEvents[dedupeData.recentEvents.length - 1].timestamp).toLocaleTimeString()})
+                    </>
+                  )}
+                  . Is this a separate incident, or did you tap by accident?
+                </>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>Cancel — it was a mistake</AlertDialogCancel>
             <AlertDialogAction onClick={handleDedupeOverride}>
-              Override
+              Yes, log it again
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
