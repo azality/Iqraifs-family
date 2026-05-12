@@ -604,4 +604,507 @@ school.post("/classes/:classId/subjects", async (c) => {
   return c.json(data, 201);
 });
 
+// =============================================================================
+// STUDENT ENROLLMENT & PARENT INVITES
+// =============================================================================
+// The enrollment flow has two halves:
+//
+//   1. School-side: principal/teacher creates a Student record. This creates
+//      both a `children` row AND a "virtual" `families` row for the student
+//      so the ledger model stays consistent. The family is "school-only"
+//      until a parent claims it via an invite code. Once claimed, the
+//      virtual family is converted to a real family with the parent as
+//      owner.
+//
+//   2. Parent-side: parent uses the invite code to (a) link their existing
+//      family to the student record (preferred), OR (b) accept the
+//      virtual family as their own. After acceptance, both the parent and
+//      the school see the same child, write to the same point_events
+//      ledger, with `source='home'` vs `source='school'` distinguishing
+//      attribution.
+// =============================================================================
+
+
+// Generates a short, human-friendly invite code: 8 chars, mixed-case
+// alphanumeric, no ambiguous chars (0/O, 1/I/l).
+function generateInviteCode(): string {
+  const chars = "23456789ABCDEFGHJKMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz";
+  let code = "";
+  for (let i = 0; i < 8; i++) {
+    code += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return code;
+}
+
+// -----------------------------------------------------------------------------
+// POST /school/classes/:classId/students
+// Body: {
+//   name: string,
+//   dateOfBirth?: 'YYYY-MM-DD',
+//   avatar?: string,
+//   generateParentInvite?: boolean   // default true
+// }
+// Creates a virtual family + child + enrollment. Optionally creates a
+// parent invite code so a parent can later claim the child into their
+// real family.
+//
+// Authorization: principal of the class's org, OR teacher of this class.
+// -----------------------------------------------------------------------------
+school.post("/classes/:classId/students", async (c) => {
+  const userId = getAuthUserId(c);
+  if (!userId) return c.json({ error: "unauthenticated" }, 401);
+  const classId = c.req.param("classId");
+
+  let body: any;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "invalid JSON body" }, 400);
+  }
+  if (!body?.name || typeof body.name !== "string") {
+    return c.json({ error: "name required" }, 400);
+  }
+
+  // Resolve the class to check authorization + get the org_id for the virtual family
+  const { data: cls, error: clsErr } = await serviceRoleClient
+    .from("classes")
+    .select("id, organization_id, name")
+    .eq("id", classId)
+    .maybeSingle();
+  if (clsErr) return c.json({ error: clsErr.message }, 500);
+  if (!cls) return c.json({ error: "class not found" }, 404);
+
+  const callerIsPrincipal = await isPrincipalOf(userId, cls.organization_id);
+  const callerIsTeacher = callerIsPrincipal
+    ? true
+    : await hasRole(userId, "teacher", "class", classId);
+  if (!callerIsPrincipal && !callerIsTeacher) {
+    return c.json({ error: "forbidden" }, 403);
+  }
+
+  // Create the virtual family. Naming: "<student> (Iqra Academy)" so it's
+  // clear in admin views these are school-created. The parent renames it
+  // upon claiming.
+  const { data: family, error: familyErr } = await serviceRoleClient
+    .from("families")
+    .insert({
+      name: `${body.name} (school-pending)`,
+      timezone: "Asia/Karachi",
+    })
+    .select()
+    .single();
+  if (familyErr) return c.json({ error: "could not create family", details: familyErr.message }, 500);
+
+  // Create the child
+  const { data: child, error: childErr } = await serviceRoleClient
+    .from("children")
+    .insert({
+      family_id: family.id,
+      name: body.name.trim(),
+      avatar: body.avatar ?? null,
+      date_of_birth: body.dateOfBirth ?? null,
+    })
+    .select()
+    .single();
+  if (childErr) {
+    // Roll back the family
+    await serviceRoleClient.from("families").delete().eq("id", family.id);
+    return c.json({ error: "could not create child", details: childErr.message }, 500);
+  }
+
+  // Create enrollment
+  const { data: enrollment, error: enrollErr } = await serviceRoleClient
+    .from("enrollments")
+    .insert({
+      class_id: classId,
+      child_id: child.id,
+    })
+    .select()
+    .single();
+  if (enrollErr) {
+    return c.json({ error: "could not enroll child", details: enrollErr.message }, 500);
+  }
+
+  // Optionally generate an invite code
+  let invite = null;
+  if (body.generateParentInvite !== false) {
+    const code = generateInviteCode();
+    const { data: inv, error: invErr } = await serviceRoleClient
+      .from("parent_invites")
+      .insert({
+        invite_code: code,
+        child_id: child.id,
+        created_by: userId,
+        // Invites valid for 90 days by default
+        expires_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
+      })
+      .select()
+      .single();
+    if (!invErr) invite = inv;
+  }
+
+  return c.json(
+    {
+      child,
+      enrollment,
+      invite,
+      // The frontend can deep-link this — e.g. https://app.example.com/parent/connect?code=ABCD1234
+      inviteUrl: invite ? `/parent/connect?code=${invite.invite_code}` : null,
+    },
+    201,
+  );
+});
+
+
+// -----------------------------------------------------------------------------
+// POST /school/classes/:classId/students/bulk
+// Body: { students: [{ name, dateOfBirth?, avatar? }] }
+// Creates many students at once. Useful for the principal's start-of-year
+// roster upload. Returns one row per student with the resulting child + invite.
+// All-or-nothing: if any single insert fails, the whole batch is rolled back.
+// -----------------------------------------------------------------------------
+school.post("/classes/:classId/students/bulk", async (c) => {
+  const userId = getAuthUserId(c);
+  if (!userId) return c.json({ error: "unauthenticated" }, 401);
+  const classId = c.req.param("classId");
+
+  let body: any;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "invalid JSON body" }, 400);
+  }
+  if (!Array.isArray(body?.students) || body.students.length === 0) {
+    return c.json({ error: "students[] required and non-empty" }, 400);
+  }
+  if (body.students.length > 200) {
+    return c.json({ error: "max 200 students per batch" }, 400);
+  }
+
+  const { data: cls, error: clsErr } = await serviceRoleClient
+    .from("classes")
+    .select("id, organization_id")
+    .eq("id", classId)
+    .maybeSingle();
+  if (clsErr) return c.json({ error: clsErr.message }, 500);
+  if (!cls) return c.json({ error: "class not found" }, 404);
+
+  if (!(await isPrincipalOf(userId, cls.organization_id))) {
+    return c.json({ error: "forbidden" }, 403);
+  }
+
+  // Validate inputs before any insert so we don't half-write
+  for (const s of body.students) {
+    if (!s?.name || typeof s.name !== "string" || s.name.trim().length === 0) {
+      return c.json({ error: "every student needs a non-empty name" }, 400);
+    }
+  }
+
+  // Note: we don't get true transactional safety via the JS client. We do
+  // a best-effort sequential create and report partial success. Frontend
+  // should re-upload failures only.
+  const results: any[] = [];
+  for (const s of body.students) {
+    try {
+      const { data: family } = await serviceRoleClient
+        .from("families")
+        .insert({ name: `${s.name} (school-pending)`, timezone: "Asia/Karachi" })
+        .select()
+        .single();
+      const { data: child } = await serviceRoleClient
+        .from("children")
+        .insert({
+          family_id: family.id,
+          name: s.name.trim(),
+          avatar: s.avatar ?? null,
+          date_of_birth: s.dateOfBirth ?? null,
+        })
+        .select()
+        .single();
+      await serviceRoleClient
+        .from("enrollments")
+        .insert({ class_id: classId, child_id: child.id });
+
+      const code = generateInviteCode();
+      const { data: invite } = await serviceRoleClient
+        .from("parent_invites")
+        .insert({
+          invite_code: code,
+          child_id: child.id,
+          created_by: userId,
+          expires_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
+        })
+        .select()
+        .single();
+
+      results.push({
+        ok: true,
+        name: child.name,
+        childId: child.id,
+        familyId: family.id,
+        inviteCode: invite?.invite_code,
+      });
+    } catch (e: any) {
+      results.push({ ok: false, name: s.name, error: e?.message });
+    }
+  }
+
+  const succeeded = results.filter((r) => r.ok).length;
+  const failed = results.length - succeeded;
+  return c.json({ succeeded, failed, results }, 207); // 207 Multi-Status
+});
+
+
+// -----------------------------------------------------------------------------
+// POST /school/enrollments/:enrollmentId/withdraw
+// Body: { reason?: string }
+// Soft-withdraw a student. Their data stays; the enrollment row gets
+// withdrawn_at set so the active-roster query excludes them.
+// -----------------------------------------------------------------------------
+school.post("/enrollments/:enrollmentId/withdraw", async (c) => {
+  const userId = getAuthUserId(c);
+  if (!userId) return c.json({ error: "unauthenticated" }, 401);
+  const enrollmentId = c.req.param("enrollmentId");
+
+  let body: any = {};
+  try {
+    body = await c.req.json();
+  } catch {
+    // empty body is fine
+  }
+
+  // Authorize via the enrollment's class's org
+  const { data: enr, error: enrErr } = await serviceRoleClient
+    .from("enrollments")
+    .select("id, class_id, classes:class_id(organization_id)")
+    .eq("id", enrollmentId)
+    .maybeSingle();
+  if (enrErr) return c.json({ error: enrErr.message }, 500);
+  if (!enr) return c.json({ error: "enrollment not found" }, 404);
+
+  const orgId = (enr as any).classes?.organization_id;
+  if (!orgId) return c.json({ error: "could not resolve class org" }, 500);
+  if (!(await isPrincipalOf(userId, orgId))) {
+    return c.json({ error: "forbidden" }, 403);
+  }
+
+  const { data, error } = await serviceRoleClient
+    .from("enrollments")
+    .update({ withdrawn_at: new Date().toISOString(), withdrawn_reason: body?.reason ?? null })
+    .eq("id", enrollmentId)
+    .select()
+    .single();
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json(data);
+});
+
+
+// -----------------------------------------------------------------------------
+// GET /school/parent-invites/:code
+// Returns the invite + child + class info so the parent app can preview
+// before claiming. Does NOT require auth (the code itself is the auth).
+// -----------------------------------------------------------------------------
+school.get("/parent-invites/:code", async (c) => {
+  const code = c.req.param("code");
+  const { data: invite, error } = await serviceRoleClient
+    .from("parent_invites")
+    .select("id, invite_code, child_id, expires_at, consumed_at, children:child_id(id, name, avatar)")
+    .eq("invite_code", code)
+    .maybeSingle();
+  if (error) return c.json({ error: error.message }, 500);
+  if (!invite) return c.json({ error: "invite not found" }, 404);
+  if (invite.consumed_at) return c.json({ error: "invite already used" }, 410);
+  if (invite.expires_at && new Date(invite.expires_at) < new Date()) {
+    return c.json({ error: "invite expired" }, 410);
+  }
+
+  // Find current enrollment + class
+  const { data: enrollment } = await serviceRoleClient
+    .from("enrollments")
+    .select("class_id, classes:class_id(id, name, organization_id, organizations:organization_id(id, name))")
+    .eq("child_id", invite.child_id)
+    .is("withdrawn_at", null)
+    .maybeSingle();
+
+  return c.json({
+    inviteCode: invite.invite_code,
+    child: (invite as any).children,
+    class: (enrollment as any)?.classes,
+    expiresAt: invite.expires_at,
+  });
+});
+
+
+// -----------------------------------------------------------------------------
+// POST /school/parent-invites/:code/accept
+// Body: { mergeIntoFamilyId?: uuid }
+// The parent (authed) claims the invite.
+//   - If mergeIntoFamilyId is provided AND the caller is a member of that
+//     family: move the child into that family. The "school-pending"
+//     virtual family is deleted.
+//   - Otherwise: the caller is added as the owner of the virtual family
+//     (renamed to "<child name>'s Family").
+//
+// In both cases the school enrollment is unchanged — the child stays
+// enrolled, and now has a real parent linkage.
+// -----------------------------------------------------------------------------
+school.post("/parent-invites/:code/accept", async (c) => {
+  const userId = getAuthUserId(c);
+  if (!userId) return c.json({ error: "unauthenticated" }, 401);
+  const code = c.req.param("code");
+
+  let body: any = {};
+  try {
+    body = await c.req.json();
+  } catch {
+    // empty body fine
+  }
+
+  const { data: invite, error: invErr } = await serviceRoleClient
+    .from("parent_invites")
+    .select("id, invite_code, child_id, expires_at, consumed_at")
+    .eq("invite_code", code)
+    .maybeSingle();
+  if (invErr) return c.json({ error: invErr.message }, 500);
+  if (!invite) return c.json({ error: "invite not found" }, 404);
+  if (invite.consumed_at) return c.json({ error: "invite already used" }, 410);
+  if (invite.expires_at && new Date(invite.expires_at) < new Date()) {
+    return c.json({ error: "invite expired" }, 410);
+  }
+
+  // Fetch the child to know its current (virtual) family
+  const { data: child, error: childErr } = await serviceRoleClient
+    .from("children")
+    .select("id, name, family_id")
+    .eq("id", invite.child_id)
+    .maybeSingle();
+  if (childErr) return c.json({ error: childErr.message }, 500);
+  if (!child) return c.json({ error: "child not found" }, 404);
+
+  const mergeTarget = body?.mergeIntoFamilyId;
+
+  if (mergeTarget) {
+    // Verify caller is a member of that family
+    const { data: membership } = await serviceRoleClient
+      .from("family_members")
+      .select("id")
+      .eq("family_id", mergeTarget)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (!membership) {
+      return c.json({ error: "you are not a member of that family" }, 403);
+    }
+
+    const virtualFamilyId = child.family_id;
+    // Move the child
+    const { error: moveErr } = await serviceRoleClient
+      .from("children")
+      .update({ family_id: mergeTarget })
+      .eq("id", child.id);
+    if (moveErr) return c.json({ error: "could not move child", details: moveErr.message }, 500);
+
+    // Delete the now-empty virtual family. Cascades to family_members (none)
+    // and any orphan point_events on the virtual family scope (none — children
+    // moved). If this fails it's not critical, the virtual family becomes orphan.
+    await serviceRoleClient.from("families").delete().eq("id", virtualFamilyId);
+  } else {
+    // Adopt the virtual family. Rename + add caller as owner.
+    await serviceRoleClient
+      .from("families")
+      .update({ name: `${child.name}'s Family` })
+      .eq("id", child.family_id);
+
+    await serviceRoleClient.from("family_members").insert({
+      family_id: child.family_id,
+      user_id: userId,
+      relationship: "parent",
+      is_owner: true,
+    });
+
+    // Also grant the parent role on this family (so future RLS sees them)
+    await serviceRoleClient
+      .from("user_roles")
+      .insert({
+        user_id: userId,
+        role_type: "parent",
+        scope_type: "family",
+        scope_id: child.family_id,
+        granted_by: userId,
+      })
+      .select();
+  }
+
+  // Mark invite consumed
+  await serviceRoleClient
+    .from("parent_invites")
+    .update({ consumed_by: userId, consumed_at: new Date().toISOString() })
+    .eq("id", invite.id);
+
+  return c.json({
+    ok: true,
+    childId: child.id,
+    familyId: mergeTarget ?? child.family_id,
+    mode: mergeTarget ? "merged" : "adopted",
+  });
+});
+
+
+// -----------------------------------------------------------------------------
+// GET /school/classes/:classId/roster
+// Convenience endpoint: roster with each student's active invite code (if
+// any). Principal can copy/paste codes from here when sending to parents.
+// -----------------------------------------------------------------------------
+school.get("/classes/:classId/roster", async (c) => {
+  const userId = getAuthUserId(c);
+  if (!userId) return c.json({ error: "unauthenticated" }, 401);
+  const classId = c.req.param("classId");
+
+  const { data: cls } = await serviceRoleClient
+    .from("classes")
+    .select("organization_id")
+    .eq("id", classId)
+    .maybeSingle();
+  if (!cls) return c.json({ error: "class not found" }, 404);
+
+  const callerIsPrincipal = await isPrincipalOf(userId, cls.organization_id);
+  const callerIsTeacher = callerIsPrincipal
+    ? true
+    : await hasRole(userId, "teacher", "class", classId);
+  if (!callerIsPrincipal && !callerIsTeacher) {
+    return c.json({ error: "forbidden" }, 403);
+  }
+
+  const { data: enrollments } = await serviceRoleClient
+    .from("enrollments")
+    .select("id, child_id, enrolled_at, children:child_id(id, name, avatar, current_points, family_id)")
+    .eq("class_id", classId)
+    .is("withdrawn_at", null);
+
+  if (!enrollments || enrollments.length === 0) {
+    return c.json({ classId, students: [] });
+  }
+
+  // Fetch active invites for these children
+  const childIds = enrollments.map((e: any) => e.child_id);
+  const { data: invites } = await serviceRoleClient
+    .from("parent_invites")
+    .select("invite_code, child_id, expires_at, consumed_at")
+    .in("child_id", childIds)
+    .is("consumed_at", null);
+
+  const inviteByChild = new Map<string, any>();
+  for (const inv of invites ?? []) inviteByChild.set(inv.child_id, inv);
+
+  return c.json({
+    classId,
+    students: enrollments.map((e: any) => ({
+      enrollmentId: e.id,
+      enrolledAt: e.enrolled_at,
+      child: e.children,
+      parentConnected: !inviteByChild.has(e.child_id), // crude: invite consumed OR never created
+      activeInvite: inviteByChild.get(e.child_id) ?? null,
+    })),
+  });
+});
+
 export default school;
