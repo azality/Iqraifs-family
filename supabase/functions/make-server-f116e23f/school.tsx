@@ -2059,4 +2059,92 @@ school.post("/classes/:classId/attendance", async (c) => {
   return c.json({ recorded: data?.length ?? 0, records: data });
 });
 
+// -----------------------------------------------------------------------------
+// GET /school/children/:childId/events
+// Returns the school-source point_events for a child, newest first.
+// This is what the family Dashboard uses to render school activity
+// alongside home-source events in the unified parent timeline.
+//
+// Visible to:
+//   - Family members of the child (parent view — the main use case)
+//   - Principal of the child's org
+//   - Teacher of the child's class
+// Backend authorization mirrors the /hifz endpoint.
+//
+// Query params:
+//   limit (default 50, max 200)
+//   sinceIso  (optional, returns only events after this timestamp)
+//   includeVoided (default false)
+// -----------------------------------------------------------------------------
+school.get("/children/:childId/events", async (c) => {
+  const userId = getAuthUserId(c);
+  if (!userId) return c.json({ error: "unauthenticated" }, 401);
+  const childId = c.req.param("childId");
+
+  // Authorization: family member OR school role for this child
+  const { data: child } = await serviceRoleClient
+    .from("children")
+    .select("id, family_id")
+    .eq("id", childId)
+    .maybeSingle();
+  if (!child) return c.json({ error: "child not found" }, 404);
+
+  let allowed = false;
+  const { data: fam } = await serviceRoleClient
+    .from("family_members")
+    .select("id")
+    .eq("family_id", child.family_id)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (fam) allowed = true;
+  if (!allowed) {
+    const allow = await canLogHifzFor(userId, childId);
+    if (allow.ok) allowed = true;
+  }
+  if (!allowed) return c.json({ error: "forbidden" }, 403);
+
+  const limitParam = parseInt(c.req.query("limit") ?? "50", 10);
+  const limit = Math.min(Math.max(limitParam || 50, 1), 200);
+  const sinceIso = c.req.query("sinceIso");
+  const includeVoided = c.req.query("includeVoided") === "true";
+
+  let query = serviceRoleClient
+    .from("point_events")
+    .select(
+      "id, points, item_name_snapshot, logged_by_name_snapshot, source, source_org_id, source_class_id, source_subject_id, salah_state, notes, status, voided_at, void_reason, occurred_at, " +
+        "organizations:source_org_id(id, name), classes:source_class_id(id, name)",
+    )
+    .eq("child_id", childId)
+    .eq("source", "school")
+    .order("occurred_at", { ascending: false })
+    .limit(limit);
+
+  if (!includeVoided) query = query.eq("status", "active");
+  if (sinceIso) query = query.gte("occurred_at", sinceIso);
+
+  const { data, error } = await query;
+  if (error) return c.json({ error: error.message }, 500);
+
+  return c.json({
+    childId,
+    events: (data ?? []).map((e: any) => ({
+      id: e.id,
+      points: e.points,
+      itemName: e.item_name_snapshot,
+      loggedByName: e.logged_by_name_snapshot,
+      source: e.source,
+      orgId: e.source_org_id,
+      orgName: e.organizations?.name ?? null,
+      classId: e.source_class_id,
+      className: e.classes?.name ?? null,
+      salahState: e.salah_state,
+      notes: e.notes,
+      status: e.status,
+      voidedAt: e.voided_at,
+      voidReason: e.void_reason,
+      occurredAt: e.occurred_at,
+    })),
+  });
+});
+
 export default school;

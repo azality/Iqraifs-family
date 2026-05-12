@@ -286,6 +286,38 @@ export const logManzil = (
 export const getChildHifz = (childId: string) =>
   apiCall(`/school/children/${childId}/hifz`);
 
+// ─── School-source events (for parent timeline merging) ────────────────
+
+export interface SchoolEvent {
+  id: string;
+  points: number;
+  itemName: string | null;
+  loggedByName: string | null;
+  source: "school";
+  orgId: string | null;
+  orgName: string | null;
+  classId: string | null;
+  className: string | null;
+  salahState: "ontime" | "qadha" | "missed" | null;
+  notes: string | null;
+  status: "active" | "voided";
+  voidedAt: string | null;
+  voidReason: string | null;
+  occurredAt: string;
+}
+
+export const getChildSchoolEvents = (
+  childId: string,
+  opts?: { limit?: number; sinceIso?: string; includeVoided?: boolean },
+): Promise<{ childId: string; events: SchoolEvent[] }> => {
+  const q = new URLSearchParams();
+  if (opts?.limit) q.append("limit", String(opts.limit));
+  if (opts?.sinceIso) q.append("sinceIso", opts.sinceIso);
+  if (opts?.includeVoided) q.append("includeVoided", "true");
+  const qs = q.toString() ? `?${q}` : "";
+  return apiCall(`/school/children/${childId}/events${qs}`);
+};
+
 // ─── Behavior catalog + logging ─────────────────────────────────────────
 
 export interface BehaviorCatalogItem {
