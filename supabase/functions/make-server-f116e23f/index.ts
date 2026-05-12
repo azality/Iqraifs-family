@@ -108,14 +108,13 @@ import {
   PRAYER_TIMES
 } from "./prayerLogging.tsx";
 // School module — Postgres-backed school surfaces (Iqra Academy pilot).
-// All routes under /make-server-f116e23f/school/*
+// All routes under /make-server-f116e23f/school/*. NB: the mount itself
+// happens AFTER the global CORS middleware is registered (see below),
+// otherwise the sub-app's responses don't get CORS headers and browsers
+// fail OPTIONS preflight with "Failed to fetch."
 import schoolApp from "./school.tsx";
 
 const app = new Hono();
-
-// Mount school sub-app. Routes inside school.tsx are paths like /me, /classes,
-// etc.; this prefix makes them /make-server-f116e23f/school/me, etc.
-app.route("/make-server-f116e23f/school", schoolApp);
 
 // Supabase client
 const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
@@ -210,6 +209,16 @@ app.use("/*", async (c, next) => {
   
   await next();
 });
+
+// ================================================================
+// SCHOOL SUB-APP (Iqra Academy pilot)
+// ================================================================
+// Mounted here, AFTER the global CORS + debug middleware above, so the
+// sub-app's responses inherit them. Mounting earlier (before the
+// app.use() calls) was the bug that caused /school/me to fail with
+// "Failed to fetch" in the browser — the OPTIONS preflight had no
+// CORS headers.
+app.route("/make-server-f116e23f/school", schoolApp);
 
 // ================================================================
 // MONITORING ENDPOINTS
