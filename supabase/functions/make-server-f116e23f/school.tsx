@@ -1640,4 +1640,423 @@ school.post("/point-events/:id/void", async (c) => {
   return c.json({ ok: true });
 });
 
+// =============================================================================
+// BEHAVIOR CATALOG (school-wide, principal-managed) + BEHAVIOR LOGGING
+// =============================================================================
+// Decision per spec §10: school-wide catalog, principal-approved. Class
+// teachers cannot add custom behaviors in v1 — they request the principal.
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// POST /school/organizations/:orgId/behavior-catalog
+// Body: {
+//   name: string,
+//   kind: 'positive' | 'negative',
+//   points: number,            // sign auto-corrected to match kind
+//   category?: string,
+//   tier?: 'minor' | 'moderate' | 'major',
+//   dedupeWindowMin?: number,  // default 15 for negative, none for positive
+// }
+// -----------------------------------------------------------------------------
+school.post("/organizations/:orgId/behavior-catalog", async (c) => {
+  const userId = getAuthUserId(c);
+  if (!userId) return c.json({ error: "unauthenticated" }, 401);
+  const orgId = c.req.param("orgId");
+
+  if (!(await isPrincipalOf(userId, orgId))) {
+    return c.json({ error: "forbidden" }, 403);
+  }
+
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON body" }, 400); }
+  if (!body?.name || typeof body.name !== "string") return c.json({ error: "name required" }, 400);
+  if (!["positive", "negative"].includes(body.kind)) return c.json({ error: "kind must be positive|negative" }, 400);
+  if (typeof body.points !== "number") return c.json({ error: "points must be a number" }, 400);
+
+  // Auto-correct sign to match kind so the UI doesn't have to police it
+  let points = Math.abs(body.points);
+  if (body.kind === "negative") points = -points;
+
+  const dedupeWindow = body.dedupeWindowMin ?? (body.kind === "negative" ? 15 : null);
+
+  const { data, error } = await serviceRoleClient
+    .from("trackable_items")
+    .insert({
+      owner_type: "organization",
+      owner_id: orgId,
+      name: body.name.trim(),
+      kind: body.kind,
+      category: body.category ?? null,
+      points,
+      tier: body.tier ?? null,
+      dedupe_window_min: dedupeWindow,
+      is_singleton: false,
+      is_religious: false,
+    })
+    .select()
+    .single();
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json(data, 201);
+});
+
+// -----------------------------------------------------------------------------
+// GET /school/organizations/:orgId/behavior-catalog
+// -----------------------------------------------------------------------------
+school.get("/organizations/:orgId/behavior-catalog", async (c) => {
+  const userId = getAuthUserId(c);
+  if (!userId) return c.json({ error: "unauthenticated" }, 401);
+  const orgId = c.req.param("orgId");
+
+  // Any role on this org can read the catalog (teachers need to log against it)
+  const principal = await isPrincipalOf(userId, orgId);
+  let allowed = principal;
+  if (!allowed) {
+    // Cheap check: is the user a teacher anywhere in this org?
+    const { data: teacherClasses } = await serviceRoleClient
+      .from("user_roles")
+      .select("scope_id, classes:scope_id(organization_id)")
+      .eq("user_id", userId)
+      .eq("role_type", "teacher")
+      .eq("scope_type", "class")
+      .is("revoked_at", null);
+    if ((teacherClasses ?? []).some((r: any) => r.classes?.organization_id === orgId)) {
+      allowed = true;
+    }
+  }
+  if (!allowed) return c.json({ error: "forbidden" }, 403);
+
+  const { data, error } = await serviceRoleClient
+    .from("trackable_items")
+    .select("*")
+    .eq("owner_type", "organization")
+    .eq("owner_id", orgId)
+    .eq("active", true)
+    .order("kind")
+    .order("name");
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json(data ?? []);
+});
+
+// -----------------------------------------------------------------------------
+// POST /school/children/:childId/behavior
+// Body: { trackableItemId: uuid, notes?: string }
+// Logs a behavior catalog item against a child. Points come from the
+// catalog row (with sign already correct). Writes point_event with
+// source='school' AND child's current_points is bumped.
+// -----------------------------------------------------------------------------
+school.post("/children/:childId/behavior", async (c) => {
+  const userId = getAuthUserId(c);
+  if (!userId) return c.json({ error: "unauthenticated" }, 401);
+  const childId = c.req.param("childId");
+
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON body" }, 400); }
+  if (!body?.trackableItemId) return c.json({ error: "trackableItemId required" }, 400);
+
+  // Authorize: principal of child's org OR teacher of child's class
+  const allow = await canLogHifzFor(userId, childId); // same auth pattern works
+  if (!allow.ok) return c.json({ error: "forbidden", reason: allow.reason }, 403);
+
+  // Fetch the catalog item, validate it belongs to this org
+  const { data: item, error: itemErr } = await serviceRoleClient
+    .from("trackable_items")
+    .select("*")
+    .eq("id", body.trackableItemId)
+    .maybeSingle();
+  if (itemErr) return c.json({ error: itemErr.message }, 500);
+  if (!item) return c.json({ error: "behavior catalog item not found" }, 404);
+  if (item.owner_type !== "organization" || item.owner_id !== allow.orgId) {
+    return c.json({ error: "this catalog item does not belong to your school" }, 400);
+  }
+  if (!item.active) return c.json({ error: "catalog item is inactive" }, 400);
+
+  // Dedupe check: if item has a dedupe window, check for recent same-item event on this child
+  if (item.dedupe_window_min) {
+    const cutoff = new Date(Date.now() - item.dedupe_window_min * 60_000).toISOString();
+    const { data: recent } = await serviceRoleClient
+      .from("point_events")
+      .select("id")
+      .eq("child_id", childId)
+      .eq("trackable_item_id", item.id)
+      .eq("status", "active")
+      .gte("occurred_at", cutoff)
+      .limit(1);
+    if (recent && recent.length > 0) {
+      return c.json({
+        error: "duplicate_window",
+        message: `"${item.name}" already logged within the last ${item.dedupe_window_min} minutes`,
+      }, 409);
+    }
+  }
+
+  const callerName = await resolveCallerName(userId);
+  const { data: ev, error: evErr } = await serviceRoleClient
+    .from("point_events")
+    .insert({
+      child_id: childId,
+      trackable_item_id: item.id,
+      item_name_snapshot: item.name,
+      points: item.points,
+      logged_by: userId,
+      logged_by_name_snapshot: callerName,
+      source: "school",
+      source_org_id: allow.orgId,
+      source_class_id: allow.classId,
+      notes: body.notes ?? null,
+    })
+    .select()
+    .single();
+  if (evErr) return c.json({ error: evErr.message }, 500);
+
+  // Bump child points
+  const { data: child } = await serviceRoleClient
+    .from("children").select("current_points").eq("id", childId).maybeSingle();
+  if (child) {
+    const newPoints = Math.max(0, (child.current_points ?? 0) + item.points);
+    await serviceRoleClient.from("children").update({ current_points: newPoints }).eq("id", childId);
+  }
+
+  return c.json(ev, 201);
+});
+
+// =============================================================================
+// SALAH LOGGING (school)
+// =============================================================================
+
+const VALID_PRAYERS = ["Fajr", "Zuhr", "Asr", "Maghrib", "Isha"] as const;
+type PrayerName = typeof VALID_PRAYERS[number];
+
+// Compute points for a salah log given the org's policy.
+// Default: ontime = +2, qadha = +1, missed = -1. Org settings override.
+async function salahPointsFor(orgId: string, state: "ontime" | "qadha" | "missed"): Promise<number> {
+  const { data: org } = await serviceRoleClient
+    .from("organizations").select("settings").eq("id", orgId).maybeSingle();
+  const settings = (org as any)?.settings ?? {};
+  if (state === "qadha") return settings.salahQadhaPoints ?? 1;
+  if (state === "missed") return settings.salahMissedPoints ?? -1;
+  return settings.salahOntimePoints ?? 2;
+}
+
+// One Salah per child per day per prayer (singleton). Check via existing
+// point_event with same item_name_snapshot prefix.
+async function alreadyLoggedSalahToday(childId: string, prayer: PrayerName): Promise<boolean> {
+  const todayStart = new Date(); todayStart.setUTCHours(0, 0, 0, 0);
+  const { data } = await serviceRoleClient
+    .from("point_events")
+    .select("id")
+    .eq("child_id", childId)
+    .eq("status", "active")
+    .ilike("item_name_snapshot", `Salah · ${prayer}%`)
+    .gte("occurred_at", todayStart.toISOString())
+    .limit(1);
+  return (data ?? []).length > 0;
+}
+
+// -----------------------------------------------------------------------------
+// POST /school/children/:childId/salah
+// Body: { prayer: 'Fajr'|'Zuhr'|'Asr'|'Maghrib'|'Isha', state: 'ontime'|'qadha'|'missed', notes? }
+// -----------------------------------------------------------------------------
+school.post("/children/:childId/salah", async (c) => {
+  const userId = getAuthUserId(c);
+  if (!userId) return c.json({ error: "unauthenticated" }, 401);
+  const childId = c.req.param("childId");
+
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON body" }, 400); }
+  if (!VALID_PRAYERS.includes(body.prayer)) {
+    return c.json({ error: `prayer must be one of: ${VALID_PRAYERS.join(", ")}` }, 400);
+  }
+  if (!["ontime", "qadha", "missed"].includes(body.state)) {
+    return c.json({ error: "state must be ontime|qadha|missed" }, 400);
+  }
+
+  const allow = await canLogHifzFor(userId, childId);
+  if (!allow.ok) return c.json({ error: "forbidden", reason: allow.reason }, 403);
+
+  if (await alreadyLoggedSalahToday(childId, body.prayer)) {
+    return c.json({ error: "salah_already_logged_today", prayer: body.prayer }, 409);
+  }
+
+  const points = await salahPointsFor(allow.orgId!, body.state);
+  const stateLabel = body.state === "ontime" ? "On time" : body.state === "qadha" ? "Qadha" : "Missed";
+  const callerName = await resolveCallerName(userId);
+
+  const { data, error } = await serviceRoleClient
+    .from("point_events")
+    .insert({
+      child_id: childId,
+      item_name_snapshot: `Salah · ${body.prayer} (${stateLabel})`,
+      points,
+      logged_by: userId,
+      logged_by_name_snapshot: callerName,
+      source: "school",
+      source_org_id: allow.orgId,
+      source_class_id: allow.classId,
+      salah_state: body.state,
+      notes: body.notes ?? null,
+    })
+    .select()
+    .single();
+  if (error) return c.json({ error: error.message }, 500);
+
+  // Bump child points
+  const { data: child } = await serviceRoleClient
+    .from("children").select("current_points").eq("id", childId).maybeSingle();
+  if (child) {
+    const newPoints = Math.max(0, (child.current_points ?? 0) + points);
+    await serviceRoleClient.from("children").update({ current_points: newPoints }).eq("id", childId);
+  }
+
+  return c.json({ pointEvent: data, awardedPoints: points }, 201);
+});
+
+// -----------------------------------------------------------------------------
+// POST /school/classes/:classId/salah/bulk
+// Body: {
+//   prayer: 'Fajr'|...,
+//   defaultState: 'ontime'|'qadha'|'missed',
+//   overrides?: { [childId]: 'ontime'|'qadha'|'missed' }
+// }
+// Class teacher logs the same prayer for the whole roster in one call.
+// Default state applies to everyone; overrides per child override.
+// -----------------------------------------------------------------------------
+school.post("/classes/:classId/salah/bulk", async (c) => {
+  const userId = getAuthUserId(c);
+  if (!userId) return c.json({ error: "unauthenticated" }, 401);
+  const classId = c.req.param("classId");
+
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON body" }, 400); }
+  if (!VALID_PRAYERS.includes(body.prayer)) {
+    return c.json({ error: `prayer must be one of: ${VALID_PRAYERS.join(", ")}` }, 400);
+  }
+  if (!["ontime", "qadha", "missed"].includes(body.defaultState)) {
+    return c.json({ error: "defaultState must be ontime|qadha|missed" }, 400);
+  }
+
+  const { data: cls } = await serviceRoleClient
+    .from("classes").select("organization_id").eq("id", classId).maybeSingle();
+  if (!cls) return c.json({ error: "class not found" }, 404);
+
+  const isPrincipal = await isPrincipalOf(userId, cls.organization_id);
+  const isTeacher = isPrincipal ? true : await hasRole(userId, "teacher", "class", classId);
+  if (!isPrincipal && !isTeacher) return c.json({ error: "forbidden" }, 403);
+
+  // Get roster
+  const { data: enrollments } = await serviceRoleClient
+    .from("enrollments")
+    .select("child_id")
+    .eq("class_id", classId)
+    .is("withdrawn_at", null);
+  if (!enrollments || enrollments.length === 0) {
+    return c.json({ message: "no students enrolled", logged: 0 });
+  }
+
+  const callerName = await resolveCallerName(userId);
+  const overrides = body.overrides ?? {};
+  const orgId = cls.organization_id;
+
+  const results: any[] = [];
+  for (const e of enrollments) {
+    const childId = (e as any).child_id;
+    const state = overrides[childId] ?? body.defaultState;
+    const stateLabel = state === "ontime" ? "On time" : state === "qadha" ? "Qadha" : "Missed";
+
+    if (await alreadyLoggedSalahToday(childId, body.prayer)) {
+      results.push({ childId, skipped: true, reason: "already logged today" });
+      continue;
+    }
+
+    const points = await salahPointsFor(orgId, state);
+    const { data: ev, error } = await serviceRoleClient
+      .from("point_events")
+      .insert({
+        child_id: childId,
+        item_name_snapshot: `Salah · ${body.prayer} (${stateLabel})`,
+        points,
+        logged_by: userId,
+        logged_by_name_snapshot: callerName,
+        source: "school",
+        source_org_id: orgId,
+        source_class_id: classId,
+        salah_state: state,
+        notes: body.notes ?? null,
+      })
+      .select()
+      .single();
+    if (error) {
+      results.push({ childId, ok: false, error: error.message });
+      continue;
+    }
+
+    const { data: child } = await serviceRoleClient
+      .from("children").select("current_points").eq("id", childId).maybeSingle();
+    if (child) {
+      await serviceRoleClient
+        .from("children")
+        .update({ current_points: Math.max(0, (child.current_points ?? 0) + points) })
+        .eq("id", childId);
+    }
+    results.push({ childId, ok: true, eventId: ev.id, points });
+  }
+
+  const ok = results.filter((r) => r.ok).length;
+  const skipped = results.filter((r) => r.skipped).length;
+  const failed = results.filter((r) => r.ok === false).length;
+  return c.json({ prayer: body.prayer, ok, skipped, failed, results }, 207);
+});
+
+// -----------------------------------------------------------------------------
+// POST /school/classes/:classId/attendance
+// Body: { date: 'YYYY-MM-DD', records: [{ childId, status, lateMinutes?, reason? }] }
+// Records attendance for a class day. One row per child per day (unique
+// constraint). Re-running on same date upserts.
+// -----------------------------------------------------------------------------
+school.post("/classes/:classId/attendance", async (c) => {
+  const userId = getAuthUserId(c);
+  if (!userId) return c.json({ error: "unauthenticated" }, 401);
+  const classId = c.req.param("classId");
+
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON body" }, 400); }
+  if (!body?.date || !Array.isArray(body?.records)) {
+    return c.json({ error: "date + records[] required" }, 400);
+  }
+
+  const { data: cls } = await serviceRoleClient
+    .from("classes").select("organization_id").eq("id", classId).maybeSingle();
+  if (!cls) return c.json({ error: "class not found" }, 404);
+
+  const isPrincipal = await isPrincipalOf(userId, cls.organization_id);
+  const isTeacher = isPrincipal ? true : await hasRole(userId, "teacher", "class", classId);
+  if (!isPrincipal && !isTeacher) return c.json({ error: "forbidden" }, 403);
+
+  const valid = ["present", "late", "absent", "present_remote"];
+  const upserts: any[] = [];
+  for (const r of body.records) {
+    if (!valid.includes(r.status)) {
+      return c.json({ error: `invalid status for child ${r.childId}: ${r.status}` }, 400);
+    }
+    if (r.status === "absent" && (!r.reason || typeof r.reason !== "string")) {
+      return c.json({ error: `absent requires a reason for child ${r.childId}` }, 400);
+    }
+    upserts.push({
+      child_id: r.childId,
+      class_id: classId,
+      attendance_date: body.date,
+      status: r.status,
+      late_minutes: r.lateMinutes ?? null,
+      reason: r.reason ?? null,
+      recorded_by: userId,
+    });
+  }
+
+  const { data, error } = await serviceRoleClient
+    .from("attendance")
+    .upsert(upserts, { onConflict: "child_id,attendance_date" })
+    .select();
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json({ recorded: data?.length ?? 0, records: data });
+});
+
 export default school;
