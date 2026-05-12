@@ -1,6 +1,8 @@
 import { Outlet, Link, useLocation, useNavigate } from "react-router";
 import { ChildSelector } from "../components/ChildSelector";
 import { ModeSwitcher } from "../components/ModeSwitcher";
+import { WorkspaceSwitcher } from "../components/WorkspaceSwitcher";
+import { useWorkspace } from "../contexts/WorkspaceContext";
 import {
   Home, FileText, BarChart3, Settings, Calendar, Gift, Shield,
   Menu, X, Trophy, Sliders, Edit, LogOut, Compass,
@@ -36,7 +38,7 @@ interface NavGroup {
   items: NavigationItem[];
 }
 
-// One source of truth — grouped. Kid mode filters to items flagged childAccess.
+// FAMILY workspace nav. Kid mode filters to items flagged childAccess.
 const parentNavGroups: NavGroup[] = [
   {
     label: 'Daily',
@@ -78,16 +80,20 @@ const parentNavGroups: NavGroup[] = [
       { name: 'Settings', href: '/settings', icon: Settings, childAccess: false, description: 'Family, rules, preferences' },
     ],
   },
-  // School (Iqra Academy pilot) — visible to all parent-mode users. The
-  // /school page itself shows a polite "no school access" message for
-  // users without a principal or teacher role, so adding it here doesn't
-  // leak anything sensitive.
+];
+
+// SCHOOL workspace nav. Shown only when the user is in school workspace
+// (selected via WorkspaceSwitcher). Single nav item that lands on /school
+// — the SchoolHome page itself routes by role (principal → dashboard,
+// teacher → class list). Behavior catalog and class detail are reachable
+// from within /school, so the nav stays uncluttered.
+const schoolNavGroups: NavGroup[] = [
   {
     label: 'School',
     key: 'school',
     accent: 'bg-indigo-500',
     items: [
-      { name: 'School', href: '/school', icon: School, childAccess: false, description: 'Principal & teacher surfaces' },
+      { name: 'Dashboard', href: '/school', icon: School, childAccess: false, description: 'Classes, students, today\'s logging' },
     ],
   },
 ];
@@ -113,18 +119,25 @@ export function RootLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const { viewMode, switchToParentMode, isPreviewingAsKid } = useViewMode();
+  const { workspace } = useWorkspace();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { logout, user } = useAuth();
 
   const isKidMode = viewMode === 'kid';
+  // Workspace gates the entire nav. Kid mode is family-only (kids don't
+  // see school chrome ever — they get the KidLayout instead, but defense
+  // in depth: never show school nav when isKidMode either).
+  const isSchoolWorkspace = workspace.kind === 'school' && !isKidMode;
 
-  // Visible groups — kid mode filters items and drops empty groups.
+  // Visible groups — workspace selects the base set; kid mode (family
+  // workspace only) further filters items to childAccess.
   const visibleGroups: NavGroup[] = useMemo(() => {
+    if (isSchoolWorkspace) return schoolNavGroups;
     if (!isKidMode) return parentNavGroups;
     return parentNavGroups
       .map(g => ({ ...g, items: g.items.filter(i => i.childAccess) }))
       .filter(g => g.items.length > 0);
-  }, [isKidMode]);
+  }, [isKidMode, isSchoolWorkspace]);
 
   const getHref = (item: NavigationItem) =>
     isKidMode && item.kidHref ? item.kidHref : item.href;
@@ -210,7 +223,11 @@ export function RootLayout() {
     navigate('/welcome');
   };
 
-  const quickAccess = isKidMode ? kidQuickAccess : parentQuickAccess;
+  // Mobile bottom nav. In school workspace we collapse it to a single
+  // "Dashboard → /school" pill (everything reachable inside that page).
+  const quickAccess = isSchoolWorkspace
+    ? schoolNavGroups[0].items
+    : (isKidMode ? kidQuickAccess : parentQuickAccess);
 
   return (
     <div className="min-h-screen bg-background flex flex-col transition-colors duration-500">
@@ -251,7 +268,7 @@ export function RootLayout() {
           {/* Row 1 — brand / mode switcher / user */}
           <div className="flex items-center justify-between h-14 sm:h-16 gap-3">
             {/* Brand */}
-            <Link to="/" className="flex items-center gap-2 min-w-0 group">
+            <Link to={isSchoolWorkspace ? "/school" : "/"} className="flex items-center gap-2 min-w-0 group">
               {isKidMode ? (
                 <>
                   <span className="h-9 w-9 rounded-xl bg-gradient-to-br from-[#F4C430] to-[#FFB347] flex items-center justify-center shadow-md shadow-amber-500/30">
@@ -263,6 +280,20 @@ export function RootLayout() {
                     </h1>
                     <p className="text-[10px] sm:text-xs text-[#F4C430]/70 leading-tight truncate">
                       Kid mode
+                    </p>
+                  </div>
+                </>
+              ) : isSchoolWorkspace ? (
+                <>
+                  <span className="h-9 w-9 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-700 flex items-center justify-center shadow-md shadow-indigo-500/30 transition-transform group-hover:scale-105">
+                    <School className="h-5 w-5 text-white" />
+                  </span>
+                  <div className="min-w-0">
+                    <h1 className="text-sm sm:text-base font-bold leading-tight text-slate-900 truncate">
+                      {workspace.orgName ?? 'School'}
+                    </h1>
+                    <p className="text-[10px] sm:text-xs text-indigo-600/80 leading-tight truncate">
+                      School workspace
                     </p>
                   </div>
                 </>
@@ -283,14 +314,20 @@ export function RootLayout() {
               )}
             </Link>
 
-            {/* Center: Child selector (desktop) */}
+            {/* Center: Child selector (desktop). Hidden in school
+                workspace — children belong to the family chrome. */}
             <div className="hidden md:block flex-1 max-w-xs">
-              <ChildSelector />
+              {!isSchoolWorkspace && <ChildSelector />}
             </div>
 
-            {/* Right: mode switcher + user + logout */}
+            {/* Right: workspace switcher + mode switcher + user + logout */}
             <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-              {!isChildLoggedIn && (
+              {/* Workspace switcher renders nothing if the user has no
+                  school role, so family-only users see no extra chrome. */}
+              {!isChildLoggedIn && <WorkspaceSwitcher />}
+              {/* Mode (parent/kid preview) only makes sense in family
+                  workspace; hide it in school workspace. */}
+              {!isChildLoggedIn && !isSchoolWorkspace && (
                 <div className="hidden md:block">
                   <ModeSwitcher />
                 </div>
