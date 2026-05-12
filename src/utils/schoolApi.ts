@@ -244,7 +244,7 @@ export const previewParentInvite = (code: string) =>
 
 export const acceptParentInvite = (
   code: string,
-  body: { mergeIntoFamilyId?: string } = {},
+  body: { mergeIntoFamilyId?: string; linkToKvChildId?: string } = {},
 ) =>
   apiCall(`/school/parent-invites/${code}/accept`, {
     method: "POST",
@@ -316,6 +316,24 @@ export const getChildSchoolEvents = (
   if (opts?.includeVoided) q.append("includeVoided", "true");
   const qs = q.toString() ? `?${q}` : "";
   return apiCall(`/school/children/${childId}/events${qs}`);
+};
+
+/**
+ * KV-side ingress for the family Dashboard. Pass a legacy KV child id
+ * (e.g. "child:1234567890") and the backend returns school events for
+ * the linked Postgres child. Returns an empty events list if no link —
+ * the family Dashboard just skips the school merge in that case.
+ */
+export const getKvChildSchoolEvents = (
+  kvChildId: string,
+  opts?: { limit?: number; sinceIso?: string },
+): Promise<{ kvChildId: string; postgresChildId: string | null; events: SchoolEvent[] }> => {
+  const q = new URLSearchParams();
+  if (opts?.limit) q.append("limit", String(opts.limit));
+  if (opts?.sinceIso) q.append("sinceIso", opts.sinceIso);
+  const qs = q.toString() ? `?${q}` : "";
+  // KV child ids contain a colon ("child:..."); encode for safety.
+  return apiCall(`/school/kv-children/${encodeURIComponent(kvChildId)}/events${qs}`);
 };
 
 // ─── Behavior catalog + logging ─────────────────────────────────────────

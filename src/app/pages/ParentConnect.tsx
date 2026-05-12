@@ -20,12 +20,14 @@ import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import {
-  AlertCircle, CheckCircle2, Loader2, School, GraduationCap, Heart, ArrowRight,
+  AlertCircle, CheckCircle2, Loader2, School, GraduationCap, Heart, ArrowRight, Link2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { acceptParentInvite, previewParentInvite } from "../../utils/schoolApi";
 import { getStorage, STORAGE_KEYS } from "../../utils/storage";
+import { useFamilyContext } from "../contexts/FamilyContext";
 
 interface InvitePreview {
   inviteCode: string;
@@ -43,6 +45,13 @@ export function ParentConnect() {
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
 
+  // FamilyContext lets us list the parent's KV kids so they can say
+  // "this school student is my existing Ahmad". The selected KV id is
+  // sent as linkToKvChildId on accept, which the backend writes to
+  // child_id_map so the family Dashboard can later show school events
+  // alongside home events for the same child.
+  const { children: kvChildren } = useFamilyContext();
+
   const initialCode = params.get("code") ?? "";
   const [code, setCode] = useState(initialCode);
   const [preview, setPreview] = useState<InvitePreview | null>(null);
@@ -52,6 +61,10 @@ export function ParentConnect() {
   // Family the caller already operates on (from local storage cache)
   const [existingFamilyId, setExistingFamilyId] = useState<string | null>(null);
 
+  // Optional KV child to link (only shown in merge mode and when the
+  // parent has existing KV kids).
+  const [linkToKvChildId, setLinkToKvChildId] = useState<string>("");
+
   // Claim state
   const [claiming, setClaiming] = useState(false);
   const [claimed, setClaimed] = useState(false);
@@ -59,6 +72,16 @@ export function ParentConnect() {
   useEffect(() => {
     getStorage(STORAGE_KEYS.FAMILY_ID).then((id) => setExistingFamilyId(id ?? null));
   }, []);
+
+  // Auto-select the KV child whose name matches the school child, when
+  // there's exactly one match — saves the parent a tap in the common case.
+  useEffect(() => {
+    if (!preview || kvChildren.length === 0) return;
+    const matches = kvChildren.filter(
+      (c) => c.name.trim().toLowerCase() === preview.child.name.trim().toLowerCase(),
+    );
+    if (matches.length === 1) setLinkToKvChildId(matches[0].id);
+  }, [preview, kvChildren]);
 
   // Load preview when code is present in URL
   useEffect(() => {
@@ -97,6 +120,7 @@ export function ParentConnect() {
       const body: any = {};
       if (mode === "merge" && existingFamilyId) {
         body.mergeIntoFamilyId = existingFamilyId;
+        if (linkToKvChildId) body.linkToKvChildId = linkToKvChildId;
       }
       await acceptParentInvite(preview.inviteCode, body);
       setClaimed(true);
@@ -208,6 +232,36 @@ export function ParentConnect() {
                     <p className="text-xs text-muted-foreground mt-1">
                       {preview.child.name} will appear alongside your other children. Your existing family settings and history stay intact.
                     </p>
+
+                    {/* Link to one of the parent's existing KV kids so the
+                        family Dashboard can show school events alongside
+                        home events for the same child. Shown only when the
+                        parent has at least one existing kid. */}
+                    {kvChildren.length > 0 && (
+                      <div className="mt-3 space-y-1.5 p-2.5 rounded-md bg-indigo-50/60 border border-indigo-100">
+                        <Label className="text-xs flex items-center gap-1.5 text-indigo-900">
+                          <Link2 className="h-3.5 w-3.5" />
+                          Is this the same child as one of yours?
+                        </Label>
+                        <Select value={linkToKvChildId} onValueChange={setLinkToKvChildId}>
+                          <SelectTrigger className="h-8 text-sm bg-white">
+                            <SelectValue placeholder="Pick a child (optional)" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="">No — keep them separate</SelectItem>
+                            {kvChildren.map((c) => (
+                              <SelectItem key={c.id} value={c.id}>
+                                {c.avatar || "👤"} {c.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-[11px] text-indigo-700/80">
+                          Linking lets you see {preview.child.name}'s school activity (Salah, sabaq, behavior) in your family timeline.
+                        </p>
+                      </div>
+                    )}
+
                     <Button
                       onClick={() => submitClaim("merge")}
                       disabled={claiming}

@@ -937,7 +937,7 @@ school.get("/parent-invites/:code", async (c) => {
 
 // -----------------------------------------------------------------------------
 // POST /school/parent-invites/:code/accept
-// Body: { mergeIntoFamilyId?: uuid }
+// Body: { mergeIntoFamilyId?: uuid, linkToKvChildId?: string }
 // The parent (authed) claims the invite.
 //   - If mergeIntoFamilyId is provided AND the caller is a member of that
 //     family: move the child into that family. The "school-pending"
@@ -945,7 +945,15 @@ school.get("/parent-invites/:code", async (c) => {
 //   - Otherwise: the caller is added as the owner of the virtual family
 //     (renamed to "<child name>'s Family").
 //
-// In both cases the school enrollment is unchanged — the child stays
+//   - If linkToKvChildId is ALSO provided (only meaningful in merge mode):
+//     record the KV↔Postgres child mapping in child_id_map. This is what
+//     lets the family Dashboard fetch school events for an existing KV
+//     kid. We accept any non-empty string and trust the caller — they're
+//     authenticated and they're choosing which of their own children to
+//     link to. If a mapping already exists for that KV id, we leave it
+//     and do not error (idempotent claim).
+//
+// In all cases the school enrollment is unchanged — the child stays
 // enrolled, and now has a real parent linkage.
 // -----------------------------------------------------------------------------
 school.post("/parent-invites/:code/accept", async (c) => {
@@ -1040,11 +1048,35 @@ school.post("/parent-invites/:code/accept", async (c) => {
     .update({ consumed_by: userId, consumed_at: new Date().toISOString() })
     .eq("id", invite.id);
 
+  // Record the KV↔Postgres child id mapping. Only meaningful in merge mode
+  // because adopt mode just creates a fresh family with no KV counterpart.
+  // Idempotent: ON CONFLICT DO NOTHING. If the same KV id was previously
+  // mapped to a different Postgres child, we keep the older mapping —
+  // safer than silently overwriting.
+  let linkedKvChildId: string | null = null;
+  if (mergeTarget && typeof body?.linkToKvChildId === "string" && body.linkToKvChildId.trim().length > 0) {
+    const kvId = body.linkToKvChildId.trim();
+    const { error: mapErr } = await serviceRoleClient
+      .from("child_id_map")
+      .insert({
+        kv_child_id: kvId,
+        postgres_child_id: child.id,
+        created_by: userId,
+      });
+    // Postgres error code 23505 = unique_violation. Treat as no-op.
+    if (mapErr && (mapErr as any).code !== "23505") {
+      console.warn("[school.accept] could not create child_id_map row:", mapErr);
+    } else {
+      linkedKvChildId = kvId;
+    }
+  }
+
   return c.json({
     ok: true,
     childId: child.id,
     familyId: mergeTarget ?? child.family_id,
     mode: mergeTarget ? "merged" : "adopted",
+    linkedKvChildId,
   });
 });
 
@@ -2142,6 +2174,105 @@ school.get("/children/:childId/events", async (c) => {
       status: e.status,
       voidedAt: e.voided_at,
       voidReason: e.void_reason,
+      occurredAt: e.occurred_at,
+    })),
+  });
+});
+
+// -----------------------------------------------------------------------------
+// GET /school/kv-children/:kvChildId/events
+// KV-side ingress: family Dashboard passes a legacy KV child id (e.g.
+// "child:1234567890") and gets back the school-source events for the
+// linked Postgres child, if a mapping exists in child_id_map. Returns
+// an empty events list if no mapping (the kid has no school presence).
+//
+// This is the bridge that lets the family product surface school activity
+// without knowing about Postgres ids directly.
+//
+// Authorization: any authenticated user. The mapping itself is the auth
+// — only a parent who claimed the invite could have created the row,
+// and we further verify by looking up family membership on the Postgres
+// side before returning events. (A randomly-guessed KV id would either
+// not be in the map or not link to a family the caller is a member of.)
+// -----------------------------------------------------------------------------
+school.get("/kv-children/:kvChildId/events", async (c) => {
+  const userId = getAuthUserId(c);
+  if (!userId) return c.json({ error: "unauthenticated" }, 401);
+  const kvChildId = c.req.param("kvChildId");
+
+  const { data: mapping } = await serviceRoleClient
+    .from("child_id_map")
+    .select("postgres_child_id")
+    .eq("kv_child_id", kvChildId)
+    .maybeSingle();
+  if (!mapping) {
+    // No mapping = no school presence for this KV kid. Not an error;
+    // family Dashboard will just see an empty list and skip the merge.
+    return c.json({ kvChildId, postgresChildId: null, events: [] });
+  }
+
+  const pgChildId = (mapping as any).postgres_child_id as string;
+
+  // Confirm the caller has parent rights via family_members on the
+  // child's Postgres family. Same auth as /children/:id/events.
+  const { data: child } = await serviceRoleClient
+    .from("children")
+    .select("id, family_id")
+    .eq("id", pgChildId)
+    .maybeSingle();
+  if (!child) {
+    return c.json({ kvChildId, postgresChildId: null, events: [] });
+  }
+
+  const { data: fam } = await serviceRoleClient
+    .from("family_members")
+    .select("id")
+    .eq("family_id", child.family_id)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!fam) {
+    // Caller has no Postgres family link for this child. Possible if
+    // mapping exists but caller never joined the family. Treat as 403.
+    return c.json({ error: "forbidden" }, 403);
+  }
+
+  const limitParam = parseInt(c.req.query("limit") ?? "50", 10);
+  const limit = Math.min(Math.max(limitParam || 50, 1), 200);
+  const sinceIso = c.req.query("sinceIso");
+
+  let query = serviceRoleClient
+    .from("point_events")
+    .select(
+      "id, points, item_name_snapshot, logged_by_name_snapshot, source, source_org_id, source_class_id, salah_state, notes, status, occurred_at, " +
+        "organizations:source_org_id(id, name), classes:source_class_id(id, name)",
+    )
+    .eq("child_id", pgChildId)
+    .eq("source", "school")
+    .eq("status", "active")
+    .order("occurred_at", { ascending: false })
+    .limit(limit);
+
+  if (sinceIso) query = query.gte("occurred_at", sinceIso);
+
+  const { data, error } = await query;
+  if (error) return c.json({ error: error.message }, 500);
+
+  return c.json({
+    kvChildId,
+    postgresChildId: pgChildId,
+    events: (data ?? []).map((e: any) => ({
+      id: e.id,
+      points: e.points,
+      itemName: e.item_name_snapshot,
+      loggedByName: e.logged_by_name_snapshot,
+      source: e.source,
+      orgId: e.source_org_id,
+      orgName: e.organizations?.name ?? null,
+      classId: e.source_class_id,
+      className: e.classes?.name ?? null,
+      salahState: e.salah_state,
+      notes: e.notes,
+      status: e.status,
       occurredAt: e.occurred_at,
     })),
   });

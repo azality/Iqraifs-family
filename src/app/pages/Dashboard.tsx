@@ -8,6 +8,7 @@ import { useMilestones } from "../hooks/useMilestones";
 import { useRewards } from "../hooks/useRewards";
 import { useAuth } from "../contexts/AuthContext";
 import { logPointEvent, voidEvent } from "../../utils/api";
+import { getKvChildSchoolEvents, type SchoolEvent } from "../../utils/schoolApi";
 import { toast } from "sonner";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "../components/ui/alert-dialog";
 import { Textarea } from "../components/ui/textarea";
@@ -63,6 +64,11 @@ export function Dashboard() {
   const [voidTarget, setVoidTarget] = useState<{ event: PointEvent; itemName: string } | null>(null);
   const [voidReason, setVoidReason] = useState('');
   const [voiding, setVoiding] = useState(false);
+  // School events for the currently-selected child. Populated only if
+  // the KV child id has a row in child_id_map (i.e. the parent linked
+  // this kid to a school student via /parent/connect). Empty otherwise
+  // — for family-only kids, the merge below is a no-op.
+  const [schoolEvents, setSchoolEvents] = useState<SchoolEvent[]>([]);
 
   // v25: refetch when showVoided toggles so the activity feed actually
   // reflects the choice. Calling getChildEvents with includeVoided=true
@@ -81,6 +87,21 @@ export function Dashboard() {
       setPointEvents([]);
     }
   }, [child?.id, getChildEvents, showVoided]);
+
+  // Fetch school events for this kid (if linked). Best-effort: silently
+  // ignore 403/404, since most kids are family-only and have no school
+  // link. The backend returns an empty array for unmapped KV ids.
+  useEffect(() => {
+    if (!child?.id) {
+      setSchoolEvents([]);
+      return;
+    }
+    let cancelled = false;
+    getKvChildSchoolEvents(child.id, { limit: 50 })
+      .then((r) => { if (!cancelled) setSchoolEvents(r.events ?? []); })
+      .catch(() => { if (!cancelled) setSchoolEvents([]); });
+    return () => { cancelled = true; };
+  }, [child?.id]);
 
   // Point values awarded for each recovery action. Must match RecoveryDialog.tsx.
   const RECOVERY_POINTS: Record<'apology' | 'reflection' | 'correction', number> = {
@@ -160,6 +181,31 @@ export function Dashboard() {
 
   const childEvents = pointEvents.filter(e => e.childId === child.id);
 
+  // Merge school-source events (from Postgres, via child_id_map) into
+  // the activity feed for display. Daily/weekly totals below stay
+  // family-only on purpose — school points are a separate ledger and
+  // mixing them into the family cap would be wrong. The merge here is
+  // strictly cosmetic: render a unified parent timeline.
+  const adaptedSchoolEvents: any[] = schoolEvents.map((e) => ({
+    id: e.id,
+    childId: child.id,
+    trackableItemId: 'school',
+    points: e.points,
+    timestamp: e.occurredAt,
+    loggedBy: e.loggedByName || 'School',
+    itemName: e.itemName || 'School activity',
+    notes: e.notes || undefined,
+    type: 'school',
+    // markers for the render row (badge + attribution line)
+    __source: 'school',
+    __orgName: e.orgName,
+    __className: e.className,
+    __loggedByName: e.loggedByName,
+  }));
+  const mergedActivityEvents = [...childEvents, ...adaptedSchoolEvents].sort(
+    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+  );
+
   // v20: Resolve a stable display name for an event. Order of preference:
   //   1. event.itemName    — snapshot at write time (set in v20+ writes
   //                          and by all prayer-claim approvals)
@@ -195,7 +241,7 @@ export function Dashboard() {
   type ActivityRow = { event: PointEvent; dupCount: number; dupIds: string[]; itemName: string };
   const dedupedActivity: ActivityRow[] = (() => {
     const out: ActivityRow[] = [];
-    for (const e of childEvents) {
+    for (const e of mergedActivityEvents as PointEvent[]) {
       const itemName = resolveItemName(e);
       const eTime = new Date(e.timestamp).getTime();
       const last = out[out.length - 1];
@@ -696,9 +742,12 @@ export function Dashboard() {
                 </div>,
                 ...group.rows.map(({ event, dupCount, itemName }) => {
                 const hasRecovery = pointEvents.some(e => e.recoveryFromEventId === event.id);
-                const canRecover = isChildView && event.points < 0 && !hasRecovery;
+                // School events are voidable by the teacher only — not via
+                // the family Dashboard. Recovery is also a family-side concept.
+                const isSchoolEvent = (event as any).__source === 'school';
+                const canRecover = isChildView && event.points < 0 && !hasRecovery && !isSchoolEvent;
                 const isVoided = (event as any).status === 'voided';
-                const canVoid = isParentMode && !isVoided;
+                const canVoid = isParentMode && !isVoided && !isSchoolEvent;
                 // v25: voided rows render struck-through with reduced
                 // contrast and a tooltip carrying the void reason.
                 const rowBase = 'flex items-center justify-between border-b pb-3 last:border-0';
@@ -732,9 +781,17 @@ export function Dashboard() {
                             Recovery
                           </Badge>
                         )}
+                        {(event as any).__source === 'school' && (event as any).__orgName && (
+                          <Badge variant="outline" className="text-xs bg-indigo-50 border-indigo-200 text-indigo-700">
+                            @ {(event as any).__orgName}
+                          </Badge>
+                        )}
                       </div>
                       <p className="text-sm text-muted-foreground">
                         {new Date(event.timestamp).toLocaleString()}
+                        {(event as any).__source === 'school' && (event as any).__loggedByName && (
+                          <span> · by {(event as any).__loggedByName}</span>
+                        )}
                       </p>
                       {event.notes && (
                         <p className="text-sm italic text-muted-foreground">{event.notes}</p>
