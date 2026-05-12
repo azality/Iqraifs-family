@@ -10,7 +10,7 @@
 //   - Copy invite code (when parent not yet connected)
 
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -25,7 +25,7 @@ import {
 } from "../../components/ui/dropdown-menu";
 import {
   ChevronLeft, Plus, Copy, Check, AlertCircle, UsersRound, MoreVertical,
-  BookOpen, Heart, Hand,
+  BookOpen, Heart, Hand, TrendingUp,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -41,6 +41,7 @@ import { LogBehaviorDialog } from "./components/LogBehaviorDialog";
 
 export function ClassDetail() {
   const { classId = "" } = useParams();
+  const navigate = useNavigate();
   const [cls, setCls] = useState<SchoolClass | null>(null);
   const [students, setStudents] = useState<ClassRosterEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -225,12 +226,20 @@ export function ClassDetail() {
                         Log behavior
                       </DropdownMenuItem>
                       {isHifzClass && (
-                        <DropdownMenuItem
-                          onClick={() => setSabaqTarget({ id: s.child.id, name: s.child.name })}
-                        >
-                          <BookOpen className="h-4 w-4 mr-2" />
-                          Log sabaq
-                        </DropdownMenuItem>
+                        <>
+                          <DropdownMenuItem
+                            onClick={() => setSabaqTarget({ id: s.child.id, name: s.child.name })}
+                          >
+                            <BookOpen className="h-4 w-4 mr-2" />
+                            Log sabaq
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => navigate(`/school/children/${s.child.id}/hifz`)}
+                          >
+                            <TrendingUp className="h-4 w-4 mr-2" />
+                            View Hifz progress
+                          </DropdownMenuItem>
+                        </>
                       )}
                       {s.activeInvite && (
                         <>

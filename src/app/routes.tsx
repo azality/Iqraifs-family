@@ -38,6 +38,7 @@ import { PrincipalDashboard } from "./pages/school/PrincipalDashboard";
 import { SchoolSetup } from "./pages/school/SchoolSetup";
 import { ClassDetail } from "./pages/school/ClassDetail";
 import { BehaviorCatalog } from "./pages/school/BehaviorCatalog";
+import { HifzProgress } from "./pages/school/HifzProgress";
 import { RootLayout } from "./layouts/RootLayout";
 import { KidLayout } from "./layouts/KidLayout";
 import { ProvidersLayout } from "./layouts/ProvidersLayout";
@@ -255,6 +256,7 @@ export const router = createBrowserRouter([
           { path: "school/orgs/:orgId/setup", element: <RequireParentRole><SchoolSetup /></RequireParentRole> },
           { path: "school/classes/:classId", element: <RequireParentRole><ClassDetail /></RequireParentRole> },
           { path: "school/orgs/:orgId/behavior-catalog", element: <RequireParentRole><BehaviorCatalog /></RequireParentRole> },
+          { path: "school/children/:childId/hifz", element: <RequireParentRole><HifzProgress /></RequireParentRole> },
           // Redirect old routes to homepage
           { path: "kid", element: <Navigate to="/" replace /> },
           { path: "parent", element: <Navigate to="/" replace /> },
