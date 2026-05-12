@@ -107,8 +107,15 @@ import {
   PRAYER_NAMES,
   PRAYER_TIMES
 } from "./prayerLogging.tsx";
+// School module — Postgres-backed school surfaces (Iqra Academy pilot).
+// All routes under /make-server-f116e23f/school/*
+import schoolApp from "./school.tsx";
 
 const app = new Hono();
+
+// Mount school sub-app. Routes inside school.tsx are paths like /me, /classes,
+// etc.; this prefix makes them /make-server-f116e23f/school/me, etc.
+app.route("/make-server-f116e23f/school", schoolApp);
 
 // Supabase client
 const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';

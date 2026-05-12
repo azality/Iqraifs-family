@@ -1,0 +1,13 @@
+# Supabase project config — read by the Supabase CLI at deploy time.
+# Keeps deploy options sticky across runs so we don't have to toggle them
+# in the dashboard after every `supabase functions deploy`.
+
+project_id = "ybrkbrrkcqpzpjnjdyib"
+
+[functions.make-server-f116e23f]
+# The function handles auth itself via the requireAuth middleware in
+# middleware.tsx — it accepts both Supabase parent JWTs and kid session
+# tokens. Letting Supabase's edge-runtime verify the JWT first would
+# reject kid tokens before they ever reach our handler. So: verify off
+# at the platform layer, our app code is the source of truth.
+verify_jwt = false
