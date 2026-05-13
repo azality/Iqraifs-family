@@ -110,20 +110,25 @@ async function pickProphetForChild(childId: string): Promise<string> {
 
 // Resolve the caller's "current child":
 //   - Kid session: child id is the user id (PROVIDED by middleware)
-//   - Parent session: caller must include childId in body, and we verify
-//     they're a member of that child's family
+//   - Parent session: caller must include childId. We accept it in
+//     EITHER the body OR a `childId` query param. GET endpoints can't
+//     carry a body, so query-param support is required for /current,
+//     /history, etc. when a parent is previewing as their kid.
 async function resolveChildId(c: any): Promise<{ childId?: string; error?: string }> {
   const user = c.get("user");
   if (!user) return { error: "unauthenticated" };
   if (user.isKidSession) {
     return { childId: user.id };
   }
-  // Parent path: body must include childId
-  let body: any = {};
-  try {
-    body = await c.req.json();
-  } catch { /* empty body fine */ }
-  const childId = body?.childId;
+
+  // Parent path. Try query first (works for GET and POST), then body.
+  let childId: string | undefined = c.req.query("childId");
+  if (!childId) {
+    try {
+      const body = await c.req.json();
+      childId = body?.childId;
+    } catch { /* empty body fine */ }
+  }
   if (!childId) return { error: "childId required (parent caller)" };
 
   // Light validation: confirm caller is a known parent of any family that
