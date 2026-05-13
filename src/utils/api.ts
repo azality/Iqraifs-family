@@ -733,6 +733,19 @@ export async function getRewards() {
   return apiCall('/rewards');
 }
 
+export async function updateReward(rewardId: string, updates: any) {
+  return apiCall(`/rewards/${rewardId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(updates),
+  });
+}
+
+export async function deleteReward(rewardId: string) {
+  return apiCall(`/rewards/${rewardId}`, {
+    method: 'DELETE',
+  });
+}
+
 // ===== WISHLIST =====
 
 export async function createWishlistItem(wishlistData: any) {

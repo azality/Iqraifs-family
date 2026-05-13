@@ -4634,6 +4634,41 @@ app.get(
   }
 });
 
+// Update reward (rename, change point cost, change category, etc.)
+// PATCH so partial bodies work — only the fields sent get changed.
+app.patch(
+  "/make-server-f116e23f/rewards/:id",
+  requireAuth,
+  requireParent,
+  async (c) => {
+    try {
+      const { id } = c.req.param();
+      const updates = await c.req.json();
+      const existing = await kv.get(id);
+      if (!existing) {
+        return c.json({ error: 'Reward not found' }, 404);
+      }
+      // Whitelist of fields the parent is allowed to update. We do NOT
+      // let the caller change `id` or `createdAt`.
+      const ALLOWED = ['name', 'description', 'pointCost', 'category', 'imageUrl'];
+      const next: any = { ...existing };
+      for (const field of ALLOWED) {
+        if (updates[field] !== undefined) next[field] = updates[field];
+      }
+      // Light validation on the most-error-prone field
+      if (typeof next.pointCost !== 'number' || next.pointCost < 0 || !Number.isFinite(next.pointCost)) {
+        return c.json({ error: 'pointCost must be a non-negative number' }, 400);
+      }
+      next.updatedAt = new Date().toISOString();
+      await kv.set(id, next);
+      return c.json(next);
+    } catch (error) {
+      console.error('Update reward error:', error);
+      return c.json({ error: 'Failed to update reward', details: String(error) }, 500);
+    }
+  }
+);
+
 // Delete reward
 app.delete(
   "/make-server-f116e23f/rewards/:id",

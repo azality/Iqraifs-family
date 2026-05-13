@@ -19,7 +19,7 @@ import { createChild, generateInviteCode, updateChild } from "../../utils/api";
 import { toast } from "sonner";
 import { Lock, Plus, X, Gift, Target, Award, Sparkles, TrendingUp, TrendingDown, Users, AlertTriangle, Heart, UserCheck, UserX, Trash2, Globe, Bell, BellOff, Gamepad2, Brain } from "lucide-react";
 import { projectId, publicAnonKey } from "../../../utils/supabase/info.tsx";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../components/ui/alert-dialog";
 import { Alert, AlertDescription, AlertTitle } from "../components/ui/alert";
 import {
@@ -66,7 +66,61 @@ const deduplicateByName = <T extends { id: string; name: string }>(items: T[]): 
 export function Settings() {
   const navigate = useNavigate();
   const { isParentMode, accessToken, userId } = useAuth();
-  const { rewards, addReward } = useRewards();
+  const { rewards, addReward, editReward, removeReward } = useRewards();
+
+  // Reward edit dialog state — used by all three reward card renderers
+  // (small / medium / large). Reused dialog component below the lists.
+  const [editingReward, setEditingReward] = useState<any>(null);
+  const [editRewardName, setEditRewardName] = useState("");
+  const [editRewardDesc, setEditRewardDesc] = useState("");
+  const [editRewardPoints, setEditRewardPoints] = useState("");
+  const [editRewardSubmitting, setEditRewardSubmitting] = useState(false);
+
+  const openEditReward = (reward: any) => {
+    setEditingReward(reward);
+    setEditRewardName(reward.name ?? "");
+    setEditRewardDesc(reward.description ?? "");
+    setEditRewardPoints(String(reward.pointCost ?? ""));
+  };
+  const closeEditReward = () => setEditingReward(null);
+
+  const submitEditReward = async () => {
+    if (!editingReward) return;
+    const newPoints = parseInt(editRewardPoints, 10);
+    if (!editRewardName.trim()) { toast.error("Reward name required"); return; }
+    if (Number.isNaN(newPoints) || newPoints < 0) { toast.error("Points must be a non-negative number"); return; }
+    setEditRewardSubmitting(true);
+    try {
+      await editReward(editingReward.id, {
+        name: editRewardName.trim(),
+        description: editRewardDesc.trim() || undefined,
+        pointCost: newPoints,
+        // Re-derive category from new pointCost so the buckets stay consistent
+        category: newPoints < 100 ? "small" : newPoints < 500 ? "medium" : "large",
+      } as any);
+      toast.success("Reward updated");
+      closeEditReward();
+    } catch (e: any) {
+      toast.error(e?.message || "Could not update reward");
+    } finally {
+      setEditRewardSubmitting(false);
+    }
+  };
+
+  const submitDeleteReward = async () => {
+    if (!editingReward) return;
+    if (!window.confirm(`Delete "${editingReward.name}"? Kids will no longer see this reward.`)) return;
+    setEditRewardSubmitting(true);
+    try {
+      await removeReward(editingReward.id);
+      toast.success("Reward deleted");
+      closeEditReward();
+    } catch (e: any) {
+      toast.error(e?.message || "Could not delete reward");
+    } finally {
+      setEditRewardSubmitting(false);
+    }
+  };
   // v15: useTrackableItems now also exposes deleteItem for smart-delete from
   // the Settings page. The hook drops the item locally on success.
   const {
@@ -2459,7 +2513,7 @@ export function Settings() {
                 </h3>
                 <div className="grid sm:grid-cols-2 gap-3">
                   {smallRewards.map(reward => (
-                    <div key={reward.id} className="p-3 border rounded-lg flex items-start justify-between">
+                    <div key={reward.id} className="p-3 border rounded-lg flex items-start justify-between gap-2 hover:border-blue-300 transition-colors">
                       <div className="flex-1 min-w-0">
                         <p className="font-medium truncate">{reward.name}</p>
                         {reward.description && (
@@ -2467,6 +2521,15 @@ export function Settings() {
                         )}
                         <Badge variant="secondary" className="mt-2 text-xs">{reward.pointCost} points</Badge>
                       </div>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => openEditReward(reward)}
+                        className="text-blue-600 hover:bg-blue-50 flex-shrink-0"
+                        aria-label={`Edit ${reward.name}`}
+                      >
+                        Edit
+                      </Button>
                     </div>
                   ))}
                   {smallRewards.length === 0 && (
@@ -2483,7 +2546,7 @@ export function Settings() {
                 </h3>
                 <div className="grid sm:grid-cols-2 gap-3">
                   {mediumRewards.map(reward => (
-                    <div key={reward.id} className="p-3 border rounded-lg flex items-start justify-between">
+                    <div key={reward.id} className="p-3 border rounded-lg flex items-start justify-between gap-2 hover:border-blue-300 transition-colors">
                       <div className="flex-1 min-w-0">
                         <p className="font-medium truncate">{reward.name}</p>
                         {reward.description && (
@@ -2491,6 +2554,15 @@ export function Settings() {
                         )}
                         <Badge variant="secondary" className="mt-2 text-xs">{reward.pointCost} points</Badge>
                       </div>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => openEditReward(reward)}
+                        className="text-blue-600 hover:bg-blue-50 flex-shrink-0"
+                        aria-label={`Edit ${reward.name}`}
+                      >
+                        Edit
+                      </Button>
                     </div>
                   ))}
                   {mediumRewards.length === 0 && (
@@ -2507,7 +2579,7 @@ export function Settings() {
                 </h3>
                 <div className="grid sm:grid-cols-2 gap-3">
                   {largeRewards.map(reward => (
-                    <div key={reward.id} className="p-3 border rounded-lg flex items-start justify-between">
+                    <div key={reward.id} className="p-3 border rounded-lg flex items-start justify-between gap-2 hover:border-blue-300 transition-colors">
                       <div className="flex-1 min-w-0">
                         <p className="font-medium truncate">{reward.name}</p>
                         {reward.description && (
@@ -2515,6 +2587,15 @@ export function Settings() {
                         )}
                         <Badge variant="secondary" className="mt-2 text-xs">{reward.pointCost} points</Badge>
                       </div>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => openEditReward(reward)}
+                        className="text-blue-600 hover:bg-blue-50 flex-shrink-0"
+                        aria-label={`Edit ${reward.name}`}
+                      >
+                        Edit
+                      </Button>
                     </div>
                   ))}
                   {largeRewards.length === 0 && (
@@ -3802,6 +3883,62 @@ export function Settings() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Edit Reward dialog — opened by clicking the Edit button on any
+          reward card in the Rewards tab. Lets the parent rename, change
+          description, change point cost, or delete the reward. Changing
+          pointCost automatically re-derives the category bucket. */}
+      <Dialog open={!!editingReward} onOpenChange={(o) => { if (!o) closeEditReward(); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit reward</DialogTitle>
+            <DialogDescription>
+              Change the name, description, or point cost. Kids see the update on next refresh.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1">
+              <Label htmlFor="er-name">Name</Label>
+              <Input id="er-name" value={editRewardName} onChange={(e) => setEditRewardName(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="er-desc">Description (optional)</Label>
+              <Input id="er-desc" value={editRewardDesc} onChange={(e) => setEditRewardDesc(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="er-points">Point cost</Label>
+              <Input
+                id="er-points"
+                type="number"
+                min="0"
+                value={editRewardPoints}
+                onChange={(e) => setEditRewardPoints(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Under 100 = small · 100–499 = medium · 500+ = large. The bucket updates automatically.
+              </p>
+            </div>
+          </div>
+          <DialogFooter className="flex flex-col-reverse sm:flex-row sm:justify-between gap-2">
+            <Button
+              variant="ghost"
+              onClick={submitDeleteReward}
+              disabled={editRewardSubmitting}
+              className="text-red-600 hover:bg-red-50 hover:text-red-700"
+            >
+              Delete
+            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={closeEditReward} disabled={editRewardSubmitting}>
+                Cancel
+              </Button>
+              <Button onClick={submitEditReward} disabled={editRewardSubmitting || !editRewardName.trim()}>
+                {editRewardSubmitting ? "Saving…" : "Save changes"}
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

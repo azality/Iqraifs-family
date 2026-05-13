@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getRewards, createReward } from '../../utils/api';
+import { getRewards, createReward, updateReward, deleteReward } from '../../utils/api';
 import { useAuth } from '../contexts/AuthContext';
 import { getStorageSync } from '../../utils/storage';
 
@@ -86,5 +86,32 @@ export function useRewards() {
     }
   };
 
-  return { rewards, loading, error, addReward };
+  const editReward = async (rewardId: string, updates: Partial<Omit<Reward, 'id'>>) => {
+    try {
+      // Optimistic update so the list re-renders before the round-trip.
+      // If the API call fails we reload to roll back.
+      setRewards((prev) =>
+        prev.map((r) => (r.id === rewardId ? { ...r, ...updates } as Reward : r)),
+      );
+      await updateReward(rewardId, updates);
+      await loadRewards();
+    } catch (err) {
+      console.error('Error updating reward:', err);
+      await loadRewards();
+      throw err;
+    }
+  };
+
+  const removeReward = async (rewardId: string) => {
+    try {
+      setRewards((prev) => prev.filter((r) => r.id !== rewardId));
+      await deleteReward(rewardId);
+    } catch (err) {
+      console.error('Error deleting reward:', err);
+      await loadRewards();
+      throw err;
+    }
+  };
+
+  return { rewards, loading, error, addReward, editReward, removeReward };
 }

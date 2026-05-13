@@ -64,8 +64,17 @@ export function Rewards() {
       await refreshChild(child.id);
       toast.success(`${reward.name} redeemed! 🎉`);
     } catch (err: any) {
-      console.error('Redeem failed:', err);
-      toast.error(err?.message || 'Could not redeem this reward.');
+      // Surface the full error so failures are debuggable. Include the
+      // backend's "details" field when present (validation errors set it).
+      console.error('Redeem failed:', err, {
+        rewardId,
+        rewardName: reward.name,
+        rewardPointCost: reward.pointCost,
+        childId: child.id,
+        childPoints: child.currentPoints,
+      });
+      const detail = err?.details ?? err?.error ?? err?.message ?? 'Unknown error';
+      toast.error(`Could not redeem: ${detail}`, { duration: 8000 });
     } finally {
       setRedeeming(false);
     }
