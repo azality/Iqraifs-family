@@ -744,6 +744,7 @@ export function KidDashboard() {
             ...(isPreReader ? [] : [
               { label: 'My Wishlist', icon: Gift, gradient: 'from-[var(--kid-warm-gold)] to-[var(--kid-lantern-glow)]', route: '/kid/wishlist' },
               { label: 'My Badges', icon: Award, gradient: 'from-[var(--kid-warm-gold)] to-[var(--kid-lantern-glow)]', route: '/kid/titles-badges' },
+              { label: 'Guess Prophet', emoji: '🤔', gradient: 'from-fuchsia-500 to-purple-600', route: '/kid/games/guess-prophet' },
               { label: 'Adventure World', emoji: '🗺️', gradient: 'from-purple-600 to-pink-600', route: '/kid/adventure-world' },
             ]),
           ];

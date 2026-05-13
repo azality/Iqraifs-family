@@ -55,6 +55,8 @@ import { AdventureWorld } from "./pages/AdventureWorld";
 import { JannahGarden } from "./pages/JannahGarden";
 import { DuaSpellCasting } from "./pages/games/DuaSpellCasting";
 import { AyahPuzzle } from "./pages/games/AyahPuzzle";
+import { GuessProphet } from "./pages/games/GuessProphet";
+import { GamesReview } from "./pages/GamesReview";
 import { MakkahZone } from "./pages/adventure-zones/MakkahZone";
 import { MadinahZone } from "./pages/adventure-zones/MadinahZone";
 import { QuranValleyZone } from "./pages/adventure-zones/QuranValleyZone";
@@ -256,6 +258,7 @@ export const router = createBrowserRouter([
           { path: "titles-badges", element: <TitlesBadgesPage /> },
           { path: "sadqa", element: <SadqaPage /> },
           { path: "prayer-approvals", element: <RequireParentRole><PrayerApprovals /></RequireParentRole> },
+          { path: "games-review", element: <RequireParentRole><GamesReview /></RequireParentRole> },
           // School (Iqra Academy pilot). RequireParentRole gates entry —
           // any school user signs in via the parent flow (school roles are
           // an additional layer on top). Components themselves render
@@ -316,6 +319,10 @@ export const router = createBrowserRouter([
       {
         path: "/kid/games/ayah-puzzle",
         element: <RequireKidAuth><AyahPuzzle /></RequireKidAuth>,
+      },
+      {
+        path: "/kid/games/guess-prophet",
+        element: <RequireKidAuth><GuessProphet /></RequireKidAuth>,
       },
       {
         path: "/kid/adventure-zones/makkah/play",

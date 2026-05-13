@@ -113,6 +113,9 @@ import {
 // otherwise the sub-app's responses don't get CORS headers and browsers
 // fail OPTIONS preflight with "Failed to fetch."
 import schoolApp from "./school.tsx";
+// Family-side game: "Guess the Prophet" — kids ask yes/no questions
+// against a curated attribute table. Same CORS-after-mount rule applies.
+import prophetGuessApp from "./prophetGuess.tsx";
 
 const app = new Hono();
 
@@ -219,6 +222,7 @@ app.use("/*", async (c, next) => {
 // "Failed to fetch" in the browser — the OPTIONS preflight had no
 // CORS headers.
 app.route("/make-server-f116e23f/school", schoolApp);
+app.route("/make-server-f116e23f/games/prophet-guess", prophetGuessApp);
 
 // ================================================================
 // MONITORING ENDPOINTS
