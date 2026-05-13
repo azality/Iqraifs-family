@@ -96,3 +96,32 @@ export const getRoundHistory = (childId?: string): Promise<{ rounds: RoundShape[
   const qs = childId ? `?childId=${encodeURIComponent(childId)}` : "";
   return apiCall(`${BASE}/history${qs}`);
 };
+
+// Parent-side: rounds for a specific child including in-progress. The
+// parent view always sees the prophet (unlike redactRound for kid view)
+// because they need to know what's being played to override.
+export type RoundWithVoidMarker = RoundShape & {
+  voided?: boolean;
+  voidReason?: string;
+  voidedBy?: string;
+  voidedAt?: string;
+};
+
+export const getChildRounds = (
+  childId: string,
+): Promise<{ rounds: RoundWithVoidMarker[] }> =>
+  apiCall(`${BASE}/child-rounds?childId=${encodeURIComponent(childId)}`);
+
+export type ParentOverrideAction = "award" | "void";
+
+export const parentOverrideRound = (
+  roundId: string,
+  body: { childId: string; action: ParentOverrideAction; points?: number; reason: string },
+): Promise<
+  | { ok: true; action: "award"; pointsAwarded: number }
+  | { ok: true; action: "void"; pointsReversed: number }
+> =>
+  apiCall(`${BASE}/${roundId}/parent-override`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });

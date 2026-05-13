@@ -6,7 +6,7 @@ import { useWorkspace } from "../contexts/WorkspaceContext";
 import {
   Home, FileText, BarChart3, Settings, Calendar, Gift, Shield,
   Menu, X, Trophy, Sliders, Edit, LogOut, Compass,
-  Sparkles, Database, ChevronDown, Eye, School,
+  Sparkles, Database, ChevronDown, Eye, School, Gamepad2,
 } from "lucide-react";
 import { cn } from "../components/ui/utils";
 import { useViewMode } from "../contexts/ViewModeContext";
@@ -70,6 +70,7 @@ const parentNavGroups: NavGroup[] = [
       { name: 'Adjustments',   href: '/adjustments',   icon: Sliders,   childAccess: false, description: 'Manual point changes' },
       { name: 'Edit Requests', href: '/edit-requests', icon: Edit,      childAccess: false, description: 'Pending change requests' },
       { name: 'Audit Trail',   href: '/audit',         icon: Shield,    childAccess: false, description: 'Who changed what, when' },
+      { name: 'Games Review',  href: '/games-review',  icon: Gamepad2,  childAccess: false, description: "Fix kid game outcomes" },
     ],
   },
   {

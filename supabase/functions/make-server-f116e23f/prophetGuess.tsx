@@ -81,9 +81,14 @@ async function pickProphetForChild(childId: string): Promise<string> {
     await Promise.all(ids.slice(0, 25).map((rid) => kv.get(roundKey(rid)).catch(() => null)))
   ).filter((r): r is Round => !!r);
 
+  // Voided rounds shouldn't count against no-repeat — if a parent voided
+  // a round (kid pressed buttons by accident), it's fair to re-pick that
+  // Prophet sooner. The (round as any).voided marker is set by the
+  // parent-override 'void' action.
   const playedInWindow = new Set(
     recent
       .filter((r) => new Date(r.startedAt).getTime() >= cutoff)
+      .filter((r) => !(r as any).voided)
       .map((r) => r.prophetId),
   );
 
@@ -348,6 +353,152 @@ app.post("/:roundId/forfeit", async (c) => {
   round.endedAt = new Date().toISOString();
   await kv.set(roundKey(roundId), round);
   return c.json({ round: redactRound(round) });
+});
+
+// GET /games/prophet-guess/child-rounds?childId=X
+// Returns recent rounds (including in-progress) for a specific child.
+// Used by the parent review page so they can override mistakes.
+// Authorization:
+//   - Kid session: must match :childId
+//   - Parent session: must be in the child's family parentIds
+// Parent view ALWAYS includes the prophet identity (even for in-progress)
+// because the parent needs to know what's being played to make
+// override decisions; the kid is the one who shouldn't see it.
+app.get("/child-rounds", async (c) => {
+  const user = c.get("user");
+  if (!user) return c.json({ error: "unauthenticated" }, 401);
+  const childId = c.req.query("childId");
+  if (!childId) return c.json({ error: "childId query param required" }, 400);
+
+  if (user.isKidSession) {
+    if (user.id !== childId) return c.json({ error: "forbidden" }, 403);
+  } else {
+    const child = await kv.get(childId);
+    if (!child || !child.familyId) return c.json({ error: "child not found" }, 404);
+    const family = await kv.get(child.familyId);
+    if (!family) return c.json({ error: "family not found" }, 404);
+    const parentIds: string[] = family.parentIds ?? [];
+    if (!parentIds.includes(user.id)) return c.json({ error: "forbidden" }, 403);
+  }
+
+  const ids: string[] = (await kv.get(indexKey(childId))) ?? [];
+  const recent = (
+    await Promise.all(ids.slice(0, 20).map((rid) => kv.get(roundKey(rid)).catch(() => null)))
+  )
+    .filter((round): round is Round => !!round)
+    .map((round) => {
+      const base = redactRound(round);
+      // For the parent caller, force-include the prophet identity even
+      // for in-progress rounds. Without this they can't review or override.
+      if (!user.isKidSession) {
+        return {
+          ...base,
+          prophetId: round.prophetId,
+          prophet: PROPHETS_BY_ID.get(round.prophetId) ?? null,
+        };
+      }
+      return base;
+    });
+
+  return c.json({ rounds: recent });
+});
+
+// POST /games/prophet-guess/:roundId/parent-override
+// Body: { childId, action: 'award' | 'void', points?: number, reason: string }
+//
+// Two parent-only override actions for fixing mistakes:
+//   - 'award': add `points` to the kid even if the round was lost,
+//     in-progress, or already won. Common case: kid genuinely guessed
+//     correctly but tapped the wrong name in the picker, or parent
+//     wants to encourage effort. Round status is NOT changed by award.
+//   - 'void': mark the round as voided and reverse any points awarded
+//     during the round. Common case: kid pressed buttons by accident.
+//     Voided rounds DON'T count against no-repeat tracking either —
+//     the prophet can be re-picked sooner.
+//
+// Both actions append a point_event to the audit trail so the override
+// is visible in Recent Activity. Reason (5+ chars) is required.
+app.post("/:roundId/parent-override", async (c) => {
+  const user = c.get("user");
+  if (!user) return c.json({ error: "unauthenticated" }, 401);
+  if (user.isKidSession) return c.json({ error: "parents only" }, 403);
+
+  const roundId = c.req.param("roundId");
+  let body: any = {};
+  try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+
+  const { childId, action, points, reason } = body;
+  if (!childId) return c.json({ error: "childId required" }, 400);
+  if (!["award", "void"].includes(action)) {
+    return c.json({ error: "action must be 'award' or 'void'" }, 400);
+  }
+  if (typeof reason !== "string" || reason.trim().length < 5) {
+    return c.json({ error: "reason required (5+ chars)" }, 400);
+  }
+
+  // Parent must be in the child's family
+  const child = await kv.get(childId);
+  if (!child || !child.familyId) return c.json({ error: "child not found" }, 404);
+  const family = await kv.get(child.familyId);
+  if (!family) return c.json({ error: "family not found" }, 404);
+  const parentIds: string[] = family.parentIds ?? [];
+  if (!parentIds.includes(user.id)) return c.json({ error: "forbidden" }, 403);
+
+  // Round must exist and belong to this child
+  const round: Round | null = await kv.get(roundKey(roundId));
+  if (!round) return c.json({ error: "round not found" }, 404);
+  if (round.childId !== childId) {
+    return c.json({ error: "round does not belong to this child" }, 400);
+  }
+  // Refuse to override an already-voided round
+  if ((round as any).voided) {
+    return c.json({ error: "round already voided" }, 409);
+  }
+
+  const parentName = user.user_metadata?.name || user.email || "Parent";
+
+  if (action === "award") {
+    const n = Number(points);
+    if (!Number.isInteger(n) || n <= 0 || n > 100) {
+      return c.json({ error: "points must be an integer 1..100" }, 400);
+    }
+    await awardPoints({
+      childId,
+      points: n,
+      loggedBy: user.id,
+      loggedByName: parentName,
+      itemName: "Guess the Prophet — parent bonus",
+      notes: `Parent bonus (+${n}): ${reason.trim()}`,
+    });
+    round.pointsAwarded += n;
+    await kv.set(roundKey(roundId), round);
+    return c.json({ ok: true, action: "award", pointsAwarded: n });
+  }
+
+  if (action === "void") {
+    const reverse = round.pointsAwarded;
+    if (reverse > 0) {
+      await awardPoints({
+        childId,
+        points: -reverse,
+        loggedBy: user.id,
+        loggedByName: parentName,
+        itemName: "Guess the Prophet — round voided",
+        notes: `Parent voided (−${reverse}): ${reason.trim()}`,
+      });
+    }
+    (round as any).voided = true;
+    (round as any).voidReason = reason.trim();
+    (round as any).voidedBy = user.id;
+    (round as any).voidedAt = new Date().toISOString();
+    round.status = "lost";
+    round.endedAt = round.endedAt ?? new Date().toISOString();
+    round.pointsAwarded = 0;
+    await kv.set(roundKey(roundId), round);
+    return c.json({ ok: true, action: "void", pointsReversed: reverse });
+  }
+
+  return c.json({ error: "unreachable" }, 500);
 });
 
 // GET /games/prophet-guess/history
