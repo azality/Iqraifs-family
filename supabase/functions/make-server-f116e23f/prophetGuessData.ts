@@ -57,6 +57,13 @@ export interface ProphetRecord {
   englishName: string | null;
   /** Each value: true | false | null (null = "I don't know") */
   attributes: Record<string, boolean | null>;
+  /**
+   * Short kid-friendly description (2-3 sentences). Shown at end of
+   * round so the kid learns who the Prophet was even if they didn't
+   * guess. Populated below from PROPHET_DESCRIPTIONS at module init,
+   * so it's optional on the literal but always set after import.
+   */
+  description?: string;
 }
 
 export const PROPHETS: ProphetRecord[] = [
@@ -1023,7 +1030,145 @@ export const QUESTIONS: QuestionRecord[] = [
   { id: "q-king",               text: "Was this Prophet a king?",                                          attribute: "was_a_king",             category: "other" },
   { id: "q-minister",           text: "Was this Prophet a minister or high official?",                    attribute: "was_a_minister_or_high_official", category: "other" },
   { id: "q-illness",            text: "Was this Prophet tested with a severe illness?",                   attribute: "was_tested_with_severe_illness", category: "other" },
+
+  // ─── Added in v2 to better distinguish less-prominent Prophets ───
+  // Family
+  { id: "q-nephew-ibrahim",     text: "Was this Prophet a nephew of Prophet Ibrahim?",                    attribute: "nephew_of_ibrahim",      category: "family" },
+  // Mission — specific peoples
+  { id: "q-sent-madyan",        text: "Was this Prophet sent to the people of Madyan?",                   attribute: "sent_to_madyan",         category: "mission" },
+  { id: "q-sent-ad",            text: "Was this Prophet sent to the people of 'Ad?",                      attribute: "sent_to_ad",             category: "mission" },
+  { id: "q-sent-thamud",        text: "Was this Prophet sent to the people of Thamud?",                   attribute: "sent_to_thamud",         category: "mission" },
+  // Miracles & marked events
+  { id: "q-dreams",             text: "Could this Prophet interpret dreams?",                             attribute: "interpreted_dreams",     category: "miracles" },
+  { id: "q-built-kaaba",        text: "Did this Prophet help build the Ka'bah in Makkah?",                attribute: "built_kaaba",            category: "miracles" },
+  { id: "q-cured-revived",      text: "Could this Prophet, by Allah's permission, heal the sick or revive the dead?", attribute: "cured_sick_or_revived_dead", category: "miracles" },
+  // Other — unique markers
+  { id: "q-unique-name",        text: "Did Allah give this Prophet a name no one had been given before?", attribute: "had_a_unique_name_never_given_before", category: "other" },
 ];
+
+// =============================================================================
+// Kid-friendly Prophet descriptions
+// =============================================================================
+// Shown at the end of every round so the kid learns something even when
+// they didn't guess correctly. 2-3 sentences, age 6-10 reading level.
+//
+// IMPORTANT — REVIEW BEFORE PRODUCTION:
+//   These descriptions were drafted by an AI based on mainstream Sunni
+//   understanding rooted in the Qur'an (primary) and traditional
+//   commentary. Muneeb MUST verify each against an authoritative source
+//   (Tafsir Ibn Kathir's "Stories of the Prophets", Maariful Quran, or
+//   a qualified scholar) before this ships to real kids. If a line
+//   isn't directly Quranic, the safer move at review time is to cut it.
+//
+// Style guide for any future edits:
+//   - 2-3 sentences, plain language, no technical theology.
+//   - When possible, anchor with a specific Quranic detail.
+//   - Use "Allah" not "God"; transliterate Arabic names consistently
+//     (Nuh, Ibrahim, Musa, 'Isa, Muhammad ﷺ).
+//   - Avoid graphic detail for kids (e.g. Lut's people: say "wrong
+//     actions" not specifics).
+// =============================================================================
+const PROPHET_DESCRIPTIONS: Record<string, string> = {
+  adam:
+    "The first human Allah created. Allah taught him the names of all things and made the angels honor him. He and his wife Hawwa lived in Jannah, and after coming to earth, Adam was the first Prophet.",
+  idris:
+    "A patient and truthful Prophet who lived very long ago, before Nuh. The Qur'an tells us Allah raised him to a high place. He is praised in the Qur'an for his honesty.",
+  nuh:
+    "A great Prophet who called his people to worship only Allah for many, many years. When most refused, Allah told him to build a huge ark. He took his family and pairs of every animal, and a great flood saved the believers.",
+  hud:
+    "A Prophet sent to the people of 'Ad in Arabia. The 'Ad were tall and strong, but they were proud and worshipped idols. They refused his message, and Allah destroyed them with a powerful wind.",
+  salih:
+    "A Prophet sent to the people of Thamud in Arabia. They asked him for a sign, so Allah brought a special she-camel out of a rock. When they harmed the camel, a great noise destroyed them.",
+  ibrahim:
+    "Allah called him 'Khalil' — His close friend. He smashed his people's idols, and the king threw him into a great fire, but Allah made it cool and safe. He built the Ka'bah in Makkah with his son Isma'il.",
+  lut:
+    "The nephew of Prophet Ibrahim. He warned his people about their very wrong actions, but they would not listen. Allah saved Lut and the believers, then destroyed the cities with stones from the sky.",
+  ismail:
+    "The first son of Prophet Ibrahim. As a young boy he was patient when Allah asked Ibrahim to sacrifice him — and Allah replaced him with a ram. He helped his father build the Ka'bah in Makkah.",
+  ishaq:
+    "The son of Prophet Ibrahim and Sarah, born when his parents were old — a gift from Allah. He grew up to be a Prophet like his father, and his son Ya'qub also became a Prophet.",
+  yaqub:
+    "Also called Israel — the Bani Israel are his descendants. He was the father of Yusuf and eleven other sons. He cried so much when he lost Yusuf that his eyes grew weak, and Allah gave back his sight when Yusuf was found.",
+  yusuf:
+    "The son of Ya'qub. His brothers were jealous and put him in a well. He was sold as a slave, then put in prison, but Allah gave him wisdom — he could understand dreams. He became a minister of Egypt and saved many people from hunger.",
+  ayyub:
+    "A wealthy and pious Prophet. Allah tested him with a long, hard illness and the loss of his family and wealth. He was patient and kept praising Allah, and Allah healed him and gave him more than he had before.",
+  shuayb:
+    "A Prophet sent to the people of Madyan. They cheated others when buying and selling — using small weights and measures. Shuayb told them to be honest, but they would not listen, and Allah punished them.",
+  musa:
+    "Allah spoke directly with him at the mountain — he is called 'Kalim Allah'. He freed the Bani Israel from Fir'awn, and Allah parted the sea for them. He received the Tawrah from Allah.",
+  harun:
+    "The older brother of Musa. He had a clear and beautiful way of speaking. Musa asked Allah to send Harun as a helper, and Allah made Harun a Prophet too.",
+  "dhul-kifl":
+    "Allah praises him in the Qur'an as patient, righteous and from the chosen ones. The Qur'an does not tell us much about his story, but he was a noble and just Prophet.",
+  dawud:
+    "Allah made him a king and gave him the Zaboor. He had such a beautiful voice that the mountains and the birds would praise Allah with him. Allah softened iron in his hands so he could shape it.",
+  sulayman:
+    "The son of Dawud. Allah gave him a great kingdom — he could command jinn, and he understood the speech of birds and ants. He was a wise judge and worshipped Allah with humility.",
+  ilyas:
+    "A Prophet sent to people who worshipped a false god called Ba'l instead of Allah. He called them back to the One God and warned them to leave their idols.",
+  "al-yasa":
+    "He came after Prophet Ilyas to continue calling people to worship Allah alone. The Qur'an names him among the chosen and excellent Prophets.",
+  yunus:
+    "Sent to the people of Ninwa. When they refused his message he left, but Allah was not pleased. A great fish swallowed him. In the dark belly of the fish he made tasbih and turned to Allah, and Allah saved him.",
+  zakariya:
+    "A pious old Prophet who took care of Maryam. He was sad that he had no son, and he prayed quietly to Allah at night. Allah answered him and gave him Yahya.",
+  yahya:
+    "The son of Zakariya. Allah said about him: 'We never gave this name to anyone before him.' Allah described him as wise and pure from childhood — a Prophet from a young age.",
+  isa:
+    "Born to Maryam without a father, by Allah's command. He spoke as a baby in the cradle to defend his mother. With Allah's permission he healed the blind, healed lepers, and brought the dead back to life. He received the Injil, and Allah raised him up to the heavens.",
+  muhammad:
+    "The final Prophet, sent to all of humanity. Allah revealed the Qur'an to him through the angel Jibril. His beautiful character and his teachings showed the whole world the best way to live and worship Allah.",
+};
+
+// =============================================================================
+// Extra attributes — added in v2 of the game to better distinguish less-
+// prominent Prophets (Idris, Lut, Shuayb, Hud, Salih, Yunus, Yusuf, Isa,
+// Yahya). Merged into each Prophet's attributes at module init.
+// =============================================================================
+const PROPHET_EXTRA_ATTRIBUTES: Record<string, Record<string, boolean | null>> = {
+  adam:      { nephew_of_ibrahim: false, sent_to_madyan: false, sent_to_ad: false, sent_to_thamud: false, interpreted_dreams: false, built_kaaba: false, cured_sick_or_revived_dead: false, had_a_unique_name_never_given_before: false },
+  idris:     { nephew_of_ibrahim: false, sent_to_madyan: false, sent_to_ad: false, sent_to_thamud: false, interpreted_dreams: false, built_kaaba: false, cured_sick_or_revived_dead: false, had_a_unique_name_never_given_before: false },
+  nuh:       { nephew_of_ibrahim: false, sent_to_madyan: false, sent_to_ad: false, sent_to_thamud: false, interpreted_dreams: false, built_kaaba: false, cured_sick_or_revived_dead: false, had_a_unique_name_never_given_before: false },
+  hud:       { nephew_of_ibrahim: false, sent_to_madyan: false, sent_to_ad: true,  sent_to_thamud: false, interpreted_dreams: false, built_kaaba: false, cured_sick_or_revived_dead: false, had_a_unique_name_never_given_before: false },
+  salih:     { nephew_of_ibrahim: false, sent_to_madyan: false, sent_to_ad: false, sent_to_thamud: true,  interpreted_dreams: false, built_kaaba: false, cured_sick_or_revived_dead: false, had_a_unique_name_never_given_before: false },
+  ibrahim:   { nephew_of_ibrahim: false, sent_to_madyan: false, sent_to_ad: false, sent_to_thamud: false, interpreted_dreams: false, built_kaaba: true,  cured_sick_or_revived_dead: false, had_a_unique_name_never_given_before: false },
+  lut:       { nephew_of_ibrahim: true,  sent_to_madyan: false, sent_to_ad: false, sent_to_thamud: false, interpreted_dreams: false, built_kaaba: false, cured_sick_or_revived_dead: false, had_a_unique_name_never_given_before: false },
+  ismail:    { nephew_of_ibrahim: false, sent_to_madyan: false, sent_to_ad: false, sent_to_thamud: false, interpreted_dreams: false, built_kaaba: true,  cured_sick_or_revived_dead: false, had_a_unique_name_never_given_before: false },
+  ishaq:     { nephew_of_ibrahim: false, sent_to_madyan: false, sent_to_ad: false, sent_to_thamud: false, interpreted_dreams: false, built_kaaba: false, cured_sick_or_revived_dead: false, had_a_unique_name_never_given_before: false },
+  yaqub:     { nephew_of_ibrahim: false, sent_to_madyan: false, sent_to_ad: false, sent_to_thamud: false, interpreted_dreams: false, built_kaaba: false, cured_sick_or_revived_dead: false, had_a_unique_name_never_given_before: false },
+  yusuf:     { nephew_of_ibrahim: false, sent_to_madyan: false, sent_to_ad: false, sent_to_thamud: false, interpreted_dreams: true,  built_kaaba: false, cured_sick_or_revived_dead: false, had_a_unique_name_never_given_before: false },
+  ayyub:     { nephew_of_ibrahim: false, sent_to_madyan: false, sent_to_ad: false, sent_to_thamud: false, interpreted_dreams: false, built_kaaba: false, cured_sick_or_revived_dead: false, had_a_unique_name_never_given_before: false },
+  shuayb:    { nephew_of_ibrahim: false, sent_to_madyan: true,  sent_to_ad: false, sent_to_thamud: false, interpreted_dreams: false, built_kaaba: false, cured_sick_or_revived_dead: false, had_a_unique_name_never_given_before: false },
+  musa:      { nephew_of_ibrahim: false, sent_to_madyan: false, sent_to_ad: false, sent_to_thamud: false, interpreted_dreams: false, built_kaaba: false, cured_sick_or_revived_dead: false, had_a_unique_name_never_given_before: false },
+  harun:     { nephew_of_ibrahim: false, sent_to_madyan: false, sent_to_ad: false, sent_to_thamud: false, interpreted_dreams: false, built_kaaba: false, cured_sick_or_revived_dead: false, had_a_unique_name_never_given_before: false },
+  "dhul-kifl": { nephew_of_ibrahim: false, sent_to_madyan: false, sent_to_ad: false, sent_to_thamud: false, interpreted_dreams: false, built_kaaba: false, cured_sick_or_revived_dead: false, had_a_unique_name_never_given_before: false },
+  dawud:     { nephew_of_ibrahim: false, sent_to_madyan: false, sent_to_ad: false, sent_to_thamud: false, interpreted_dreams: false, built_kaaba: false, cured_sick_or_revived_dead: false, had_a_unique_name_never_given_before: false },
+  sulayman:  { nephew_of_ibrahim: false, sent_to_madyan: false, sent_to_ad: false, sent_to_thamud: false, interpreted_dreams: false, built_kaaba: false, cured_sick_or_revived_dead: false, had_a_unique_name_never_given_before: false },
+  ilyas:     { nephew_of_ibrahim: false, sent_to_madyan: false, sent_to_ad: false, sent_to_thamud: false, interpreted_dreams: false, built_kaaba: false, cured_sick_or_revived_dead: false, had_a_unique_name_never_given_before: false },
+  "al-yasa": { nephew_of_ibrahim: false, sent_to_madyan: false, sent_to_ad: false, sent_to_thamud: false, interpreted_dreams: false, built_kaaba: false, cured_sick_or_revived_dead: false, had_a_unique_name_never_given_before: false },
+  yunus:     { nephew_of_ibrahim: false, sent_to_madyan: false, sent_to_ad: false, sent_to_thamud: false, interpreted_dreams: false, built_kaaba: false, cured_sick_or_revived_dead: false, had_a_unique_name_never_given_before: false },
+  zakariya:  { nephew_of_ibrahim: false, sent_to_madyan: false, sent_to_ad: false, sent_to_thamud: false, interpreted_dreams: false, built_kaaba: false, cured_sick_or_revived_dead: false, had_a_unique_name_never_given_before: false },
+  yahya:     { nephew_of_ibrahim: false, sent_to_madyan: false, sent_to_ad: false, sent_to_thamud: false, interpreted_dreams: false, built_kaaba: false, cured_sick_or_revived_dead: false, had_a_unique_name_never_given_before: true },
+  isa:       { nephew_of_ibrahim: false, sent_to_madyan: false, sent_to_ad: false, sent_to_thamud: false, interpreted_dreams: false, built_kaaba: false, cured_sick_or_revived_dead: true,  had_a_unique_name_never_given_before: false },
+  muhammad:  { nephew_of_ibrahim: false, sent_to_madyan: false, sent_to_ad: false, sent_to_thamud: false, interpreted_dreams: false, built_kaaba: false, cured_sick_or_revived_dead: false, had_a_unique_name_never_given_before: false },
+};
+
+// Merge descriptions + extra attributes into each Prophet record so the
+// rest of the code (catalog endpoint, answerQuestion, redactRound) just
+// sees a complete record. Done once at module init.
+for (const p of PROPHETS) {
+  p.description = PROPHET_DESCRIPTIONS[p.id] ?? "";
+  const extras = PROPHET_EXTRA_ATTRIBUTES[p.id];
+  if (extras) {
+    p.attributes = { ...p.attributes, ...extras };
+  }
+  // Loud failure during local dev if any prophet was missed when adding
+  // new entries — better than a silent "(description not set)" in prod.
+  if (!p.description) {
+    console.warn(`[prophetGuessData] Prophet ${p.id} has no description`);
+  }
+}
 
 // Quick lookup helpers
 export const PROPHETS_BY_ID = new Map(PROPHETS.map((p) => [p.id, p]));
