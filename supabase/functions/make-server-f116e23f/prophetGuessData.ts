@@ -1044,6 +1044,15 @@ export const QUESTIONS: QuestionRecord[] = [
   { id: "q-cured-revived",      text: "Could this Prophet, by Allah's permission, heal the sick or revive the dead?", attribute: "cured_sick_or_revived_dead", category: "miracles" },
   // Other — unique markers
   { id: "q-unique-name",        text: "Did Allah give this Prophet a name no one had been given before?", attribute: "had_a_unique_name_never_given_before", category: "other" },
+
+  // ─── Added in v3 — contemporaries + Quran-surah questions ───
+  // Era — contemporaries are powerful narrowers (a single yes/no usually
+  // collapses the candidate set by half).
+  { id: "q-contemp-ibrahim",    text: "Did this Prophet live during the lifetime of Prophet Ibrahim?",    attribute: "contemporary_of_ibrahim", category: "era" },
+  { id: "q-contemp-musa",       text: "Did this Prophet live during the lifetime of Prophet Musa?",       attribute: "contemporary_of_musa",    category: "era" },
+  { id: "q-contemp-dawud",      text: "Did this Prophet live during the lifetime of Prophet Dawud?",      attribute: "contemporary_of_dawud",   category: "era" },
+  // Other — is there a Qur'an chapter named after this Prophet?
+  { id: "q-surah-named",        text: "Is there a chapter (Surah) of the Qur'an named after this Prophet?", attribute: "has_surah_named_after_him", category: "other" },
 ];
 
 // =============================================================================
@@ -1154,15 +1163,65 @@ const PROPHET_EXTRA_ATTRIBUTES: Record<string, Record<string, boolean | null>> =
   muhammad:  { nephew_of_ibrahim: false, sent_to_madyan: false, sent_to_ad: false, sent_to_thamud: false, interpreted_dreams: false, built_kaaba: false, cured_sick_or_revived_dead: false, had_a_unique_name_never_given_before: false },
 };
 
+// =============================================================================
+// v3 attributes — contemporaries + "is there a Surah named after him" —
+// added because v2 still left some Prophets hard to narrow down on,
+// and "lived during the time of <named Prophet>" is a high-signal
+// narrower that maps cleanly to Qur'anic narrative.
+//
+// Note on Yaqub being contemporary_of_ibrahim: Qur'an 21:72 says
+// Ibrahim was given Ishaq and Yaqub (as a gift); mainstream tafsir
+// reads this as Yaqub being born during Ibrahim's lifetime.
+//
+// Note on Shuayb being contemporary_of_musa: Qur'an 28:22-28 narrates
+// Musa meeting the elder of Madyan whose daughter he later married.
+// Mainstream view identifies that elder as Prophet Shuayb. A minority
+// view holds it was a different person of the same name — I went with
+// the mainstream identification.
+//
+// For Dhul-Kifl I marked all three contemporary_* as null because the
+// Qur'an doesn't give us a clear era anchor for him.
+// =============================================================================
+const PROPHET_EXTRA_ATTRIBUTES_V3: Record<string, Record<string, boolean | null>> = {
+  adam:        { has_surah_named_after_him: false, contemporary_of_ibrahim: false, contemporary_of_musa: false, contemporary_of_dawud: false },
+  idris:       { has_surah_named_after_him: false, contemporary_of_ibrahim: false, contemporary_of_musa: false, contemporary_of_dawud: false },
+  nuh:         { has_surah_named_after_him: true,  contemporary_of_ibrahim: false, contemporary_of_musa: false, contemporary_of_dawud: false },
+  hud:         { has_surah_named_after_him: true,  contemporary_of_ibrahim: false, contemporary_of_musa: false, contemporary_of_dawud: false },
+  salih:       { has_surah_named_after_him: false, contemporary_of_ibrahim: false, contemporary_of_musa: false, contemporary_of_dawud: false },
+  ibrahim:     { has_surah_named_after_him: true,  contemporary_of_ibrahim: true,  contemporary_of_musa: false, contemporary_of_dawud: false },
+  lut:         { has_surah_named_after_him: false, contemporary_of_ibrahim: true,  contemporary_of_musa: false, contemporary_of_dawud: false },
+  ismail:      { has_surah_named_after_him: false, contemporary_of_ibrahim: true,  contemporary_of_musa: false, contemporary_of_dawud: false },
+  ishaq:       { has_surah_named_after_him: false, contemporary_of_ibrahim: true,  contemporary_of_musa: false, contemporary_of_dawud: false },
+  yaqub:       { has_surah_named_after_him: false, contemporary_of_ibrahim: true,  contemporary_of_musa: false, contemporary_of_dawud: false },
+  yusuf:       { has_surah_named_after_him: true,  contemporary_of_ibrahim: false, contemporary_of_musa: false, contemporary_of_dawud: false },
+  ayyub:       { has_surah_named_after_him: false, contemporary_of_ibrahim: false, contemporary_of_musa: false, contemporary_of_dawud: false },
+  shuayb:      { has_surah_named_after_him: false, contemporary_of_ibrahim: false, contemporary_of_musa: true,  contemporary_of_dawud: false },
+  musa:        { has_surah_named_after_him: false, contemporary_of_ibrahim: false, contemporary_of_musa: true,  contemporary_of_dawud: false },
+  harun:       { has_surah_named_after_him: false, contemporary_of_ibrahim: false, contemporary_of_musa: true,  contemporary_of_dawud: false },
+  "dhul-kifl": { has_surah_named_after_him: false, contemporary_of_ibrahim: null,  contemporary_of_musa: null,  contemporary_of_dawud: null  },
+  dawud:       { has_surah_named_after_him: false, contemporary_of_ibrahim: false, contemporary_of_musa: false, contemporary_of_dawud: true  },
+  sulayman:    { has_surah_named_after_him: false, contemporary_of_ibrahim: false, contemporary_of_musa: false, contemporary_of_dawud: true  },
+  ilyas:       { has_surah_named_after_him: false, contemporary_of_ibrahim: false, contemporary_of_musa: false, contemporary_of_dawud: false },
+  "al-yasa":   { has_surah_named_after_him: false, contemporary_of_ibrahim: false, contemporary_of_musa: false, contemporary_of_dawud: false },
+  yunus:       { has_surah_named_after_him: true,  contemporary_of_ibrahim: false, contemporary_of_musa: false, contemporary_of_dawud: false },
+  zakariya:    { has_surah_named_after_him: false, contemporary_of_ibrahim: false, contemporary_of_musa: false, contemporary_of_dawud: false },
+  yahya:       { has_surah_named_after_him: false, contemporary_of_ibrahim: false, contemporary_of_musa: false, contemporary_of_dawud: false },
+  isa:         { has_surah_named_after_him: false, contemporary_of_ibrahim: false, contemporary_of_musa: false, contemporary_of_dawud: false },
+  muhammad:    { has_surah_named_after_him: true,  contemporary_of_ibrahim: false, contemporary_of_musa: false, contemporary_of_dawud: false },
+};
+
 // Merge descriptions + extra attributes into each Prophet record so the
 // rest of the code (catalog endpoint, answerQuestion, redactRound) just
 // sees a complete record. Done once at module init.
 for (const p of PROPHETS) {
   p.description = PROPHET_DESCRIPTIONS[p.id] ?? "";
-  const extras = PROPHET_EXTRA_ATTRIBUTES[p.id];
-  if (extras) {
-    p.attributes = { ...p.attributes, ...extras };
-  }
+  const extrasV2 = PROPHET_EXTRA_ATTRIBUTES[p.id];
+  const extrasV3 = PROPHET_EXTRA_ATTRIBUTES_V3[p.id];
+  p.attributes = {
+    ...p.attributes,
+    ...(extrasV2 ?? {}),
+    ...(extrasV3 ?? {}),
+  };
   // Loud failure during local dev if any prophet was missed when adding
   // new entries — better than a silent "(description not set)" in prod.
   if (!p.description) {
