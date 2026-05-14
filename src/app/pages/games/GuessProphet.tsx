@@ -316,6 +316,20 @@ export function GuessProphet() {
                   <span>+{round.pointsAwarded} points earned!</span>
                 </div>
               )}
+              {/* Learn-about-the-Prophet card — shows whether kid won or
+                  lost, so even an incorrect round teaches something.
+                  Content sourced from PROPHET_DESCRIPTIONS in the
+                  backend data file. */}
+              {round.prophet?.description && (
+                <div className="bg-white/80 border border-current/10 rounded-lg p-3 space-y-1">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    About {round.prophet.name}
+                  </p>
+                  <p className="text-sm text-gray-700 leading-relaxed">
+                    {round.prophet.description}
+                  </p>
+                </div>
+              )}
               <div className="text-xs text-gray-600">
                 Questions asked: {round.questionsAsked.length} · Guesses: {round.guessAttempts.length}
               </div>

@@ -11,6 +11,12 @@ export interface ProphetSummary {
   name: string;
   nameArabic: string;
   englishName: string | null;
+  /**
+   * Kid-friendly description, 2-3 sentences. Only populated on the
+   * Prophet returned at end of round (won/lost) — the catalog endpoint
+   * deliberately excludes it so the answer isn't leaked during play.
+   */
+  description?: string;
 }
 
 export interface QuestionRecord {
