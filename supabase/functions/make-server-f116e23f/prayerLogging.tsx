@@ -352,6 +352,12 @@ export async function approvePrayerClaim(
     childId: claim.childId,
     // v10: real item ID when available (so salah quests count this event).
     trackableItemId: resolvedItemId,
+    // Tag as 'habit' so downstream filters that key on event.type (e.g.
+    // LogBehavior's todayPrayersLogged set) recognize approved-claim
+    // events as logged-today and disable the corresponding Salah button.
+    // Pre-fix, type was missing here and approved Asr claims still left
+    // the Asr button enabled, allowing the parent to log a duplicate.
+    type: 'habit',
     // Keep the prayer name on the event as a robust secondary key — useful
     // for analytics filters that previously relied on 'prayer'.
     prayerName: claim.prayerName,

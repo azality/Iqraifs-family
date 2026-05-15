@@ -102,16 +102,26 @@ export function LogBehavior() {
     today.setHours(0, 0, 0, 0);
 
     const todaysPrayers = pointEvents
-      .filter(event => {
+      .filter((event: any) => {
         const eventDate = new Date(event.timestamp);
         eventDate.setHours(0, 0, 0, 0);
-        return (
-          event.childId === child.id &&
-          eventDate.getTime() === today.getTime() &&
-          event.type === 'habit'
-        );
+        if (event.childId !== child.id) return false;
+        if (eventDate.getTime() !== today.getTime()) return false;
+
+        // Three ways to recognize a salah event today:
+        //   1. type === 'habit' — parent's own salah logs from this page
+        //   2. event.prayerName  — written by the prayer-approval flow
+        //      (supabase/functions/.../prayerLogging.tsx#approvePrayerClaim
+        //      doesn't set `type`, which silently broke duplicate-detection
+        //      for kid-claimed prayers — that's the user-reported bug).
+        //   3. itemName starts with "Prayer:" — defense-in-depth for any
+        //      future write path that snapshots the name without a type.
+        if (event.type === 'habit') return true;
+        if (event.prayerName) return true;
+        if (typeof event.itemName === 'string' && event.itemName.startsWith('Prayer:')) return true;
+        return false;
       })
-      .map(event => event.trackableItemId)
+      .map((event: any) => event.trackableItemId)
       .filter(Boolean) as string[];
 
     setTodayPrayersLogged(new Set(todaysPrayers));
