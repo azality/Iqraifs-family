@@ -49,24 +49,30 @@ export function LogBehavior() {
   const [submitting, setSubmitting] = useState(false);
   const child = getCurrentChild();
 
-  // Load point events for prayer tracking
+  // Load point events for prayer tracking.
+  // Extracted so the inline PrayerApprovalsWidget below can call it
+  // after a parent approves a claim — that's what flips the relevant
+  // Salah button to its "Logged ✓" state, preventing duplicate logging.
+  const reloadEvents = async () => {
+    if (!child) {
+      setPointEvents([]);
+      return;
+    }
+    try {
+      setEventsLoading(true);
+      const events = await getChildEvents(child.id);
+      setPointEvents(events || []);
+    } catch (error) {
+      console.error('Error loading point events:', error);
+      setPointEvents([]);
+    } finally {
+      setEventsLoading(false);
+    }
+  };
+
   useEffect(() => {
     const loadEvents = async () => {
-      if (!child) {
-        setPointEvents([]);
-        return;
-      }
-
-      try {
-        setEventsLoading(true);
-        const events = await getChildEvents(child.id);
-        setPointEvents(events || []);
-      } catch (error) {
-        console.error('Error loading point events:', error);
-        setPointEvents([]);
-      } finally {
-        setEventsLoading(false);
-      }
+      await reloadEvents();
     };
 
     loadEvents();
@@ -459,6 +465,16 @@ export function LogBehavior() {
             </TabsList>
 
             <TabsContent value="salah" className="space-y-4">
+              {/* Inline prayer-claim approvals for the currently-selected
+                  kid. Pre-fix UX: the page had a single global widget at
+                  the bottom of the page — parents would land on the Salah
+                  tab to log Asr, not knowing the kid had already claimed
+                  it. Result: duplicate Asr entries.
+                  After approve, onAction re-fetches events; the
+                  corresponding Salah button below flips to "Logged ✓"
+                  and goes disabled, preventing the duplicate. */}
+              <PrayerApprovalsWidget childId={child.id} onAction={reloadEvents} priority />
+
               <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                 {salahItems.map(item => {
                   const isLoggedToday = todayPrayersLogged.has(item.id);
