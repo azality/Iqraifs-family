@@ -101,10 +101,15 @@ export function KidDashboard() {
         setMilestones(milestonesData || []);
         setRewards(rewardsData || []);
         
-        // Fetch challenges if the child and familyId exist
-        if (familyId && accessToken) {
+        // Fetch challenges if the child and familyId exist.
+        //
+        // Bug pre-fix: this used /families/:familyId/challenges which
+        // doesn't exist in the backend (challenges are keyed by child,
+        // not family). The request silently 404'd and the kid never saw
+        // any challenge the parent created. Real endpoint is per-child.
+        if (familyId && accessToken && child?.id) {
           const response = await fetch(
-            `${API_BASE}/families/${familyId}/challenges`,
+            `${API_BASE}/children/${child.id}/challenges`,
             {
               headers: { 'Authorization': `Bearer ${accessToken}` }
             }
@@ -112,6 +117,8 @@ export function KidDashboard() {
           if (response.ok) {
             const challengesData = await response.json();
             setChallenges(challengesData || []);
+          } else {
+            console.warn('[KidDashboard] challenges fetch failed:', response.status);
           }
 
           // Fetch game settings
