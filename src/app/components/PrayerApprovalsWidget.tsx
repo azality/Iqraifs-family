@@ -44,9 +44,17 @@ interface PrayerApprovalsWidgetProps {
   // badge) so the card is impossible to miss when it does appear.
   // Used at the TOP of the parent dashboard.
   priority?: boolean;
+  // Filter to claims for one specific child. Used when the widget is
+  // embedded inside a child-scoped surface (e.g. Log Behavior > Salah
+  // tab for the currently-selected kid). Empty / undefined = show all.
+  childId?: string;
+  // Fired after a successful approve or deny so the parent surface
+  // (LogBehavior, etc.) can re-fetch the kid's events and reflect the
+  // green ✓ on the now-logged prayer.
+  onAction?: () => void;
 }
 
-export function PrayerApprovalsWidget({ compact = false, maxItems, priority = false }: PrayerApprovalsWidgetProps) {
+export function PrayerApprovalsWidget({ compact = false, maxItems, priority = false, childId, onAction }: PrayerApprovalsWidgetProps) {
   const [pendingClaims, setPendingClaims] = useState<PrayerClaim[]>([]);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState<string | null>(null);
@@ -60,7 +68,11 @@ export function PrayerApprovalsWidget({ compact = false, maxItems, priority = fa
     if (accessToken) {
       loadClaims();
     }
-  }, [accessToken]);
+    // childId in deps so switching the active kid re-fetches and re-
+    // filters the list. eslint-disable-next-line for loadClaims —
+    // it's stable enough for v1.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accessToken, childId]);
 
   async function loadClaims() {
     try {
@@ -81,7 +93,14 @@ export function PrayerApprovalsWidget({ compact = false, maxItems, priority = fa
       }
 
       const pending = await pendingRes.json();
-      setPendingClaims(pending);
+      // If childId was supplied, filter the backend's family-wide list
+      // down to that one kid. Kept client-side because the backend's
+      // pending endpoint is family-scoped and currently has no per-child
+      // filter param — small list, fine to filter here.
+      const filtered = childId
+        ? (pending as PrayerClaim[]).filter((c) => c.childId === childId)
+        : pending;
+      setPendingClaims(filtered);
     } catch (err: any) {
       console.error('Error loading claims:', err);
     } finally {
@@ -115,6 +134,7 @@ export function PrayerApprovalsWidget({ compact = false, maxItems, priority = fa
       toast.success(`✅ Prayer approved! ${onTime ? 'Full points awarded!' : '1 point awarded (late)'}`);
       setShowApproveModal(null);
       await loadClaims();
+      onAction?.();
     } catch (err: any) {
       console.error('Error approving claim:', err);
       toast.error(err.message || 'Failed to approve claim');
@@ -150,6 +170,7 @@ export function PrayerApprovalsWidget({ compact = false, maxItems, priority = fa
       setShowDenyModal(null);
       setDenyReason('');
       await loadClaims();
+      onAction?.();
     } catch (err: any) {
       console.error('Error denying claim:', err);
       toast.error(err.message || 'Failed to deny claim');
