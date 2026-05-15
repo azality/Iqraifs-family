@@ -25,11 +25,34 @@ app.use("*", requireAuth);
 
 const MAX_QUESTIONS_PER_ROUND = 20;
 const MAX_GUESSES_PER_ROUND = 3;
-const POINTS_AWARD_WIN = 5;
+// Default points awarded for guessing the Prophet correctly. Parents
+// override this per-family from Settings → Games — see
+// gamesettings:<familyId>.prophetGuessPointsPerWin. The constant is
+// only used when the family hasn't customized.
+const DEFAULT_POINTS_AWARD_WIN = 3;
 // Don't repeat a Prophet for the same child within this window.
 const NO_REPEAT_DAYS = 30;
 // We trim the per-child rounds index to this many entries to keep KV reads cheap.
 const ROUNDS_INDEX_CAP = 50;
+
+// Resolve the family-configured "points per win" for the kid who's
+// playing. The kid → family link goes through child.familyId on the
+// KV record. If anything's missing, we fall back to the default.
+async function pointsPerWinFor(childId: string): Promise<number> {
+  try {
+    const child = await kv.get(childId);
+    const familyId = child?.familyId;
+    if (!familyId) return DEFAULT_POINTS_AWARD_WIN;
+    const settings = await kv.get(`gamesettings:${familyId}`);
+    const n = settings?.prophetGuessPointsPerWin;
+    if (typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= 100) {
+      return n;
+    }
+  } catch (_err) {
+    // Fall through to default
+  }
+  return DEFAULT_POINTS_AWARD_WIN;
+}
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
@@ -196,7 +219,10 @@ app.get("/catalog", async (c) => {
     rules: {
       maxQuestions: MAX_QUESTIONS_PER_ROUND,
       maxGuesses: MAX_GUESSES_PER_ROUND,
-      pointsPerWin: POINTS_AWARD_WIN,
+      // pointsPerWin in the catalog is the family-product default. The
+      // actual award is recomputed at win-time from gamesettings so
+      // even mid-round changes by the parent are honored.
+      pointsPerWin: DEFAULT_POINTS_AWARD_WIN,
       noRepeatDays: NO_REPEAT_DAYS,
     },
   });
@@ -323,11 +349,15 @@ app.post("/:roundId/guess", async (c) => {
   if (correct) {
     round.status = "won";
     round.endedAt = new Date().toISOString();
-    round.pointsAwarded = POINTS_AWARD_WIN;
+    // Resolve points-per-win from family game settings at win time, so
+    // a parent who tunes the value while a round is in progress sees
+    // the new amount honored.
+    const pointsAward = await pointsPerWinFor(r.childId!);
+    round.pointsAwarded = pointsAward;
     const userId = getAuthUserId(c);
     await awardPoints({
       childId: r.childId!,
-      points: POINTS_AWARD_WIN,
+      points: pointsAward,
       loggedBy: userId,
       loggedByName: "Prophet Guess Game",
       itemName: "Guess the Prophet — round won",

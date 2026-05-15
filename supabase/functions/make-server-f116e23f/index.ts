@@ -6252,12 +6252,22 @@ app.get(
         id: settingsKey,
         familyId,
         knowledgeQuestEnabled: true,
+        // Per-game point configuration. Parents tune these from the
+        // family Settings page. Reading code (e.g. the Guess-the-Prophet
+        // sub-app) falls back to these defaults if the setting is
+        // missing on an older settings row.
+        prophetGuessPointsPerWin: 3,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       };
       await kv.set(settingsKey, settings);
     }
-    
+    // Backfill defaults for older settings rows that pre-date a new
+    // field. Doesn't persist — just makes the response consistent.
+    if (typeof settings.prophetGuessPointsPerWin !== 'number') {
+      settings.prophetGuessPointsPerWin = 3;
+    }
+
     return c.json(settings);
   } catch (error) {
     console.error('Get game settings error:', error);
@@ -6289,11 +6299,19 @@ app.patch(
       };
     }
     
-    // Update settings
+    // Update settings — accept partial bodies, only change fields sent.
     if (typeof body.knowledgeQuestEnabled === 'boolean') {
       settings.knowledgeQuestEnabled = body.knowledgeQuestEnabled;
     }
-    
+    if (typeof body.prophetGuessPointsPerWin === 'number') {
+      // Clamp to sane bounds so a typo can't gift a kid 1000 points.
+      const n = Math.round(body.prophetGuessPointsPerWin);
+      if (!Number.isFinite(n) || n < 0 || n > 100) {
+        return c.json({ error: 'prophetGuessPointsPerWin must be 0..100' }, 400);
+      }
+      settings.prophetGuessPointsPerWin = n;
+    }
+
     settings.updatedAt = new Date().toISOString();
     
     await kv.set(settingsKey, settings);

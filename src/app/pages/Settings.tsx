@@ -256,6 +256,7 @@ export function Settings() {
 
   // Game Settings State
   const [knowledgeQuestEnabled, setKnowledgeQuestEnabled] = useState(true);
+  const [prophetGuessPointsPerWin, setProphetGuessPointsPerWin] = useState<number>(3);
   const [gameSettingsLoading, setGameSettingsLoading] = useState(false);
 
   // Account Deletion State
@@ -1067,6 +1068,11 @@ export function Settings() {
       if (response.ok) {
         const settings = await response.json();
         setKnowledgeQuestEnabled(settings.knowledgeQuestEnabled ?? true);
+        setProphetGuessPointsPerWin(
+          typeof settings.prophetGuessPointsPerWin === 'number'
+            ? settings.prophetGuessPointsPerWin
+            : 3
+        );
       }
     } catch (error) {
       console.error('Load game settings error:', error);
@@ -1095,7 +1101,8 @@ export function Settings() {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            knowledgeQuestEnabled
+            knowledgeQuestEnabled,
+            prophetGuessPointsPerWin,
           })
         }
       );
@@ -3445,6 +3452,43 @@ export function Settings() {
                         id="knowledge-quest-toggle"
                         checked={knowledgeQuestEnabled}
                         onCheckedChange={setKnowledgeQuestEnabled}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Guess the Prophet — point value per correct guess.
+                    Awarded at win time, so changes apply immediately
+                    even mid-round. 0..100 enforced by backend. */}
+                <div className="bg-gradient-to-br from-amber-50 to-yellow-50 border-2 border-amber-200 rounded-lg p-4">
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div className="flex items-start gap-3 flex-1 min-w-0">
+                      <span className="text-2xl">🤔</span>
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-semibold text-amber-900 mb-1">Guess the Prophet</h4>
+                        <p className="text-sm text-amber-800 mb-2">
+                          Points awarded for each correct guess. Lower it to keep this in line with prayer-based earning; raise it for a bigger reward.
+                        </p>
+                        <p className="text-xs text-amber-700">
+                          Default <strong>3 points</strong>. For comparison: 1 prayer logged on time is typically <strong>1–2 points</strong>.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Label htmlFor="prophet-points" className="cursor-pointer text-sm">
+                        Points per win:
+                      </Label>
+                      <Input
+                        id="prophet-points"
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={prophetGuessPointsPerWin}
+                        onChange={(e) => {
+                          const v = parseInt(e.target.value, 10);
+                          setProphetGuessPointsPerWin(Number.isNaN(v) ? 0 : v);
+                        }}
+                        className="w-20 bg-white"
                       />
                     </div>
                   </div>
