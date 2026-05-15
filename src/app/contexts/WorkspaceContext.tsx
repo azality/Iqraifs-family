@@ -44,6 +44,10 @@ interface WorkspaceContextType {
   hasSchoolAccess: boolean;
   switchToFamily: () => void;
   switchToSchool: (orgId: string, orgName: string) => void;
+  // Force a re-fetch of /school/me. Used after a role-changing action
+  // (e.g. just created an org via signup) so the switcher reflects the
+  // new role without a full page reload.
+  refreshSchoolMe: () => Promise<void>;
 }
 
 const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefined);
@@ -126,6 +130,19 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const switchToSchool = (orgId: string, orgName: string) =>
     setWorkspace({ kind: "school", orgId, orgName });
 
+  // Manual refresh — call after creating an org / accepting a role
+  // grant / etc. so the workspace switcher reflects the new state
+  // without a full page reload.
+  const refreshSchoolMe = async () => {
+    if (!accessToken) return;
+    try {
+      const r = await getSchoolMe();
+      setMe(r);
+    } catch {
+      // Swallow — the next regular fetch will retry.
+    }
+  };
+
   const hasSchoolAccess = !!me && me.roles.some(
     (r) => r.role_type === "principal" || r.role_type === "teacher",
   );
@@ -140,6 +157,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         hasSchoolAccess,
         switchToFamily,
         switchToSchool,
+        refreshSchoolMe,
       }}
     >
       {children}
