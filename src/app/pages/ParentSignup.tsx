@@ -4,13 +4,15 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
-import { Mail, Lock, User, Home, UserPlus, ArrowLeft, Sparkles, Shield, Heart } from 'lucide-react';
+import { Mail, Lock, User, Home, UserPlus, ArrowLeft, Sparkles, Shield, Heart, School, Building2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../../../utils/supabase/client';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info.tsx';
 import { motion } from 'motion/react';
 import { setStorageSync } from '../../utils/storage';
 import { setParentSession } from '../utils/authHelpers';
+import { createOrganization } from '../../utils/schoolApi';
+import { useWorkspace } from '../contexts/WorkspaceContext';
 
 // v22 hotfix: Chrome MUST live outside the ParentSignup function. When it
 // was defined inside, every keystroke re-created a fresh component
@@ -61,9 +63,11 @@ const Chrome = ({
 
 export function ParentSignup() {
   const navigate = useNavigate();
+  const { refreshSchoolMe, switchToSchool } = useWorkspace();
 
-  // Two-path selection
-  const [signupType, setSignupType] = useState<'new' | 'join' | null>(null);
+  // Three-path selection: new family, join existing family, or
+  // school principal (creates a school org instead of a family).
+  const [signupType, setSignupType] = useState<'new' | 'join' | 'school' | null>(null);
 
   // Common fields
   const [name, setName] = useState('');
@@ -74,6 +78,9 @@ export function ParentSignup() {
   // Join existing family fields
   const [inviteCode, setInviteCode] = useState('');
   const [relationship, setRelationship] = useState('spouse');
+
+  // School path fields
+  const [schoolName, setSchoolName] = useState('');
 
   const [loading, setLoading] = useState(false);
   // v12: when the backend says EMAIL_EXISTS we open an actionable dialog
@@ -171,6 +178,89 @@ export function ParentSignup() {
     } catch (error: any) {
       console.error('Signup error:', error);
       toast.error(error.message || 'Failed to create account');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // School-principal signup: creates an auth user, then bootstraps an
+  // organization with the caller as principal. Lands on the school
+  // setup wizard (academic year → campus → first class).
+  const handleSchoolSignup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (password !== confirmPassword) {
+      toast.error('Passwords do not match');
+      return;
+    }
+    if (password.length < 8) {
+      toast.error('Password must be at least 8 characters');
+      return;
+    }
+    if (schoolName.trim().length < 2) {
+      toast.error('School name is required');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // Step 1: create the auth user via the existing signup endpoint.
+      const signupRes = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f/auth/signup`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${publicAnonKey}`,
+          },
+          body: JSON.stringify({ email, password, name, role: 'parent' }),
+        },
+      );
+      const signupData = await signupRes.json();
+      if (!signupRes.ok) {
+        if (
+          signupData?.code === 'EMAIL_EXISTS' ||
+          /already.*registered/i.test(String(signupData?.error || ''))
+        ) {
+          setEmailExistsOpen(true);
+          return;
+        }
+        throw new Error(signupData.error || `Signup failed: ${signupRes.status}`);
+      }
+
+      // Step 2: log in so we have a session token for the bootstrap call.
+      const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
+        email, password,
+      });
+      if (loginError || !loginData?.session?.access_token) {
+        toast.error('Account created but login failed. Please log in manually.');
+        navigate('/login');
+        return;
+      }
+      setParentSession(loginData.session.user.id, name, email);
+      setStorageSync('user_role', 'parent');
+      setStorageSync('user_mode', 'parent');
+      setStorageSync('fgs_mode', 'parent');
+
+      // Step 3: create the organization (caller becomes principal).
+      // schoolApi.createOrganization picks up the freshly-stored session
+      // via the standard apiCall token resolution.
+      const { organization } = await createOrganization({ name: schoolName.trim() });
+
+      toast.success(`${organization.name} created — let's set it up`);
+
+      // Step 4: refresh /school/me so the workspace switcher knows
+      // the user is now a principal, and pre-select the school
+      // workspace so the chrome reflects it on arrival.
+      await refreshSchoolMe();
+      switchToSchool(organization.id, organization.name);
+
+      // Step 5: drop them into the school setup wizard. From there:
+      // create academic year → first campus → first class. No
+      // family-side onboarding (that's for the family signup path).
+      navigate(`/school/orgs/${organization.id}/setup`);
+    } catch (error: any) {
+      console.error('School signup error:', error);
+      toast.error(error.message || 'Failed to create school');
     } finally {
       setLoading(false);
     }
@@ -345,11 +435,11 @@ export function ParentSignup() {
             </div>
             <h1 className="text-3xl sm:text-4xl font-bold text-gray-900">Let's get you set up</h1>
             <p className="mt-3 text-base text-gray-600">
-              Are you starting a new family on Iqra, or joining one that's already here?
+              Family or school — pick the one that fits.
             </p>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-5">
+          <div className="grid md:grid-cols-3 gap-5">
             {/* Create New Family */}
             <motion.button
               type="button"
@@ -387,6 +477,26 @@ export function ParentSignup() {
               </p>
               <div className="mt-5 inline-flex items-center text-sm font-semibold text-purple-600">
                 I have a code →
+              </div>
+            </motion.button>
+
+            {/* I run a school */}
+            <motion.button
+              type="button"
+              whileHover={{ y: -4 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => setSignupType('school')}
+              className="group text-left rounded-3xl bg-white/90 backdrop-blur shadow-xl ring-1 ring-gray-200 hover:ring-indigo-400 p-7 transition-all"
+            >
+              <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-indigo-100 to-violet-100 flex items-center justify-center mb-5 group-hover:scale-105 transition-transform">
+                <School className="h-7 w-7 text-indigo-600" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 mb-1.5">I run a school</h3>
+              <p className="text-sm text-gray-600 leading-relaxed">
+                I'm a principal or administrator. I want to set up Hifz tracking and class behavior for my students.
+              </p>
+              <div className="mt-5 inline-flex items-center text-sm font-semibold text-indigo-600">
+                Set up my school →
               </div>
             </motion.button>
           </div>
@@ -524,6 +634,143 @@ export function ParentSignup() {
                 type="button"
                 onClick={() => navigate('/login')}
                 className="text-blue-600 hover:text-blue-700 hover:underline font-semibold"
+              >
+                Sign in
+              </button>
+            </div>
+          </div>
+        </motion.div>
+        {emailExistsDialog}
+      </Chrome>
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // School-principal signup form
+  // ---------------------------------------------------------------------------
+  if (signupType === 'school') {
+    return (
+      <Chrome onBack={() => setSignupType(null)} onHome={() => navigate('/welcome')}>
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
+          className="w-full max-w-md"
+        >
+          <div className="rounded-3xl bg-white/90 backdrop-blur shadow-xl ring-1 ring-gray-200 p-7 sm:p-9">
+            <div className="text-center mb-6">
+              <div className="inline-flex items-center justify-center h-14 w-14 rounded-2xl bg-gradient-to-br from-indigo-100 to-violet-100 mb-4">
+                <School className="h-7 w-7 text-indigo-600" />
+              </div>
+              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Set up your school</h1>
+              <p className="mt-2 text-sm text-gray-600">
+                You'll be the principal. Next you'll add a campus, a class, and your first students.
+              </p>
+            </div>
+
+            <form onSubmit={handleSchoolSignup} className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="school-name" className="text-sm font-medium text-gray-700">School name</Label>
+                <div className="relative">
+                  <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Input
+                    id="school-name"
+                    type="text"
+                    placeholder="e.g. Iqra Academy"
+                    value={schoolName}
+                    onChange={(e) => setSchoolName(e.target.value)}
+                    className="pl-10 h-11 rounded-xl border-gray-200 focus-visible:ring-indigo-500"
+                    required
+                    autoComplete="organization"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="principal-name" className="text-sm font-medium text-gray-700">Your name</Label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Input
+                    id="principal-name"
+                    type="text"
+                    placeholder="Principal name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="pl-10 h-11 rounded-xl border-gray-200 focus-visible:ring-indigo-500"
+                    required
+                    autoComplete="name"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="school-email" className="text-sm font-medium text-gray-700">Email</Label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Input
+                    id="school-email"
+                    type="email"
+                    placeholder="principal@school.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="pl-10 h-11 rounded-xl border-gray-200 focus-visible:ring-indigo-500"
+                    required
+                    autoComplete="email"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="school-password" className="text-sm font-medium text-gray-700">Password</Label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Input
+                    id="school-password"
+                    type="password"
+                    placeholder="At least 8 characters"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="pl-10 h-11 rounded-xl border-gray-200 focus-visible:ring-indigo-500"
+                    required
+                    autoComplete="new-password"
+                    minLength={8}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="school-confirmPassword" className="text-sm font-medium text-gray-700">Confirm password</Label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Input
+                    id="school-confirmPassword"
+                    type="password"
+                    placeholder="••••••••"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="pl-10 h-11 rounded-xl border-gray-200 focus-visible:ring-indigo-500"
+                    required
+                    autoComplete="new-password"
+                    minLength={8}
+                  />
+                </div>
+              </div>
+
+              <Button
+                type="submit"
+                className="w-full h-11 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-semibold shadow-md shadow-indigo-600/20"
+                disabled={loading}
+              >
+                {loading ? 'Setting up school…' : 'Create school account'}
+              </Button>
+            </form>
+
+            <div className="mt-6 text-center text-sm">
+              <span className="text-gray-600">Already have an account? </span>
+              <button
+                type="button"
+                onClick={() => navigate('/login')}
+                className="text-indigo-600 hover:text-indigo-700 hover:underline font-semibold"
               >
                 Sign in
               </button>

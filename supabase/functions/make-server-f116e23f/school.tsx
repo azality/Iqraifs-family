@@ -140,6 +140,117 @@ school.get("/me", async (c) => {
 });
 
 // -----------------------------------------------------------------------------
+// POST /school/organizations
+// Self-service org creation. The authenticated caller becomes the
+// principal of the new organization. Used by the school-signup path on
+// the marketing site (/signup) so a school owner can create their own
+// org without an Anthropic admin in the loop.
+//
+// Body: { name: string, slug?: string }
+//   - name is required; trimmed; 2..200 chars.
+//   - slug is optional; if omitted we derive it from name. We retry
+//     with an incrementing suffix if the derived slug collides.
+//
+// One user can be principal of multiple orgs (e.g. a chain owner with
+// several schools), so we don't refuse if they already have a principal
+// row elsewhere.
+// -----------------------------------------------------------------------------
+school.post("/organizations", async (c) => {
+  const userId = getAuthUserId(c);
+  if (!userId) return c.json({ error: "unauthenticated" }, 401);
+
+  let body: any;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "invalid JSON body" }, 400);
+  }
+  const rawName = typeof body?.name === "string" ? body.name.trim() : "";
+  if (rawName.length < 2 || rawName.length > 200) {
+    return c.json({ error: "name must be 2..200 characters" }, 400);
+  }
+
+  // Slug: prefer user-supplied, else derive from name. Allowed chars:
+  // lowercase a-z, digits, dashes. Strip everything else, collapse runs.
+  const slugify = (s: string) =>
+    s
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/[^\p{ASCII}]/gu, "")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60);
+
+  let baseSlug = typeof body?.slug === "string" ? slugify(body.slug) : "";
+  if (!baseSlug) baseSlug = slugify(rawName);
+  if (!baseSlug) baseSlug = "school"; // total fallback for non-Latin names
+
+  // Try base slug, then -2, -3, ... up to 50 attempts.
+  let chosenSlug = baseSlug;
+  let attempt = 1;
+  while (attempt <= 50) {
+    const { data: existing, error: lookupErr } = await serviceRoleClient
+      .from("organizations")
+      .select("id")
+      .eq("slug", chosenSlug)
+      .maybeSingle();
+    if (lookupErr) {
+      return c.json({ error: lookupErr.message }, 500);
+    }
+    if (!existing) break;
+    attempt += 1;
+    chosenSlug = `${baseSlug}-${attempt}`;
+  }
+
+  const { data: org, error: insertErr } = await serviceRoleClient
+    .from("organizations")
+    .insert({
+      name: rawName,
+      slug: chosenSlug,
+      org_type: "school",
+      plan: "pilot",
+      settings: {
+        salahQadhaPoints: 1,
+        salahMissedPoints: -1,
+        leaderboardFrequency: "weekly",
+        dailyDiaryDelivery: "daily",
+        allowParentComments: true,
+      },
+    })
+    .select()
+    .single();
+  if (insertErr) {
+    // 23505 = unique violation — unlikely after our pre-check but
+    // possible under a race. Surface as 409.
+    if ((insertErr as any).code === "23505") {
+      return c.json({ error: "slug already exists; try a different one" }, 409);
+    }
+    return c.json({ error: insertErr.message }, 500);
+  }
+
+  // Make the caller principal of the new org. ON CONFLICT DO NOTHING
+  // is unnecessary here because the org was just created — but we
+  // catch the unique violation defensively anyway.
+  const { error: roleErr } = await serviceRoleClient
+    .from("user_roles")
+    .insert({
+      user_id: userId,
+      role_type: "principal",
+      scope_type: "organization",
+      scope_id: org.id,
+      granted_by: userId,
+    });
+  if (roleErr && (roleErr as any).code !== "23505") {
+    // Rollback the org if we can't grant principal — without principal
+    // the org is unreachable, so it's better to delete than leave orphaned.
+    await serviceRoleClient.from("organizations").delete().eq("id", org.id);
+    return c.json({ error: "could not grant principal role", details: roleErr.message }, 500);
+  }
+
+  return c.json({ organization: org }, 201);
+});
+
+// -----------------------------------------------------------------------------
 // POST /school/organizations/:orgId/grant-principal
 // Admin-only escape hatch to seed the FIRST principal of a fresh org. Once
 // a principal exists, they grant roles via /school/teachers etc.

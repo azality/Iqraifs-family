@@ -97,6 +97,17 @@ export interface Campus {
   created_at: string;
 }
 
+// Self-service create: caller becomes principal of the new org.
+// Used by the school-signup path on /signup so a school owner can
+// onboard without an admin in the loop.
+export const createOrganization = (
+  body: { name: string; slug?: string },
+): Promise<{ organization: OrganizationDetail }> =>
+  apiCall("/school/organizations", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
 export const getCampuses = (orgId: string): Promise<Campus[]> =>
   apiCall(`/school/organizations/${orgId}/campuses`);
 
