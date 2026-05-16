@@ -14,7 +14,7 @@ import { useWorkspace } from "../contexts/WorkspaceContext";
 import { principalOrgIds, teacherClassIds } from "../../utils/schoolApi";
 
 export function WorkspaceSwitcher() {
-  const { workspace, me, hasSchoolAccess, hasFamily, switchToFamily, switchToSchool, loading } = useWorkspace();
+  const { workspace, me, hasSchoolAccess, hasFamily, signupIntent, switchToFamily, switchToSchool, loading } = useWorkspace();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
 
@@ -74,11 +74,15 @@ export function WorkspaceSwitcher() {
           Workspace
         </p>
 
-        {/* Family workspace option — hidden for school-only signups.
-            A user with no FAMILY_ID in storage has never created a
-            family; offering them "My Family" routes to /onboarding
-            (dead end). Hide it entirely. */}
-        {hasFamily && (
+        {/* Family workspace option — hidden for school-only users.
+            Two ways to be school-only:
+              1. No FAMILY_ID in storage (never created a family)
+              2. signupIntent === 'school' from the backend (signed
+                 up via the "I run a school" path even if a stale
+                 family record happens to exist from earlier testing)
+            Both → don't offer "My Family" as a workspace at all,
+            since it would either be a dead end or just confusing. */}
+        {hasFamily && signupIntent !== 'school' && (
           <button
             onClick={() => choose("family")}
             className={cn(

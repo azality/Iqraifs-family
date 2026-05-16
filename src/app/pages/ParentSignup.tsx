@@ -212,7 +212,7 @@ export function ParentSignup() {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${publicAnonKey}`,
           },
-          body: JSON.stringify({ email, password, name, role: 'parent' }),
+          body: JSON.stringify({ email, password, name, role: 'parent', signupIntent: 'school' }),
         },
       );
       const signupData = await signupRes.json();
