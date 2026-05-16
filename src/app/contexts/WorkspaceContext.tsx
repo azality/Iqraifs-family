@@ -20,7 +20,7 @@
 //   - Default workspace on first sign-in is `family` — never auto-jump
 //     into school context.
 
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, ReactNode } from "react";
 import { getStorageSync, setStorageSync } from "../../utils/storage";
 import { getSchoolMe, type SchoolMeResponse } from "../../utils/schoolApi";
 import { AuthContext } from "./AuthContext";
@@ -59,23 +59,32 @@ export const WorkspaceContext = createContext<WorkspaceContextType | undefined>(
 
 const STORAGE_KEY = "fgs_workspace";
 
-function readStoredWorkspace(): Workspace {
+function readStoredWorkspace(): { ws: Workspace; explicit: boolean } {
   try {
     const raw = getStorageSync(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed?.kind === "family" || parsed?.kind === "school") {
-        return parsed as Workspace;
+        return { ws: parsed as Workspace, explicit: true };
       }
     }
   } catch {
     // ignore parse failure, fall through to default
   }
-  return { kind: "family" };
+  // No stored value = the user never made an explicit choice. Default
+  // is family, but the `explicit` flag tells the post-login logic it
+  // can override (e.g. for a school principal who has school access
+  // but never clicked anything in the workspace switcher).
+  return { ws: { kind: "family" }, explicit: false };
 }
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
-  const [workspace, setWorkspaceState] = useState<Workspace>(() => readStoredWorkspace());
+  const initial = readStoredWorkspace();
+  const [workspace, setWorkspaceState] = useState<Workspace>(initial.ws);
+  // Did the user explicitly choose this workspace, or did we fall back
+  // to the default? Drives auto-switch logic below — we never overwrite
+  // an explicit user choice.
+  const explicitWorkspaceChoiceRef = useRef(initial.explicit);
   const [me, setMe] = useState<SchoolMeResponse | null>(null);
   const [loading, setLoading] = useState(true);
   // Track family presence by watching the FAMILY_ID storage value.
@@ -136,13 +145,27 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        // Case 2: user has school access AND no family. They're a
-        // school-only signup. Default workspace to their first
-        // principal org so they don't see "My Family" as a dead-end
-        // option (it routes to /onboarding). Only set this if the
-        // current workspace state isn't already pointing at a school
-        // org — never overwrite an explicit user choice.
-        if (hasSchool && !currentHasFamily && workspace.kind !== "school") {
+        // Case 2: user has school access AND has NEVER explicitly
+        // chosen a workspace (no stored value yet). Default to their
+        // first principal org so a fresh school-principal sign-in
+        // lands on /school rather than the family Dashboard.
+        //
+        // This covers both:
+        //   - The clean "I run a school" signup (where workspace was
+        //     stamped via switchToSchool — covered).
+        //   - The user-reported case where a pre-existing family
+        //     account was manually granted principal role and never
+        //     toggled their workspace; explicit is false, so we
+        //     auto-prefer school.
+        //
+        // We deliberately do NOT touch the workspace when the user
+        // made an explicit choice, even if hasFamily is false. They
+        // get what they picked.
+        if (
+          hasSchool &&
+          !explicitWorkspaceChoiceRef.current &&
+          workspace.kind !== "school"
+        ) {
           const firstOrg = principalOrgs[0] ?? r.organizations[0];
           if (firstOrg) {
             const next: Workspace = {
@@ -152,6 +175,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             };
             setWorkspaceState(next);
             setStorageSync(STORAGE_KEY, JSON.stringify(next));
+            explicitWorkspaceChoiceRef.current = true;
           }
         }
       })
@@ -169,6 +193,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const setWorkspace = (w: Workspace) => {
     setWorkspaceState(w);
     setStorageSync(STORAGE_KEY, JSON.stringify(w));
+    // Any explicit user toggle counts as a real choice — don't
+    // auto-default away from it on the next /school/me fetch.
+    explicitWorkspaceChoiceRef.current = true;
   };
 
   const switchToFamily = () => setWorkspace({ kind: "family" });
