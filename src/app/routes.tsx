@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate } from "react-router";
+import { createBrowserRouter, Navigate, useLocation } from "react-router";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { RequireParentRole } from "./components/RequireParentRole";
 import { Welcome } from "./pages/Welcome";
@@ -131,6 +131,10 @@ function RequireFamily({ children }: { children: JSX.Element }) {
   // teacher role should NOT be sent to /onboarding (family setup) — they
   // should land on /school instead.
   const workspaceCtx = useContext(WorkspaceContext);
+  // Used to gate the workspace-preference redirect below to the index
+  // route only. Without this, any /school/* navigation hits the same
+  // redirect, short-circuits the Outlet, and renders nothing.
+  const location = useLocation();
 
   useEffect(() => {
     const checkFamilyAccess = async () => {
@@ -175,17 +179,18 @@ function RequireFamily({ children }: { children: JSX.Element }) {
     );
   }
 
-  // Workspace preference wins. If the user previously chose the school
-  // workspace (via the switcher OR via the school-signup flow which
-  // calls switchToSchool right after creating the org), route them to
-  // their school dashboard from "/" — even if they also happen to have
-  // a family record. This is what the user-reported bug needs: after
-  // signing up via "I run a school", they shouldn't land on the
-  // family Command Center on next login.
+  // Workspace preference wins ONLY when the user lands on the index
+  // route ("/"). If we redirected from arbitrary nested paths the
+  // Outlet never renders — e.g. a user navigating to /school/orgs/:id
+  // would hit a self-redirect that short-circuits children and shows
+  // a blank page. After signup the flow does navigate("/school/orgs/:id")
+  // directly anyway; on returning sessions the user lands at "/" first
+  // and this redirect kicks them across.
   //
   // The user can still navigate to family via the workspace switcher,
   // which sets workspace.kind back to 'family' and unblocks "/".
   if (
+    location.pathname === '/' &&
     workspaceCtx?.workspace?.kind === 'school' &&
     workspaceCtx.workspace.orgId &&
     workspaceCtx.hasSchoolAccess
@@ -196,9 +201,16 @@ function RequireFamily({ children }: { children: JSX.Element }) {
   if (!hasFamilyAccess) {
     // School-only user (no family, has principal/teacher role) →
     // /school routes them to the right surface (principal dashboard
-    // or teacher class list). /onboarding would be a dead end.
+    // or teacher class list). If already under /school don't redirect
+    // (would short-circuit the Outlet and blank the page).
     if (workspaceCtx?.hasSchoolAccess) {
+      if (location.pathname.startsWith('/school')) {
+        return children;
+      }
       return <Navigate to="/school" replace />;
+    }
+    if (location.pathname === '/onboarding') {
+      return children;
     }
     return <Navigate to="/onboarding" replace />;
   }
