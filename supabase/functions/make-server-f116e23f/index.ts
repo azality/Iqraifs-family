@@ -397,15 +397,27 @@ app.post(
   async (c) => {
     try {
       const { email, password, name, role } = getValidatedBody(c);
-    
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-    const { data, error } = await supabase.auth.admin.createUser({
-      email,
-      password,
-      user_metadata: { name, role: role || 'parent' },
-      // Automatically confirm email since email server not configured
-      email_confirm: true
-    });
+      // signupIntent is optional and not part of the validated schema.
+      // We accept 'school' from the school-signup form so we can hide
+      // the "My Family" workspace option for principals who only ever
+      // intend to use the app for school. Defaults to 'family' for any
+      // other signup path. Stored in app_metadata so the value is
+      // server-controlled (clients can't edit app_metadata directly).
+      let signupIntent: 'school' | 'family' = 'family';
+      try {
+        const raw = await c.req.raw.clone().json();
+        if (raw && raw.signupIntent === 'school') signupIntent = 'school';
+      } catch { /* body parse already happened, ignore */ }
+
+      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+      const { data, error } = await supabase.auth.admin.createUser({
+        email,
+        password,
+        user_metadata: { name, role: role || 'parent' },
+        app_metadata: { signupIntent },
+        // Automatically confirm email since email server not configured
+        email_confirm: true
+      });
 
     if (error) {
       // v12: surface a stable code for the "already registered" case so

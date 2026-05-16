@@ -47,6 +47,11 @@ interface WorkspaceContextType {
   // switcher to hide the "My Family" option for school-only signups
   // (those have a principal role but never created a family).
   hasFamily: boolean;
+  // Server-controlled flag derived from /school/me. 'school' means the
+  // user signed up via the "I run a school" path (or was manually
+  // flagged) — the workspace switcher should hide "My Family" entirely
+  // for them regardless of any stale family record they may have.
+  signupIntent: 'family' | 'school';
   switchToFamily: () => void;
   switchToSchool: (orgId: string, orgName: string) => void;
   // Force a re-fetch of /school/me. Used after a role-changing action
@@ -220,6 +225,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     (r) => r.role_type === "principal" || r.role_type === "teacher",
   );
 
+  // signupIntent comes from the backend (auth.users.app_metadata).
+  // Server-controlled — clients can't fake it. Defaults to 'family' for
+  // any account that pre-dates the feature.
+  const signupIntent: 'family' | 'school' = me?.signupIntent === 'school' ? 'school' : 'family';
+
   return (
     <WorkspaceContext.Provider
       value={{
@@ -229,6 +239,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         loading,
         hasSchoolAccess,
         hasFamily,
+        signupIntent,
         switchToFamily,
         switchToSchool,
         refreshSchoolMe,

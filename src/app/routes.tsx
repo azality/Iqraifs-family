@@ -179,23 +179,28 @@ function RequireFamily({ children }: { children: JSX.Element }) {
     );
   }
 
-  // Workspace preference wins ONLY when the user lands on the index
-  // route ("/"). If we redirected from arbitrary nested paths the
-  // Outlet never renders — e.g. a user navigating to /school/orgs/:id
-  // would hit a self-redirect that short-circuits children and shows
-  // a blank page. After signup the flow does navigate("/school/orgs/:id")
-  // directly anyway; on returning sessions the user lands at "/" first
-  // and this redirect kicks them across.
-  //
-  // The user can still navigate to family via the workspace switcher,
-  // which sets workspace.kind back to 'family' and unblocks "/".
-  if (
-    location.pathname === '/' &&
-    workspaceCtx?.workspace?.kind === 'school' &&
-    workspaceCtx.workspace.orgId &&
-    workspaceCtx.hasSchoolAccess
-  ) {
-    return <Navigate to={`/school/orgs/${workspaceCtx.workspace.orgId}`} replace />;
+  // Index-route redirects for users who shouldn't land on the family
+  // Dashboard. Two cases, both scoped to location.pathname === '/' so
+  // we never short-circuit nested routes' Outlet rendering.
+  if (location.pathname === '/') {
+    // signupIntent='school' is the strongest signal: this person signed
+    // up as a school principal and should never see the family side at
+    // all. Redirect regardless of any stale workspace state.
+    if (workspaceCtx?.signupIntent === 'school' && workspaceCtx.hasSchoolAccess) {
+      const firstOrg = workspaceCtx.workspace?.orgId
+        ? workspaceCtx.workspace.orgId
+        : workspaceCtx.me?.organizations?.[0]?.id;
+      return <Navigate to={firstOrg ? `/school/orgs/${firstOrg}` : '/school'} replace />;
+    }
+    // Soft case: user explicitly picked school workspace (or auto-default
+    // did). Honors their last choice. They can still flip via the switcher.
+    if (
+      workspaceCtx?.workspace?.kind === 'school' &&
+      workspaceCtx.workspace.orgId &&
+      workspaceCtx.hasSchoolAccess
+    ) {
+      return <Navigate to={`/school/orgs/${workspaceCtx.workspace.orgId}`} replace />;
+    }
   }
 
   if (!hasFamilyAccess) {

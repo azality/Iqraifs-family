@@ -36,6 +36,11 @@ export interface SchoolClassSummary {
 
 export interface SchoolMeResponse {
   userId: string;
+  // 'school' for principals who signed up via /signup → "I run a school"
+  // (or who were manually flagged via SQL). Drives whether the workspace
+  // switcher shows the "My Family" option at all. Defaults to 'family'
+  // for any account that pre-dates the signupIntent feature.
+  signupIntent: 'family' | 'school';
   roles: UserRoleRow[];
   organizations: SchoolOrganization[];
   classes: SchoolClassSummary[];

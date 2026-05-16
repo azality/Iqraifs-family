@@ -102,6 +102,19 @@ school.get("/me", async (c) => {
   const userId = getAuthUserId(c);
   if (!userId) return c.json({ error: "unauthenticated" }, 401);
 
+  // Look up signupIntent from app_metadata — server-controlled so the
+  // frontend can trust it as the truth for "is this account school-only".
+  // Older accounts (signed up before signupIntent existed) get 'family'
+  // by default.
+  let signupIntent: 'family' | 'school' = 'family';
+  try {
+    const { data: userLookup } = await serviceRoleClient.auth.admin.getUserById(userId);
+    const meta = (userLookup?.user as any)?.app_metadata ?? {};
+    if (meta.signupIntent === 'school') signupIntent = 'school';
+  } catch (_err) {
+    // Lookup failure is non-fatal — default to 'family'.
+  }
+
   const { data: roles, error: rolesErr } = await serviceRoleClient
     .from("user_roles")
     .select("role_type, scope_type, scope_id")
@@ -133,6 +146,7 @@ school.get("/me", async (c) => {
 
   return c.json({
     userId,
+    signupIntent,
     roles: roles ?? [],
     organizations: orgRows.data ?? [],
     classes: classRows.data ?? [],
