@@ -24,6 +24,7 @@ import { createContext, useContext, useEffect, useState, ReactNode } from "react
 import { getStorageSync, setStorageSync } from "../../utils/storage";
 import { getSchoolMe, type SchoolMeResponse } from "../../utils/schoolApi";
 import { AuthContext } from "./AuthContext";
+import { STORAGE_KEYS } from "../../utils/storage";
 
 export type WorkspaceKind = "family" | "school";
 
@@ -42,6 +43,10 @@ interface WorkspaceContextType {
   me: SchoolMeResponse | null;
   loading: boolean;
   hasSchoolAccess: boolean;
+  // True iff the user has a family (FAMILY_ID in storage). Used by the
+  // switcher to hide the "My Family" option for school-only signups
+  // (those have a principal role but never created a family).
+  hasFamily: boolean;
   switchToFamily: () => void;
   switchToSchool: (orgId: string, orgName: string) => void;
   // Force a re-fetch of /school/me. Used after a role-changing action
@@ -50,7 +55,7 @@ interface WorkspaceContextType {
   refreshSchoolMe: () => Promise<void>;
 }
 
-const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefined);
+export const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefined);
 
 const STORAGE_KEY = "fgs_workspace";
 
@@ -73,6 +78,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [workspace, setWorkspaceState] = useState<Workspace>(() => readStoredWorkspace());
   const [me, setMe] = useState<SchoolMeResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  // Track family presence by watching the FAMILY_ID storage value.
+  // School-only signups never set this, so the workspace switcher knows
+  // not to offer them a "My Family" option that leads to /onboarding.
+  const [hasFamily, setHasFamily] = useState<boolean>(
+    () => !!getStorageSync(STORAGE_KEYS.FAMILY_ID),
+  );
 
   // CRITICAL: do NOT call getSchoolMe until the user is authenticated.
   // ProvidersLayout wraps PUBLIC routes too (welcome, login, signup),
@@ -94,19 +105,54 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    // Re-read family presence on every auth change (login can hydrate
+    // FAMILY_ID into storage, signup can leave it empty for school-only
+    // users, etc.). Synchronous read of localStorage is fine here.
+    const currentHasFamily = !!getStorageSync(STORAGE_KEYS.FAMILY_ID);
+    setHasFamily(currentHasFamily);
+
     let cancelled = false;
     setLoading(true);
     getSchoolMe()
       .then((r) => {
         if (cancelled) return;
         setMe(r);
-        // If the stored workspace is school but the user no longer has
-        // school access (e.g. revoked), fall back to family.
-        const hasSchool =
-          r.roles.some((role) => role.role_type === "principal" || role.role_type === "teacher");
+        const principalOrgs = r.organizations.filter((o) =>
+          r.roles.some(
+            (role) =>
+              role.role_type === "principal" &&
+              role.scope_type === "organization" &&
+              role.scope_id === o.id,
+          ),
+        );
+        const hasSchool = principalOrgs.length > 0 ||
+          r.roles.some((role) => role.role_type === "teacher");
+
+        // Case 1: stored workspace is "school" but user no longer has
+        // any school access (revoked). Fall back to family.
         if (!hasSchool && workspace.kind === "school") {
           setWorkspaceState({ kind: "family" });
           setStorageSync(STORAGE_KEY, JSON.stringify({ kind: "family" }));
+          return;
+        }
+
+        // Case 2: user has school access AND no family. They're a
+        // school-only signup. Default workspace to their first
+        // principal org so they don't see "My Family" as a dead-end
+        // option (it routes to /onboarding). Only set this if the
+        // current workspace state isn't already pointing at a school
+        // org — never overwrite an explicit user choice.
+        if (hasSchool && !currentHasFamily && workspace.kind !== "school") {
+          const firstOrg = principalOrgs[0] ?? r.organizations[0];
+          if (firstOrg) {
+            const next: Workspace = {
+              kind: "school",
+              orgId: firstOrg.id,
+              orgName: firstOrg.name,
+            };
+            setWorkspaceState(next);
+            setStorageSync(STORAGE_KEY, JSON.stringify(next));
+          }
         }
       })
       .catch(() => {
@@ -155,6 +201,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         me,
         loading,
         hasSchoolAccess,
+        hasFamily,
         switchToFamily,
         switchToSchool,
         refreshSchoolMe,
