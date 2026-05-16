@@ -14,7 +14,7 @@ import { useWorkspace } from "../contexts/WorkspaceContext";
 import { principalOrgIds, teacherClassIds } from "../../utils/schoolApi";
 
 export function WorkspaceSwitcher() {
-  const { workspace, me, hasSchoolAccess, switchToFamily, switchToSchool, loading } = useWorkspace();
+  const { workspace, me, hasSchoolAccess, hasFamily, switchToFamily, switchToSchool, loading } = useWorkspace();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
 
@@ -74,25 +74,30 @@ export function WorkspaceSwitcher() {
           Workspace
         </p>
 
-        {/* Family workspace option */}
-        <button
-          onClick={() => choose("family")}
-          className={cn(
-            "w-full flex items-start gap-3 px-2 py-2.5 rounded-md text-left text-sm transition-colors",
-            workspace.kind === "family"
-              ? "bg-blue-50 text-blue-900"
-              : "hover:bg-slate-50 text-slate-700",
-          )}
-        >
-          <Home className="h-4 w-4 mt-0.5 flex-shrink-0" />
-          <div className="flex-1 min-w-0">
-            <p className="font-medium">My Family</p>
-            <p className="text-xs text-slate-500">Personal use — children, rewards, Salah</p>
-          </div>
-          {workspace.kind === "family" && (
-            <span className="text-xs text-blue-700 font-semibold">●</span>
-          )}
-        </button>
+        {/* Family workspace option — hidden for school-only signups.
+            A user with no FAMILY_ID in storage has never created a
+            family; offering them "My Family" routes to /onboarding
+            (dead end). Hide it entirely. */}
+        {hasFamily && (
+          <button
+            onClick={() => choose("family")}
+            className={cn(
+              "w-full flex items-start gap-3 px-2 py-2.5 rounded-md text-left text-sm transition-colors",
+              workspace.kind === "family"
+                ? "bg-blue-50 text-blue-900"
+                : "hover:bg-slate-50 text-slate-700",
+            )}
+          >
+            <Home className="h-4 w-4 mt-0.5 flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="font-medium">My Family</p>
+              <p className="text-xs text-slate-500">Personal use — children, rewards, Salah</p>
+            </div>
+            {workspace.kind === "family" && (
+              <span className="text-xs text-blue-700 font-semibold">●</span>
+            )}
+          </button>
+        )}
 
         {/* Each principal org as an option */}
         {principalOrgs.map((org) => {

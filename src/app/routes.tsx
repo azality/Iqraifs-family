@@ -62,7 +62,8 @@ import { MadinahZone } from "./pages/adventure-zones/MadinahZone";
 import { QuranValleyZone } from "./pages/adventure-zones/QuranValleyZone";
 import { DesertTrialsZone } from "./pages/adventure-zones/DesertTrialsZone";
 import { ZonePlay } from "./pages/adventure-zones/ZonePlay";
-import { useState, useEffect } from "react";
+import { useContext, useState, useEffect } from "react";
+import { WorkspaceContext } from "./contexts/WorkspaceContext";
 import { getCurrentMode } from "./utils/auth";
 import { getStorage, getStorageSync, STORAGE_KEYS } from "../utils/storage";
 
@@ -126,13 +127,17 @@ function RequireKidAuth({ children }: { children: JSX.Element }) {
 function RequireFamily({ children }: { children: JSX.Element }) {
   const [loading, setLoading] = useState(true);
   const [hasFamilyAccess, setHasFamilyAccess] = useState(false);
+  // Read school workspace state. A user with no family but a principal /
+  // teacher role should NOT be sent to /onboarding (family setup) — they
+  // should land on /school instead.
+  const workspaceCtx = useContext(WorkspaceContext);
 
   useEffect(() => {
     const checkFamilyAccess = async () => {
       try {
         // Check storage for family ID (works on both web and native)
         const cachedFamilyId = await getStorage(STORAGE_KEYS.FAMILY_ID);
-        
+
         if (cachedFamilyId) {
           console.log('✅ RequireFamily: Found cached family ID:', cachedFamilyId);
           setHasFamilyAccess(true);
@@ -155,8 +160,11 @@ function RequireFamily({ children }: { children: JSX.Element }) {
     checkFamilyAccess();
   }, []);
 
-  // Show loading state while checking
-  if (loading) {
+  // Wait for BOTH the family-id check AND the workspace context's
+  // /school/me fetch — if we redirect before /school/me resolves we'd
+  // send a school-only user to /onboarding even though they have a
+  // school role.
+  if (loading || (workspaceCtx?.loading ?? false)) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
@@ -167,8 +175,13 @@ function RequireFamily({ children }: { children: JSX.Element }) {
     );
   }
 
-  // Redirect to onboarding if no family access
   if (!hasFamilyAccess) {
+    // School-only user (no family, has principal/teacher role) →
+    // /school routes them to the right surface (principal dashboard
+    // or teacher class list). /onboarding would be a dead end.
+    if (workspaceCtx?.hasSchoolAccess) {
+      return <Navigate to="/school" replace />;
+    }
     return <Navigate to="/onboarding" replace />;
   }
 
