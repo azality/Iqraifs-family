@@ -175,6 +175,24 @@ function RequireFamily({ children }: { children: JSX.Element }) {
     );
   }
 
+  // Workspace preference wins. If the user previously chose the school
+  // workspace (via the switcher OR via the school-signup flow which
+  // calls switchToSchool right after creating the org), route them to
+  // their school dashboard from "/" — even if they also happen to have
+  // a family record. This is what the user-reported bug needs: after
+  // signing up via "I run a school", they shouldn't land on the
+  // family Command Center on next login.
+  //
+  // The user can still navigate to family via the workspace switcher,
+  // which sets workspace.kind back to 'family' and unblocks "/".
+  if (
+    workspaceCtx?.workspace?.kind === 'school' &&
+    workspaceCtx.workspace.orgId &&
+    workspaceCtx.hasSchoolAccess
+  ) {
+    return <Navigate to={`/school/orgs/${workspaceCtx.workspace.orgId}`} replace />;
+  }
+
   if (!hasFamilyAccess) {
     // School-only user (no family, has principal/teacher role) →
     // /school routes them to the right surface (principal dashboard
