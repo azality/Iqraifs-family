@@ -24,6 +24,7 @@ import { createContext, useContext, useEffect, useRef, useState, ReactNode } fro
 import { getStorageSync, setStorageSync } from "../../utils/storage";
 import { getSchoolMe, type SchoolMeResponse } from "../../utils/schoolApi";
 import { AuthContext } from "./AuthContext";
+import { FamilyContext } from "./FamilyContext";
 import { STORAGE_KEYS } from "../../utils/storage";
 
 export type WorkspaceKind = "family" | "school";
@@ -92,12 +93,24 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const explicitWorkspaceChoiceRef = useRef(initial.explicit);
   const [me, setMe] = useState<SchoolMeResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  // Track family presence by watching the FAMILY_ID storage value.
-  // School-only signups never set this, so the workspace switcher knows
-  // not to offer them a "My Family" option that leads to /onboarding.
-  const [hasFamily, setHasFamily] = useState<boolean>(
+  // Track family presence. Two sources, OR'd together:
+  //   1. FAMILY_ID in storage (fast, available before async loads)
+  //   2. FamilyContext.familyId (the source of truth — set reactively
+  //      after the family loads from the backend)
+  //
+  // Pre-fix bug: when WorkspaceProvider mounted, FAMILY_ID might not
+  // be in storage yet (FamilyContext loads async). Auto-switch fired
+  // → workspace=school. By the time FAMILY_ID landed in storage, the
+  // workspace was locked. The switcher hid "My Family" because the
+  // initial hasFamily snapshot was false. User got stuck.
+  //
+  // Reading FamilyContext reactively means hasFamily updates as soon
+  // as the family hydrates, even if storage was empty at mount.
+  const [storageHasFamily, setStorageHasFamily] = useState<boolean>(
     () => !!getStorageSync(STORAGE_KEYS.FAMILY_ID),
   );
+  const familyCtx = useContext(FamilyContext);
+  const hasFamily = storageHasFamily || !!familyCtx?.familyId;
 
   // CRITICAL: do NOT call getSchoolMe until the user is authenticated.
   // ProvidersLayout wraps PUBLIC routes too (welcome, login, signup),
@@ -123,7 +136,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     // FAMILY_ID into storage, signup can leave it empty for school-only
     // users, etc.). Synchronous read of localStorage is fine here.
     const currentHasFamily = !!getStorageSync(STORAGE_KEYS.FAMILY_ID);
-    setHasFamily(currentHasFamily);
+    setStorageHasFamily(currentHasFamily);
 
     let cancelled = false;
     setLoading(true);
@@ -150,24 +163,25 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        // Case 2: user has school access AND has NEVER explicitly
-        // chosen a workspace (no stored value yet). Default to their
+        // Case 2: user signed up as a school principal (signupIntent
+        // 'school') and hasn't yet chosen a workspace. Default to their
         // first principal org so a fresh school-principal sign-in
         // lands on /school rather than the family Dashboard.
         //
-        // This covers both:
-        //   - The clean "I run a school" signup (where workspace was
-        //     stamped via switchToSchool — covered).
-        //   - The user-reported case where a pre-existing family
-        //     account was manually granted principal role and never
-        //     toggled their workspace; explicit is false, so we
-        //     auto-prefer school.
+        // Pre-fix bug: we used to auto-switch ANY user with school
+        // access who hadn't explicitly chosen. That trapped dual-role
+        // users (parent + manually-granted principal, e.g. Muneeb) in
+        // the school workspace permanently — switcher hid Family
+        // because hasFamily race-conditioned to false at mount.
         //
-        // We deliberately do NOT touch the workspace when the user
-        // made an explicit choice, even if hasFamily is false. They
-        // get what they picked.
+        // New rule: only auto-default to school when the SERVER says
+        // this person signed up as school. Dual-role users keep
+        // family as their default and can opt into school via the
+        // switcher.
+        const intent = r.signupIntent ?? 'family';
         if (
           hasSchool &&
+          intent === 'school' &&
           !explicitWorkspaceChoiceRef.current &&
           workspace.kind !== "school"
         ) {
