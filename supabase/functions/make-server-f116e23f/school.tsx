@@ -2403,4 +2403,62 @@ school.get("/kv-children/:kvChildId/events", async (c) => {
   });
 });
 
+// POST /school/child-id-map
+// Thin endpoint to record the KV-side child id (e.g. "child:1234567890") →
+// Postgres-side student/child id mapping. Called by the family app right
+// after /link-codes/consume succeeds.
+//
+// Body: { kvChildId: string, studentId: string, orgId: string }
+//
+// Auth: any authenticated user. Idempotent: a unique-violation on the
+// (kv_child_id) key returns ok with `existed: true` so the family app can
+// re-run the bind on retry without surfacing an error.
+//
+// Note: child_id_map.postgres_child_id was originally introduced for the
+// parent-invite flow which mapped to the legacy `children` table. The
+// Phase A schema's `student.id` lives in a different table — we store it
+// here regardless because the column has no FK constraint and the family
+// app only ever reads it back via /kv-children/:kvChildId/events, which
+// looks up the same row by kv_child_id.
+// -----------------------------------------------------------------------------
+school.post("/child-id-map", async (c) => {
+  const userId = getAuthUserId(c);
+  if (!userId) return c.json({ error: "unauthenticated" }, 401);
+
+  let body: { kvChildId?: string; studentId?: string; orgId?: string } = {};
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "invalid JSON body" }, 400);
+  }
+
+  const kvChildId = (body?.kvChildId ?? "").trim();
+  const studentId = (body?.studentId ?? "").trim();
+  const orgId = (body?.orgId ?? "").trim();
+  if (!kvChildId || !studentId || !orgId) {
+    return c.json({ error: "kvChildId, studentId, and orgId are required" }, 400);
+  }
+
+  const { error: insErr } = await serviceRoleClient
+    .from("child_id_map")
+    .insert({
+      kv_child_id: kvChildId,
+      postgres_child_id: studentId,
+      created_by: userId,
+    });
+
+  if (insErr) {
+    // 23505 = unique_violation. The mapping already exists — that's fine,
+    // the family app retried. We do NOT overwrite an existing mapping.
+    if ((insErr as any).code === "23505") {
+      return c.json({ ok: true, existed: true });
+    }
+    console.error("[school.child-id-map] insert error:", insErr);
+    return c.json({ error: insErr.message }, 500);
+  }
+
+  return c.json({ ok: true, existed: false });
+});
+
+
 export default school;

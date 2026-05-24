@@ -14,6 +14,7 @@ import { AttendanceNew } from "./pages/AttendanceNew";
 import { Rewards } from "./pages/Rewards";
 import { AuditTrail } from "./pages/AuditTrail";
 import { Settings } from "./pages/Settings";
+import { LinkToSchool } from "./pages/LinkToSchool";
 import { EditRequests } from "./pages/EditRequests";
 import { KnowledgeQuest } from "./pages/KnowledgeQuest";
 import { KnowledgeQuestPlay } from "./pages/KnowledgeQuestPlay";
@@ -293,6 +294,10 @@ export const router = createBrowserRouter([
           { path: "rewards", element: <RequireParentRole><Rewards /></RequireParentRole> },
           { path: "audit", element: <RequireParentRole><AuditTrail /></RequireParentRole> },
           { path: "settings", element: <RequireParentRole><Settings /></RequireParentRole> },
+          // Family-side entry for the school link-code feature. Parent
+          // types the 8-char code their school gave them, picks which
+          // family child to bind, and we wire the KV↔Postgres mapping.
+          { path: "link-to-school", element: <RequireParentRole><LinkToSchool /></RequireParentRole> },
           { path: "edit-requests", element: <RequireParentRole><EditRequests /></RequireParentRole> },
           { path: "knowledge-quest", element: <KnowledgeQuest /> },
           { path: "knowledge-quest/:sessionId/play", element: <KnowledgeQuestPlay /> },

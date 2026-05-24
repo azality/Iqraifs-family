@@ -352,6 +352,45 @@ export const getKvChildSchoolEvents = (
   return apiCall(`/school/kv-children/${encodeURIComponent(kvChildId)}/events${qs}`);
 };
 
+// ─── Link codes (family → school bridge) ───────────────────────────────
+
+export interface ConsumeLinkCodeResponse {
+  studentId: string;
+  orgId: string;
+  studentName: string;
+}
+
+/**
+ * Family app uses this when a parent types the 8-character code their
+ * school gave them. Validates + atomically marks the code consumed.
+ * On success, the caller should follow up with bindFamilyChildToStudent
+ * to record the KV↔Postgres mapping.
+ *
+ * Backend errors surfaced verbatim: "code not found", "code expired",
+ * "code already used".
+ */
+export const consumeLinkCode = (code: string): Promise<ConsumeLinkCodeResponse> =>
+  apiCall("/school/link-codes/consume", {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  });
+
+/**
+ * Records the family-side KV child id ↔ school-side student id mapping.
+ * Idempotent on the backend — calling twice with the same kvChildId
+ * returns ok with `existed: true` and does NOT overwrite the existing
+ * mapping.
+ */
+export const bindFamilyChildToStudent = (params: {
+  kvChildId: string;
+  studentId: string;
+  orgId: string;
+}): Promise<{ ok: true; existed: boolean }> =>
+  apiCall("/school/child-id-map", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+
 // ─── Behavior catalog + logging ─────────────────────────────────────────
 
 export interface BehaviorCatalogItem {
