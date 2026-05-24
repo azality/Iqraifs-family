@@ -10,7 +10,8 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { Textarea } from "../../components/ui/textarea";
-import { BookOpen, Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
+import { HeroCard, cardBase, cardElev } from "../../components/school-ui";
 import { toast } from "sonner";
 import {
   getLesson,
@@ -126,21 +127,21 @@ export function LessonForm() {
 
   return (
     <div className="space-y-4 max-w-2xl">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <BookOpen className="h-6 w-6 text-indigo-600" />
-          {editMode ? "Edit lesson" : "New lesson"}
-        </h1>
-        <Link to={backHref}>
-          <Button variant="outline" size="sm">← Back</Button>
-        </Link>
-      </div>
+      <HeroCard
+        title={editMode ? "Edit lesson" : "New lesson"}
+        subtitle="Daily sabaq for parents and students"
+        rightSlot={
+          <Link to={backHref}>
+            <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">← Back</Button>
+          </Link>
+        }
+      />
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-rose-600">{error}</p>}
 
       <form onSubmit={handleSubmit}>
-        <Card>
-          <CardContent className="p-4 space-y-4">
+        <Card className={`${cardBase} ${cardElev}`}>
+          <CardContent className="p-6 space-y-4">
             <div className="space-y-1">
               <Label htmlFor="title">Title *</Label>
               <Input

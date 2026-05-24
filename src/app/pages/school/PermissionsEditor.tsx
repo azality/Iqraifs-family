@@ -4,10 +4,16 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Link, Navigate, useParams } from "react-router";
-import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
 import { ShieldCheck } from "lucide-react";
+import {
+  HeroCard,
+  cardBase,
+  cardElev,
+  accentBg,
+  accentBorder,
+} from "../../components/school-ui";
 import {
   getSchoolMe,
   isOrgPrincipal,
@@ -84,62 +90,78 @@ export function PermissionsEditor() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <ShieldCheck className="h-6 w-6 text-indigo-600" /> Permissions
-        </h1>
-        <div className="flex gap-2 items-center">
-          {savedAt && !dirty && <span className="text-xs text-green-600">Saved.</span>}
-          <Link to={`/school/orgs/${orgId}/admin`}><Button variant="outline" size="sm">← Admin</Button></Link>
-          <Button size="sm" disabled={!dirty || saving} onClick={handleSave}>
-            {saving ? "Saving…" : "Save"}
-          </Button>
-        </div>
-      </div>
+      <HeroCard
+        title="Role permissions"
+        subtitle="Toggle what each role can do — saved as overrides to the system defaults"
+        rightSlot={
+          <div className="flex gap-2 items-center">
+            <span className="inline-flex items-center gap-1 rounded-full bg-white/10 border border-white/20 px-2 py-0.5 text-xs text-white">
+              <ShieldCheck className="h-3 w-3" /> Principal only
+            </span>
+            {savedAt && !dirty && <span className="text-xs text-emerald-300">Saved.</span>}
+            <Link to={`/school/orgs/${orgId}/admin`}>
+              <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">← Admin</Button>
+            </Link>
+            <Button size="sm" disabled={!dirty || saving} onClick={handleSave} className="bg-white text-slate-900 hover:bg-slate-100">
+              {saving ? "Saving…" : "Save"}
+            </Button>
+          </div>
+        }
+      />
 
-      <p className="text-sm text-muted-foreground">
-        Toggle what each role can do. Changes are saved as overrides to the system defaults.
-      </p>
+      {error && <p className="text-sm text-rose-600">{error}</p>}
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
-
-      <Card><CardContent className="p-0">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/50">
-              <tr>
-                <th className="text-left p-3 text-xs">Permission</th>
-                {ROLE_COLUMNS.map((c) => (
-                  <th key={c.key} className="p-3 text-xs text-center">{c.label}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {permissionKeys.length === 0 && (
-                <tr><td colSpan={ROLE_COLUMNS.length + 1} className="p-6 text-center text-muted-foreground">
-                  No permission keys returned.
-                </td></tr>
-              )}
-              {permissionKeys.map((pk) => (
-                <tr key={pk} className="border-t">
-                  <td className="p-2 font-mono text-xs">{pk}</td>
-                  {ROLE_COLUMNS.map((col) => {
-                    const row = keyed.get(`${pk}::${col.key}`);
-                    return (
-                      <td key={col.key} className="p-2 text-center">
-                        <Checkbox
-                          checked={!!row?.allowed}
-                          onCheckedChange={() => toggle(pk, col.key)}
-                        />
-                      </td>
-                    );
-                  })}
-                </tr>
+      <div className={`${cardBase} ${cardElev} overflow-x-auto`}>
+        <table className="w-full text-sm border-collapse">
+          <thead className="bg-slate-50">
+            <tr>
+              <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                Permission
+              </th>
+              {ROLE_COLUMNS.map((c) => (
+                <th
+                  key={c.key}
+                  className="px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-slate-500 text-center"
+                >
+                  {c.label}
+                </th>
               ))}
-            </tbody>
-          </table>
-        </div>
-      </CardContent></Card>
+            </tr>
+          </thead>
+          <tbody>
+            {permissionKeys.length === 0 && (
+              <tr>
+                <td colSpan={ROLE_COLUMNS.length + 1} className="px-3 py-8 text-center text-sm text-slate-500">
+                  No permission keys returned.
+                </td>
+              </tr>
+            )}
+            {permissionKeys.map((pk) => (
+              <tr key={pk} className="border-t border-slate-100">
+                <td className="px-3 py-2 font-mono text-xs text-slate-700">{pk}</td>
+                {ROLE_COLUMNS.map((col) => {
+                  const row = keyed.get(`${pk}::${col.key}`);
+                  const checked = !!row?.allowed;
+                  return (
+                    <td
+                      key={col.key}
+                      className={
+                        "px-3 py-2 text-center transition-colors " +
+                        (checked ? `${accentBg} ${accentBorder} border-x` : "")
+                      }
+                    >
+                      <Checkbox
+                        checked={checked}
+                        onCheckedChange={() => toggle(pk, col.key)}
+                      />
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

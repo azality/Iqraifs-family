@@ -19,7 +19,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../components/ui/select";
-import { ChevronLeft, Plus, MessageSquare, Sparkles, AlertTriangle } from "lucide-react";
+import { ChevronLeft, Plus, Sparkles, AlertTriangle } from "lucide-react";
+import { HeroCard, cardBase, cardElev, sectionTitleClasses } from "../../components/school-ui";
 import {
   getSectionBehaviorNotes,
   listStudents,
@@ -126,66 +127,63 @@ export function SectionBehaviorFeed() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <MessageSquare className="h-6 w-6 text-indigo-600" />
-          Behavior log
-        </h1>
-        <div className="flex items-center gap-2">
-          <Link to={`/school/orgs/${orgId}/admin/classes`}>
-            <Button variant="outline" size="sm">
-              <ChevronLeft className="h-4 w-4 mr-1" /> Classes
+      <HeroCard
+        title="Behavior log"
+        subtitle="Positive and concern notes for this section"
+        rightSlot={
+          <div className="flex flex-wrap items-end gap-2">
+            <div>
+              <Label htmlFor="sb-start" className="text-[10px] uppercase tracking-wide text-indigo-200">From</Label>
+              <Input
+                id="sb-start"
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="h-8 w-36 bg-white/10 border-white/20 text-white"
+              />
+            </div>
+            <div>
+              <Label htmlFor="sb-end" className="text-[10px] uppercase tracking-wide text-indigo-200">To</Label>
+              <Input
+                id="sb-end"
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="h-8 w-36 bg-white/10 border-white/20 text-white"
+              />
+            </div>
+            <div className="inline-flex items-center rounded-lg border border-white/20 bg-white/10 p-1">
+              {FILTERS.map((f) => (
+                <button
+                  key={f.key}
+                  type="button"
+                  onClick={() => setFilter(f.key)}
+                  className={
+                    "rounded-md px-3 py-1 text-xs font-medium transition-colors " +
+                    (filter === f.key
+                      ? "bg-white text-slate-900 shadow-sm"
+                      : "text-indigo-100 hover:text-white")
+                  }
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+            <Link to={`/school/orgs/${orgId}/admin/classes`}>
+              <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">
+                <ChevronLeft className="h-4 w-4 mr-1" /> Classes
+              </Button>
+            </Link>
+            <Button size="sm" onClick={openPicker} className="bg-white text-slate-900 hover:bg-slate-100">
+              <Plus className="h-4 w-4 mr-1" /> Add note
             </Button>
-          </Link>
-          <Button size="sm" onClick={openPicker}>
-            <Plus className="h-4 w-4 mr-1" /> Add note
-          </Button>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-end gap-3">
-        <div>
-          <Label htmlFor="sb-start">From</Label>
-          <Input
-            id="sb-start"
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-            className="w-40"
-          />
-        </div>
-        <div>
-          <Label htmlFor="sb-end">To</Label>
-          <Input
-            id="sb-end"
-            type="date"
-            value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
-            className="w-40"
-          />
-        </div>
-        <div className="ml-auto inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 p-1">
-          {FILTERS.map((f) => (
-            <button
-              key={f.key}
-              type="button"
-              onClick={() => setFilter(f.key)}
-              className={
-                "rounded-md px-3 py-1 text-xs font-medium transition-colors " +
-                (filter === f.key
-                  ? "bg-white text-slate-900 shadow-sm"
-                  : "text-slate-600 hover:text-slate-900")
-              }
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
-      </div>
+          </div>
+        }
+      />
 
       {error && <p className="text-sm text-rose-600">{error}</p>}
 
-      <Card>
+      <Card className={`${cardBase} ${cardElev}`}>
         <CardContent className="p-4">
           {loading && notes.length === 0 ? (
             <p className="text-sm text-muted-foreground">Loading…</p>
@@ -195,7 +193,7 @@ export function SectionBehaviorFeed() {
             <div className="space-y-5">
               {grouped.map(([day, dayNotes]) => (
                 <div key={day}>
-                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <div className={`mb-2 ${sectionTitleClasses}`}>
                     {day}
                   </div>
                   <ul className="space-y-2">

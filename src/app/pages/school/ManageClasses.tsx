@@ -10,6 +10,12 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import {
+  HeroCard,
+  cardBase,
+  cardElev,
+  sectionTitleClasses,
+} from "../../components/school-ui";
+import {
   Dialog,
   DialogContent,
   DialogFooter,
@@ -24,7 +30,6 @@ import {
   SelectValue,
 } from "../../components/ui/select";
 import {
-  Building2,
   Plus,
   Trash2,
   ChevronDown,
@@ -137,30 +142,32 @@ export function ManageClasses() {
     refresh();
   };
 
+  const totalSections = classes.reduce((n, c) => n + (c.sections?.length || 0), 0);
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Building2 className="h-6 w-6 text-indigo-600" />
-          Classes & sections
-        </h1>
-        <div className="flex gap-2">
-          <Link to={`/school/orgs/${orgId}/admin`}>
-            <Button variant="outline" size="sm">← Admin</Button>
-          </Link>
-          <Button onClick={() => setAddOpen(true)} size="sm">
-            <Plus className="h-4 w-4 mr-1" /> Add Class
-          </Button>
-        </div>
-      </div>
+      <HeroCard
+        title="Classes"
+        subtitle={`${classes.length} class${classes.length === 1 ? "" : "es"} · ${totalSections} section${totalSections === 1 ? "" : "s"}`}
+        rightSlot={
+          <div className="flex gap-2">
+            <Link to={`/school/orgs/${orgId}/admin`}>
+              <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">← Admin</Button>
+            </Link>
+            <Button onClick={() => setAddOpen(true)} size="sm" className="bg-white text-slate-900 hover:bg-slate-100">
+              <Plus className="h-4 w-4 mr-1" /> Add Class
+            </Button>
+          </div>
+        }
+      />
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-rose-600">{error}</p>}
 
-      <div className="space-y-2">
+      <div className="space-y-3">
         {classes.length === 0 && (
-          <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">
+          <div className={`${cardBase} ${cardElev} py-8 text-center text-sm text-slate-500`}>
             No classes yet. Click "Add Class" to create one.
-          </CardContent></Card>
+          </div>
         )}
         {classes.map((cls) => {
           const open = !!expanded[cls.id];
@@ -191,9 +198,10 @@ export function ManageClasses() {
               </CardHeader>
               {open && (
                 <CardContent className="pt-0 space-y-2">
+                  <h3 className={sectionTitleClasses}>Sections</h3>
                   {(cls.sections || []).map((sec) => (
-                    <div key={sec.id} className="flex flex-wrap items-center gap-2 p-2 border rounded">
-                      <span className="text-sm flex-1 min-w-[80px]">{sec.name}</span>
+                    <div key={sec.id} className="flex flex-wrap items-center gap-2 p-2 border border-slate-200 rounded-lg bg-slate-50/50">
+                      <span className="text-sm font-medium flex-1 min-w-[80px]">{sec.name}</span>
                       <Select
                         value={sec.class_teacher_user_id || "__none__"}
                         onValueChange={(v) => handleSectionTeacherChange(sec.id, v === "__none__" ? "" : v)}
@@ -208,46 +216,46 @@ export function ManageClasses() {
                           ))}
                         </SelectContent>
                       </Select>
-                      {/* Phase B/C per-section quick-links — teachers/admins jump
-                          straight from the manage view into the daily-ops
-                          surfaces for that specific section. */}
-                      <Link to={`/school/orgs/${orgId}/sections/${sec.id}/attendance`}>
-                        <Button variant="outline" size="sm" className="h-8 text-xs" title="Take attendance">
-                          <CalendarCheck className="h-3.5 w-3.5 mr-1" /> Attendance
-                        </Button>
-                      </Link>
-                      <Link to={`/school/orgs/${orgId}/sections/${sec.id}/behavior`}>
-                        <Button variant="outline" size="sm" className="h-8 text-xs" title="Behavior log">
-                          <MessageSquare className="h-3.5 w-3.5 mr-1" /> Behavior
-                        </Button>
-                      </Link>
-                      <Link to={`/school/orgs/${orgId}/sections/${sec.id}/lessons`}>
-                        <Button variant="outline" size="sm" className="h-8 text-xs" title="Daily sabaq">
-                          <BookOpen className="h-3.5 w-3.5 mr-1" /> Sabaq
-                        </Button>
-                      </Link>
-                      <Link to={`/school/orgs/${orgId}/sections/${sec.id}/hifz`}>
-                        <Button variant="outline" size="sm" className="h-8 text-xs" title="Hifz progress">
-                          <BookMarked className="h-3.5 w-3.5 mr-1" /> Hifz
-                        </Button>
-                      </Link>
-                      <Link to={`/school/orgs/${orgId}/sections/${sec.id}/assignments`}>
-                        <Button variant="outline" size="sm" className="h-8 text-xs" title="Assignments">
-                          <ClipboardCheck className="h-3.5 w-3.5 mr-1" /> Assignments
-                        </Button>
-                      </Link>
-                      <Link to={`/school/orgs/${orgId}/sections/${sec.id}/gradebook`}>
-                        <Button variant="outline" size="sm" className="h-8 text-xs" title="Gradebook">
-                          <Table2 className="h-3.5 w-3.5 mr-1" /> Gradebook
-                        </Button>
-                      </Link>
-                      <Link to={`/school/orgs/${orgId}/sections/${sec.id}/roster/new`}>
-                        <Button variant="outline" size="sm" className="h-8 text-xs" title="Roster request">
-                          <UserCog className="h-3.5 w-3.5 mr-1" /> Roster request
-                        </Button>
-                      </Link>
-                      <Button variant="ghost" size="sm" onClick={() => handleDeleteSection(sec.id, sec.name)}>
-                        <Trash2 className="h-3.5 w-3.5 text-red-600" />
+                      {/* Phase B/C per-section quick-links — compact icon buttons. */}
+                      <div className="inline-flex items-center gap-1">
+                        <Link to={`/school/orgs/${orgId}/sections/${sec.id}/attendance`}>
+                          <Button variant="outline" size="icon" className="h-8 w-8" title="Attendance">
+                            <CalendarCheck className="h-3.5 w-3.5" />
+                          </Button>
+                        </Link>
+                        <Link to={`/school/orgs/${orgId}/sections/${sec.id}/behavior`}>
+                          <Button variant="outline" size="icon" className="h-8 w-8" title="Behavior">
+                            <MessageSquare className="h-3.5 w-3.5" />
+                          </Button>
+                        </Link>
+                        <Link to={`/school/orgs/${orgId}/sections/${sec.id}/lessons`}>
+                          <Button variant="outline" size="icon" className="h-8 w-8" title="Sabaq">
+                            <BookOpen className="h-3.5 w-3.5" />
+                          </Button>
+                        </Link>
+                        <Link to={`/school/orgs/${orgId}/sections/${sec.id}/hifz`}>
+                          <Button variant="outline" size="icon" className="h-8 w-8" title="Hifz">
+                            <BookMarked className="h-3.5 w-3.5" />
+                          </Button>
+                        </Link>
+                        <Link to={`/school/orgs/${orgId}/sections/${sec.id}/assignments`}>
+                          <Button variant="outline" size="icon" className="h-8 w-8" title="Assignments">
+                            <ClipboardCheck className="h-3.5 w-3.5" />
+                          </Button>
+                        </Link>
+                        <Link to={`/school/orgs/${orgId}/sections/${sec.id}/gradebook`}>
+                          <Button variant="outline" size="icon" className="h-8 w-8" title="Gradebook">
+                            <Table2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </Link>
+                        <Link to={`/school/orgs/${orgId}/sections/${sec.id}/roster/new`}>
+                          <Button variant="outline" size="icon" className="h-8 w-8" title="Roster request">
+                            <UserCog className="h-3.5 w-3.5" />
+                          </Button>
+                        </Link>
+                      </div>
+                      <Button variant="ghost" size="sm" onClick={() => handleDeleteSection(sec.id, sec.name)} title="Delete section">
+                        <Trash2 className="h-3.5 w-3.5 text-rose-600" />
                       </Button>
                     </div>
                   ))}

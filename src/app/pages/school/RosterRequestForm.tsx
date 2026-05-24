@@ -22,7 +22,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../components/ui/select";
-import { ChevronLeft, UserPlus, UserMinus, UserCog } from "lucide-react";
+import { ChevronLeft, UserPlus, UserMinus } from "lucide-react";
+import { HeroCard, cardBase, cardElev } from "../../components/school-ui";
 import {
   listStudents,
   postRosterRequest,
@@ -125,31 +126,62 @@ export function RosterRequestForm() {
     return false;
   };
 
+  const stepLabels = ["Kind", "Details", "Reason"];
+
   return (
     <div className="space-y-4 max-w-2xl">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <UserCog className="h-6 w-6 text-indigo-600" />
-          Roster change request
-        </h1>
-        <Link to={`/school/orgs/${orgId}/admin/classes`}>
-          <Button variant="outline" size="sm">
-            <ChevronLeft className="h-4 w-4 mr-1" /> Back
-          </Button>
-        </Link>
-      </div>
+      <HeroCard
+        title="Roster Request"
+        subtitle="Request to add or remove a student from this section"
+        rightSlot={
+          <Link to={`/school/orgs/${orgId}/admin/classes`}>
+            <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">
+              <ChevronLeft className="h-4 w-4 mr-1" /> Back
+            </Button>
+          </Link>
+        }
+      />
 
-      <ol className="flex items-center gap-2 text-xs text-slate-500">
-        <li className={step >= 1 ? "font-semibold text-indigo-700" : ""}>1. Kind</li>
-        <li>›</li>
-        <li className={step >= 2 ? "font-semibold text-indigo-700" : ""}>2. Details</li>
-        <li>›</li>
-        <li className={step >= 3 ? "font-semibold text-indigo-700" : ""}>3. Reason</li>
+      <ol className="flex items-center gap-2">
+        {stepLabels.map((label, i) => {
+          const n = (i + 1) as 1 | 2 | 3;
+          const active = step === n;
+          const done = step > n;
+          return (
+            <li key={label} className="flex items-center gap-2">
+              <span
+                className={
+                  "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium transition-colors " +
+                  (active
+                    ? "border-indigo-500 bg-indigo-50 text-indigo-900"
+                    : done
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                    : "border-slate-200 bg-white text-slate-500")
+                }
+              >
+                <span
+                  className={
+                    "inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold " +
+                    (active
+                      ? "bg-indigo-600 text-white"
+                      : done
+                      ? "bg-emerald-600 text-white"
+                      : "bg-slate-200 text-slate-600")
+                  }
+                >
+                  {n}
+                </span>
+                {label}
+              </span>
+              {i < 2 && <span className="text-slate-300">›</span>}
+            </li>
+          );
+        })}
       </ol>
 
       {error && <p className="text-sm text-rose-600">{error}</p>}
 
-      <Card>
+      <Card className={`${cardBase} ${cardElev}`}>
         <CardContent className="p-5">
           {step === 1 && (
             <div className="grid gap-3 sm:grid-cols-3">

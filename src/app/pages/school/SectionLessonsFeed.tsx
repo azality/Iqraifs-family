@@ -11,7 +11,13 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { Badge } from "../../components/ui/badge";
-import { BookOpen, Plus, Pencil, Trash2, Video, Music, Paperclip } from "lucide-react";
+import { Plus, Pencil, Trash2, Video, Music, Paperclip } from "lucide-react";
+import {
+  HeroCard,
+  cardBase,
+  cardElev,
+  sectionTitleClasses,
+} from "../../components/school-ui";
 import { toast } from "sonner";
 import {
   getSchoolMe,
@@ -142,66 +148,57 @@ export function SectionLessonsFeed() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <BookOpen className="h-6 w-6 text-indigo-600" />
-          Daily Sabaq
-        </h1>
-        <div className="flex gap-2">
-          <Link to={`/school/orgs/${orgId}/admin/classes`}>
-            <Button variant="outline" size="sm">← Classes</Button>
-          </Link>
-          <Link
-            to={`/school/orgs/${orgId}/sections/${sectionId}/lessons/new`}
-          >
-            <Button size="sm">
-              <Plus className="h-4 w-4 mr-1" /> New Lesson
-            </Button>
-          </Link>
-        </div>
-      </div>
-
-      <Card>
-        <CardContent className="p-3 flex flex-wrap items-end gap-3">
-          <div>
-            <Label className="text-xs">From</Label>
-            <Input
-              type="date"
-              value={startDate}
-              max={endDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="h-9 w-40"
-            />
+      <HeroCard
+        title="Daily Sabaq"
+        subtitle="Lessons posted for this section"
+        rightSlot={
+          <div className="flex flex-wrap items-end gap-2">
+            <div>
+              <Label className="text-[10px] uppercase tracking-wide text-indigo-200">From</Label>
+              <Input
+                type="date"
+                value={startDate}
+                max={endDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="h-8 w-36 bg-white/10 border-white/20 text-white"
+              />
+            </div>
+            <div>
+              <Label className="text-[10px] uppercase tracking-wide text-indigo-200">To</Label>
+              <Input
+                type="date"
+                value={endDate}
+                min={startDate}
+                max={todayIso()}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="h-8 w-36 bg-white/10 border-white/20 text-white"
+              />
+            </div>
+            <Link to={`/school/orgs/${orgId}/admin/classes`}>
+              <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">← Classes</Button>
+            </Link>
+            <Link to={`/school/orgs/${orgId}/sections/${sectionId}/lessons/new`}>
+              <Button size="sm" className="bg-white text-slate-900 hover:bg-slate-100">
+                <Plus className="h-4 w-4 mr-1" /> New Lesson
+              </Button>
+            </Link>
           </div>
-          <div>
-            <Label className="text-xs">To</Label>
-            <Input
-              type="date"
-              value={endDate}
-              min={startDate}
-              max={todayIso()}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="h-9 w-40"
-            />
-          </div>
-        </CardContent>
-      </Card>
+        }
+      />
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-rose-600">{error}</p>}
 
-      {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
+      {loading && <p className="text-sm text-slate-500">Loading…</p>}
 
       {!loading && grouped.length === 0 && (
-        <Card>
-          <CardContent className="py-8 text-center text-sm text-muted-foreground">
-            No lessons in this range yet.
-          </CardContent>
-        </Card>
+        <div className={`${cardBase} ${cardElev} py-8 text-center text-sm text-slate-500`}>
+          No lessons in this range yet.
+        </div>
       )}
 
       {grouped.map(([date, list]) => (
         <div key={date} className="space-y-2">
-          <h2 className="text-sm font-medium text-muted-foreground border-b pb-1">
+          <h2 className={`${sectionTitleClasses} border-b border-slate-200 pb-1`}>
             {new Date(date + "T00:00:00").toLocaleDateString(undefined, {
               weekday: "long",
               year: "numeric",
@@ -210,7 +207,7 @@ export function SectionLessonsFeed() {
             })}
           </h2>
           {list.map((l) => (
-            <Card key={l.id}>
+            <Card key={l.id} className={`${cardBase} ${cardElev}`}>
               <CardContent className="p-4 space-y-2">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1">

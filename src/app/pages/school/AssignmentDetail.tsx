@@ -16,12 +16,16 @@ import {
   SelectValue,
 } from "../../components/ui/select";
 import {
-  ClipboardCheck,
   Pencil,
   Trash2,
   AlertCircle,
   CheckCircle2,
+  TrendingUp,
+  BarChart3,
+  ListChecks,
+  AlertTriangle,
 } from "lucide-react";
+import { HeroCard, KpiTile, cardBase, cardElev } from "../../components/school-ui";
 import {
   deleteAssignment,
   getAssignment,
@@ -184,43 +188,45 @@ export function AssignmentDetail() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <ClipboardCheck className="h-6 w-6 text-indigo-600" />
-          {assignment.title}
-        </h1>
-        <div className="flex gap-2">
-          <Link to={backLink}>
-            <Button variant="outline" size="sm">← Assignments</Button>
-          </Link>
-          {canEdit && (
-            <>
-              <Link to={`/school/orgs/${orgId}/assignments/${assignmentId}/edit`}>
-                <Button variant="outline" size="sm"><Pencil className="h-3.5 w-3.5 mr-1" /> Edit</Button>
-              </Link>
-              <Button variant="outline" size="sm" onClick={handleDelete}>
-                <Trash2 className="h-3.5 w-3.5 mr-1 text-rose-600" /> Delete
-              </Button>
-            </>
-          )}
-        </div>
-      </div>
-
-      <Card>
-        <CardContent className="p-4 flex flex-wrap gap-3 items-center text-sm">
-          <KindChip kind={assignment.kind} />
-          <span><span className="text-muted-foreground">Max:</span> <b>{assignment.max_score}</b></span>
-          <span><span className="text-muted-foreground">Weight:</span> {assignment.weight}</span>
-          <span><span className="text-muted-foreground">Assigned:</span> {assignment.assigned_date}</span>
-          <span><span className="text-muted-foreground">Due:</span> {assignment.due_date || "—"}</span>
-          {assignment.related_topic && (
-            <span><span className="text-muted-foreground">Topic:</span> {assignment.related_topic}</span>
-          )}
-        </CardContent>
-      </Card>
+      <HeroCard
+        title={assignment.title}
+        subtitle={
+          [
+            assignment.assigned_date && `Assigned ${assignment.assigned_date}`,
+            assignment.due_date && `Due ${assignment.due_date}`,
+            `Weight ${assignment.weight}`,
+            assignment.related_topic && `Topic: ${assignment.related_topic}`,
+          ]
+            .filter(Boolean)
+            .join(" · ")
+        }
+        rightSlot={
+          <div className="flex items-center gap-2 flex-wrap">
+            <KindChip kind={assignment.kind} />
+            <span className="inline-flex items-center rounded-full bg-white/10 border border-white/20 px-3 py-1 text-xs text-white">
+              Max <b className="ml-1">{assignment.max_score}</b>
+            </span>
+            <Link to={backLink}>
+              <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">← Assignments</Button>
+            </Link>
+            {canEdit && (
+              <>
+                <Link to={`/school/orgs/${orgId}/assignments/${assignmentId}/edit`}>
+                  <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">
+                    <Pencil className="h-3.5 w-3.5 mr-1" /> Edit
+                  </Button>
+                </Link>
+                <Button variant="outline" size="sm" onClick={handleDelete} className="bg-white/10 border-white/20 text-white hover:bg-white/20">
+                  <Trash2 className="h-3.5 w-3.5 mr-1 text-rose-300" /> Delete
+                </Button>
+              </>
+            )}
+          </div>
+        }
+      />
 
       {assignment.description && (
-        <Card>
+        <Card className={`${cardBase} ${cardElev}`}>
           <CardHeader className="pb-2"><CardTitle className="text-base">Description</CardTitle></CardHeader>
           <CardContent>
             <p className="text-sm whitespace-pre-wrap text-slate-700">{assignment.description}</p>
@@ -228,33 +234,35 @@ export function AssignmentDetail() {
         </Card>
       )}
 
-      <Card>
-        <CardContent className="p-4 grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-          <div>
-            <p className="text-xs text-muted-foreground">Average</p>
-            <p className="text-lg font-semibold tabular-nums">
-              {stats.avg != null ? stats.avg.toFixed(1) : "—"}
-              {stats.avg != null && <span className="text-xs text-muted-foreground"> / {assignment.max_score}</span>}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground">Median</p>
-            <p className="text-lg font-semibold tabular-nums">
-              {stats.median != null ? stats.median.toFixed(1) : "—"}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground">Graded</p>
-            <p className="text-lg font-semibold tabular-nums">{stats.graded}</p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground">Missing</p>
-            <p className="text-lg font-semibold tabular-nums text-rose-600">{stats.missing}</p>
-          </div>
-        </CardContent>
-      </Card>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <KpiTile
+          variant="light"
+          icon={TrendingUp}
+          label="Average"
+          value={stats.avg != null ? stats.avg.toFixed(1) : null}
+          hint={stats.avg != null ? `out of ${assignment.max_score}` : undefined}
+        />
+        <KpiTile
+          variant="light"
+          icon={BarChart3}
+          label="Median"
+          value={stats.median != null ? stats.median.toFixed(1) : null}
+        />
+        <KpiTile
+          variant="light"
+          icon={ListChecks}
+          label="Graded"
+          value={stats.graded}
+        />
+        <KpiTile
+          variant="light"
+          icon={AlertTriangle}
+          label="Missing"
+          value={stats.missing}
+        />
+      </div>
 
-      <Card>
+      <Card className={`${cardBase} ${cardElev}`}>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
           <CardTitle className="text-base">Grades</CardTitle>
           <Button size="sm" onClick={handleSaveAll} disabled={saving || !rows.some((r) => r.dirty)}>

@@ -4,7 +4,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import { toast } from "sonner";
-import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
 import {
@@ -15,7 +14,6 @@ import {
   SelectValue,
 } from "../../components/ui/select";
 import {
-  ClipboardCheck,
   Plus,
   Pencil,
   Trash2,
@@ -23,6 +21,13 @@ import {
   CheckCircle2,
   AlertCircle,
 } from "lucide-react";
+import {
+  HeroCard,
+  DataTable,
+  StatusPill,
+  cardBase,
+  type DataTableColumn,
+} from "../../components/school-ui";
 import {
   deleteAssignment,
   getAssignmentGrades,
@@ -148,30 +153,102 @@ export function SectionAssignmentsList() {
     return !!me?.userId && a.created_by === me.userId;
   };
 
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <ClipboardCheck className="h-6 w-6 text-indigo-600" />
-          Assignments
-        </h1>
-        <div className="flex items-center gap-2 flex-wrap">
-          <Link to={`/school/orgs/${orgId}/sections/${sectionId}/gradebook`}>
-            <Button variant="outline" size="sm">Gradebook</Button>
-          </Link>
-          <Link to={`/school/orgs/${orgId}/admin/classes`}>
-            <Button variant="outline" size="sm">← Classes</Button>
-          </Link>
-          <Link to={`/school/orgs/${orgId}/sections/${sectionId}/assignments/new`}>
-            <Button size="sm">
-              <Plus className="h-4 w-4 mr-1" /> New Assignment
+  const columns: DataTableColumn<Assignment>[] = [
+    {
+      key: "title",
+      header: "Title",
+      cell: (a) => (
+        <Link to={`/school/orgs/${orgId}/assignments/${a.id}`} className="font-medium hover:underline">
+          {a.title}
+        </Link>
+      ),
+    },
+    { key: "kind", header: "Kind", cell: (a) => <KindChip kind={a.kind} /> },
+    { key: "assigned_date", header: "Assigned", cell: (a) => <span className="text-xs text-slate-500">{a.assigned_date}</span> },
+    { key: "due_date", header: "Due", cell: (a) => <span className="text-xs text-slate-500">{a.due_date || "—"}</span> },
+    { key: "max_score", header: "Max", align: "right", cell: (a) => <span className="tabular-nums">{a.max_score}</span> },
+    {
+      key: "graded",
+      header: "Graded",
+      cell: (a) => {
+        const s = summary[a.id];
+        return s ? (
+          <Badge variant="outline" className="text-[10px]">{s.graded}/{s.total}</Badge>
+        ) : (
+          <span className="text-xs text-slate-400">…</span>
+        );
+      },
+    },
+    {
+      key: "avg",
+      header: "Avg",
+      align: "right",
+      cell: (a) => {
+        const s = summary[a.id];
+        if (s?.avgPct == null) return <span className="text-xs text-slate-400">—</span>;
+        const status: "compliant" | "watch" | "flagged" =
+          s.avgPct >= 75 ? "compliant" : s.avgPct >= 50 ? "watch" : "flagged";
+        return <StatusPill status={status} label={`${s.avgPct.toFixed(0)}%`} />;
+      },
+    },
+    {
+      key: "actions",
+      header: "",
+      align: "right",
+      width: "w-40",
+      cell: (a) => (
+        <div className="flex justify-end gap-1">
+          <Link to={`/school/orgs/${orgId}/assignments/${a.id}`}>
+            <Button variant="ghost" size="sm" title="Open">
+              <ExternalLink className="h-3.5 w-3.5" />
             </Button>
           </Link>
+          <Link to={`/school/orgs/${orgId}/assignments/${a.id}`}>
+            <Button variant="ghost" size="sm" title="Grade">
+              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+            </Button>
+          </Link>
+          {canEditOrDelete(a) && (
+            <>
+              <Link to={`/school/orgs/${orgId}/assignments/${a.id}/edit`}>
+                <Button variant="ghost" size="sm" title="Edit">
+                  <Pencil className="h-3.5 w-3.5" />
+                </Button>
+              </Link>
+              <Button variant="ghost" size="sm" title="Delete" onClick={() => handleDelete(a)}>
+                <Trash2 className="h-3.5 w-3.5 text-rose-600" />
+              </Button>
+            </>
+          )}
         </div>
-      </div>
+      ),
+    },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <HeroCard
+        title="Assignments"
+        subtitle={`${assignments.length} assignment${assignments.length === 1 ? "" : "s"} for this section`}
+        rightSlot={
+          <div className="flex items-center gap-2 flex-wrap">
+            <Link to={`/school/orgs/${orgId}/sections/${sectionId}/gradebook`}>
+              <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">Gradebook</Button>
+            </Link>
+            <Link to={`/school/orgs/${orgId}/admin/classes`}>
+              <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">← Classes</Button>
+            </Link>
+            <Link to={`/school/orgs/${orgId}/sections/${sectionId}/assignments/new`}>
+              <Button size="sm" className="bg-white text-slate-900 hover:bg-slate-100">
+                <Plus className="h-4 w-4 mr-1" /> New Assignment
+              </Button>
+            </Link>
+          </div>
+        }
+      />
 
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-xs text-muted-foreground">Filter by kind:</span>
+        <span className="text-xs text-slate-500">Filter by kind:</span>
         <Select value={filter} onValueChange={(v) => setFilter(v as AssignmentKind | "all")}>
           <SelectTrigger className="h-8 text-xs w-48">
             <SelectValue />
@@ -192,88 +269,20 @@ export function SectionAssignmentsList() {
       )}
 
       {loading ? (
-        <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">Loading assignments…</CardContent></Card>
-      ) : filtered.length === 0 ? (
-        <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">
-          {assignments.length === 0
-            ? 'No assignments yet. Click "New Assignment" to add one.'
-            : "No assignments match this filter."}
-        </CardContent></Card>
+        <div className={`${cardBase} py-8 text-center text-sm text-slate-500`}>Loading assignments…</div>
       ) : (
-        <Card>
-          <CardContent className="p-0 overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/50 text-left">
-                <tr>
-                  <th className="px-3 py-2">Title</th>
-                  <th className="px-3 py-2">Kind</th>
-                  <th className="px-3 py-2">Assigned</th>
-                  <th className="px-3 py-2">Due</th>
-                  <th className="px-3 py-2 text-right">Max</th>
-                  <th className="px-3 py-2">Graded</th>
-                  <th className="px-3 py-2 text-right">Avg %</th>
-                  <th className="px-3 py-2 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((a) => {
-                  const s = summary[a.id];
-                  return (
-                    <tr key={a.id} className="border-t">
-                      <td className="px-3 py-2 font-medium">
-                        <Link to={`/school/orgs/${orgId}/assignments/${a.id}`} className="hover:underline">
-                          {a.title}
-                        </Link>
-                      </td>
-                      <td className="px-3 py-2"><KindChip kind={a.kind} /></td>
-                      <td className="px-3 py-2 text-xs text-muted-foreground">{a.assigned_date}</td>
-                      <td className="px-3 py-2 text-xs text-muted-foreground">{a.due_date || "—"}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{a.max_score}</td>
-                      <td className="px-3 py-2">
-                        {s ? (
-                          <Badge variant="outline" className="text-[10px]">
-                            {s.graded}/{s.total}
-                          </Badge>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">…</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2 text-right tabular-nums text-xs">
-                        {s?.avgPct != null ? `${s.avgPct.toFixed(0)}%` : "—"}
-                      </td>
-                      <td className="px-3 py-2">
-                        <div className="flex justify-end gap-1">
-                          <Link to={`/school/orgs/${orgId}/assignments/${a.id}`}>
-                            <Button variant="ghost" size="sm" title="Open">
-                              <ExternalLink className="h-3.5 w-3.5" />
-                            </Button>
-                          </Link>
-                          <Link to={`/school/orgs/${orgId}/assignments/${a.id}`}>
-                            <Button variant="ghost" size="sm" title="Grade">
-                              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-                            </Button>
-                          </Link>
-                          {canEditOrDelete(a) && (
-                            <>
-                              <Link to={`/school/orgs/${orgId}/assignments/${a.id}/edit`}>
-                                <Button variant="ghost" size="sm" title="Edit">
-                                  <Pencil className="h-3.5 w-3.5" />
-                                </Button>
-                              </Link>
-                              <Button variant="ghost" size="sm" title="Delete" onClick={() => handleDelete(a)}>
-                                <Trash2 className="h-3.5 w-3.5 text-rose-600" />
-                              </Button>
-                            </>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </CardContent>
-        </Card>
+        <div className={cardBase}>
+          <DataTable<Assignment>
+            columns={columns}
+            rows={filtered}
+            rowKey={(a) => a.id}
+            emptyMessage={
+              assignments.length === 0
+                ? 'No assignments yet. Click "New Assignment" to add one.'
+                : "No assignments match this filter."
+            }
+          />
+        </div>
       )}
     </div>
   );

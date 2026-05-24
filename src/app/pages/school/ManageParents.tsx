@@ -3,7 +3,6 @@
 
 import { useEffect, useState } from "react";
 import { Link, Navigate, useParams } from "react-router";
-import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
@@ -14,7 +13,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../../components/ui/dialog";
-import { Heart, Plus, Upload, Search, Trash2, Pencil } from "lucide-react";
+import { Plus, Upload, Search, Trash2, Pencil } from "lucide-react";
+import {
+  HeroCard,
+  DataTable,
+  cardBase,
+  type DataTableColumn,
+} from "../../components/school-ui";
 import {
   getSchoolMe,
   isOrgAdmin,
@@ -83,56 +88,60 @@ export function ManageParents() {
     return res;
   };
 
+  const columns: DataTableColumn<AdminParent>[] = [
+    { key: "full_name", header: "Name", cell: (p) => <span className="font-medium">{p.full_name}</span> },
+    { key: "relationship", header: "Relationship", cell: (p) => <span className="text-xs text-slate-500">{p.relationship || "—"}</span> },
+    { key: "phone", header: "Phone", cell: (p) => <span className="text-xs">{p.phone || "—"}</span> },
+    { key: "email", header: "Email", cell: (p) => <span className="text-xs">{p.email || "—"}</span> },
+    {
+      key: "actions",
+      header: "",
+      align: "right",
+      width: "w-24",
+      cell: (p) => (
+        <div className="inline-flex gap-1">
+          <Button variant="ghost" size="sm" onClick={() => startEdit(p)}><Pencil className="h-3.5 w-3.5" /></Button>
+          <Button variant="ghost" size="sm" onClick={() => handleDelete(p)}><Trash2 className="h-3.5 w-3.5 text-rose-600" /></Button>
+        </div>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Heart className="h-6 w-6 text-indigo-600" /> Parents
-        </h1>
-        <div className="flex gap-2">
-          <Link to={`/school/orgs/${orgId}/admin`}><Button variant="outline" size="sm">← Admin</Button></Link>
-          <Button variant="outline" size="sm" onClick={() => setCsvOpen(true)}><Upload className="h-4 w-4 mr-1" /> Bulk CSV</Button>
-          <Button size="sm" onClick={startCreate}><Plus className="h-4 w-4 mr-1" /> Add Parent</Button>
-        </div>
-      </div>
+      <HeroCard
+        title="Parents"
+        subtitle={`${parents.length} parent${parents.length === 1 ? "" : "s"}`}
+        rightSlot={
+          <div className="flex gap-2">
+            <Link to={`/school/orgs/${orgId}/admin`}>
+              <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">← Admin</Button>
+            </Link>
+            <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20" onClick={() => setCsvOpen(true)}>
+              <Upload className="h-4 w-4 mr-1" /> Bulk CSV
+            </Button>
+            <Button size="sm" onClick={startCreate} className="bg-white text-slate-900 hover:bg-slate-100">
+              <Plus className="h-4 w-4 mr-1" /> Add Parent
+            </Button>
+          </div>
+        }
+      />
 
       <div className="relative">
-        <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+        <Search className="absolute left-2 top-2.5 h-4 w-4 text-slate-400" />
         <Input className="pl-8" placeholder="Search name, phone, or email…" value={search} onChange={(e) => setSearch(e.target.value)} />
       </div>
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-rose-600">{error}</p>}
 
-      <Card><CardContent className="p-0">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/50 text-xs">
-              <tr>
-                <th className="text-left p-2">Name</th>
-                <th className="text-left p-2">Relationship</th>
-                <th className="text-left p-2">Phone</th>
-                <th className="text-left p-2">Email</th>
-                <th className="text-right p-2">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {parents.length === 0 && <tr><td colSpan={5} className="p-6 text-center text-muted-foreground">No parents yet.</td></tr>}
-              {parents.map((p) => (
-                <tr key={p.id} className="border-t hover:bg-muted/30">
-                  <td className="p-2">{p.full_name}</td>
-                  <td className="p-2 text-xs text-muted-foreground">{p.relationship || "—"}</td>
-                  <td className="p-2 text-xs">{p.phone || "—"}</td>
-                  <td className="p-2 text-xs">{p.email || "—"}</td>
-                  <td className="p-2 text-right">
-                    <Button variant="ghost" size="sm" onClick={() => startEdit(p)}><Pencil className="h-3.5 w-3.5" /></Button>
-                    <Button variant="ghost" size="sm" onClick={() => handleDelete(p)}><Trash2 className="h-3.5 w-3.5 text-red-600" /></Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </CardContent></Card>
+      <div className={cardBase}>
+        <DataTable<AdminParent>
+          columns={columns}
+          rows={parents}
+          rowKey={(p) => p.id}
+          emptyMessage="No parents yet."
+        />
+      </div>
 
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
         <DialogContent>
