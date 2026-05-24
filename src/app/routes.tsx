@@ -55,6 +55,11 @@ import { ManageParents } from "./pages/school/ManageParents";
 import { ManageTeachers } from "./pages/school/ManageTeachers";
 import { LinkCodes } from "./pages/school/LinkCodes";
 import { PermissionsEditor } from "./pages/school/PermissionsEditor";
+// Phase B teacher/admin surfaces (school-pilot/phase-b-ui).
+import { AttendanceRollCall } from "./pages/school/AttendanceRollCall";
+import { SectionBehaviorFeed } from "./pages/school/SectionBehaviorFeed";
+import { RosterRequestForm } from "./pages/school/RosterRequestForm";
+import { RosterReviewQueue } from "./pages/school/RosterReviewQueue";
 // Parent-facing redemption page for school invite codes — lands here from
 // the SMS/WhatsApp links the school sends.
 import { ParentConnect } from "./pages/ParentConnect";
@@ -348,6 +353,13 @@ export const router = createBrowserRouter([
           { path: "school/orgs/:orgId/admin/teachers", element: <RequireParentRole><ManageTeachers /></RequireParentRole> },
           { path: "school/orgs/:orgId/admin/link-codes", element: <RequireParentRole><LinkCodes /></RequireParentRole> },
           { path: "school/orgs/:orgId/admin/permissions", element: <RequireParentRole><PermissionsEditor /></RequireParentRole> },
+          { path: "school/orgs/:orgId/admin/roster-requests", element: <RequireParentRole><RosterReviewQueue /></RequireParentRole> },
+          // Phase B section-scoped daily ops (attendance, behavior log,
+          // roster change requests). All gated by RequireParentRole; the
+          // pages themselves enforce teacher/admin scope on the server.
+          { path: "school/orgs/:orgId/sections/:sectionId/attendance", element: <RequireParentRole><AttendanceRollCall /></RequireParentRole> },
+          { path: "school/orgs/:orgId/sections/:sectionId/behavior", element: <RequireParentRole><SectionBehaviorFeed /></RequireParentRole> },
+          { path: "school/orgs/:orgId/sections/:sectionId/roster/new", element: <RequireParentRole><RosterRequestForm /></RequireParentRole> },
           // Redirect old routes to homepage
           { path: "kid", element: <Navigate to="/" replace /> },
           { path: "parent", element: <Navigate to="/" replace /> },

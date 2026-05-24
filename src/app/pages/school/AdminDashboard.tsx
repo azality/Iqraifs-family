@@ -19,8 +19,10 @@ import {
   UserCog,
   KeyRound,
   ShieldCheck,
+  ClipboardList,
 } from "lucide-react";
 import {
+  getRosterRequests,
   getSchoolMe,
   isOrgAdmin,
   isOrgPrincipal,
@@ -38,6 +40,8 @@ interface Tile {
   count: number | null;
   icon: typeof Building2;
   principalOnly?: boolean;
+  /** If true, render the count as a red "pending" badge instead of "N total". */
+  badge?: boolean;
 }
 
 export function AdminDashboard() {
@@ -50,7 +54,8 @@ export function AdminDashboard() {
     parents: number | null;
     teachers: number | null;
     linkCodes: number | null;
-  }>({ classes: null, students: null, parents: null, teachers: null, linkCodes: null });
+    rosterPending: number | null;
+  }>({ classes: null, students: null, parents: null, teachers: null, linkCodes: null, rosterPending: null });
 
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
@@ -65,6 +70,12 @@ export function AdminDashboard() {
     listAdminTeachers(orgId).then((t) => setCounts((cc) => ({ ...cc, teachers: t.length }))).catch(() => {});
     listLinkCodes(orgId, { unusedOnly: true })
       .then((l) => setCounts((cc) => ({ ...cc, linkCodes: l.length })))
+      .catch(() => {});
+    // Pending roster-change requests — drives the badge on the Roster
+    // Requests tile so admins/principals see at a glance if anything is
+    // waiting on them.
+    getRosterRequests(orgId, { status: "pending" })
+      .then((r) => setCounts((cc) => ({ ...cc, rosterPending: r.requests.length })))
       .catch(() => {});
   }, [orgId]);
 
@@ -88,6 +99,7 @@ export function AdminDashboard() {
     { to: `/school/orgs/${orgId}/admin/parents`, label: "Parents", count: counts.parents, icon: Heart },
     { to: `/school/orgs/${orgId}/admin/teachers`, label: "Teachers", count: counts.teachers, icon: UserCog },
     { to: `/school/orgs/${orgId}/admin/link-codes`, label: "Link codes", count: counts.linkCodes, icon: KeyRound },
+    { to: `/school/orgs/${orgId}/admin/roster-requests`, label: "Roster requests", count: counts.rosterPending, icon: ClipboardList, badge: true },
     { to: `/school/orgs/${orgId}/admin/permissions`, label: "Permissions", count: null, icon: ShieldCheck, principalOnly: true },
   ];
 
@@ -118,9 +130,22 @@ export function AdminDashboard() {
                       <Icon className="h-6 w-6" />
                     </div>
                     <div className="flex-1">
-                      <p className="font-medium">{t.label}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium">{t.label}</p>
+                        {t.badge && t.count !== null && t.count > 0 && (
+                          <span className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-rose-600 px-1.5 text-[10px] font-semibold text-white">
+                            {t.count}
+                          </span>
+                        )}
+                      </div>
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        {t.count === null ? "—" : `${t.count} total`}
+                        {t.count === null
+                          ? "—"
+                          : t.badge
+                          ? t.count === 0
+                            ? "no pending"
+                            : `${t.count} pending`
+                          : `${t.count} total`}
                       </p>
                     </div>
                   </CardContent>

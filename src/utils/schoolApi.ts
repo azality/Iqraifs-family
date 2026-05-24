@@ -956,3 +956,235 @@ export function isOrgPrincipal(me: SchoolMeResponse | null, orgId: string): bool
       r.scope_id === orgId,
   );
 }
+
+// ─── Phase B: Attendance ───────────────────────────────────────────────
+
+export type RollCallStatus = "present" | "absent" | "late" | "excused";
+
+export interface SectionAttendanceEntry {
+  id: string;
+  studentId: string;
+  studentName: string | null;
+  grNumber: string | null;
+  status: RollCallStatus;
+  notes: string | null;
+  recordedBy: string | null;
+}
+
+export interface SectionAttendanceResponse {
+  date: string;
+  sectionId: string;
+  entries: SectionAttendanceEntry[];
+}
+
+export const postSectionAttendance = (
+  orgId: string,
+  sectionId: string,
+  body: {
+    date: string;
+    entries: Array<{ studentId: string; status: RollCallStatus; notes?: string }>;
+  },
+): Promise<{
+  inserted: number;
+  updated: number;
+  failed: number;
+  results: Array<{ studentId: string; ok: boolean; error?: string }>;
+}> =>
+  apiCall(`/school/orgs/${orgId}/sections/${sectionId}/attendance`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const getSectionAttendance = (
+  orgId: string,
+  sectionId: string,
+  opts: { date: string },
+): Promise<SectionAttendanceResponse> =>
+  apiCall(
+    `/school/orgs/${orgId}/sections/${sectionId}/attendance?date=${encodeURIComponent(opts.date)}`,
+  );
+
+export interface StudentAttendanceEntry {
+  id: string;
+  date: string;
+  status: RollCallStatus;
+  notes: string | null;
+  sectionId: string | null;
+  recordedBy: string | null;
+}
+
+export const getStudentAttendance = (
+  orgId: string,
+  studentId: string,
+  opts: { startDate?: string; endDate?: string } = {},
+): Promise<{ studentId: string; entries: StudentAttendanceEntry[] }> => {
+  const q = new URLSearchParams();
+  if (opts.startDate) q.append("startDate", opts.startDate);
+  if (opts.endDate) q.append("endDate", opts.endDate);
+  const qs = q.toString() ? `?${q}` : "";
+  return apiCall(`/school/orgs/${orgId}/students/${studentId}/attendance${qs}`);
+};
+
+export interface AttendanceSummaryRow {
+  studentId: string;
+  studentName: string | null;
+  grNumber: string | null;
+  present: number;
+  absent: number;
+  late: number;
+  excused: number;
+}
+
+export const getSectionAttendanceSummary = (
+  orgId: string,
+  sectionId: string,
+  opts: { startDate?: string; endDate?: string } = {},
+): Promise<{
+  sectionId: string;
+  startDate: string | null;
+  endDate: string | null;
+  summary: AttendanceSummaryRow[];
+}> => {
+  const q = new URLSearchParams();
+  if (opts.startDate) q.append("startDate", opts.startDate);
+  if (opts.endDate) q.append("endDate", opts.endDate);
+  const qs = q.toString() ? `?${q}` : "";
+  return apiCall(
+    `/school/orgs/${orgId}/sections/${sectionId}/attendance/summary${qs}`,
+  );
+};
+
+// ─── Phase B: Behavior notes ───────────────────────────────────────────
+
+export type BehaviorNoteKind = "positive" | "concern";
+
+export interface BehaviorNote {
+  id: string;
+  studentId: string;
+  studentName?: string | null;
+  grNumber?: string | null;
+  sectionId: string | null;
+  kind: BehaviorNoteKind;
+  category: string | null;
+  points: number;
+  notes: string;
+  observedAt: string;
+  recordedBy: string | null;
+}
+
+export const postBehaviorNote = (
+  orgId: string,
+  body: {
+    studentId: string;
+    kind: BehaviorNoteKind;
+    category?: string;
+    points?: number;
+    notes: string;
+    observedAt?: string;
+  },
+): Promise<{ note: BehaviorNote }> =>
+  apiCall(`/school/orgs/${orgId}/behavior-notes`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const getStudentBehaviorNotes = (
+  orgId: string,
+  studentId: string,
+  opts: { startDate?: string; endDate?: string; kind?: BehaviorNoteKind } = {},
+): Promise<{ studentId: string; notes: BehaviorNote[] }> => {
+  const q = new URLSearchParams();
+  if (opts.startDate) q.append("startDate", opts.startDate);
+  if (opts.endDate) q.append("endDate", opts.endDate);
+  if (opts.kind) q.append("kind", opts.kind);
+  const qs = q.toString() ? `?${q}` : "";
+  return apiCall(`/school/orgs/${orgId}/students/${studentId}/behavior-notes${qs}`);
+};
+
+export const getSectionBehaviorNotes = (
+  orgId: string,
+  sectionId: string,
+  opts: { startDate?: string; endDate?: string } = {},
+): Promise<{ sectionId: string; notes: BehaviorNote[] }> => {
+  const q = new URLSearchParams();
+  if (opts.startDate) q.append("startDate", opts.startDate);
+  if (opts.endDate) q.append("endDate", opts.endDate);
+  const qs = q.toString() ? `?${q}` : "";
+  return apiCall(`/school/orgs/${orgId}/sections/${sectionId}/behavior-notes${qs}`);
+};
+
+export const deleteBehaviorNote = (orgId: string, noteId: string): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/behavior-notes/${noteId}`, { method: "DELETE" });
+
+// ─── Phase B: Roster change requests ───────────────────────────────────
+
+export type RosterRequestKind = "add" | "remove";
+export type RosterRequestStatus = "pending" | "approved" | "rejected";
+
+export interface RosterRequest {
+  id: string;
+  orgId: string;
+  sectionId: string;
+  kind: RosterRequestKind;
+  studentId: string | null;
+  newStudentPayload: {
+    grNumber: string;
+    fullName: string;
+    photoUrl?: string;
+    dateOfBirth?: string;
+    gender?: string;
+    guardianPhone?: string;
+    guardianEmail?: string;
+  } | null;
+  reason: string | null;
+  status: RosterRequestStatus;
+  requestedBy: string | null;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  reviewerNotes: string | null;
+  createdAt: string;
+}
+
+export const postRosterRequest = (
+  orgId: string,
+  sectionId: string,
+  body: {
+    kind: RosterRequestKind;
+    studentId?: string;
+    newStudentPayload?: RosterRequest["newStudentPayload"];
+    reason?: string;
+  },
+): Promise<{ request: RosterRequest }> =>
+  apiCall(`/school/orgs/${orgId}/sections/${sectionId}/roster-requests`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const getRosterRequests = (
+  orgId: string,
+  opts: { status?: RosterRequestStatus } = {},
+): Promise<{ requests: RosterRequest[] }> => {
+  const q = new URLSearchParams();
+  if (opts.status) q.append("status", opts.status);
+  const qs = q.toString() ? `?${q}` : "";
+  return apiCall(`/school/orgs/${orgId}/roster-requests${qs}`);
+};
+
+export const getSectionRosterRequests = (
+  orgId: string,
+  sectionId: string,
+): Promise<{ requests: RosterRequest[] }> =>
+  apiCall(`/school/orgs/${orgId}/sections/${sectionId}/roster-requests`);
+
+export const patchRosterRequest = (
+  orgId: string,
+  requestId: string,
+  body: { status: "approved" | "rejected"; reviewerNotes?: string },
+): Promise<{ request: RosterRequest; createdStudentId: string | null }> =>
+  apiCall(`/school/orgs/${orgId}/roster-requests/${requestId}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+
+// Re-export apiCall so callers can hit ad-hoc endpoints without a second import.
+export { apiCall };
