@@ -16,9 +16,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../../components/ui/dialog";
-import { Users, KeyRound, Plus, Copy, Trash2, Link2, BookMarked } from "lucide-react";
+import { Users, KeyRound, Plus, Copy, Trash2, Link2, BookMarked, Trophy, ClipboardCheck } from "lucide-react";
 import { HifzLogEntry } from "./HifzLogEntry";
 import { HifzProgressFeed } from "./HifzProgressFeed";
+import { StudentGradesFeed } from "./StudentGradesFeed";
 import {
   getSchoolMe,
   isOrgAdmin,
@@ -209,6 +210,24 @@ export function StudentDetail() {
         </CardHeader>
         <CardContent>
           <Button size="sm" onClick={handleGenerateCode}>Generate code</Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Trophy className="h-4 w-4 text-amber-600" /> Grades
+          </CardTitle>
+          {isOrgAdmin(me, orgId) && student.class_section_id && (
+            <Link to={`/school/orgs/${orgId}/sections/${student.class_section_id}/assignments`}>
+              <Button size="sm" variant="outline">
+                <ClipboardCheck className="h-3.5 w-3.5 mr-1" /> Log Grade
+              </Button>
+            </Link>
+          )}
+        </CardHeader>
+        <CardContent>
+          <StudentGradesFeed orgId={orgId} studentId={studentId} />
         </CardContent>
       </Card>
 
