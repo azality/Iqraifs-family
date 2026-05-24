@@ -1,0 +1,1382 @@
+// =============================================================================
+// School Phase A — admin role, students/parents/classes CRUD, CSV upload,
+// link codes, PIN auth, permission templates.
+//
+// Mounted by school.tsx (which mounts the broader /school sub-app). This
+// file is kept separate from school.tsx because that file is already huge.
+//
+// All routes here are added onto the same Hono sub-app that school.tsx
+// exports. The mounting glue lives at the bottom of school.tsx where
+// `installPhaseA(school)` is called.
+//
+// Auth model:
+//   - requireAuth has already run by the time any handler here executes
+//     (school.tsx applies `school.use("*", requireAuth)`).
+//   - Two endpoints are exceptions and need to bypass the family-JWT
+//     check entirely: /auth/pin-login and /link-codes/consume. To keep
+//     the wiring simple, /auth/pin-login is registered with its own
+//     skip-auth marker handled by school.tsx (see comments there); and
+//     /link-codes/consume uses the standard requireAuth (it requires a
+//     real family-app user).
+//
+// Permission helpers:
+//   - hasAnyRoleInOrg — caller has at least one non-revoked role row in
+//     the org. Used for read endpoints.
+//   - requireAdminOrPrincipal — caller is principal OR admin of the org.
+//   - requirePrincipalOnly — caller is principal of the org.
+// =============================================================================
+
+import { Hono } from "npm:hono";
+import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
+
+// ---------------------------------------------------------------------------
+// Shared row types — exported so the frontend can mirror the shape.
+// ---------------------------------------------------------------------------
+export interface StudentRow {
+  grNumber: string;
+  fullName: string;
+  classSectionId?: string;
+  photoUrl?: string;
+  dateOfBirth?: string;
+  gender?: string;
+  guardianPhone?: string;
+  guardianEmail?: string;
+}
+
+export interface ParentRow {
+  fullName: string;
+  phone?: string;
+  email?: string;
+  relationship?: string;
+}
+
+export interface TeacherRow {
+  email: string;
+  fullName: string;
+  roleTemplate: "class_teacher" | "visiting_teacher";
+}
+
+// ---------------------------------------------------------------------------
+// Permission defaults — defaults that apply unless role_template_override
+// stores a deviating row for (org, role_template, permission_key).
+// ---------------------------------------------------------------------------
+type RoleTemplate = "admin" | "class_teacher" | "visiting_teacher";
+type PermissionKey =
+  | "manage_students"
+  | "mark_attendance"
+  | "edit_grades"
+  | "mark_fees_status"
+  | "create_forms"
+  | "define_curriculum"
+  | "manage_teachers"
+  | "view_all_classes";
+
+const PERMISSION_KEYS: PermissionKey[] = [
+  "manage_students",
+  "mark_attendance",
+  "edit_grades",
+  "mark_fees_status",
+  "create_forms",
+  "define_curriculum",
+  "manage_teachers",
+  "view_all_classes",
+];
+
+const DEFAULT_PERMISSIONS: Record<RoleTemplate, Record<PermissionKey, boolean>> = {
+  admin: {
+    manage_students: true,
+    mark_attendance: true,
+    edit_grades: true,
+    mark_fees_status: true,
+    create_forms: true,
+    define_curriculum: true,
+    manage_teachers: true,
+    view_all_classes: true,
+  },
+  class_teacher: {
+    manage_students: false,
+    mark_attendance: true,
+    edit_grades: true,
+    mark_fees_status: false,
+    create_forms: true,
+    define_curriculum: true,
+    manage_teachers: false,
+    view_all_classes: false,
+  },
+  visiting_teacher: {
+    manage_students: false,
+    mark_attendance: true,
+    edit_grades: false,
+    mark_fees_status: false,
+    create_forms: false,
+    define_curriculum: false,
+    manage_teachers: false,
+    view_all_classes: false,
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Role helpers
+// ---------------------------------------------------------------------------
+async function hasAnyRoleInOrg(userId: string, orgId: string): Promise<boolean> {
+  const { data } = await serviceRoleClient
+    .from("user_roles")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("scope_type", "organization")
+    .eq("scope_id", orgId)
+    .is("revoked_at", null)
+    .limit(1);
+  if (data && data.length > 0) return true;
+  // Also accept any role scoped to a class/section that lives in this org.
+  // Cheap check: at least one role row period in this org via any scope —
+  // for Phase A we only check org-scoped roles which is the common case.
+  return false;
+}
+
+async function isPrincipalOf(userId: string, orgId: string): Promise<boolean> {
+  const { data } = await serviceRoleClient
+    .from("user_roles")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("role_type", "principal")
+    .eq("scope_type", "organization")
+    .eq("scope_id", orgId)
+    .is("revoked_at", null)
+    .maybeSingle();
+  return !!data;
+}
+
+async function isAdminOf(userId: string, orgId: string): Promise<boolean> {
+  const { data } = await serviceRoleClient
+    .from("user_roles")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("role_type", "admin")
+    .eq("scope_type", "organization")
+    .eq("scope_id", orgId)
+    .is("revoked_at", null)
+    .maybeSingle();
+  return !!data;
+}
+
+async function requireAdminOrPrincipal(userId: string, orgId: string): Promise<boolean> {
+  if (await isPrincipalOf(userId, orgId)) return true;
+  if (await isAdminOf(userId, orgId)) return true;
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// bcrypt — Deno's bcrypt port is unreliable in the edge runtime, so we
+// roll a deterministic PBKDF2-SHA256 hash. Format: "pbkdf2$<iters>$<saltB64>$<hashB64>".
+// Verify works regardless of which library wrote the row, as long as the
+// format prefix matches.
+// ---------------------------------------------------------------------------
+const PIN_ITERATIONS = 100_000;
+
+function b64encode(bytes: Uint8Array): string {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+
+function b64decode(s: string): Uint8Array {
+  const bin = atob(s);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+async function hashPin(pin: string): Promise<string> {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(pin),
+    "PBKDF2",
+    false,
+    ["deriveBits"],
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", salt, iterations: PIN_ITERATIONS, hash: "SHA-256" },
+    keyMaterial,
+    256,
+  );
+  return `pbkdf2$${PIN_ITERATIONS}$${b64encode(salt)}$${b64encode(new Uint8Array(bits))}`;
+}
+
+async function verifyPin(pin: string, hash: string): Promise<boolean> {
+  const parts = hash.split("$");
+  if (parts.length !== 4 || parts[0] !== "pbkdf2") return false;
+  const iters = parseInt(parts[1], 10);
+  if (!iters) return false;
+  const salt = b64decode(parts[2]);
+  const expected = b64decode(parts[3]);
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(pin),
+    "PBKDF2",
+    false,
+    ["deriveBits"],
+  );
+  const bits = new Uint8Array(
+    await crypto.subtle.deriveBits(
+      { name: "PBKDF2", salt, iterations: iters, hash: "SHA-256" },
+      keyMaterial,
+      expected.length * 8,
+    ),
+  );
+  if (bits.length !== expected.length) return false;
+  let diff = 0;
+  for (let i = 0; i < bits.length; i++) diff |= bits[i] ^ expected[i];
+  return diff === 0;
+}
+
+// ---------------------------------------------------------------------------
+// PIN session token — HMAC-SHA256-signed JSON. Distinct from family JWTs;
+// only valid for /school/auth/pin-change (Phase A).
+// ---------------------------------------------------------------------------
+const PIN_TOKEN_TTL_SECONDS = 60 * 60 * 8; // 8h
+
+function getJwtSecret(): string {
+  // Use the supabase JWT secret if available; fall back to service role key
+  // for local dev. Both are server-only secrets.
+  return (
+    Deno.env.get("SUPABASE_JWT_SECRET") ||
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ||
+    "dev-pin-secret"
+  );
+}
+
+async function hmacSign(payload: string, secret: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
+  return b64encode(new Uint8Array(sig));
+}
+
+interface PinTokenPayload {
+  subjectType: "student" | "parent";
+  subjectId: string;
+  orgId: string;
+  exp: number; // unix seconds
+}
+
+async function makePinToken(p: PinTokenPayload): Promise<string> {
+  const body = btoa(JSON.stringify(p));
+  const sig = await hmacSign(body, getJwtSecret());
+  return `pin.${body}.${sig}`;
+}
+
+async function verifyPinToken(token: string): Promise<PinTokenPayload | null> {
+  if (!token.startsWith("pin.")) return null;
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  const body = parts[1];
+  const sig = parts[2];
+  const expected = await hmacSign(body, getJwtSecret());
+  if (expected !== sig) return null;
+  let payload: PinTokenPayload;
+  try {
+    payload = JSON.parse(atob(body));
+  } catch {
+    return null;
+  }
+  if (payload.exp * 1000 < Date.now()) return null;
+  return payload;
+}
+
+// ---------------------------------------------------------------------------
+// Validation helpers
+// ---------------------------------------------------------------------------
+function isFourDigitPin(s: unknown): s is string {
+  return typeof s === "string" && /^\d{4}$/.test(s);
+}
+
+function validStudentRow(r: any, i: number): { ok: true; row: StudentRow } | { ok: false; message: string; rowIndex: number } {
+  if (!r || typeof r !== "object") return { ok: false, message: "row is not an object", rowIndex: i };
+  if (!r.grNumber || typeof r.grNumber !== "string") return { ok: false, message: "grNumber required", rowIndex: i };
+  if (!r.fullName || typeof r.fullName !== "string") return { ok: false, message: "fullName required", rowIndex: i };
+  return {
+    ok: true,
+    row: {
+      grNumber: String(r.grNumber).trim(),
+      fullName: String(r.fullName).trim(),
+      classSectionId: r.classSectionId || undefined,
+      photoUrl: r.photoUrl || undefined,
+      dateOfBirth: r.dateOfBirth || undefined,
+      gender: r.gender || undefined,
+      guardianPhone: r.guardianPhone || undefined,
+      guardianEmail: r.guardianEmail || undefined,
+    },
+  };
+}
+
+function validParentRow(r: any, i: number): { ok: true; row: ParentRow } | { ok: false; message: string; rowIndex: number } {
+  if (!r || typeof r !== "object") return { ok: false, message: "row is not an object", rowIndex: i };
+  if (!r.fullName || typeof r.fullName !== "string") return { ok: false, message: "fullName required", rowIndex: i };
+  return {
+    ok: true,
+    row: {
+      fullName: String(r.fullName).trim(),
+      phone: r.phone || undefined,
+      email: r.email || undefined,
+      relationship: r.relationship || undefined,
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Link code generator — 8 chars from a no-ambiguous alphabet.
+// ---------------------------------------------------------------------------
+const LINK_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+function generateLinkCode(): string {
+  const buf = crypto.getRandomValues(new Uint8Array(8));
+  let s = "";
+  for (let i = 0; i < 8; i++) s += LINK_CODE_ALPHABET[buf[i] % LINK_CODE_ALPHABET.length];
+  return s;
+}
+
+// ===========================================================================
+// installPhaseA — attaches all Phase A routes to the school Hono sub-app.
+// ===========================================================================
+export function installPhaseA(school: Hono) {
+  // -------------------------------------------------------------------------
+  // CLASSES
+  // -------------------------------------------------------------------------
+  school.post("/orgs/:orgId/classes", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await requireAdminOrPrincipal(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    if (!body?.name || typeof body.name !== "string") {
+      return c.json({ error: "name required" }, 400);
+    }
+    const { data, error } = await serviceRoleClient
+      .from("class")
+      .insert({
+        organization_id: orgId,
+        name: body.name.trim(),
+        display_order: typeof body.displayOrder === "number" ? body.displayOrder : 0,
+      })
+      .select()
+      .single();
+    if (error) {
+      if ((error as any).code === "23505") {
+        return c.json({ error: "a class with this name already exists" }, 409);
+      }
+      return c.json({ error: error.message }, 500);
+    }
+    return c.json(data, 201);
+  });
+
+  school.get("/orgs/:orgId/classes", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await hasAnyRoleInOrg(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const { data: classes, error } = await serviceRoleClient
+      .from("class")
+      .select("*")
+      .eq("organization_id", orgId)
+      .order("display_order")
+      .order("name");
+    if (error) return c.json({ error: error.message }, 500);
+    const classIds = (classes ?? []).map((c: any) => c.id);
+    let sectionsByClass: Record<string, any[]> = {};
+    if (classIds.length > 0) {
+      const { data: sections } = await serviceRoleClient
+        .from("class_section")
+        .select("*")
+        .in("class_id", classIds)
+        .order("name");
+      for (const s of sections ?? []) {
+        (sectionsByClass[s.class_id] ??= []).push(s);
+      }
+    }
+    return c.json({
+      classes: (classes ?? []).map((cl: any) => ({
+        ...cl,
+        sections: sectionsByClass[cl.id] ?? [],
+      })),
+    });
+  });
+
+  school.patch("/orgs/:orgId/classes/:classId", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const classId = c.req.param("classId");
+    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    const patch: Record<string, unknown> = {};
+    if (typeof body.name === "string") patch.name = body.name.trim();
+    if (typeof body.displayOrder === "number") patch.display_order = body.displayOrder;
+    if (Object.keys(patch).length === 0) return c.json({ error: "no fields to update" }, 400);
+    const { data, error } = await serviceRoleClient
+      .from("class")
+      .update(patch)
+      .eq("id", classId)
+      .eq("organization_id", orgId)
+      .select()
+      .single();
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json(data);
+  });
+
+  school.delete("/orgs/:orgId/classes/:classId", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const classId = c.req.param("classId");
+    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    const { error } = await serviceRoleClient
+      .from("class")
+      .delete()
+      .eq("id", classId)
+      .eq("organization_id", orgId);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ ok: true });
+  });
+
+  // -------------------------------------------------------------------------
+  // SECTIONS
+  // -------------------------------------------------------------------------
+  school.post("/orgs/:orgId/classes/:classId/sections", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const classId = c.req.param("classId");
+    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    if (!body?.name || typeof body.name !== "string") return c.json({ error: "name required" }, 400);
+
+    // Verify the class belongs to this org
+    const { data: cls } = await serviceRoleClient
+      .from("class").select("id").eq("id", classId).eq("organization_id", orgId).maybeSingle();
+    if (!cls) return c.json({ error: "class not found in this org" }, 404);
+
+    const { data, error } = await serviceRoleClient
+      .from("class_section")
+      .insert({
+        class_id: classId,
+        name: body.name.trim(),
+        class_teacher_user_id: body.classTeacherUserId ?? null,
+      })
+      .select()
+      .single();
+    if (error) {
+      if ((error as any).code === "23505") {
+        return c.json({ error: "a section with this name already exists for this class" }, 409);
+      }
+      return c.json({ error: error.message }, 500);
+    }
+    return c.json(data, 201);
+  });
+
+  school.patch("/orgs/:orgId/sections/:sectionId", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const sectionId = c.req.param("sectionId");
+    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+
+    // Verify section belongs to this org via class join
+    const { data: secCheck } = await serviceRoleClient
+      .from("class_section")
+      .select("id, class:class_id(organization_id)")
+      .eq("id", sectionId)
+      .maybeSingle();
+    if (!secCheck || (secCheck as any).class?.organization_id !== orgId) {
+      return c.json({ error: "section not found in this org" }, 404);
+    }
+
+    const patch: Record<string, unknown> = {};
+    if (typeof body.name === "string") patch.name = body.name.trim();
+    if ("classTeacherUserId" in body) patch.class_teacher_user_id = body.classTeacherUserId ?? null;
+    if (Object.keys(patch).length === 0) return c.json({ error: "no fields to update" }, 400);
+
+    const { data, error } = await serviceRoleClient
+      .from("class_section").update(patch).eq("id", sectionId).select().single();
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json(data);
+  });
+
+  school.delete("/orgs/:orgId/sections/:sectionId", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const sectionId = c.req.param("sectionId");
+    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+
+    const { data: secCheck } = await serviceRoleClient
+      .from("class_section")
+      .select("id, class:class_id(organization_id)")
+      .eq("id", sectionId)
+      .maybeSingle();
+    if (!secCheck || (secCheck as any).class?.organization_id !== orgId) {
+      return c.json({ error: "section not found in this org" }, 404);
+    }
+    const { error } = await serviceRoleClient.from("class_section").delete().eq("id", sectionId);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ ok: true });
+  });
+
+  // -------------------------------------------------------------------------
+  // STUDENTS
+  // -------------------------------------------------------------------------
+  school.post("/orgs/:orgId/students", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    const v = validStudentRow(body, 0);
+    if (!v.ok) return c.json({ error: v.message }, 400);
+
+    const { data, error } = await serviceRoleClient
+      .from("student")
+      .insert({
+        organization_id: orgId,
+        gr_number: v.row.grNumber,
+        full_name: v.row.fullName,
+        class_section_id: v.row.classSectionId ?? null,
+        photo_url: v.row.photoUrl ?? null,
+        date_of_birth: v.row.dateOfBirth ?? null,
+        gender: v.row.gender ?? null,
+        guardian_phone: v.row.guardianPhone ?? null,
+        guardian_email: v.row.guardianEmail ?? null,
+      })
+      .select()
+      .single();
+    if (error) {
+      if ((error as any).code === "23505") {
+        return c.json({ error: "a student with this GR number already exists" }, 409);
+      }
+      return c.json({ error: error.message }, 500);
+    }
+    return c.json(data, 201);
+  });
+
+  school.get("/orgs/:orgId/students", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await hasAnyRoleInOrg(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    const classSectionId = c.req.query("classSectionId");
+    const search = c.req.query("search");
+    let q = serviceRoleClient.from("student").select("*").eq("organization_id", orgId);
+    if (classSectionId) q = q.eq("class_section_id", classSectionId);
+    if (search) q = q.ilike("full_name", `%${search}%`);
+    const { data, error } = await q.order("full_name").limit(500);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ students: data ?? [] });
+  });
+
+  school.get("/orgs/:orgId/students/:studentId", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const studentId = c.req.param("studentId");
+    if (!(await hasAnyRoleInOrg(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    const { data: student, error } = await serviceRoleClient
+      .from("student").select("*").eq("id", studentId).eq("organization_id", orgId).maybeSingle();
+    if (error) return c.json({ error: error.message }, 500);
+    if (!student) return c.json({ error: "not found" }, 404);
+    const { data: links } = await serviceRoleClient
+      .from("student_parent")
+      .select("is_primary, parent:parent_id(*)")
+      .eq("student_id", studentId);
+    return c.json({
+      student,
+      parents: (links ?? []).map((l: any) => ({ ...l.parent, isPrimary: l.is_primary })),
+    });
+  });
+
+  school.patch("/orgs/:orgId/students/:studentId", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const studentId = c.req.param("studentId");
+    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    const map: Record<string, string> = {
+      grNumber: "gr_number",
+      fullName: "full_name",
+      classSectionId: "class_section_id",
+      photoUrl: "photo_url",
+      dateOfBirth: "date_of_birth",
+      gender: "gender",
+      guardianPhone: "guardian_phone",
+      guardianEmail: "guardian_email",
+    };
+    const patch: Record<string, unknown> = {};
+    for (const [k, col] of Object.entries(map)) {
+      if (k in body) patch[col] = body[k] ?? null;
+    }
+    if (Object.keys(patch).length === 0) return c.json({ error: "no fields to update" }, 400);
+    const { data, error } = await serviceRoleClient
+      .from("student").update(patch).eq("id", studentId).eq("organization_id", orgId)
+      .select().single();
+    if (error) {
+      if ((error as any).code === "23505") return c.json({ error: "GR number already in use" }, 409);
+      return c.json({ error: error.message }, 500);
+    }
+    return c.json(data);
+  });
+
+  school.delete("/orgs/:orgId/students/:studentId", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const studentId = c.req.param("studentId");
+    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    const { error } = await serviceRoleClient
+      .from("student").delete().eq("id", studentId).eq("organization_id", orgId);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ ok: true });
+  });
+
+  school.post("/orgs/:orgId/students/bulk", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    if (!Array.isArray(body?.rows)) return c.json({ error: "rows[] required" }, 400);
+
+    const errors: Array<{ rowIndex: number; message: string }> = [];
+    const validRows: Array<{ idx: number; row: StudentRow }> = [];
+    const grSeen = new Set<string>();
+    for (let i = 0; i < body.rows.length; i++) {
+      const v = validStudentRow(body.rows[i], i);
+      if (!v.ok) { errors.push({ rowIndex: v.rowIndex, message: v.message }); continue; }
+      if (grSeen.has(v.row.grNumber)) {
+        errors.push({ rowIndex: i, message: `duplicate grNumber in upload: ${v.row.grNumber}` });
+        continue;
+      }
+      grSeen.add(v.row.grNumber);
+      validRows.push({ idx: i, row: v.row });
+    }
+
+    if (validRows.length === 0) return c.json({ inserted: 0, errors });
+
+    const payload = validRows.map(({ row }) => ({
+      organization_id: orgId,
+      gr_number: row.grNumber,
+      full_name: row.fullName,
+      class_section_id: row.classSectionId ?? null,
+      photo_url: row.photoUrl ?? null,
+      date_of_birth: row.dateOfBirth ?? null,
+      gender: row.gender ?? null,
+      guardian_phone: row.guardianPhone ?? null,
+      guardian_email: row.guardianEmail ?? null,
+    }));
+
+    const { data, error } = await serviceRoleClient
+      .from("student").insert(payload).select("id, gr_number");
+    if (error) {
+      // Fall back to per-row inserts so we can report partial success.
+      let inserted = 0;
+      for (const { idx, row } of validRows) {
+        const { error: rowErr } = await serviceRoleClient.from("student").insert({
+          organization_id: orgId,
+          gr_number: row.grNumber,
+          full_name: row.fullName,
+          class_section_id: row.classSectionId ?? null,
+          photo_url: row.photoUrl ?? null,
+          date_of_birth: row.dateOfBirth ?? null,
+          gender: row.gender ?? null,
+          guardian_phone: row.guardianPhone ?? null,
+          guardian_email: row.guardianEmail ?? null,
+        });
+        if (rowErr) {
+          errors.push({ rowIndex: idx, message: rowErr.message });
+        } else {
+          inserted++;
+        }
+      }
+      return c.json({ inserted, errors });
+    }
+    return c.json({ inserted: data?.length ?? 0, errors });
+  });
+
+  // -------------------------------------------------------------------------
+  // PARENTS
+  // -------------------------------------------------------------------------
+  school.post("/orgs/:orgId/parents", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    const v = validParentRow(body, 0);
+    if (!v.ok) return c.json({ error: v.message }, 400);
+    const { data, error } = await serviceRoleClient
+      .from("parent")
+      .insert({
+        organization_id: orgId,
+        full_name: v.row.fullName,
+        phone: v.row.phone ?? null,
+        email: v.row.email ?? null,
+        relationship: v.row.relationship ?? null,
+      })
+      .select()
+      .single();
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json(data, 201);
+  });
+
+  school.get("/orgs/:orgId/parents", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await hasAnyRoleInOrg(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    const studentId = c.req.query("studentId");
+    const search = c.req.query("search");
+
+    if (studentId) {
+      const { data, error } = await serviceRoleClient
+        .from("student_parent")
+        .select("is_primary, parent:parent_id(*)")
+        .eq("student_id", studentId);
+      if (error) return c.json({ error: error.message }, 500);
+      return c.json({
+        parents: (data ?? [])
+          .map((r: any) => ({ ...r.parent, isPrimary: r.is_primary }))
+          .filter((p: any) => p.organization_id === orgId),
+      });
+    }
+
+    let q = serviceRoleClient.from("parent").select("*").eq("organization_id", orgId);
+    if (search) q = q.ilike("full_name", `%${search}%`);
+    const { data, error } = await q.order("full_name").limit(500);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ parents: data ?? [] });
+  });
+
+  school.patch("/orgs/:orgId/parents/:parentId", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const parentId = c.req.param("parentId");
+    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    const map: Record<string, string> = {
+      fullName: "full_name",
+      phone: "phone",
+      email: "email",
+      relationship: "relationship",
+    };
+    const patch: Record<string, unknown> = {};
+    for (const [k, col] of Object.entries(map)) {
+      if (k in body) patch[col] = body[k] ?? null;
+    }
+    if (Object.keys(patch).length === 0) return c.json({ error: "no fields to update" }, 400);
+    const { data, error } = await serviceRoleClient
+      .from("parent").update(patch).eq("id", parentId).eq("organization_id", orgId)
+      .select().single();
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json(data);
+  });
+
+  school.delete("/orgs/:orgId/parents/:parentId", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const parentId = c.req.param("parentId");
+    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    const { error } = await serviceRoleClient
+      .from("parent").delete().eq("id", parentId).eq("organization_id", orgId);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ ok: true });
+  });
+
+  school.post("/orgs/:orgId/parents/bulk", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    if (!Array.isArray(body?.rows)) return c.json({ error: "rows[] required" }, 400);
+
+    const errors: Array<{ rowIndex: number; message: string }> = [];
+    const valid: Array<{ idx: number; row: ParentRow }> = [];
+    for (let i = 0; i < body.rows.length; i++) {
+      const v = validParentRow(body.rows[i], i);
+      if (!v.ok) { errors.push({ rowIndex: v.rowIndex, message: v.message }); continue; }
+      valid.push({ idx: i, row: v.row });
+    }
+    if (valid.length === 0) return c.json({ inserted: 0, errors });
+
+    const payload = valid.map(({ row }) => ({
+      organization_id: orgId,
+      full_name: row.fullName,
+      phone: row.phone ?? null,
+      email: row.email ?? null,
+      relationship: row.relationship ?? null,
+    }));
+    const { data, error } = await serviceRoleClient.from("parent").insert(payload).select("id");
+    if (error) {
+      let inserted = 0;
+      for (const { idx, row } of valid) {
+        const { error: rowErr } = await serviceRoleClient.from("parent").insert({
+          organization_id: orgId,
+          full_name: row.fullName,
+          phone: row.phone ?? null,
+          email: row.email ?? null,
+          relationship: row.relationship ?? null,
+        });
+        if (rowErr) errors.push({ rowIndex: idx, message: rowErr.message });
+        else inserted++;
+      }
+      return c.json({ inserted, errors });
+    }
+    return c.json({ inserted: data?.length ?? 0, errors });
+  });
+
+  school.post("/orgs/:orgId/student-parent", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    if (!body?.studentId || !body?.parentId) return c.json({ error: "studentId and parentId required" }, 400);
+
+    // Verify both belong to this org.
+    const [{ data: s }, { data: p }] = await Promise.all([
+      serviceRoleClient.from("student").select("id").eq("id", body.studentId).eq("organization_id", orgId).maybeSingle(),
+      serviceRoleClient.from("parent").select("id").eq("id", body.parentId).eq("organization_id", orgId).maybeSingle(),
+    ]);
+    if (!s || !p) return c.json({ error: "student or parent not found in this org" }, 404);
+
+    const { error } = await serviceRoleClient
+      .from("student_parent")
+      .upsert(
+        { student_id: body.studentId, parent_id: body.parentId, is_primary: body.isPrimary === true },
+        { onConflict: "student_id,parent_id", ignoreDuplicates: true },
+      );
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ ok: true });
+  });
+
+  school.delete("/orgs/:orgId/student-parent/:studentId/:parentId", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    const studentId = c.req.param("studentId");
+    const parentId = c.req.param("parentId");
+    const { error } = await serviceRoleClient
+      .from("student_parent")
+      .delete()
+      .eq("student_id", studentId)
+      .eq("parent_id", parentId);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ ok: true });
+  });
+
+  // -------------------------------------------------------------------------
+  // TEACHERS BULK
+  // -------------------------------------------------------------------------
+  school.post("/orgs/:orgId/teachers/bulk", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    if (!Array.isArray(body?.rows)) return c.json({ error: "rows[] required" }, 400);
+
+    const errors: Array<{ rowIndex: number; message: string }> = [];
+    let inserted = 0;
+
+    for (let i = 0; i < body.rows.length; i++) {
+      const r = body.rows[i] as TeacherRow;
+      if (!r?.email || !r?.fullName || !r?.roleTemplate) {
+        errors.push({ rowIndex: i, message: "email, fullName, roleTemplate required" });
+        continue;
+      }
+      if (r.roleTemplate !== "class_teacher" && r.roleTemplate !== "visiting_teacher") {
+        errors.push({ rowIndex: i, message: "roleTemplate must be class_teacher or visiting_teacher" });
+        continue;
+      }
+      try {
+        let targetUserId: string | null = null;
+
+        // Try to find an existing auth user by email.
+        const { data: listed } = await (serviceRoleClient as any).auth.admin.listUsers({ page: 1, perPage: 200 });
+        const existing = (listed?.users ?? []).find((u: any) => (u.email ?? "").toLowerCase() === r.email.toLowerCase());
+
+        if (existing) {
+          targetUserId = existing.id;
+        } else {
+          const randomPwd = crypto.randomUUID() + crypto.randomUUID();
+          const { data: created, error: createErr } = await (serviceRoleClient as any).auth.admin.createUser({
+            email: r.email,
+            password: randomPwd,
+            email_confirm: true,
+            user_metadata: { name: r.fullName },
+          });
+          if (createErr || !created?.user) {
+            errors.push({ rowIndex: i, message: createErr?.message ?? "could not create auth user" });
+            continue;
+          }
+          targetUserId = created.user.id;
+        }
+
+        const { error: roleErr } = await serviceRoleClient.from("user_roles").insert({
+          user_id: targetUserId,
+          role_type: r.roleTemplate,
+          scope_type: "organization",
+          scope_id: orgId,
+          granted_by: userId,
+        });
+        if (roleErr && (roleErr as any).code !== "23505") {
+          errors.push({ rowIndex: i, message: roleErr.message });
+          continue;
+        }
+        inserted++;
+      } catch (e: any) {
+        errors.push({ rowIndex: i, message: e?.message ?? String(e) });
+      }
+    }
+
+    return c.json({ inserted, errors });
+  });
+
+  // -------------------------------------------------------------------------
+  // ADMIN ROLE GRANT (principal-only)
+  // -------------------------------------------------------------------------
+  school.post("/orgs/:orgId/admins", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await isPrincipalOf(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    if (!body?.email || !body?.fullName) return c.json({ error: "email and fullName required" }, 400);
+
+    let targetUserId: string | null = null;
+    const { data: listed } = await (serviceRoleClient as any).auth.admin.listUsers({ page: 1, perPage: 200 });
+    const existing = (listed?.users ?? []).find((u: any) => (u.email ?? "").toLowerCase() === body.email.toLowerCase());
+    if (existing) {
+      targetUserId = existing.id;
+    } else {
+      const randomPwd = crypto.randomUUID() + crypto.randomUUID();
+      const { data: created, error } = await (serviceRoleClient as any).auth.admin.createUser({
+        email: body.email,
+        password: randomPwd,
+        email_confirm: true,
+        user_metadata: { name: body.fullName },
+      });
+      if (error || !created?.user) return c.json({ error: error?.message ?? "could not create user" }, 500);
+      targetUserId = created.user.id;
+    }
+
+    const { error: roleErr } = await serviceRoleClient.from("user_roles").insert({
+      user_id: targetUserId,
+      role_type: "admin",
+      scope_type: "organization",
+      scope_id: orgId,
+      granted_by: userId,
+    });
+    if (roleErr && (roleErr as any).code !== "23505") return c.json({ error: roleErr.message }, 500);
+    return c.json({ userId: targetUserId, ok: true }, 201);
+  });
+
+  school.delete("/orgs/:orgId/admins/:userId", async (c) => {
+    const callerId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const targetUserId = c.req.param("userId");
+    if (!(await isPrincipalOf(callerId, orgId))) return c.json({ error: "forbidden" }, 403);
+    const { error } = await serviceRoleClient
+      .from("user_roles")
+      .update({ revoked_at: new Date().toISOString() })
+      .eq("user_id", targetUserId)
+      .eq("role_type", "admin")
+      .eq("scope_type", "organization")
+      .eq("scope_id", orgId)
+      .is("revoked_at", null);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ ok: true });
+  });
+
+  school.get("/orgs/:orgId/admins", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await hasAnyRoleInOrg(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    const { data, error } = await serviceRoleClient
+      .from("user_roles")
+      .select("user_id, granted_at")
+      .eq("role_type", "admin")
+      .eq("scope_type", "organization")
+      .eq("scope_id", orgId)
+      .is("revoked_at", null);
+    if (error) return c.json({ error: error.message }, 500);
+
+    // Hydrate emails / names from auth.users.
+    const out: any[] = [];
+    for (const row of data ?? []) {
+      try {
+        const { data: u } = await (serviceRoleClient as any).auth.admin.getUserById(row.user_id);
+        out.push({
+          userId: row.user_id,
+          email: u?.user?.email ?? null,
+          fullName: u?.user?.user_metadata?.name ?? null,
+          grantedAt: row.granted_at,
+        });
+      } catch {
+        out.push({ userId: row.user_id, email: null, fullName: null, grantedAt: row.granted_at });
+      }
+    }
+    return c.json({ admins: out });
+  });
+
+  // -------------------------------------------------------------------------
+  // PIN AUTH
+  // -------------------------------------------------------------------------
+  school.post("/orgs/:orgId/pin/set", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    const { subjectType, subjectId, pin } = body || {};
+    if (subjectType !== "student" && subjectType !== "parent") {
+      return c.json({ error: "subjectType must be student or parent" }, 400);
+    }
+    if (!subjectId) return c.json({ error: "subjectId required" }, 400);
+    if (!isFourDigitPin(pin)) return c.json({ error: "pin must be exactly 4 digits" }, 400);
+
+    // Look up the subject + derive login_identifier.
+    let loginIdentifier = "";
+    if (subjectType === "student") {
+      const { data: s } = await serviceRoleClient
+        .from("student").select("gr_number").eq("id", subjectId).eq("organization_id", orgId).maybeSingle();
+      if (!s) return c.json({ error: "student not found in this org" }, 404);
+      loginIdentifier = s.gr_number;
+    } else {
+      const { data: p } = await serviceRoleClient
+        .from("parent").select("phone").eq("id", subjectId).eq("organization_id", orgId).maybeSingle();
+      if (!p) return c.json({ error: "parent not found in this org" }, 404);
+      if (!p.phone) return c.json({ error: "parent must have a phone before setting a PIN" }, 400);
+      loginIdentifier = p.phone;
+    }
+
+    // Determine must_change: false if a row already exists (operator resetting),
+    // true on first set.
+    const { data: existing } = await serviceRoleClient
+      .from("pin_credential").select("id")
+      .eq("organization_id", orgId).eq("subject_type", subjectType).eq("subject_id", subjectId)
+      .maybeSingle();
+    const mustChange = !existing;
+
+    const pin_hash = await hashPin(pin);
+    const { error } = await serviceRoleClient
+      .from("pin_credential")
+      .upsert(
+        {
+          organization_id: orgId,
+          subject_type: subjectType,
+          subject_id: subjectId,
+          login_identifier: loginIdentifier,
+          pin_hash,
+          must_change: mustChange,
+          failed_attempts: 0,
+          locked_until: null,
+        },
+        { onConflict: "organization_id,subject_type,subject_id" },
+      );
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ ok: true, mustChange });
+  });
+
+  school.post("/orgs/:orgId/pin/reset", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    const { subjectType, subjectId } = body || {};
+    if (subjectType !== "student" && subjectType !== "parent") {
+      return c.json({ error: "subjectType must be student or parent" }, 400);
+    }
+    if (!subjectId) return c.json({ error: "subjectId required" }, 400);
+
+    let loginIdentifier = "";
+    if (subjectType === "student") {
+      const { data: s } = await serviceRoleClient
+        .from("student").select("gr_number").eq("id", subjectId).eq("organization_id", orgId).maybeSingle();
+      if (!s) return c.json({ error: "student not found in this org" }, 404);
+      loginIdentifier = s.gr_number;
+    } else {
+      const { data: p } = await serviceRoleClient
+        .from("parent").select("phone").eq("id", subjectId).eq("organization_id", orgId).maybeSingle();
+      if (!p) return c.json({ error: "parent not found in this org" }, 404);
+      if (!p.phone) return c.json({ error: "parent must have a phone before setting a PIN" }, 400);
+      loginIdentifier = p.phone;
+    }
+
+    const rnd = crypto.getRandomValues(new Uint32Array(1))[0];
+    const newPin = String(rnd % 10000).padStart(4, "0");
+    const pin_hash = await hashPin(newPin);
+    const { error } = await serviceRoleClient
+      .from("pin_credential")
+      .upsert(
+        {
+          organization_id: orgId,
+          subject_type: subjectType,
+          subject_id: subjectId,
+          login_identifier: loginIdentifier,
+          pin_hash,
+          must_change: true,
+          failed_attempts: 0,
+          locked_until: null,
+        },
+        { onConflict: "organization_id,subject_type,subject_id" },
+      );
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ pin: newPin });
+  });
+
+  // NOTE: /auth/pin-login is mounted on a NO-AUTH path — see school.tsx
+  // mounting glue. We define the handler here and the wrapper there
+  // registers it in a way that skips the requireAuth middleware.
+  school.post("/auth/pin-login", async (c) => {
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    const { orgIdentifier, loginIdentifier, pin } = body || {};
+    if (!orgIdentifier || !loginIdentifier || !pin) {
+      return c.json({ error: "orgIdentifier, loginIdentifier, pin required" }, 400);
+    }
+
+    const { data: org } = await serviceRoleClient
+      .from("organizations").select("id").eq("slug", orgIdentifier).maybeSingle();
+    if (!org) return c.json({ error: "organization not found" }, 404);
+
+    const { data: cred } = await serviceRoleClient
+      .from("pin_credential")
+      .select("*")
+      .eq("organization_id", org.id)
+      .eq("login_identifier", loginIdentifier)
+      .maybeSingle();
+    if (!cred) return c.json({ error: "invalid credentials" }, 401);
+
+    if (cred.locked_until && new Date(cred.locked_until).getTime() > Date.now()) {
+      return c.json({ error: "account locked, try again later", lockedUntil: cred.locked_until }, 423);
+    }
+
+    const ok = await verifyPin(pin, cred.pin_hash);
+    if (!ok) {
+      const failed = (cred.failed_attempts ?? 0) + 1;
+      const updates: any = { failed_attempts: failed };
+      if (failed >= 5) {
+        updates.locked_until = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+        updates.failed_attempts = 0;
+      }
+      await serviceRoleClient.from("pin_credential").update(updates).eq("id", cred.id);
+      return c.json({ error: "invalid credentials" }, 401);
+    }
+
+    await serviceRoleClient
+      .from("pin_credential")
+      .update({ failed_attempts: 0, locked_until: null, last_login_at: new Date().toISOString() })
+      .eq("id", cred.id);
+
+    const exp = Math.floor(Date.now() / 1000) + PIN_TOKEN_TTL_SECONDS;
+    const token = await makePinToken({
+      subjectType: cred.subject_type,
+      subjectId: cred.subject_id,
+      orgId: org.id,
+      exp,
+    });
+    return c.json({
+      subjectType: cred.subject_type,
+      subjectId: cred.subject_id,
+      orgId: org.id,
+      mustChange: cred.must_change,
+      token,
+    });
+  });
+
+  school.post("/auth/pin-change", async (c) => {
+    // This route is mounted under the auth-required prefix. The family JWT
+    // requireAuth wouldn't recognize a pin token, so we accept either:
+    //   (a) the standard requireAuth user with an X-Pin-Token header, OR
+    //   (b) the pin token in Authorization (Bearer pin.…).
+    // Easiest implementation: read pin token from a dedicated header.
+    const pinTokenHeader = c.req.header("X-Pin-Token") || "";
+    const payload = await verifyPinToken(pinTokenHeader);
+    if (!payload) return c.json({ error: "invalid pin token" }, 401);
+
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    const { subjectType, subjectId, currentPin, newPin } = body || {};
+    if (subjectType !== payload.subjectType || subjectId !== payload.subjectId) {
+      return c.json({ error: "token does not match subject" }, 403);
+    }
+    if (!isFourDigitPin(currentPin) || !isFourDigitPin(newPin)) {
+      return c.json({ error: "currentPin and newPin must be 4 digits" }, 400);
+    }
+
+    const { data: cred } = await serviceRoleClient
+      .from("pin_credential")
+      .select("*")
+      .eq("organization_id", payload.orgId)
+      .eq("subject_type", subjectType)
+      .eq("subject_id", subjectId)
+      .maybeSingle();
+    if (!cred) return c.json({ error: "credential not found" }, 404);
+
+    const ok = await verifyPin(currentPin, cred.pin_hash);
+    if (!ok) return c.json({ error: "current pin is incorrect" }, 401);
+
+    const pin_hash = await hashPin(newPin);
+    await serviceRoleClient
+      .from("pin_credential")
+      .update({ pin_hash, must_change: false })
+      .eq("id", cred.id);
+    return c.json({ ok: true });
+  });
+
+  // -------------------------------------------------------------------------
+  // LINK CODES
+  // -------------------------------------------------------------------------
+  school.post("/orgs/:orgId/link-codes", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    if (!body?.studentId) return c.json({ error: "studentId required" }, 400);
+
+    const { data: s } = await serviceRoleClient
+      .from("student").select("id").eq("id", body.studentId).eq("organization_id", orgId).maybeSingle();
+    if (!s) return c.json({ error: "student not found in this org" }, 404);
+
+    const days = Math.max(1, Math.min(365, body.expiresInDays ?? 30));
+    const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+
+    let lastErr: any = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const code = generateLinkCode();
+      const { data, error } = await serviceRoleClient
+        .from("link_code")
+        .insert({
+          organization_id: orgId,
+          student_id: body.studentId,
+          code,
+          expires_at: expiresAt,
+          created_by: userId,
+        })
+        .select()
+        .single();
+      if (!error) return c.json({ code: data.code, expiresAt: data.expires_at }, 201);
+      if ((error as any).code !== "23505") {
+        return c.json({ error: error.message }, 500);
+      }
+      lastErr = error;
+    }
+    return c.json({ error: "could not generate unique code", details: lastErr?.message }, 500);
+  });
+
+  school.get("/orgs/:orgId/link-codes", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    const studentId = c.req.query("studentId");
+    const unusedOnly = c.req.query("unusedOnly") === "true";
+    let q = serviceRoleClient.from("link_code").select("*").eq("organization_id", orgId);
+    if (studentId) q = q.eq("student_id", studentId);
+    if (unusedOnly) q = q.is("consumed_at", null);
+    const { data, error } = await q.order("created_at", { ascending: false }).limit(500);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ linkCodes: data ?? [] });
+  });
+
+  school.post("/link-codes/consume", async (c) => {
+    const userId = getAuthUserId(c);
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    if (!body?.code || typeof body.code !== "string") return c.json({ error: "code required" }, 400);
+
+    const { data: row, error } = await serviceRoleClient
+      .from("link_code")
+      .select("*, student:student_id(id, full_name, organization_id)")
+      .eq("code", body.code.trim())
+      .maybeSingle();
+    if (error) return c.json({ error: error.message }, 500);
+    if (!row) return c.json({ error: "code not found" }, 404);
+    if (row.consumed_at) return c.json({ error: "code already used" }, 410);
+    if (new Date(row.expires_at).getTime() < Date.now()) return c.json({ error: "code expired" }, 410);
+
+    const { error: updErr } = await serviceRoleClient
+      .from("link_code")
+      .update({ consumed_at: new Date().toISOString(), consumed_by: userId })
+      .eq("id", row.id);
+    if (updErr) return c.json({ error: updErr.message }, 500);
+
+    return c.json({
+      studentId: row.student_id,
+      orgId: (row.student as any)?.organization_id ?? row.organization_id,
+      studentName: (row.student as any)?.full_name ?? null,
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // PERMISSION TEMPLATES
+  // -------------------------------------------------------------------------
+  school.get("/orgs/:orgId/permissions", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await hasAnyRoleInOrg(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    const { data: overrides, error } = await serviceRoleClient
+      .from("role_template_override").select("*").eq("organization_id", orgId);
+    if (error) return c.json({ error: error.message }, 500);
+
+    const overrideMap = new Map<string, boolean>();
+    for (const o of overrides ?? []) {
+      overrideMap.set(`${o.role_template}::${o.permission_key}`, o.allowed);
+    }
+    const result: Array<{ roleTemplate: RoleTemplate; permissionKey: PermissionKey; allowed: boolean }> = [];
+    for (const rt of Object.keys(DEFAULT_PERMISSIONS) as RoleTemplate[]) {
+      for (const pk of PERMISSION_KEYS) {
+        const key = `${rt}::${pk}`;
+        const allowed = overrideMap.has(key) ? !!overrideMap.get(key) : DEFAULT_PERMISSIONS[rt][pk];
+        result.push({ roleTemplate: rt, permissionKey: pk, allowed });
+      }
+    }
+    return c.json({ permissions: result });
+  });
+
+  school.patch("/orgs/:orgId/permissions", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await isPrincipalOf(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    if (!Array.isArray(body?.overrides)) return c.json({ error: "overrides[] required" }, 400);
+
+    const validTemplates = new Set(Object.keys(DEFAULT_PERMISSIONS));
+    const validKeys = new Set(PERMISSION_KEYS);
+    const rows: any[] = [];
+    for (const o of body.overrides) {
+      if (!validTemplates.has(o.roleTemplate)) return c.json({ error: `invalid roleTemplate: ${o.roleTemplate}` }, 400);
+      if (!validKeys.has(o.permissionKey)) return c.json({ error: `invalid permissionKey: ${o.permissionKey}` }, 400);
+      if (typeof o.allowed !== "boolean") return c.json({ error: "allowed must be boolean" }, 400);
+      rows.push({
+        organization_id: orgId,
+        role_template: o.roleTemplate,
+        permission_key: o.permissionKey,
+        allowed: o.allowed,
+      });
+    }
+    if (rows.length === 0) return c.json({ ok: true, updated: 0 });
+
+    const { error } = await serviceRoleClient
+      .from("role_template_override")
+      .upsert(rows, { onConflict: "organization_id,role_template,permission_key" });
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ ok: true, updated: rows.length });
+  });
+}

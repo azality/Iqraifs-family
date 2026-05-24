@@ -21,12 +21,33 @@
 
 import { Hono } from "npm:hono";
 import { serviceRoleClient, requireAuth, getAuthUserId } from "./middleware.tsx";
+import { installPhaseA } from "./schoolPhaseA.tsx";
 import { installPhaseB } from "./schoolPhaseB.tsx";
 
 const school = new Hono();
 
-// All routes require auth
-school.use("*", requireAuth);
+// Paths under /school that are intentionally PUBLIC (no family-JWT required).
+// These have their own auth mechanisms (e.g. PIN-based login that issues a
+// token the caller then uses for follow-up requests).
+const PUBLIC_SCHOOL_PATHS = new Set<string>([
+  "/auth/pin-login",
+  // pin-change carries its own X-Pin-Token; the handler verifies it.
+  "/auth/pin-change",
+]);
+
+// All routes require auth EXCEPT the explicitly-public PIN login endpoint.
+school.use("*", async (c, next) => {
+  const path = new URL(c.req.url).pathname;
+  // path is the full request path; strip the mount prefix to compare.
+  // The school sub-app is mounted at /make-server-f116e23f/school, so the
+  // tail after that is what we want to test.
+  const tail = path.replace(/^.*\/school/, "");
+  if (PUBLIC_SCHOOL_PATHS.has(tail)) {
+    await next();
+    return;
+  }
+  return requireAuth(c, next);
+});
 
 // -----------------------------------------------------------------------------
 // Role helpers — check user_roles for caller's privileges.
@@ -2465,6 +2486,11 @@ school.post("/child-id-map", async (c) => {
 // Phase B routes (attendance, behavior notes, roster change requests)
 // Installed onto this same Hono instance so they inherit requireAuth.
 // -----------------------------------------------------------------------------
+// Phase A — install admin role / students / parents / classes / PIN / link
+// codes / permission-template routes. Kept in a separate module to keep
+// this file manageable.
+installPhaseA(school);
+
 installPhaseB(school);
 
 export default school;
