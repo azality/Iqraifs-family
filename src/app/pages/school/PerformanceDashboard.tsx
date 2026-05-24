@@ -54,6 +54,7 @@ import {
   getInsights,
   getOrganization,
   getSectionsLeaderboard,
+  isOrgAdmin,
   isOrgPrincipal,
   type DashboardAlert,
   type DashboardPeriod,
@@ -108,21 +109,37 @@ function PeriodSelector({
 
 // ─── Manage toolbar ──────────────────────────────────────────────────────
 
-function ManageToolbar({ orgId, showPermissions }: { orgId: string; showPermissions: boolean }) {
-  // These point to where the manage subpages will live. Until the dedicated
-  // pages ship, several reuse existing routes (setup wizard, behavior catalog).
+function ManageToolbar({
+  orgId,
+  showPermissions,
+  showRosterRequests,
+}: {
+  orgId: string;
+  showPermissions: boolean;
+  showRosterRequests: boolean;
+}) {
+  // Phase B wired these to the real admin pages. Until Phase B shipped these
+  // all pointed at /setup as a placeholder.
   const items: Array<{ label: string; to: string; Icon: typeof Users; key: string }> = [
-    { key: "classes", label: "Classes", to: `/school/orgs/${orgId}/setup`, Icon: BookOpen },
-    { key: "students", label: "Students", to: `/school/orgs/${orgId}/setup`, Icon: Users },
-    { key: "parents", label: "Parents", to: `/school/orgs/${orgId}/setup`, Icon: Heart },
-    { key: "teachers", label: "Teachers", to: `/school/orgs/${orgId}/setup`, Icon: UserSquare2 },
-    { key: "linkcodes", label: "Link Codes", to: `/school/orgs/${orgId}/setup`, Icon: KeyRound },
+    { key: "classes", label: "Classes", to: `/school/orgs/${orgId}/admin/classes`, Icon: BookOpen },
+    { key: "students", label: "Students", to: `/school/orgs/${orgId}/admin/students`, Icon: Users },
+    { key: "parents", label: "Parents", to: `/school/orgs/${orgId}/admin/parents`, Icon: Heart },
+    { key: "teachers", label: "Teachers", to: `/school/orgs/${orgId}/admin/teachers`, Icon: UserSquare2 },
+    { key: "linkcodes", label: "Link Codes", to: `/school/orgs/${orgId}/admin/link-codes`, Icon: KeyRound },
   ];
+  if (showRosterRequests) {
+    items.push({
+      key: "roster-requests",
+      label: "Roster Requests",
+      to: `/school/orgs/${orgId}/admin/roster-requests`,
+      Icon: FileText,
+    });
+  }
   if (showPermissions) {
     items.push({
       key: "permissions",
       label: "Permissions",
-      to: `/school/orgs/${orgId}/behavior-catalog`,
+      to: `/school/orgs/${orgId}/admin/permissions`,
       Icon: ShieldCheck,
     });
   }
@@ -644,6 +661,7 @@ export function PerformanceDashboard() {
 
   const me = workspaceCtx?.me ?? null;
   const showPermissions = isOrgPrincipal(me, orgId);
+  const showRosterRequests = isOrgAdmin(me, orgId);
 
   const health = dashboard?.health;
   const totalSections = leaderboard?.length ?? 0;
@@ -692,7 +710,7 @@ export function PerformanceDashboard() {
       </div>
 
       {/* Manage actions toolbar */}
-      <ManageToolbar orgId={orgId} showPermissions={showPermissions} />
+      <ManageToolbar orgId={orgId} showPermissions={showPermissions} showRosterRequests={showRosterRequests} />
 
       {/* Page title + period */}
       <div className="flex flex-wrap items-end justify-between gap-3">

@@ -23,7 +23,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../components/ui/select";
-import { Users, Plus, Upload, Search, Trash2, Pencil, Eye } from "lucide-react";
+import { Users, Plus, Upload, Search, Trash2, Pencil, Eye, MessageSquare } from "lucide-react";
+import { BehaviorLogEntry } from "./BehaviorLogEntry";
 import {
   getSchoolMe,
   isOrgAdmin,
@@ -67,6 +68,8 @@ export function ManageStudents() {
   const [form, setForm] = useState<CreateStudentBody>(emptyForm);
   const [csvOpen, setCsvOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Per-row "Log behavior" target. null = closed.
+  const [behaviorTarget, setBehaviorTarget] = useState<AdminStudent | null>(null);
 
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
@@ -218,6 +221,14 @@ export function ManageStudents() {
                           <Button variant="ghost" size="sm" onClick={() => navigate(`/school/orgs/${orgId}/admin/students/${s.id}`)}>
                             <Eye className="h-3.5 w-3.5" />
                           </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            title="Log behavior"
+                            onClick={() => setBehaviorTarget(s)}
+                          >
+                            <MessageSquare className="h-3.5 w-3.5 text-indigo-600" />
+                          </Button>
                           <Button variant="ghost" size="sm" onClick={() => startEdit(s)}>
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
@@ -291,6 +302,19 @@ export function ManageStudents() {
         ]}
         onSubmit={handleCsvSubmit}
       />
+
+      {behaviorTarget && (
+        <BehaviorLogEntry
+          orgId={orgId}
+          studentId={behaviorTarget.id}
+          studentName={behaviorTarget.full_name}
+          defaultSectionId={behaviorTarget.class_section_id || undefined}
+          open={true}
+          onOpenChange={(v) => {
+            if (!v) setBehaviorTarget(null);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -30,6 +30,9 @@ import {
   ChevronDown,
   ChevronRight,
   Pencil,
+  CalendarCheck,
+  MessageSquare,
+  UserCog,
 } from "lucide-react";
 import {
   getSchoolMe,
@@ -185,8 +188,8 @@ export function ManageClasses() {
               {open && (
                 <CardContent className="pt-0 space-y-2">
                   {(cls.sections || []).map((sec) => (
-                    <div key={sec.id} className="flex items-center gap-2 p-2 border rounded">
-                      <span className="text-sm flex-1">{sec.name}</span>
+                    <div key={sec.id} className="flex flex-wrap items-center gap-2 p-2 border rounded">
+                      <span className="text-sm flex-1 min-w-[80px]">{sec.name}</span>
                       <Select
                         value={sec.class_teacher_user_id || "__none__"}
                         onValueChange={(v) => handleSectionTeacherChange(sec.id, v === "__none__" ? "" : v)}
@@ -201,6 +204,24 @@ export function ManageClasses() {
                           ))}
                         </SelectContent>
                       </Select>
+                      {/* Phase B per-section quick-links — teachers/admins jump
+                          straight from the manage view into the daily-ops
+                          surfaces for that specific section. */}
+                      <Link to={`/school/orgs/${orgId}/sections/${sec.id}/attendance`}>
+                        <Button variant="outline" size="sm" className="h-8 text-xs" title="Take attendance">
+                          <CalendarCheck className="h-3.5 w-3.5 mr-1" /> Attendance
+                        </Button>
+                      </Link>
+                      <Link to={`/school/orgs/${orgId}/sections/${sec.id}/behavior`}>
+                        <Button variant="outline" size="sm" className="h-8 text-xs" title="Behavior log">
+                          <MessageSquare className="h-3.5 w-3.5 mr-1" /> Behavior
+                        </Button>
+                      </Link>
+                      <Link to={`/school/orgs/${orgId}/sections/${sec.id}/roster/new`}>
+                        <Button variant="outline" size="sm" className="h-8 text-xs" title="Roster request">
+                          <UserCog className="h-3.5 w-3.5 mr-1" /> Roster request
+                        </Button>
+                      </Link>
                       <Button variant="ghost" size="sm" onClick={() => handleDeleteSection(sec.id, sec.name)}>
                         <Trash2 className="h-3.5 w-3.5 text-red-600" />
                       </Button>
