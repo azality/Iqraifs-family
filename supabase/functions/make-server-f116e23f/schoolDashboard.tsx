@@ -331,6 +331,50 @@ export function installDashboard(school: Hono): void {
 
     const concernsOpen = behaviorPeriod.filter((b) => b.kind === "concern").length;
 
+    // Hifz progress — org-wide avg ayahs memorized per active student that has
+    // at least one hifz entry. We dedupe (surah, ayah) pairs per student so
+    // overlapping re-recordings don't inflate the total.
+    const { data: hifzRowsRaw } = await serviceRoleClient
+      .from("hifz_progress")
+      .select("student_id, surah_number, ayah_from, ayah_to, kind")
+      .eq("org_id", orgId)
+      .eq("kind", "memorized");
+    const hifzRows = (hifzRowsRaw ?? []) as Array<{
+      student_id: string;
+      surah_number: number;
+      ayah_from: number;
+      ayah_to: number;
+    }>;
+    const ayahsByStudent = new Map<string, Map<number, Set<number>>>();
+    for (const r of hifzRows) {
+      let bySurah = ayahsByStudent.get(r.student_id);
+      if (!bySurah) {
+        bySurah = new Map();
+        ayahsByStudent.set(r.student_id, bySurah);
+      }
+      let set = bySurah.get(r.surah_number);
+      if (!set) {
+        set = new Set<number>();
+        bySurah.set(r.surah_number, set);
+      }
+      for (let a = r.ayah_from; a <= r.ayah_to; a += 1) {
+        set.add(a);
+      }
+    }
+    let hifzStudentsWithEntries = 0;
+    let hifzAyahSum = 0;
+    for (const bySurah of ayahsByStudent.values()) {
+      let n = 0;
+      for (const set of bySurah.values()) n += set.size;
+      if (n > 0) {
+        hifzStudentsWithEntries += 1;
+        hifzAyahSum += n;
+      }
+    }
+    const hifzAvg = hifzStudentsWithEntries > 0
+      ? Math.round(hifzAyahSum / hifzStudentsWithEntries)
+      : 0;
+
     // Roster requests — pending count + oldest age.
     const { data: pendingReqs } = await serviceRoleClient
       .from("roster_change_request")
@@ -541,7 +585,12 @@ export function installDashboard(school: Hono): void {
           hint: "Concern notes logged this period",
         },
         feesPaidPct: { value: null, hint: "Coming with Phase D" },
-        hifzProgress: { value: null, hint: "Coming with Phase C" },
+        hifzProgress: {
+          value: hifzAvg,
+          hint: hifzStudentsWithEntries === 0
+            ? "no hifz entries yet"
+            : "avg ayahs / student",
+        },
         formsAwaiting: { value: null, hint: "Coming with Phase D" },
       },
       health: { healthy, watch, flagged },
