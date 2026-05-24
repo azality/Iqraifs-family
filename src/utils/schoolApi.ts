@@ -501,6 +501,13 @@ export interface DashboardResponse {
   };
   health: { healthy: number; watch: number; flagged: number };
   alerts: DashboardAlert[];
+  /** Scope of the data returned. Org view = full school; sections view = only
+   *  the sections the caller teaches. Added with role-aware alerts. */
+  viewScope?: {
+    kind: "org" | "sections";
+    sectionIds: string[];
+    sectionLabels?: Array<{ id: string; label: string }>;
+  };
 }
 
 export interface LeaderboardRow {
