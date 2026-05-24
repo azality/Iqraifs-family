@@ -23,6 +23,7 @@ import { Hono } from "npm:hono";
 import { serviceRoleClient, requireAuth, getAuthUserId } from "./middleware.tsx";
 import { installPhaseA } from "./schoolPhaseA.tsx";
 import { installPhaseB } from "./schoolPhaseB.tsx";
+import { installPhaseC } from "./schoolPhaseC.tsx";
 import { installDashboard } from "./schoolDashboard.tsx";
 
 const school = new Hono();
@@ -2493,6 +2494,11 @@ school.post("/child-id-map", async (c) => {
 installPhaseA(school);
 
 installPhaseB(school);
+
+// -----------------------------------------------------------------------------
+// Phase C.1 routes (daily sabaq lessons + hifz progress)
+// -----------------------------------------------------------------------------
+installPhaseC(school);
 
 // -----------------------------------------------------------------------------
 // Dashboard aggregate routes (school-at-a-glance, leaderboard, insights)
