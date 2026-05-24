@@ -99,7 +99,9 @@ function lastNWeekdays(end: Date, n: number): Date[] {
 // Role gate — any non-revoked role in the org (matches schoolPhaseB pattern).
 // -----------------------------------------------------------------------------
 async function hasAnyRoleInOrg(userId: string, orgId: string): Promise<boolean> {
-  const { data, error } = await serviceRoleClient
+  // Also accept class-section scoped roles (visiting teachers) — they still
+  // need read access to the dashboard, just scoped.
+  const { data: orgRow, error: orgErr } = await serviceRoleClient
     .from("user_roles")
     .select("id")
     .eq("user_id", userId)
@@ -108,11 +110,112 @@ async function hasAnyRoleInOrg(userId: string, orgId: string): Promise<boolean> 
     .is("revoked_at", null)
     .limit(1)
     .maybeSingle();
-  if (error) {
-    console.error("[schoolDashboard.hasAnyRoleInOrg] DB error:", error);
+  if (orgErr) {
+    console.error("[schoolDashboard.hasAnyRoleInOrg] DB error:", orgErr);
     return false;
   }
-  return !!data;
+  if (orgRow) return true;
+
+  // Check class-teacher assignment via class_section.class_teacher_user_id
+  // (these users may not have a user_roles org row).
+  const { data: classSections } = await serviceRoleClient
+    .from("class_section")
+    .select("id, class!inner(org_id)")
+    .eq("class_teacher_user_id", userId)
+    .eq("class.org_id", orgId)
+    .limit(1);
+  if (classSections && classSections.length > 0) return true;
+
+  // Check class-scoped visiting teacher roles tied to sections in this org.
+  const { data: classScoped } = await serviceRoleClient
+    .from("user_roles")
+    .select("scope_id")
+    .eq("user_id", userId)
+    .eq("scope_type", "class")
+    .is("revoked_at", null);
+  if (classScoped && classScoped.length > 0) {
+    const sectionIds = (classScoped as Array<{ scope_id: string }>)
+      .map((r) => r.scope_id)
+      .filter(Boolean);
+    if (sectionIds.length > 0) {
+      const { data: matching } = await serviceRoleClient
+        .from("class_section")
+        .select("id, class!inner(org_id)")
+        .in("id", sectionIds)
+        .eq("class.org_id", orgId)
+        .limit(1);
+      if (matching && matching.length > 0) return true;
+    }
+  }
+  return false;
+}
+
+// -----------------------------------------------------------------------------
+// Caller scope — does this user see the whole org, or only specific sections?
+// -----------------------------------------------------------------------------
+type CallerScope =
+  | { kind: "org"; sectionIds: string[] }
+  | { kind: "sections"; sectionIds: string[] };
+
+async function determineScope(
+  userId: string,
+  orgId: string,
+  allSectionIds: string[],
+): Promise<CallerScope> {
+  // 1. Org-scoped role: principal, admin, or org-wide teacher → org view.
+  const { data: orgRoles } = await serviceRoleClient
+    .from("user_roles")
+    .select("role_type")
+    .eq("user_id", userId)
+    .eq("scope_type", "organization")
+    .eq("scope_id", orgId)
+    .is("revoked_at", null);
+  const orgRoleTypes = new Set(
+    (orgRoles ?? []).map((r: any) => String(r.role_type)),
+  );
+  if (
+    orgRoleTypes.has("principal") ||
+    orgRoleTypes.has("admin") ||
+    orgRoleTypes.has("teacher") // org-scoped teacher = full-org view
+  ) {
+    return { kind: "org", sectionIds: allSectionIds };
+  }
+
+  // 2. Gather sections this user is attached to.
+  const scopedSectionIds = new Set<string>();
+
+  // 2a. class_section.class_teacher_user_id
+  const { data: ownedSections } = await serviceRoleClient
+    .from("class_section")
+    .select("id, class!inner(org_id)")
+    .eq("class_teacher_user_id", userId)
+    .eq("class.org_id", orgId);
+  for (const s of (ownedSections ?? []) as Array<{ id: string }>) {
+    scopedSectionIds.add(s.id);
+  }
+
+  // 2b. user_roles rows: visiting_teacher class-scoped
+  const { data: classScoped } = await serviceRoleClient
+    .from("user_roles")
+    .select("scope_id, role_type")
+    .eq("user_id", userId)
+    .eq("scope_type", "class")
+    .is("revoked_at", null);
+  const candidateIds = (classScoped ?? [])
+    .map((r: any) => r.scope_id)
+    .filter((x: any): x is string => !!x);
+  if (candidateIds.length > 0) {
+    const { data: matching } = await serviceRoleClient
+      .from("class_section")
+      .select("id, class!inner(org_id)")
+      .in("id", candidateIds)
+      .eq("class.org_id", orgId);
+    for (const s of (matching ?? []) as Array<{ id: string }>) {
+      scopedSectionIds.add(s.id);
+    }
+  }
+
+  return { kind: "sections", sectionIds: Array.from(scopedSectionIds) };
 }
 
 // -----------------------------------------------------------------------------
@@ -286,9 +389,50 @@ export function installDashboard(school: Hono): void {
     const { start, end, prevStart, prevEnd } = periodWindows(now, period);
     const today = startOfDay(now);
 
-    const skeleton = await loadOrgSkeleton(orgId);
+    const fullSkeleton = await loadOrgSkeleton(orgId);
+    const scope = await determineScope(
+      userId,
+      orgId,
+      fullSkeleton.sections.map((s) => s.id),
+    );
+    const scopeSet = new Set(scope.sectionIds);
+    const isOrgView = scope.kind === "org";
+
+    // Skeleton restricted to scope (sections/students the caller can see).
+    const skeleton = isOrgView
+      ? fullSkeleton
+      : (() => {
+          const sections = fullSkeleton.sections.filter((s) =>
+            scopeSet.has(s.id),
+          );
+          let totalStudents = 0;
+          const studentsBySection = new Map<string, string[]>();
+          for (const sec of sections) {
+            const arr = fullSkeleton.studentsBySection.get(sec.id) ?? [];
+            studentsBySection.set(sec.id, arr);
+            totalStudents += arr.length;
+          }
+          return {
+            classes: fullSkeleton.classes,
+            sections,
+            studentsBySection,
+            totalStudents,
+          };
+        })();
+
+    // sectionLabels exposed in response for the frontend "Your sections:" hint.
+    const sectionLabels = skeleton.sections.map((s) => ({
+      id: s.id,
+      label: `${s.class_name} · ${s.name}`,
+    }));
+
+    // Filter helper for attendance/behavior rows: when in section-scope, drop
+    // rows not belonging to the caller's sections.
+    const inScope = (sectionId: string | null | undefined): boolean =>
+      isOrgView || (sectionId != null && scopeSet.has(sectionId));
 
     // Teachers count — distinct user_ids with any teacher-ish role in org.
+    // (Stays org-wide; informational for teacher views per spec.)
     const { data: teacherRows } = await serviceRoleClient
       .from("user_roles")
       .select("user_id, role_type")
@@ -299,7 +443,8 @@ export function installDashboard(school: Hono): void {
     const teacherSet = new Set((teacherRows ?? []).map((r: any) => r.user_id));
 
     // Attendance: pull period + previous + today in one window.
-    const attRange = await fetchAttendance(orgId, prevStart, end);
+    const attRangeAll = await fetchAttendance(orgId, prevStart, end);
+    const attRange = attRangeAll.filter((r) => inScope(r.class_section_id));
     const attToday = attRange.filter((r) => r.date === fmtDate(today));
     const attPeriod = attRange.filter(
       (r) => r.date >= fmtDate(start) && r.date <= fmtDate(end),
@@ -315,8 +460,14 @@ export function installDashboard(school: Hono): void {
       : Math.round((pctPeriod - pctPrev) * 10) / 10;
 
     // Behavior: period + previous.
-    const behaviorPeriod = await fetchBehavior(orgId, start, end);
-    const behaviorPrev = await fetchBehavior(orgId, prevStart, prevEnd);
+    const behaviorPeriodAll = await fetchBehavior(orgId, start, end);
+    const behaviorPrevAll = await fetchBehavior(orgId, prevStart, prevEnd);
+    const behaviorPeriod = behaviorPeriodAll.filter((b) =>
+      inScope(b.class_section_id),
+    );
+    const behaviorPrev = behaviorPrevAll.filter((b) =>
+      inScope(b.class_section_id),
+    );
     const behaviorScore = behaviorPeriod.reduce((sum, b) => {
       const pts = Number(b.points ?? 0);
       return sum + (b.kind === "concern" ? -Math.abs(pts) : Math.abs(pts));
@@ -339,12 +490,25 @@ export function installDashboard(school: Hono): void {
       .select("student_id, surah_number, ayah_from, ayah_to, kind")
       .eq("org_id", orgId)
       .eq("kind", "memorized");
-    const hifzRows = (hifzRowsRaw ?? []) as Array<{
+    const hifzRowsAll = (hifzRowsRaw ?? []) as Array<{
       student_id: string;
       surah_number: number;
       ayah_from: number;
       ayah_to: number;
     }>;
+    // Restrict hifz to students in scoped sections (when teacher-scoped).
+    const scopedStudentIds: Set<string> | null = isOrgView
+      ? null
+      : (() => {
+          const s = new Set<string>();
+          for (const arr of skeleton.studentsBySection.values()) {
+            for (const id of arr) s.add(id);
+          }
+          return s;
+        })();
+    const hifzRows = scopedStudentIds
+      ? hifzRowsAll.filter((r) => scopedStudentIds.has(r.student_id))
+      : hifzRowsAll;
     const ayahsByStudent = new Map<string, Map<number, Set<number>>>();
     for (const r of hifzRows) {
       let bySurah = ayahsByStudent.get(r.student_id);
@@ -376,13 +540,25 @@ export function installDashboard(school: Hono): void {
       : 0;
 
     // Roster requests — pending count + oldest age.
-    const { data: pendingReqs } = await serviceRoleClient
+    // Org view: all org pending. Teacher view: only their own submissions.
+    let pendingQuery = serviceRoleClient
       .from("roster_change_request")
-      .select("id, created_at")
+      .select("id, created_at, requested_by, kind, class_section_id, student_id")
       .eq("org_id", orgId)
       .eq("status", "pending")
       .order("created_at", { ascending: true });
-    const pendingArr = (pendingReqs ?? []) as Array<{ id: string; created_at: string }>;
+    if (!isOrgView) {
+      pendingQuery = pendingQuery.eq("requested_by", userId);
+    }
+    const { data: pendingReqs } = await pendingQuery;
+    const pendingArr = (pendingReqs ?? []) as Array<{
+      id: string;
+      created_at: string;
+      requested_by?: string | null;
+      kind?: string | null;
+      class_section_id?: string | null;
+      student_id?: string | null;
+    }>;
     const oldestPendingAgeDays = pendingArr.length > 0
       ? Math.floor(
           (now.getTime() - new Date(pendingArr[0].created_at).getTime()) /
@@ -431,10 +607,12 @@ export function installDashboard(school: Hono): void {
       severity: "critical" | "warning" | "info";
       kind:
         | "attendance_dip"
+        | "consecutive_dip"
         | "concern_spike"
         | "pending_approvals"
         | "attendance_gap"
-        | "roster_stale";
+        | "roster_stale"
+        | "no_assignment";
       title: string;
       body: string;
       actionLabel?: string;
@@ -442,95 +620,238 @@ export function installDashboard(school: Hono): void {
     };
     const alerts: Alert[] = [];
 
-    for (const ss of sectionStatuses) {
-      const label = `${ss.section.class_name}-${ss.section.name}`;
-      if (ss.pct > 0 && ss.pct < 60) {
+    if (isOrgView) {
+      // ── Org-wide rollup alerts ─────────────────────────────────────────
+      const dippingFlagged = sectionStatuses.filter(
+        (s) => s.pct > 0 && s.pct < 75,
+      );
+      const dippingCritical = sectionStatuses.filter(
+        (s) => s.pct > 0 && s.pct < 60,
+      );
+      if (dippingFlagged.length > 0) {
         alerts.push({
-          id: `att_dip_${ss.section.id}`,
-          severity: "critical",
+          id: "rollup_att_dip",
+          severity: dippingCritical.length > 0 ? "critical" : "warning",
           kind: "attendance_dip",
-          title: `${label} attendance critical`,
-          body: `Period attendance is ${ss.pct}% — well below the 75% floor.`,
-          actionLabel: "Open section",
-          actionPath: `/school/sections/${ss.section.id}`,
-        });
-      } else if (ss.pct > 0 && ss.pct < 75) {
-        alerts.push({
-          id: `att_dip_${ss.section.id}`,
-          severity: "warning",
-          kind: "attendance_dip",
-          title: `${label} attendance dipping`,
-          body: `Period attendance is ${ss.pct}% — below the 75% target.`,
-          actionLabel: "Open section",
-          actionPath: `/school/sections/${ss.section.id}`,
-        });
-      }
-      if (ss.concerns > 10) {
-        alerts.push({
-          id: `concern_spike_${ss.section.id}`,
-          severity: "critical",
-          kind: "concern_spike",
-          title: `${label} concern spike`,
-          body: `${ss.concerns} concern notes logged this period.`,
-          actionLabel: "Review notes",
-          actionPath: `/school/sections/${ss.section.id}/behavior`,
-        });
-      } else if (ss.concerns > 5) {
-        alerts.push({
-          id: `concern_spike_${ss.section.id}`,
-          severity: "warning",
-          kind: "concern_spike",
-          title: `${label} concern uptick`,
-          body: `${ss.concerns} concern notes logged this period.`,
-          actionLabel: "Review notes",
-          actionPath: `/school/sections/${ss.section.id}/behavior`,
+          title: `${dippingFlagged.length} section${dippingFlagged.length === 1 ? "" : "s"} flagged for attendance`,
+          body:
+            dippingCritical.length > 0
+              ? `${dippingCritical.length} section${dippingCritical.length === 1 ? "" : "s"} below 60% this period.`
+              : `${dippingFlagged.length} section${dippingFlagged.length === 1 ? "" : "s"} below the 75% target.`,
+          actionLabel: "View leaderboard",
+          actionPath: `/school/orgs/${orgId}?filter=flagged`,
         });
       }
 
-      // attendance_gap — no attendance in last 3 weekdays
-      const lastThree = lastNWeekdays(today, 3).map(fmtDate);
-      const recentDates = new Set(
-        (attBySection.get(ss.section.id) ?? []).map((r) => r.date),
-      );
-      const missingAll = lastThree.every((d) => !recentDates.has(d));
-      if (missingAll && ss.section.student_count > 0) {
+      const concernSections = sectionStatuses.filter((s) => s.concerns > 5);
+      if (concernSections.length > 0) {
+        const critical = sectionStatuses.some((s) => s.concerns > 10);
         alerts.push({
-          id: `att_gap_${ss.section.id}`,
+          id: "rollup_concern_spike",
+          severity: critical ? "critical" : "warning",
+          kind: "concern_spike",
+          title: `${concernSections.length} section${concernSections.length === 1 ? "" : "s"} with concern spike`,
+          body: `${concernSections.length} section${concernSections.length === 1 ? "" : "s"} logged 6+ concern notes this period.`,
+          actionLabel: "View leaderboard",
+          actionPath: `/school/orgs/${orgId}`,
+        });
+      }
+
+      // attendance_gap rollup — sections missing all of last 3 weekdays
+      const lastThree = lastNWeekdays(today, 3).map(fmtDate);
+      const gapSections = sectionStatuses.filter((ss) => {
+        if (ss.section.student_count === 0) return false;
+        const dates = new Set(
+          (attBySection.get(ss.section.id) ?? []).map((r) => r.date),
+        );
+        return lastThree.every((d) => !dates.has(d));
+      });
+      if (gapSections.length > 0) {
+        alerts.push({
+          id: "rollup_att_gap",
           severity: "warning",
           kind: "attendance_gap",
-          title: `${label} attendance not taken`,
-          body: `No attendance records for the last 3 school days.`,
-          actionLabel: "Take attendance",
-          actionPath: `/school/sections/${ss.section.id}/attendance`,
+          title: `${gapSections.length} section${gapSections.length === 1 ? "" : "s"} with no attendance in 3 days`,
+          body: `Attendance has not been recorded for the last 3 school days in ${gapSections.length} section${gapSections.length === 1 ? "" : "s"}.`,
+          actionLabel: "View leaderboard",
+          actionPath: `/school/orgs/${orgId}`,
         });
       }
 
-      if (ss.section.student_count === 0) {
+      // roster_stale rollup — sections with 0 students
+      const emptySections = sectionStatuses.filter(
+        (ss) => ss.section.student_count === 0,
+      );
+      if (emptySections.length > 0) {
         alerts.push({
-          id: `roster_stale_${ss.section.id}`,
+          id: "rollup_roster_stale",
           severity: "info",
           kind: "roster_stale",
-          title: `${label} has no students`,
-          body: `This section is empty — assign students or archive it.`,
+          title: `${emptySections.length} class${emptySections.length === 1 ? "" : "es"} have empty sections`,
+          body: `Assign students or archive ${emptySections.length === 1 ? "this section" : "these sections"}.`,
           actionLabel: "Open roster",
-          actionPath: `/school/sections/${ss.section.id}`,
+          actionPath: `/school/orgs/${orgId}/admin/classes`,
         });
       }
-    }
 
-    if (pendingArr.length >= 5 || oldestPendingAgeDays > 7) {
-      const critical = oldestPendingAgeDays > 14;
-      alerts.push({
-        id: "pending_approvals",
-        severity: critical ? "critical" : "warning",
-        kind: "pending_approvals",
-        title: `${pendingArr.length} roster change${pendingArr.length === 1 ? "" : "s"} awaiting approval`,
-        body: critical
-          ? `Oldest request is ${oldestPendingAgeDays} days old — overdue.`
-          : `Oldest request is ${oldestPendingAgeDays} day${oldestPendingAgeDays === 1 ? "" : "s"} old.`,
-        actionLabel: "Review requests",
-        actionPath: `/school/approvals`,
-      });
+      // Pending approvals rollup (existing behaviour).
+      if (pendingArr.length >= 5 || oldestPendingAgeDays > 7) {
+        const critical = oldestPendingAgeDays > 14;
+        alerts.push({
+          id: "pending_approvals",
+          severity: critical ? "critical" : "warning",
+          kind: "pending_approvals",
+          title: `${pendingArr.length} roster change${pendingArr.length === 1 ? "" : "s"} awaiting approval`,
+          body: critical
+            ? `Oldest request is ${oldestPendingAgeDays} days old — overdue.`
+            : `Oldest request is ${oldestPendingAgeDays} day${oldestPendingAgeDays === 1 ? "" : "s"} old.`,
+          actionLabel: "Review requests",
+          actionPath: `/school/approvals`,
+        });
+      }
+    } else {
+      // ── Section-scoped (teacher) drill-down alerts ─────────────────────
+      if (skeleton.sections.length === 0) {
+        alerts.push({
+          id: "no_assignment",
+          severity: "info",
+          kind: "no_assignment",
+          title: `You are not assigned to any sections yet`,
+          body: `Ask an admin to add you to a class so you can see attendance, behavior, and roster activity here.`,
+        });
+      }
+
+      // Per-section attendance dip + consecutive dip + concern + gap.
+      const lastThree = lastNWeekdays(today, 3).map(fmtDate);
+      // For consecutive_dip we need per-day attendance per section.
+      // Build section -> date -> rows from already-filtered attPeriod.
+      const attBySectionDate = new Map<
+        string,
+        Map<string, Array<{ status: string }>>
+      >();
+      for (const r of attPeriod) {
+        if (!r.class_section_id) continue;
+        const byDate =
+          attBySectionDate.get(r.class_section_id) ?? new Map();
+        const arr = byDate.get(r.date) ?? [];
+        arr.push({ status: r.status });
+        byDate.set(r.date, arr);
+        attBySectionDate.set(r.class_section_id, byDate);
+      }
+
+      for (const ss of sectionStatuses) {
+        const label = `${ss.section.class_name} · ${ss.section.name}`;
+
+        if (ss.pct > 0 && ss.pct < 60) {
+          alerts.push({
+            id: `att_dip_${ss.section.id}`,
+            severity: "critical",
+            kind: "attendance_dip",
+            title: `${label}: attendance ${ss.pct}% (below 75%)`,
+            body: `Period attendance is ${ss.pct}% — well below the 75% floor.`,
+            actionLabel: "Open section",
+            actionPath: `/school/sections/${ss.section.id}`,
+          });
+        } else if (ss.pct > 0 && ss.pct < 75) {
+          alerts.push({
+            id: `att_dip_${ss.section.id}`,
+            severity: "warning",
+            kind: "attendance_dip",
+            title: `${label}: attendance ${ss.pct}% (below 75%)`,
+            body: `Period attendance is ${ss.pct}% — below the 75% target.`,
+            actionLabel: "Open section",
+            actionPath: `/school/sections/${ss.section.id}`,
+          });
+        }
+
+        // consecutive_dip — daily pct below 75 for >=3 consecutive school days
+        // ending on/before today.
+        const byDate = attBySectionDate.get(ss.section.id);
+        if (byDate && byDate.size > 0) {
+          // walk back from today over weekdays, accumulating streak.
+          let streak = 0;
+          let cursor = startOfDay(today);
+          // limit walk to ~20 weekdays
+          for (let i = 0; i < 30 && streak < 30; i += 1) {
+            if (isWeekday(cursor)) {
+              const rows = byDate.get(fmtDate(cursor)) ?? [];
+              if (rows.length === 0) break; // gap; streak broken
+              const dailyPct = attendancePct(rows);
+              if (dailyPct < 75) streak += 1;
+              else break;
+            }
+            cursor = addDays(cursor, -1);
+          }
+          if (streak >= 3) {
+            alerts.push({
+              id: `consec_dip_${ss.section.id}`,
+              severity: "critical",
+              kind: "consecutive_dip",
+              title: `${label}: attendance below threshold for ${streak} consecutive days`,
+              body: `Daily attendance has stayed under 75% for ${streak} school day${streak === 1 ? "" : "s"} in a row.`,
+              actionLabel: "Open section",
+              actionPath: `/school/sections/${ss.section.id}`,
+            });
+          }
+        }
+
+        if (ss.concerns > 10) {
+          alerts.push({
+            id: `concern_spike_${ss.section.id}`,
+            severity: "critical",
+            kind: "concern_spike",
+            title: `${label}: ${ss.concerns} concerns this period (above 5)`,
+            body: `${ss.concerns} concern notes logged this period — review and follow up.`,
+            actionLabel: "Review notes",
+            actionPath: `/school/sections/${ss.section.id}/behavior`,
+          });
+        } else if (ss.concerns > 5) {
+          alerts.push({
+            id: `concern_spike_${ss.section.id}`,
+            severity: "warning",
+            kind: "concern_spike",
+            title: `${label}: ${ss.concerns} concerns this period (above 5)`,
+            body: `${ss.concerns} concern notes logged this period.`,
+            actionLabel: "Review notes",
+            actionPath: `/school/sections/${ss.section.id}/behavior`,
+          });
+        }
+
+        // attendance_gap
+        const recentDates = new Set(
+          (attBySection.get(ss.section.id) ?? []).map((r) => r.date),
+        );
+        const missingAll = lastThree.every((d) => !recentDates.has(d));
+        if (missingAll && ss.section.student_count > 0) {
+          alerts.push({
+            id: `att_gap_${ss.section.id}`,
+            severity: "warning",
+            kind: "attendance_gap",
+            title: `${label}: no attendance recorded in last 3 weekdays`,
+            body: `No attendance records for the last 3 school days.`,
+            actionLabel: "Take attendance",
+            actionPath: `/school/sections/${ss.section.id}/attendance`,
+          });
+        }
+      }
+
+      // Caller's own pending roster requests.
+      for (const p of pendingArr) {
+        const ageDays = Math.floor(
+          (now.getTime() - new Date(p.created_at).getTime()) /
+            (24 * 3600 * 1000),
+        );
+        const kindLabel = p.kind ?? "request";
+        alerts.push({
+          id: `pending_own_${p.id}`,
+          severity: ageDays > 7 ? "warning" : "info",
+          kind: "pending_approvals",
+          title: `Your roster request (${kindLabel}) still pending review (${ageDays} day${ageDays === 1 ? "" : "s"})`,
+          body: `Submitted ${ageDays} day${ageDays === 1 ? "" : "s"} ago — awaiting admin decision.`,
+          actionLabel: "View request",
+          actionPath: `/school/approvals`,
+        });
+      }
     }
 
     // Sort by severity (critical > warning > info), cap to 8.
@@ -595,6 +916,11 @@ export function installDashboard(school: Hono): void {
       },
       health: { healthy, watch, flagged },
       alerts: cappedAlerts,
+      viewScope: {
+        kind: scope.kind,
+        sectionIds: scope.sectionIds,
+        sectionLabels,
+      },
     });
   });
 
@@ -614,7 +940,20 @@ export function installDashboard(school: Hono): void {
     const { start, end, prevStart, prevEnd } = periodWindows(now, period);
     const today = startOfDay(now);
 
-    const skeleton = await loadOrgSkeleton(orgId);
+    const fullSkeleton = await loadOrgSkeleton(orgId);
+    const scope = await determineScope(
+      userId,
+      orgId,
+      fullSkeleton.sections.map((s) => s.id),
+    );
+    const scopeSet = new Set(scope.sectionIds);
+    const skeleton =
+      scope.kind === "org"
+        ? fullSkeleton
+        : {
+            ...fullSkeleton,
+            sections: fullSkeleton.sections.filter((s) => scopeSet.has(s.id)),
+          };
 
     // Need 10 weekday window in addition to period range for last10Days chart.
     const last10Dates = lastNWeekdays(today, 10);
@@ -756,7 +1095,20 @@ export function installDashboard(school: Hono): void {
     const now = new Date();
     const { start, end } = periodWindows(now, period);
 
-    const attPeriod = await fetchAttendance(orgId, start, end);
+    // Determine scope up front for filtering.
+    const fullSkeletonForScope = await loadOrgSkeleton(orgId);
+    const scope = await determineScope(
+      userId,
+      orgId,
+      fullSkeletonForScope.sections.map((s) => s.id),
+    );
+    const scopeSet = new Set(scope.sectionIds);
+    const inScope = (sectionId: string | null | undefined): boolean =>
+      scope.kind === "org" ||
+      (sectionId != null && scopeSet.has(sectionId));
+
+    const attPeriodAll = await fetchAttendance(orgId, start, end);
+    const attPeriod = attPeriodAll.filter((r) => inScope(r.class_section_id));
     const dist = { present: 0, absent: 0, late: 0, excused: 0 };
     for (const r of attPeriod) {
       if (r.status === "present") dist.present += 1;
@@ -765,7 +1117,10 @@ export function installDashboard(school: Hono): void {
       else if (r.status === "excused") dist.excused += 1;
     }
 
-    const behaviorPeriod = await fetchBehavior(orgId, start, end);
+    const behaviorPeriodAll = await fetchBehavior(orgId, start, end);
+    const behaviorPeriod = behaviorPeriodAll.filter((b) =>
+      inScope(b.class_section_id),
+    );
     const positiveAgg = new Map<string, { count: number; totalPoints: number }>();
     const concernAgg = new Map<string, { count: number; totalPoints: number }>();
     for (const b of behaviorPeriod) {
@@ -811,7 +1166,7 @@ export function installDashboard(school: Hono): void {
     ]);
 
     // Build a section-id -> label map for activity summaries.
-    const skeleton = await loadOrgSkeleton(orgId);
+    const skeleton = fullSkeletonForScope;
     const sectionLabel = new Map<string, string>();
     for (const s of skeleton.sections) {
       sectionLabel.set(s.id, `${s.class_name}-${s.name}`);
@@ -836,6 +1191,7 @@ export function installDashboard(school: Hono): void {
       latestId: string;
     }>();
     for (const r of (recentAtt.data ?? []) as Array<any>) {
+      if (!inScope(r.class_section_id)) continue;
       const key = `${r.class_section_id ?? "none"}|${r.date}`;
       const cur = attBuckets.get(key) ?? {
         sectionId: r.class_section_id,
@@ -865,6 +1221,7 @@ export function installDashboard(school: Hono): void {
     }
 
     for (const n of (recentBehavior.data ?? []) as Array<any>) {
+      if (!inScope(n.class_section_id)) continue;
       const label = n.class_section_id
         ? sectionLabel.get(n.class_section_id) ?? "Section"
         : "Section";
@@ -879,6 +1236,8 @@ export function installDashboard(school: Hono): void {
     }
 
     for (const r of (recentRoster.data ?? []) as Array<any>) {
+      // Teacher-scoped: only show roster activity they submitted themselves.
+      if (scope.kind !== "org" && r.requested_by !== userId) continue;
       if (r.decided_at) {
         activity.push({
           id: `roster_dec_${r.id}`,

@@ -716,9 +716,26 @@ export function PerformanceDashboard() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold text-slate-900">Performance Dashboard</h1>
-          <p className="text-sm text-slate-500">
-            School-wide performance, attendance, and behavior across {totalSections} classes
-          </p>
+          {dashboard?.viewScope?.kind === "sections" ? (
+            <p className="text-sm text-slate-500">
+              Your sections:{" "}
+              {dashboard.viewScope.sectionLabels &&
+              dashboard.viewScope.sectionLabels.length > 0 ? (
+                <span className="font-medium text-slate-700">
+                  {dashboard.viewScope.sectionLabels.map((s) => s.label).join(", ")}
+                </span>
+              ) : (
+                <span className="italic text-slate-400">
+                  none assigned yet
+                </span>
+              )}
+            </p>
+          ) : (
+            <p className="text-sm text-slate-500">
+              {dashboard?.viewScope?.kind === "org" ? "All classes — " : ""}
+              School-wide performance, attendance, and behavior across {totalSections} classes
+            </p>
+          )}
         </div>
         <PeriodSelector value={period} onChange={setPeriod} />
       </div>
