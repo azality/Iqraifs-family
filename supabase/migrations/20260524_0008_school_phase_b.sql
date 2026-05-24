@@ -2,12 +2,12 @@
 -- School Pilot — Phase B schema (daily ops)
 -- =============================================================================
 -- Adds the tables required for Phase B teacher/admin daily operations:
---   attendance, behavior_note, roster_change_request.
+--   school_attendance, behavior_note, roster_change_request.
 --
 -- Scope:
 --   - Builds on Phase A tables (student, class_section). One Org / one Campus
 --     assumption holds for the pilot.
---   - These tables are independent of the legacy family-app `attendance` and
+--   - These tables are independent of the legacy family-app `school_attendance` and
 --     event tables; school-side daily ops live entirely here.
 --
 -- Idempotency:
@@ -22,9 +22,9 @@
 
 
 -- -----------------------------------------------------------------------------
--- 1. attendance — one row per student per day per section
+-- 1. school_attendance — one row per student per day per section
 -- -----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS attendance (
+CREATE TABLE IF NOT EXISTS school_attendance (
   id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id              uuid NOT NULL REFERENCES organizations(id)  ON DELETE CASCADE,
   student_id          uuid NOT NULL REFERENCES student(id)        ON DELETE CASCADE,
@@ -37,15 +37,15 @@ CREATE TABLE IF NOT EXISTS attendance (
   updated_at          timestamptz NOT NULL DEFAULT now(),
   UNIQUE (student_id, attendance_date)
 );
-CREATE INDEX IF NOT EXISTS attendance_section_date
-  ON attendance(class_section_id, attendance_date);
+CREATE INDEX IF NOT EXISTS school_attendance_section_date
+  ON school_attendance(class_section_id, attendance_date);
 
 DO $$
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM pg_trigger WHERE tgname = 'trg_attendance_updated'
+    SELECT 1 FROM pg_trigger WHERE tgname = 'trg_school_attendance_updated'
   ) THEN
-    CREATE TRIGGER trg_attendance_updated BEFORE UPDATE ON attendance
+    CREATE TRIGGER trg_school_attendance_updated BEFORE UPDATE ON school_attendance
       FOR EACH ROW EXECUTE FUNCTION set_updated_at();
   END IF;
 END$$;

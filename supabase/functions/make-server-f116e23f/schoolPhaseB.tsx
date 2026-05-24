@@ -228,7 +228,7 @@ export function installPhaseB(school: Hono): void {
     for (const e of body.entries) {
       try {
         const { data: existing, error: selErr } = await serviceRoleClient
-          .from("attendance")
+          .from("school_attendance")
           .select("id")
           .eq("student_id", e.studentId)
           .eq("attendance_date", body.date)
@@ -237,7 +237,7 @@ export function installPhaseB(school: Hono): void {
 
         if (existing) {
           const { error: updErr } = await serviceRoleClient
-            .from("attendance")
+            .from("school_attendance")
             .update({
               status: e.status,
               notes: e.notes ?? null,
@@ -249,7 +249,7 @@ export function installPhaseB(school: Hono): void {
           updated += 1;
         } else {
           const { error: insErr } = await serviceRoleClient
-            .from("attendance")
+            .from("school_attendance")
             .insert({
               org_id: orgId,
               student_id: e.studentId,
@@ -299,7 +299,7 @@ export function installPhaseB(school: Hono): void {
     }
 
     const { data, error } = await serviceRoleClient
-      .from("attendance")
+      .from("school_attendance")
       .select(
         "id, student_id, status, notes, attendance_date, recorded_by, student:student_id(id, full_name, gr_number)",
       )
@@ -355,7 +355,7 @@ export function installPhaseB(school: Hono): void {
     if (stu.org_id !== orgId) return c.json({ error: "student not in this org" }, 404);
 
     let q = serviceRoleClient
-      .from("attendance")
+      .from("school_attendance")
       .select("id, attendance_date, status, notes, class_section_id, recorded_by")
       .eq("student_id", studentId)
       .order("attendance_date", { ascending: false });
@@ -403,7 +403,7 @@ export function installPhaseB(school: Hono): void {
     if (!gate.ok) return c.json({ error: gate.error }, gate.status);
 
     let q = serviceRoleClient
-      .from("attendance")
+      .from("school_attendance")
       .select("student_id, status, student:student_id(id, full_name, gr_number)")
       .eq("class_section_id", sectionId);
     if (startDate) q = q.gte("attendance_date", startDate);
