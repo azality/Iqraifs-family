@@ -9,8 +9,7 @@
 // hidden for non-principals.
 
 import { useEffect, useState } from "react";
-import { Link, Navigate, useParams } from "react-router";
-import { Card, CardContent } from "../../components/ui/card";
+import { useNavigate, Navigate, useParams } from "react-router";
 import {
   Building2,
   GraduationCap,
@@ -21,6 +20,7 @@ import {
   ShieldCheck,
   ClipboardList,
 } from "lucide-react";
+import { HeroCard, KpiTile } from "../../components/school-ui";
 import {
   getRosterRequests,
   getSchoolMe,
@@ -46,6 +46,7 @@ interface Tile {
 
 export function AdminDashboard() {
   const { orgId = "" } = useParams();
+  const navigate = useNavigate();
   const [me, setMe] = useState<SchoolMeResponse | null>(null);
   const [meLoading, setMeLoading] = useState(true);
   const [counts, setCounts] = useState<{
@@ -103,56 +104,47 @@ export function AdminDashboard() {
     { to: `/school/orgs/${orgId}/admin/permissions`, label: "Permissions", count: null, icon: ShieldCheck, principalOnly: true },
   ];
 
-  return (
-    <div className="space-y-6">
-      <div className="rounded-lg bg-gradient-to-br from-indigo-600 to-indigo-700 text-white p-6">
-        <div className="flex items-center gap-3">
-          <Building2 className="h-7 w-7" />
-          <div>
-            <h1 className="text-2xl font-bold">Admin Console</h1>
-            <p className="text-sm text-indigo-100 mt-0.5">
-              Manage classes, students, parents, and teachers.
-            </p>
-          </div>
-        </div>
-      </div>
+  const visibleTiles = tiles.filter((t) => !t.principalOnly || principal);
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {tiles
-          .filter((t) => !t.principalOnly || principal)
-          .map((t) => {
-            const Icon = t.icon;
-            return (
-              <Link key={t.to} to={t.to}>
-                <Card className="hover:border-indigo-400 hover:shadow-sm transition-all cursor-pointer h-full">
-                  <CardContent className="p-5 flex items-center gap-4">
-                    <div className="p-3 rounded-lg bg-indigo-50 text-indigo-600">
-                      <Icon className="h-6 w-6" />
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <p className="font-medium">{t.label}</p>
-                        {t.badge && t.count !== null && t.count > 0 && (
-                          <span className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-rose-600 px-1.5 text-[10px] font-semibold text-white">
-                            {t.count}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {t.count === null
-                          ? "—"
-                          : t.badge
-                          ? t.count === 0
-                            ? "no pending"
-                            : `${t.count} pending`
-                          : `${t.count} total`}
-                      </p>
-                    </div>
-                  </CardContent>
-                </Card>
-              </Link>
-            );
-          })}
+  return (
+    <div className="space-y-5">
+      <HeroCard
+        eyebrow="Admin"
+        title="Admin Console"
+        subtitle="Manage classes, students, parents, and teachers."
+      />
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        {visibleTiles.map((t) => {
+          const Icon = t.icon;
+          const pendingCount = t.badge && t.count !== null && t.count > 0 ? t.count : 0;
+          const hint =
+            t.count === null
+              ? "—"
+              : t.badge
+              ? t.count === 0
+                ? "no pending"
+                : `${t.count} pending`
+              : `${t.count} total`;
+          return (
+            <KpiTile
+              key={t.to}
+              variant="light"
+              label={t.label}
+              icon={Icon}
+              value={t.count === null ? null : t.count}
+              hint={hint}
+              onClick={() => navigate(t.to)}
+              badge={
+                pendingCount > 0 ? (
+                  <span className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-rose-600 px-1.5 text-[10px] font-semibold text-white shadow">
+                    {pendingCount}
+                  </span>
+                ) : null
+              }
+            />
+          );
+        })}
       </div>
     </div>
   );
