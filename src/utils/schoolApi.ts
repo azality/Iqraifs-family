@@ -454,6 +454,120 @@ export const bulkLogSalah = (
 
 export type AttendanceStatus = "present" | "late" | "absent" | "present_remote";
 
+// ─── Principal/Admin Performance Dashboard ─────────────────────────────
+//
+// Backend lives in a parallel PR (`school-pilot/dashboard-backend`).
+// Three endpoints power the dashboard:
+//   GET /school/orgs/:orgId/dashboard?period=...
+//   GET /school/orgs/:orgId/sections/leaderboard?period=...
+//   GET /school/orgs/:orgId/insights?period=...
+//
+// `period` is one of: T (today) | WTD | MTD | QTD | YTD.
+
+export type DashboardPeriod = "T" | "WTD" | "MTD" | "QTD" | "YTD";
+
+export interface DashboardTile {
+  /** null = data not yet available (e.g. Phase C/D feature). */
+  value: number | null;
+  hint: string;
+  /** Period-over-period change in percentage points. Optional. */
+  deltaPp?: number | null;
+}
+
+export interface DashboardAlert {
+  id: string;
+  severity: "critical" | "warning" | "info";
+  kind: string;
+  title: string;
+  body: string;
+  actionLabel?: string;
+  actionPath?: string;
+}
+
+export interface DashboardResponse {
+  asOf: string;
+  period: DashboardPeriod;
+  tiles: {
+    students: DashboardTile;
+    attendanceToday: DashboardTile;
+    attendancePeriod: DashboardTile;
+    teachers: DashboardTile;
+    behaviorScore: DashboardTile;
+    pendingApprovals: DashboardTile;
+    concernsOpen: DashboardTile;
+    feesPaidPct: DashboardTile;
+    hifzProgress: DashboardTile;
+    formsAwaiting: DashboardTile;
+  };
+  health: { healthy: number; watch: number; flagged: number };
+  alerts: DashboardAlert[];
+}
+
+export interface LeaderboardRow {
+  sectionId: string;
+  classId: string;
+  className: string;
+  sectionName: string;
+  studentCount: number;
+  classTeacherName: string | null;
+  attendancePct: number;
+  attendanceDelta: number;
+  behaviorScore: number;
+  positiveCount: number;
+  concernCount: number;
+  last10Days: number[];
+  last10Dates: string[];
+  status: "compliant" | "watch" | "flagged";
+}
+
+export interface InsightsResponse {
+  attendanceDistribution: {
+    present: number;
+    absent: number;
+    late: number;
+    excused: number;
+  };
+  topPositive: Array<{ category: string; count: number; points: number }>;
+  topConcern: Array<{ category: string; count: number; points: number }>;
+  recentActivity: Array<{
+    id: string;
+    occurredAt: string;
+    kind: string;
+    summary: string;
+    actor: string | null;
+  }>;
+}
+
+export const getDashboard = (
+  orgId: string,
+  period: DashboardPeriod,
+): Promise<DashboardResponse> =>
+  apiCall(`/school/orgs/${orgId}/dashboard?period=${period}`);
+
+export const getSectionsLeaderboard = (
+  orgId: string,
+  period: DashboardPeriod,
+): Promise<{ sections: LeaderboardRow[] }> =>
+  apiCall(
+    `/school/orgs/${orgId}/sections/leaderboard?period=${period}`,
+  );
+
+export const getInsights = (
+  orgId: string,
+  period: DashboardPeriod,
+): Promise<InsightsResponse> =>
+  apiCall(
+    `/school/orgs/${orgId}/insights?period=${period}`,
+  );
+
+// ─── Org-scoped role helper ────────────────────────────────────────────
+
+/** True if the user has a principal role on this specific org. */
+export const isOrgPrincipal = (
+  me: SchoolMeResponse | null,
+  orgId: string,
+): boolean => principalOrgIds(me).includes(orgId);
+
 export const recordAttendance = (
   classId: string,
   body: {

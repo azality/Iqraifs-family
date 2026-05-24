@@ -36,7 +36,10 @@ import { NetworkTest } from "./pages/NetworkTest";
 // Visible only to users with a school role; auth/role checks live inside
 // the components since the same routes serve principals and teachers.
 import { SchoolHome } from "./pages/school/SchoolHome";
-import { PrincipalDashboard } from "./pages/school/PrincipalDashboard";
+// New Performance Dashboard — replaces PrincipalDashboard as the org entry.
+// The PrincipalDashboard file is kept in the tree for now (no route uses it)
+// and will be removed in a follow-up.
+import { PerformanceDashboard } from "./pages/school/PerformanceDashboard";
 import { SchoolSetup } from "./pages/school/SchoolSetup";
 import { ClassDetail } from "./pages/school/ClassDetail";
 import { BehaviorCatalog } from "./pages/school/BehaviorCatalog";
@@ -331,7 +334,7 @@ export const router = createBrowserRouter([
           // "no school access" if the user has neither principal nor
           // teacher rows in user_roles.
           { path: "school", element: <RequireParentRole><SchoolHome /></RequireParentRole> },
-          { path: "school/orgs/:orgId", element: <RequireParentRole><PrincipalDashboard /></RequireParentRole> },
+          { path: "school/orgs/:orgId", element: <RequireParentRole><PerformanceDashboard /></RequireParentRole> },
           { path: "school/orgs/:orgId/setup", element: <RequireParentRole><SchoolSetup /></RequireParentRole> },
           { path: "school/classes/:classId", element: <RequireParentRole><ClassDetail /></RequireParentRole> },
           { path: "school/orgs/:orgId/behavior-catalog", element: <RequireParentRole><BehaviorCatalog /></RequireParentRole> },
