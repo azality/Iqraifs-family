@@ -21,6 +21,7 @@
 
 import { Hono } from "npm:hono";
 import { serviceRoleClient, requireAuth, getAuthUserId } from "./middleware.tsx";
+import { installPhaseB } from "./schoolPhaseB.tsx";
 
 const school = new Hono();
 
@@ -2460,5 +2461,10 @@ school.post("/child-id-map", async (c) => {
   return c.json({ ok: true, existed: false });
 });
 
+// -----------------------------------------------------------------------------
+// Phase B routes (attendance, behavior notes, roster change requests)
+// Installed onto this same Hono instance so they inherit requireAuth.
+// -----------------------------------------------------------------------------
+installPhaseB(school);
 
 export default school;
