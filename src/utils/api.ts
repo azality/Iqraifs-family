@@ -526,11 +526,20 @@ export async function logPointEvent(eventData: any) {
   });
 }
 
-export async function getChildEvents(childId: string, opts?: { includeVoided?: boolean }) {
+export async function getChildEvents(
+  childId: string,
+  opts?: { includeVoided?: boolean; startDate?: string; endDate?: string }
+) {
   // v25: opt-in include_voided. Default off so nothing relying on the old
   // behaviour breaks. Parent activity feed passes true; everything else
   // still gets the voided-stripped list.
-  const qs = opts?.includeVoided ? '?include_voided=true' : '';
+  // v31: optional startDate/endDate (YYYY-MM-DD) inclusive filter used
+  // by the Monthly Review page to scope the fetch server-side.
+  const params: string[] = [];
+  if (opts?.includeVoided) params.push('include_voided=true');
+  if (opts?.startDate) params.push(`startDate=${encodeURIComponent(opts.startDate)}`);
+  if (opts?.endDate) params.push(`endDate=${encodeURIComponent(opts.endDate)}`);
+  const qs = params.length ? `?${params.join('&')}` : '';
   return apiCall(`/children/${childId}/events${qs}`);
 }
 

@@ -66,7 +66,8 @@ const parentNavGroups: NavGroup[] = [
     key: 'review',
     accent: 'bg-amber-500',
     items: [
-      { name: 'Weekly Review', href: '/review',        icon: BarChart3, childAccess: false, description: 'Trends & reflections' },
+      { name: 'Weekly Review', href: '/review',          icon: BarChart3, childAccess: false, description: 'Trends & reflections' },
+      { name: 'Monthly Review', href: '/monthly-review', icon: BarChart3, childAccess: false, description: 'Prayer heatmap & monthly trends' },
       { name: 'Adjustments',   href: '/adjustments',   icon: Sliders,   childAccess: false, description: 'Manual point changes' },
       { name: 'Edit Requests', href: '/edit-requests', icon: Edit,      childAccess: false, description: 'Pending change requests' },
       { name: 'Audit Trail',   href: '/audit',         icon: Shield,    childAccess: false, description: 'Who changed what, when' },

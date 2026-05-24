@@ -35,7 +35,8 @@ import {
   Settings,
   FileText,
   ArrowRight,
-  Brain
+  Brain,
+  BarChart3
 } from "lucide-react";
 
 export function Dashboard() {
@@ -1050,6 +1051,29 @@ function QuickActionsCard() {
               <div className="text-center">
                 <p className="font-semibold">View Rewards</p>
                 <p className="text-xs text-muted-foreground">Browse & manage rewards</p>
+              </div>
+            </Button>
+          </Link>
+
+          {/* v31: Reviews — weekly & monthly analytics surfaces. Placed
+              next to each other so parents discover the heatmap-based
+              monthly view alongside the familiar weekly review. */}
+          <Link to="/review">
+            <Button variant="outline" className="w-full h-auto py-4 flex flex-col items-center gap-2 hover:bg-white">
+              <FileText className="h-6 w-6 text-orange-600" />
+              <div className="text-center">
+                <p className="font-semibold">Weekly Review</p>
+                <p className="text-xs text-muted-foreground">Last 7 days breakdown</p>
+              </div>
+            </Button>
+          </Link>
+
+          <Link to="/monthly-review">
+            <Button variant="outline" className="w-full h-auto py-4 flex flex-col items-center gap-2 hover:bg-white">
+              <BarChart3 className="h-6 w-6 text-indigo-600" />
+              <div className="text-center">
+                <p className="font-semibold">Monthly Review</p>
+                <p className="text-xs text-muted-foreground">Prayer heatmap & trends</p>
               </div>
             </Button>
           </Link>

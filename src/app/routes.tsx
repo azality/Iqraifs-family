@@ -8,6 +8,7 @@ import { KidLoginNew } from "./pages/KidLoginNew";
 import { DashboardRouter } from "./pages/DashboardRouter";
 import { LogBehavior } from "./pages/LogBehavior";
 import { WeeklyReview } from "./pages/WeeklyReview";
+import { MonthlyReview } from "./pages/MonthlyReview";
 import { Adjustments } from "./pages/Adjustments";
 import { AttendanceNew } from "./pages/AttendanceNew";
 import { Rewards } from "./pages/Rewards";
@@ -286,6 +287,7 @@ export const router = createBrowserRouter([
           { index: true, element: <DashboardRouter /> },
           { path: "log", element: <RequireParentRole><LogBehavior /></RequireParentRole> },
           { path: "review", element: <RequireParentRole><WeeklyReview /></RequireParentRole> },
+          { path: "monthly-review", element: <RequireParentRole><MonthlyReview /></RequireParentRole> },
           { path: "adjustments", element: <RequireParentRole><Adjustments /></RequireParentRole> },
           { path: "attendance", element: <RequireParentRole><AttendanceNew /></RequireParentRole> },
           { path: "rewards", element: <RequireParentRole><Rewards /></RequireParentRole> },
