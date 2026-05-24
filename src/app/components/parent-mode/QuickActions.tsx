@@ -40,6 +40,13 @@ export function QuickActions() {
       description: "Weekly",
     },
     {
+      label: "Monthly",
+      icon: TrendingUp,
+      href: "/monthly-review",
+      color: "bg-amber-500 hover:bg-amber-600",
+      description: "Heatmap",
+    },
+    {
       label: "Adjust",
       icon: Edit,
       href: "/adjustments",

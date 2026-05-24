@@ -24,6 +24,7 @@ const ViewModeContext = createContext<ViewModeContextType | undefined>(undefined
 const PARENT_ONLY_ROUTES = [
   '/log',
   '/review',
+  '/monthly-review',
   '/attendance',
   '/adjustments',
   '/edit-requests',

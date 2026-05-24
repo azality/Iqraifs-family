@@ -1927,12 +1927,29 @@ app.get(
     // events struck-through with their void reason — that IS the audit
     // signal we promised.
     const includeVoided = c.req.query('include_voided') === 'true';
+    // v31 (monthly review): optional inclusive date-range filter. When
+    // both startDate and endDate are provided (YYYY-MM-DD), the server
+    // only returns events whose timestamp falls within
+    // [startDate 00:00:00, endDate 23:59:59.999] in the server's clock.
+    // Either bound may be omitted independently. Default (no params)
+    // preserves the existing behaviour of returning everything.
+    const startDateRaw = c.req.query('startDate');
+    const endDateRaw = c.req.query('endDate');
+    const startMs = startDateRaw ? Date.parse(`${startDateRaw}T00:00:00.000Z`) : null;
+    const endMs = endDateRaw ? Date.parse(`${endDateRaw}T23:59:59.999Z`) : null;
     const allEvents = await kv.getByPrefix('event:');
     const childEvents = allEvents
-      .filter((event: any) =>
-        event.childId === childId &&
-        (includeVoided || event.status !== 'voided')
-      )
+      .filter((event: any) => {
+        if (event.childId !== childId) return false;
+        if (!includeVoided && event.status === 'voided') return false;
+        if (startMs !== null || endMs !== null) {
+          const t = new Date(event.timestamp).getTime();
+          if (Number.isNaN(t)) return false;
+          if (startMs !== null && t < startMs) return false;
+          if (endMs !== null && t > endMs) return false;
+        }
+        return true;
+      })
       .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     
     // ✅ CRITICAL FIX: Add logged_by_display to each event
