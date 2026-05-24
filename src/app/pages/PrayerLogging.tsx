@@ -81,6 +81,22 @@ export function PrayerLogging() {
   // Indexed by prayer name (e.g. "Asr") so the prayer card can show
   // the actual points + bonus the kid earned.
   const [creditedToday, setCreditedToday] = useState<Record<string, CreditedPrayer>>({});
+  // Backdating: kid can claim a prayer for up to 6 days in the past (7-day window).
+  // Default to today. Passed as backdateDate to POST /prayer-claims when not today.
+  const ymd = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+  const todayYmd = ymd(new Date());
+  const sixDaysAgoYmd = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 6);
+    return ymd(d);
+  })();
+  const [claimDate, setClaimDate] = useState<string>(todayYmd);
+  const isClaimBackdated = claimDate !== todayYmd;
 
   // CRITICAL: Use correct localStorage keys for kid mode
   const childId = getStorageSync('kid_id') || getStorageSync('child_id');
@@ -286,7 +302,8 @@ export function PrayerLogging() {
           body: JSON.stringify({
             childId,
             prayerName,
-            points: 5
+            points: 5,
+            ...(isClaimBackdated ? { backdateDate: claimDate } : {})
           })
         }
       );
@@ -377,6 +394,35 @@ export function PrayerLogging() {
         <div className="mb-6">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">🌙 Daily Prayers</h1>
           <p className="text-gray-600">Claim your prayers and earn points!</p>
+        </div>
+
+        {/* Backdating: kid can claim a prayer for up to 6 days in the past.
+            Default is today. Shows a small inline date picker so a kid who
+            forgot to log yesterday's Maghrib can still claim it (subject to
+            parent approval). */}
+        <div className="mb-4 bg-white rounded-xl shadow-sm p-4 border-2 border-purple-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div>
+            <label htmlFor="claimDate" className="block text-sm font-semibold text-gray-700">
+              Claim for date
+            </label>
+            <p className="text-xs text-gray-500">Today by default. You can pick up to 6 days back.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              id="claimDate"
+              type="date"
+              value={claimDate}
+              min={sixDaysAgoYmd}
+              max={todayYmd}
+              onChange={(e) => setClaimDate(e.target.value || todayYmd)}
+              className="border-2 border-purple-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-400"
+            />
+            {isClaimBackdated && (
+              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                Backdated to {new Date(claimDate + 'T12:00:00').toLocaleDateString()}
+              </span>
+            )}
+          </div>
         </div>
 
         {/* v28: confirmation banner — fires for ~6s after a kid claims

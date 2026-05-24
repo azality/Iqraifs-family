@@ -47,6 +47,33 @@ export function LogBehavior() {
   // rows because the click handlers ran before setSelectedItemId(null) cleared
   // the form state. This lock blocks the second invocation cleanly.
   const [submitting, setSubmitting] = useState(false);
+  // Backdating: parents may log an event up to 6 days in the past (today + 6 prior days = 7-day window).
+  // Default to today. Applied to prayer, habit, positive, and concern logs.
+  const todayYmd = () => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+  const sixDaysAgoYmd = () => {
+    const d = new Date();
+    d.setDate(d.getDate() - 6);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+  const [logDate, setLogDate] = useState<string>(todayYmd());
+  const isBackdated = logDate !== todayYmd();
+  // Convert YYYY-MM-DD to ISO at noon local-time so timezone offset doesn't
+  // flip the day across UTC midnight when the backend re-parses.
+  const buildOccurredAt = (ymd: string): string | undefined => {
+    if (ymd === todayYmd()) return undefined; // omit when today, keep "now"
+    const [y, m, d] = ymd.split('-').map(Number);
+    const dt = new Date(y, (m - 1), d, 12, 0, 0, 0);
+    return dt.toISOString();
+  };
   const child = getCurrentChild();
 
   // Load point events for prayer tracking.
@@ -304,6 +331,7 @@ export function LogBehavior() {
       // already do this (see prayerLogging.tsx); parent-logged events did
       // not, which is why old salah events showed "Unknown" in the audit
       // trail after the v15 smart-delete reset salah item IDs.
+      const occurredAt = buildOccurredAt(logDate);
       await logEvent(child.id, {
         childId: child.id,
         trackableItemId: selectedItemId!,
@@ -318,7 +346,8 @@ export function LogBehavior() {
               ' (On Time)'
             }`
           : item.name,
-        ...(isSalah ? { salahState: salahState || 'ontime' } : {})
+        ...(isSalah ? { salahState: salahState || 'ontime' } : {}),
+        ...(occurredAt ? { occurredAt } : {})
       } as any);
 
       const bonusText = effectiveBonus > 0 ? ` + ${effectiveBonus} bonus` : '';
@@ -382,6 +411,7 @@ export function LogBehavior() {
 
     setSubmitting(true);
     try {
+      const occurredAt = buildOccurredAt(logDate);
       await logEvent(child.id, {
         childId: child.id,
         trackableItemId: 'manual-bonus', // Use a special identifier for manual bonuses instead of null
@@ -389,8 +419,9 @@ export function LogBehavior() {
         points: standaloneBonusPoints,
         loggedBy: user.id,
         notes: standaloneBonusReason || undefined,
-        isAdjustment: true // Mark as adjustment so backend knows this is a manual entry
-      });
+        isAdjustment: true, // Mark as adjustment so backend knows this is a manual entry
+        ...(occurredAt ? { occurredAt } : {})
+      } as any);
 
       toast.success(`Logged bonus for ${child.name} (+${standaloneBonusPoints} points)`);
       setStandaloneBonusPoints(0);
@@ -621,6 +652,29 @@ export function LogBehavior() {
               </div>
             )}
             
+            <div className="space-y-2">
+              <Label htmlFor="logDate" className="flex items-center gap-2">
+                Date
+                {isBackdated && (
+                  <Badge variant="secondary" className="bg-amber-100 text-amber-800">
+                    Backdated to {new Date(logDate + 'T12:00:00').toLocaleDateString()}
+                  </Badge>
+                )}
+              </Label>
+              <Input
+                id="logDate"
+                type="date"
+                value={logDate}
+                min={sixDaysAgoYmd()}
+                max={todayYmd()}
+                onChange={(e) => setLogDate(e.target.value || todayYmd())}
+                className="w-fit"
+              />
+              <p className="text-xs text-muted-foreground">
+                You can log events up to 6 days in the past. Defaults to today.
+              </p>
+            </div>
+
             <div className="space-y-2">
               <Label htmlFor="notes">Notes (Optional)</Label>
               <Textarea
