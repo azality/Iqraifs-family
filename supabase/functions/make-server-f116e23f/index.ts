@@ -1803,10 +1803,21 @@ app.post(
       }
     }
 
+    // Backdating: parents may log an event with an explicit occurredAt
+    // (validated to be within the past 7 days). When provided we use it
+    // as the event timestamp; otherwise the event timestamps to "now".
+    const effectiveTimestamp = eventData.occurredAt
+      ? new Date(eventData.occurredAt).toISOString()
+      : new Date().toISOString();
+    const isBackdated = !!eventData.occurredAt &&
+      new Date(eventData.occurredAt).toDateString() !== new Date().toDateString();
+
     const event = {
       id: eventId,
       ...eventData,
-      timestamp: new Date().toISOString(),
+      timestamp: effectiveTimestamp,
+      occurredAt: eventData.occurredAt || null,
+      backdated: isBackdated,
       idempotencyKey: idempotencyKey || null,
       status: 'active'
     };

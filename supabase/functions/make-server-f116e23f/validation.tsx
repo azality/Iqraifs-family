@@ -95,6 +95,28 @@ export function validatePointEvent(data: any): ValidationResult {
     errors.push("isSadqa must be a boolean");
   }
 
+  // Backdating window: occurredAt may be up to 7 days in the past, no future.
+  if (data.occurredAt !== undefined && data.occurredAt !== null) {
+    if (typeof data.occurredAt !== "string") {
+      errors.push("occurredAt must be an ISO 8601 string");
+    } else {
+      const occurredAtMs = Date.parse(data.occurredAt);
+      if (Number.isNaN(occurredAtMs)) {
+        errors.push("occurredAt must be a valid ISO 8601 date");
+      } else {
+        const nowMs = Date.now();
+        // small clock-skew tolerance: 60s in the future is allowed
+        const futureSkewMs = 60 * 1000;
+        const maxPastMs = 7 * 24 * 60 * 60 * 1000;
+        if (occurredAtMs > nowMs + futureSkewMs) {
+          errors.push("occurredAt cannot be in the future");
+        } else if (nowMs - occurredAtMs > maxPastMs) {
+          errors.push("occurredAt cannot be more than 7 days in the past");
+        }
+      }
+    }
+  }
+
   return {
     valid: errors.length === 0,
     errors,
