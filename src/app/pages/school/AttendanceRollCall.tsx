@@ -11,8 +11,8 @@ import { toast } from "sonner";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
-import { Label } from "../../components/ui/label";
-import { CalendarCheck, ChevronLeft } from "lucide-react";
+import { ChevronLeft, CheckCircle, Clock, XCircle, AlertCircle } from "lucide-react";
+import { HeroCard, KpiTile } from "../../components/school-ui";
 import {
   getSectionAttendance,
   listStudents,
@@ -137,25 +137,36 @@ export function AttendanceRollCall() {
     return c;
   }, [students, rows]);
 
+  const prettyDate = (() => {
+    try {
+      return new Date(date + "T00:00:00").toLocaleDateString(undefined, {
+        weekday: "long",
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      });
+    } catch {
+      return date;
+    }
+  })();
+
   return (
     <div className="space-y-4 pb-24">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <CalendarCheck className="h-6 w-6 text-indigo-600" />
-          Attendance roll-call
-        </h1>
-        <div className="flex items-center gap-2">
-          <Link to={`/school/orgs/${orgId}/admin/classes`}>
-            <Button variant="outline" size="sm">
-              <ChevronLeft className="h-4 w-4 mr-1" /> Classes
-            </Button>
-          </Link>
-        </div>
+      <div className="flex items-center justify-end">
+        <Link to={`/school/orgs/${orgId}/admin/classes`}>
+          <Button variant="outline" size="sm">
+            <ChevronLeft className="h-4 w-4 mr-1" /> Classes
+          </Button>
+        </Link>
       </div>
 
-      <div className="flex flex-wrap items-end gap-3">
-        <div>
-          <Label htmlFor="ar-date">Date</Label>
+      <HeroCard
+        variant="slim"
+        eyebrow="Roll-call"
+        title="Attendance"
+        subtitle={`${students.length} students`}
+        asOf={prettyDate}
+        rightSlot={
           <Input
             id="ar-date"
             type="date"
@@ -163,34 +174,51 @@ export function AttendanceRollCall() {
             min={min}
             max={max}
             onChange={(e) => setDate(e.target.value)}
-            className="w-44"
+            className="h-9 w-44 border-white/20 bg-white/10 text-white [color-scheme:dark]"
           />
-        </div>
-        <div className="ml-auto flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => markAll("present")}>
-            Mark all present
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => markAll("absent")}>
-            Mark all absent
-          </Button>
-        </div>
+        }
+      />
+
+      <div className="grid gap-2 grid-cols-2 sm:grid-cols-4">
+        <KpiTile
+          variant="light"
+          label="Present"
+          icon={CheckCircle}
+          value={counts.present}
+          hint="Mark all present"
+          onClick={() => markAll("present")}
+        />
+        <KpiTile
+          variant="light"
+          label="Late"
+          icon={Clock}
+          value={counts.late}
+          hint="Mark all late"
+          onClick={() => markAll("late")}
+        />
+        <KpiTile
+          variant="light"
+          label="Absent"
+          icon={XCircle}
+          value={counts.absent}
+          hint="Mark all absent"
+          onClick={() => markAll("absent")}
+        />
+        <KpiTile
+          variant="light"
+          label="Excused"
+          icon={AlertCircle}
+          value={counts.excused}
+          hint="Mark all excused"
+          onClick={() => markAll("excused")}
+        />
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
-        <span className="inline-flex items-center gap-1">
-          <span className="h-2 w-2 rounded-full bg-emerald-600" /> {counts.present} present
-        </span>
-        <span className="inline-flex items-center gap-1">
-          <span className="h-2 w-2 rounded-full bg-amber-500" /> {counts.late} late
-        </span>
-        <span className="inline-flex items-center gap-1">
-          <span className="h-2 w-2 rounded-full bg-rose-600" /> {counts.absent} absent
-        </span>
-        <span className="inline-flex items-center gap-1">
-          <span className="h-2 w-2 rounded-full bg-slate-500" /> {counts.excused} excused
-        </span>
-        <span className="text-slate-400">· {counts.unmarked} unmarked</span>
-      </div>
+      {counts.unmarked > 0 && (
+        <p className="text-xs text-slate-500">
+          <span className="tabular-nums text-slate-700">{counts.unmarked}</span> unmarked
+        </p>
+      )}
 
       {error && <p className="text-sm text-rose-600">{error}</p>}
 
@@ -251,9 +279,13 @@ export function AttendanceRollCall() {
       <div className="fixed inset-x-0 bottom-0 z-20 border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-3">
           <p className="text-xs text-slate-500">
-            {date} · {students.length} students
+            <span className="tabular-nums text-slate-700">{students.length - counts.unmarked}</span> of {students.length} marked · {date}
           </p>
-          <Button onClick={submit} disabled={saving || students.length === 0}>
+          <Button
+            onClick={submit}
+            disabled={saving || students.length === 0}
+            className="bg-indigo-600 hover:bg-indigo-700"
+          >
             {saving ? "Saving…" : "Save attendance"}
           </Button>
         </div>

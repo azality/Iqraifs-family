@@ -5,7 +5,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router";
-import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
@@ -23,8 +22,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../components/ui/select";
-import { Users, Plus, Upload, Search, Trash2, Pencil, Eye, MessageSquare } from "lucide-react";
+import { Plus, Upload, Search, Trash2, Pencil, Eye, MessageSquare } from "lucide-react";
 import { BehaviorLogEntry } from "./BehaviorLogEntry";
+import { DataTable, sectionTitleClasses, type DataTableColumn } from "../../components/school-ui";
 import {
   getSchoolMe,
   isOrgAdmin,
@@ -152,34 +152,93 @@ export function ManageStudents() {
     return res;
   };
 
+  const columns: DataTableColumn<AdminStudent>[] = [
+    {
+      key: "name",
+      header: "Name",
+      render: (s) => (
+        <div>
+          <div className="font-medium text-slate-900">{s.full_name}</div>
+          <div className="text-xs text-slate-500">
+            {s.guardian_phone || s.guardian_email || "—"}
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: "gr",
+      header: "GR#",
+      className: "font-mono text-xs text-slate-600 tabular-nums",
+      render: (s) => s.gr_number,
+    },
+    {
+      key: "section",
+      header: "Section",
+      className: "text-xs text-slate-600",
+      render: (s) => sectionOptions.find((o) => o.id === s.class_section_id)?.label || "—",
+    },
+    {
+      key: "actions",
+      header: "",
+      className: "text-right",
+      headerClassName: "text-right",
+      render: (s) => (
+        <div className="inline-flex gap-0.5" onClick={(e) => e.stopPropagation()}>
+          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => navigate(`/school/orgs/${orgId}/admin/students/${s.id}`)}>
+            <Eye className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0"
+            title="Log behavior"
+            onClick={() => setBehaviorTarget(s)}
+          >
+            <MessageSquare className="h-3.5 w-3.5 text-indigo-600" />
+          </Button>
+          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => startEdit(s)}>
+            <Pencil className="h-3.5 w-3.5" />
+          </Button>
+          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleDelete(s)}>
+            <Trash2 className="h-3.5 w-3.5 text-rose-600" />
+          </Button>
+        </div>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Users className="h-6 w-6 text-indigo-600" />
-          Students
-        </h1>
+      <div className="flex items-end justify-between flex-wrap gap-2">
+        <div>
+          <div className={sectionTitleClasses}>Students</div>
+          <p className="mt-1 text-sm text-slate-500">
+            Manage roster · <span className="tabular-nums text-slate-700">{students.length}</span> on file
+          </p>
+        </div>
         <div className="flex gap-2">
           <Link to={`/school/orgs/${orgId}/admin`}><Button variant="outline" size="sm">← Admin</Button></Link>
           <Button variant="outline" size="sm" onClick={() => setCsvOpen(true)}>
             <Upload className="h-4 w-4 mr-1" /> Bulk CSV
           </Button>
-          <Button size="sm" onClick={startCreate}><Plus className="h-4 w-4 mr-1" /> Add Student</Button>
+          <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" onClick={startCreate}>
+            <Plus className="h-4 w-4 mr-1" /> Add Student
+          </Button>
         </div>
       </div>
 
-      <div className="flex gap-2 flex-wrap">
+      <div className="flex gap-2 flex-wrap items-center rounded-xl border border-slate-200 bg-white p-2 shadow-sm">
         <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
           <Input
-            className="pl-8"
+            className="h-9 pl-8 border-slate-200 focus-visible:ring-indigo-500"
             placeholder="Search by name or GR#…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
         <Select value={sectionFilter} onValueChange={setSectionFilter}>
-          <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="h-9 w-56"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="__all__">All sections</SelectItem>
             {sectionOptions.map((o) => (
@@ -189,62 +248,16 @@ export function ManageStudents() {
         </Select>
       </div>
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-rose-600">{error}</p>}
 
-      <Card>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/50 text-xs">
-                <tr>
-                  <th className="text-left p-2">GR#</th>
-                  <th className="text-left p-2">Name</th>
-                  <th className="text-left p-2">Section</th>
-                  <th className="text-left p-2">Guardian</th>
-                  <th className="text-right p-2">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {students.length === 0 && (
-                  <tr><td colSpan={5} className="p-6 text-center text-muted-foreground">No students yet.</td></tr>
-                )}
-                {students.map((s) => {
-                  const sec = sectionOptions.find((o) => o.id === s.class_section_id);
-                  return (
-                    <tr key={s.id} className="border-t hover:bg-muted/30">
-                      <td className="p-2 font-mono text-xs">{s.gr_number}</td>
-                      <td className="p-2">{s.full_name}</td>
-                      <td className="p-2 text-xs text-muted-foreground">{sec?.label || "—"}</td>
-                      <td className="p-2 text-xs text-muted-foreground">{s.guardian_phone || s.guardian_email || "—"}</td>
-                      <td className="p-2 text-right">
-                        <div className="inline-flex gap-1">
-                          <Button variant="ghost" size="sm" onClick={() => navigate(`/school/orgs/${orgId}/admin/students/${s.id}`)}>
-                            <Eye className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            title="Log behavior"
-                            onClick={() => setBehaviorTarget(s)}
-                          >
-                            <MessageSquare className="h-3.5 w-3.5 text-indigo-600" />
-                          </Button>
-                          <Button variant="ghost" size="sm" onClick={() => startEdit(s)}>
-                            <Pencil className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button variant="ghost" size="sm" onClick={() => handleDelete(s)}>
-                            <Trash2 className="h-3.5 w-3.5 text-red-600" />
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+      <DataTable
+        columns={columns}
+        rows={students}
+        rowKey={(s) => s.id}
+        onRowClick={(s) => navigate(`/school/orgs/${orgId}/admin/students/${s.id}`)}
+        empty="No students yet."
+        hideChevron
+      />
 
       {/* Add/Edit dialog */}
       <Dialog open={formOpen} onOpenChange={setFormOpen}>

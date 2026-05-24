@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { Link, Navigate, useParams } from "react-router";
-import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
+import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
@@ -17,6 +17,7 @@ import {
   DialogTitle,
 } from "../../components/ui/dialog";
 import { Users, KeyRound, Plus, Copy, Trash2, Link2, BookMarked, Trophy, ClipboardCheck } from "lucide-react";
+import { HeroCard, sectionTitleClasses } from "../../components/school-ui";
 import { HifzLogEntry } from "./HifzLogEntry";
 import { HifzProgressFeed } from "./HifzProgressFeed";
 import { StudentGradesFeed } from "./StudentGradesFeed";
@@ -129,52 +130,79 @@ export function StudentDetail() {
   const copy = (s: string) => { void navigator.clipboard.writeText(s); };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Users className="h-6 w-6 text-indigo-600" />
-          {student.full_name}
-        </h1>
-        <div className="flex gap-2">
-          <Button size="sm" onClick={() => setHifzOpen(true)}>
-            <BookMarked className="h-4 w-4 mr-1" /> Log Hifz
-          </Button>
-          <Link to={`/school/orgs/${orgId}/admin/students`}>
-            <Button variant="outline" size="sm">← Students</Button>
-          </Link>
-        </div>
+    <div className="space-y-5">
+      <div className="flex items-center justify-end">
+        <Link to={`/school/orgs/${orgId}/admin/students`}>
+          <Button variant="outline" size="sm">← Students</Button>
+        </Link>
       </div>
 
-      <Card>
-        <CardContent className="p-4 flex gap-4 items-start">
-          {student.photo_url ? (
-            <img src={student.photo_url} alt="" className="h-20 w-20 rounded-full object-cover" />
-          ) : (
-            <div className="h-20 w-20 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xl">
-              {student.full_name.charAt(0)}
+      <HeroCard
+        eyebrow="Student"
+        title={student.full_name}
+        subtitle={
+          <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-0.5">
+            <span><span className="text-slate-500">GR#</span> <span className="font-mono text-slate-200">{student.gr_number}</span></span>
+            {student.date_of_birth && <span><span className="text-slate-500">DOB</span> {student.date_of_birth}</span>}
+            {student.gender && <span><span className="text-slate-500">Gender</span> {student.gender}</span>}
+            {student.guardian_phone && <span><span className="text-slate-500">Phone</span> {student.guardian_phone}</span>}
+            {student.guardian_email && <span><span className="text-slate-500">Email</span> {student.guardian_email}</span>}
+          </span>
+        }
+        rightSlot={
+          <div className="flex items-start gap-3">
+            {student.photo_url ? (
+              <img
+                src={student.photo_url}
+                alt=""
+                className="h-16 w-16 rounded-full object-cover ring-2 ring-white/20"
+              />
+            ) : (
+              <div className="h-16 w-16 rounded-full bg-indigo-500/30 flex items-center justify-center text-white font-bold text-xl ring-2 ring-white/20">
+                {student.full_name.charAt(0)}
+              </div>
+            )}
+            <div className="flex flex-col gap-1.5">
+              <Button
+                size="sm"
+                className="h-7 bg-white text-slate-900 hover:bg-slate-100"
+                onClick={() => setHifzOpen(true)}
+              >
+                <BookMarked className="h-3.5 w-3.5 mr-1" /> Log Hifz
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 border-white/30 bg-white/5 text-white hover:bg-white/10 hover:text-white"
+                onClick={() => setPinOpen(true)}
+              >
+                <KeyRound className="h-3.5 w-3.5 mr-1" /> Set PIN
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 border-white/30 bg-white/5 text-white hover:bg-white/10 hover:text-white"
+                onClick={handleGenerateCode}
+              >
+                <Link2 className="h-3.5 w-3.5 mr-1" /> Link code
+              </Button>
             </div>
-          )}
-          <div className="flex-1 text-sm space-y-1">
-            <p><span className="text-muted-foreground">GR#:</span> <span className="font-mono">{student.gr_number}</span></p>
-            {student.date_of_birth && <p><span className="text-muted-foreground">DOB:</span> {student.date_of_birth}</p>}
-            {student.gender && <p><span className="text-muted-foreground">Gender:</span> {student.gender}</p>}
-            {student.guardian_phone && <p><span className="text-muted-foreground">Phone:</span> {student.guardian_phone}</p>}
-            {student.guardian_email && <p><span className="text-muted-foreground">Email:</span> {student.guardian_email}</p>}
           </div>
-        </CardContent>
-      </Card>
+        }
+      />
 
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Link2 className="h-4 w-4" /> Linked parents
-          </CardTitle>
-          <Button size="sm" onClick={() => setLinkOpen(true)}><Plus className="h-3.5 w-3.5 mr-1" /> Link parent</Button>
-        </CardHeader>
-        <CardContent className="space-y-2">
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <div className={sectionTitleClasses}>Linked parents</div>
+          <Button size="sm" variant="outline" onClick={() => setLinkOpen(true)}>
+            <Plus className="h-3.5 w-3.5 mr-1" /> Link parent
+          </Button>
+        </div>
+        <Card>
+          <CardContent className="p-3 space-y-2">
           {student.parents.length === 0 && <p className="text-sm text-muted-foreground">No parents linked yet.</p>}
           {student.parents.map((p) => (
-            <div key={p.id} className="flex items-center gap-2 p-2 border rounded">
+            <div key={p.id} className="flex items-center gap-2 p-2 border border-slate-100 rounded-lg hover:bg-slate-50/60">
               <div className="flex-1">
                 <p className="text-sm font-medium">{p.full_name} {p.is_primary && <Badge variant="secondary" className="ml-1 text-xs">Primary</Badge>}</p>
                 <p className="text-xs text-muted-foreground">
@@ -183,35 +211,36 @@ export function StudentDetail() {
                 </p>
               </div>
               <Button variant="ghost" size="sm" onClick={() => handleUnlink(p.id)}>
-                <Trash2 className="h-3.5 w-3.5 text-red-600" />
+                <Trash2 className="h-3.5 w-3.5 text-rose-600" />
               </Button>
             </div>
           ))}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      </div>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <KeyRound className="h-4 w-4" /> PIN
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="flex gap-2">
-          <Button size="sm" onClick={() => setPinOpen(true)}>Set PIN</Button>
-          <Button size="sm" variant="outline" onClick={handleResetPin}>Reset PIN (auto-generate)</Button>
-        </CardContent>
-      </Card>
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <div className={sectionTitleClasses}>PIN & link code</div>
+        </div>
+        <Card>
+          <CardContent className="p-3 flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" onClick={() => setPinOpen(true)}>
+              <KeyRound className="h-3.5 w-3.5 mr-1" /> Set PIN
+            </Button>
+            <Button size="sm" variant="outline" onClick={handleResetPin}>
+              Reset PIN (auto-generate)
+            </Button>
+            <Button size="sm" variant="outline" onClick={handleGenerateCode}>
+              <Link2 className="h-3.5 w-3.5 mr-1" /> Generate parent link code
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Link2 className="h-4 w-4" /> Parent link code
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Button size="sm" onClick={handleGenerateCode}>Generate code</Button>
-        </CardContent>
-      </Card>
+      <div>
+        <div className={sectionTitleClasses + " mb-2"}>Hifz progress</div>
+      </div>
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
