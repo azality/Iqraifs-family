@@ -24,6 +24,7 @@ import { serviceRoleClient, requireAuth, getAuthUserId } from "./middleware.tsx"
 import { installPhaseA } from "./schoolPhaseA.tsx";
 import { installPhaseB } from "./schoolPhaseB.tsx";
 import { installPhaseC } from "./schoolPhaseC.tsx";
+import { installPhaseC2 } from "./schoolPhaseC2.tsx";
 import { installDashboard } from "./schoolDashboard.tsx";
 
 const school = new Hono();
@@ -2499,6 +2500,11 @@ installPhaseB(school);
 // Phase C.1 routes (daily sabaq lessons + hifz progress)
 // -----------------------------------------------------------------------------
 installPhaseC(school);
+
+// -----------------------------------------------------------------------------
+// Phase C.2 routes (assignments + grades)
+// -----------------------------------------------------------------------------
+installPhaseC2(school);
 
 // -----------------------------------------------------------------------------
 // Dashboard aggregate routes (school-at-a-glance, leaderboard, insights)
