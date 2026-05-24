@@ -1152,6 +1152,43 @@ export const postRosterRequest = (
     body: JSON.stringify(body),
   });
 
+// ─── Phase C.1: Lessons (daily sabaq) ──────────────────────────────────
+
+export interface Lesson {
+  id: string;
+  org_id: string;
+  class_section_id: string;
+  lesson_date: string; // YYYY-MM-DD
+  title: string;
+  body: string | null;
+  video_url: string | null;
+  audio_url: string | null;
+  attachments: Array<{ label: string; url: string }>;
+  taught_by: string | null;
+  taught_by_name?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LessonInput {
+  lessonDate: string; // YYYY-MM-DD
+  title: string;
+  body?: string;
+  videoUrl?: string;
+  audioUrl?: string;
+  attachments?: Array<{ label: string; url: string }>;
+}
+
+export const postLesson = (
+  orgId: string,
+  sectionId: string,
+  body: LessonInput,
+): Promise<Lesson> =>
+  apiCall(`/school/orgs/${orgId}/sections/${sectionId}/lessons`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
 export const getRosterRequests = (
   orgId: string,
   opts: { status?: RosterRequestStatus } = {},
@@ -1176,6 +1213,137 @@ export const patchRosterRequest = (
   apiCall(`/school/orgs/${orgId}/roster-requests/${requestId}`, {
     method: "PATCH",
     body: JSON.stringify(body),
+  });
+
+export const getSectionLessons = (
+  orgId: string,
+  sectionId: string,
+  opts: { startDate?: string; endDate?: string; limit?: number } = {},
+): Promise<{ lessons: Lesson[] }> => {
+  const q = new URLSearchParams();
+  if (opts.startDate) q.append("startDate", opts.startDate);
+  if (opts.endDate) q.append("endDate", opts.endDate);
+  if (opts.limit) q.append("limit", String(opts.limit));
+  const qs = q.toString() ? `?${q}` : "";
+  return apiCall(`/school/orgs/${orgId}/sections/${sectionId}/lessons${qs}`);
+};
+
+export const getLesson = (orgId: string, lessonId: string): Promise<Lesson> =>
+  apiCall(`/school/orgs/${orgId}/lessons/${lessonId}`);
+
+export const patchLesson = (
+  orgId: string,
+  lessonId: string,
+  partial: Partial<LessonInput>,
+): Promise<Lesson> =>
+  apiCall(`/school/orgs/${orgId}/lessons/${lessonId}`, {
+    method: "PATCH",
+    body: JSON.stringify(partial),
+  });
+
+export const deleteLesson = (
+  orgId: string,
+  lessonId: string,
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/lessons/${lessonId}`, { method: "DELETE" });
+
+// ─── Phase C.1: Hifz progress ──────────────────────────────────────────
+
+export type HifzKind =
+  | "memorized"
+  | "revised"
+  | "tested"
+  | "sabaq"
+  | "sabqi"
+  | "manzil";
+
+export type HifzQuality = "excellent" | "good" | "needs_practice" | "weak";
+
+export interface HifzEntry {
+  id: string;
+  student_id: string;
+  surah_number: number;
+  ayah_from: number;
+  ayah_to: number;
+  kind: HifzKind;
+  quality: HifzQuality | null;
+  notes: string | null;
+  recorded_by: string | null;
+  recorded_by_name?: string | null;
+  recorded_at: string;
+}
+
+export interface HifzEntryInput {
+  studentId: string;
+  surahNumber: number;
+  ayahFrom: number;
+  ayahTo: number;
+  kind: HifzKind;
+  quality?: HifzQuality;
+  notes?: string;
+}
+
+export const postHifzEntry = (
+  orgId: string,
+  body: HifzEntryInput,
+): Promise<HifzEntry> =>
+  apiCall(`/school/orgs/${orgId}/hifz-progress`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const getStudentHifz = (
+  orgId: string,
+  studentId: string,
+  opts: {
+    startDate?: string;
+    endDate?: string;
+    kind?: HifzKind;
+    limit?: number;
+  } = {},
+): Promise<{ entries: HifzEntry[] }> => {
+  const q = new URLSearchParams();
+  if (opts.startDate) q.append("startDate", opts.startDate);
+  if (opts.endDate) q.append("endDate", opts.endDate);
+  if (opts.kind) q.append("kind", opts.kind);
+  if (opts.limit) q.append("limit", String(opts.limit));
+  const qs = q.toString() ? `?${q}` : "";
+  return apiCall(
+    `/school/orgs/${orgId}/students/${studentId}/hifz-progress${qs}`,
+  );
+};
+
+export interface StudentHifzSummary {
+  ayahsMemorized: number;
+  surahsCompleted: number;
+  lastEntry: string | null;
+}
+
+export const getStudentHifzSummary = (
+  orgId: string,
+  studentId: string,
+): Promise<StudentHifzSummary> =>
+  apiCall(`/school/orgs/${orgId}/students/${studentId}/hifz-progress/summary`);
+
+export interface SectionHifzSummaryRow {
+  studentId: string;
+  studentName: string;
+  ayahsMemorized: number;
+  lastEntry: string | null;
+}
+
+export const getSectionHifzSummary = (
+  orgId: string,
+  sectionId: string,
+): Promise<{ students: SectionHifzSummaryRow[] }> =>
+  apiCall(`/school/orgs/${orgId}/sections/${sectionId}/hifz-progress/summary`);
+
+export const deleteHifzEntry = (
+  orgId: string,
+  entryId: string,
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/hifz-progress/${entryId}`, {
+    method: "DELETE",
   });
 
 // Re-export apiCall so callers can hit ad-hoc endpoints without a second import.
