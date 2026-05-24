@@ -60,6 +60,10 @@ import { AttendanceRollCall } from "./pages/school/AttendanceRollCall";
 import { SectionBehaviorFeed } from "./pages/school/SectionBehaviorFeed";
 import { RosterRequestForm } from "./pages/school/RosterRequestForm";
 import { RosterReviewQueue } from "./pages/school/RosterReviewQueue";
+// Phase C.1: daily sabaq + hifz progress
+import { SectionLessonsFeed } from "./pages/school/SectionLessonsFeed";
+import { LessonForm } from "./pages/school/LessonForm";
+import { SectionHifzOverview } from "./pages/school/SectionHifzOverview";
 // Parent-facing redemption page for school invite codes — lands here from
 // the SMS/WhatsApp links the school sends.
 import { ParentConnect } from "./pages/ParentConnect";
@@ -360,6 +364,11 @@ export const router = createBrowserRouter([
           { path: "school/orgs/:orgId/sections/:sectionId/attendance", element: <RequireParentRole><AttendanceRollCall /></RequireParentRole> },
           { path: "school/orgs/:orgId/sections/:sectionId/behavior", element: <RequireParentRole><SectionBehaviorFeed /></RequireParentRole> },
           { path: "school/orgs/:orgId/sections/:sectionId/roster/new", element: <RequireParentRole><RosterRequestForm /></RequireParentRole> },
+          // Phase C.1: daily sabaq + hifz progress
+          { path: "school/orgs/:orgId/sections/:sectionId/lessons", element: <RequireParentRole><SectionLessonsFeed /></RequireParentRole> },
+          { path: "school/orgs/:orgId/sections/:sectionId/lessons/new", element: <RequireParentRole><LessonForm /></RequireParentRole> },
+          { path: "school/orgs/:orgId/lessons/:lessonId/edit", element: <RequireParentRole><LessonForm /></RequireParentRole> },
+          { path: "school/orgs/:orgId/sections/:sectionId/hifz", element: <RequireParentRole><SectionHifzOverview /></RequireParentRole> },
           // Redirect old routes to homepage
           { path: "kid", element: <Navigate to="/" replace /> },
           { path: "parent", element: <Navigate to="/" replace /> },

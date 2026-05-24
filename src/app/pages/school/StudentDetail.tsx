@@ -16,7 +16,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../../components/ui/dialog";
-import { Users, KeyRound, Plus, Copy, Trash2, Link2 } from "lucide-react";
+import { Users, KeyRound, Plus, Copy, Trash2, Link2, BookMarked } from "lucide-react";
+import { HifzLogEntry } from "./HifzLogEntry";
+import { HifzProgressFeed } from "./HifzProgressFeed";
 import {
   getSchoolMe,
   isOrgAdmin,
@@ -54,6 +56,10 @@ export function StudentDetail() {
   // Link code
   const [codeOpen, setCodeOpen] = useState(false);
   const [generatedCode, setGeneratedCode] = useState<{ code: string; expiresAt: string | null } | null>(null);
+
+  // Hifz logger
+  const [hifzOpen, setHifzOpen] = useState(false);
+  const [hifzReloadKey, setHifzReloadKey] = useState(0);
 
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
@@ -128,9 +134,14 @@ export function StudentDetail() {
           <Users className="h-6 w-6 text-indigo-600" />
           {student.full_name}
         </h1>
-        <Link to={`/school/orgs/${orgId}/admin/students`}>
-          <Button variant="outline" size="sm">← Students</Button>
-        </Link>
+        <div className="flex gap-2">
+          <Button size="sm" onClick={() => setHifzOpen(true)}>
+            <BookMarked className="h-4 w-4 mr-1" /> Log Hifz
+          </Button>
+          <Link to={`/school/orgs/${orgId}/admin/students`}>
+            <Button variant="outline" size="sm">← Students</Button>
+          </Link>
+        </div>
       </div>
 
       <Card>
@@ -279,6 +290,22 @@ export function StudentDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Phase C.1: Hifz progress feed embed */}
+      <HifzProgressFeed
+        orgId={orgId}
+        studentId={studentId}
+        reloadKey={hifzReloadKey}
+      />
+
+      <HifzLogEntry
+        orgId={orgId}
+        studentId={studentId}
+        studentName={student.full_name}
+        open={hifzOpen}
+        onOpenChange={setHifzOpen}
+        onSuccess={() => setHifzReloadKey((k) => k + 1)}
+      />
 
       {/* Link code result */}
       <Dialog open={codeOpen} onOpenChange={setCodeOpen}>

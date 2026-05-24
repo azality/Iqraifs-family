@@ -33,6 +33,8 @@ import {
   CalendarCheck,
   MessageSquare,
   UserCog,
+  BookOpen,
+  BookMarked,
 } from "lucide-react";
 import {
   getSchoolMe,
@@ -204,7 +206,7 @@ export function ManageClasses() {
                           ))}
                         </SelectContent>
                       </Select>
-                      {/* Phase B per-section quick-links — teachers/admins jump
+                      {/* Phase B/C per-section quick-links — teachers/admins jump
                           straight from the manage view into the daily-ops
                           surfaces for that specific section. */}
                       <Link to={`/school/orgs/${orgId}/sections/${sec.id}/attendance`}>
@@ -215,6 +217,16 @@ export function ManageClasses() {
                       <Link to={`/school/orgs/${orgId}/sections/${sec.id}/behavior`}>
                         <Button variant="outline" size="sm" className="h-8 text-xs" title="Behavior log">
                           <MessageSquare className="h-3.5 w-3.5 mr-1" /> Behavior
+                        </Button>
+                      </Link>
+                      <Link to={`/school/orgs/${orgId}/sections/${sec.id}/lessons`}>
+                        <Button variant="outline" size="sm" className="h-8 text-xs" title="Daily sabaq">
+                          <BookOpen className="h-3.5 w-3.5 mr-1" /> Sabaq
+                        </Button>
+                      </Link>
+                      <Link to={`/school/orgs/${orgId}/sections/${sec.id}/hifz`}>
+                        <Button variant="outline" size="sm" className="h-8 text-xs" title="Hifz progress">
+                          <BookMarked className="h-3.5 w-3.5 mr-1" /> Hifz
                         </Button>
                       </Link>
                       <Link to={`/school/orgs/${orgId}/sections/${sec.id}/roster/new`}>
