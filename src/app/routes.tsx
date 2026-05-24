@@ -40,6 +40,8 @@ import { SchoolHome } from "./pages/school/SchoolHome";
 // The PrincipalDashboard file is kept in the tree for now (no route uses it)
 // and will be removed in a follow-up.
 import { PerformanceDashboard } from "./pages/school/PerformanceDashboard";
+// Internal preview for the school-ui primitives. Not linked from any nav.
+import { _DesignSystemPreview } from "./pages/school/_DesignSystemPreview";
 import { SchoolSetup } from "./pages/school/SchoolSetup";
 import { ClassDetail } from "./pages/school/ClassDetail";
 import { BehaviorCatalog } from "./pages/school/BehaviorCatalog";
@@ -343,6 +345,7 @@ export const router = createBrowserRouter([
           // "no school access" if the user has neither principal nor
           // teacher rows in user_roles.
           { path: "school", element: <RequireParentRole><SchoolHome /></RequireParentRole> },
+          { path: "school/_design", element: <RequireParentRole><_DesignSystemPreview /></RequireParentRole> },
           { path: "school/orgs/:orgId", element: <RequireParentRole><PerformanceDashboard /></RequireParentRole> },
           { path: "school/orgs/:orgId/setup", element: <RequireParentRole><SchoolSetup /></RequireParentRole> },
           { path: "school/classes/:classId", element: <RequireParentRole><ClassDetail /></RequireParentRole> },
