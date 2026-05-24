@@ -17,7 +17,7 @@ import { useTrackableItems } from "../hooks/useTrackableItems";
 import { useMilestones } from "../hooks/useMilestones";
 import { createChild, generateInviteCode, updateChild } from "../../utils/api";
 import { toast } from "sonner";
-import { Lock, Plus, X, Gift, Target, Award, Sparkles, TrendingUp, TrendingDown, Users, AlertTriangle, Heart, UserCheck, UserX, Trash2, Globe, Bell, BellOff, Gamepad2, Brain } from "lucide-react";
+import { Lock, Plus, X, Gift, Target, Award, Sparkles, TrendingUp, TrendingDown, Users, AlertTriangle, Heart, UserCheck, UserX, Trash2, Globe, Bell, BellOff, Gamepad2, Brain, GraduationCap, ChevronRight } from "lucide-react";
 import { projectId, publicAnonKey } from "../../../utils/supabase/info.tsx";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../components/ui/alert-dialog";
@@ -1466,6 +1466,28 @@ export function Settings() {
           Customize rewards, habits, behaviors, and milestones for your family
         </p>
       </div>
+
+      {/* Link to school — quick entry to the family→school code redemption
+          flow. Always visible on the family Settings page; the page itself
+          handles the empty-children edge case. */}
+      <Card
+        className="cursor-pointer hover:bg-accent/40 transition-colors"
+        onClick={() => navigate('/link-to-school')}
+        data-testid="settings-link-to-school"
+      >
+        <CardContent className="flex items-center gap-4 py-4">
+          <div className="rounded-md bg-blue-100 dark:bg-blue-950/40 p-2">
+            <GraduationCap className="h-5 w-5 text-blue-600" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="font-medium">Link to school</div>
+            <div className="text-sm text-muted-foreground">
+              Connect a child to their school record.
+            </div>
+          </div>
+          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+        </CardContent>
+      </Card>
 
       <Tabs defaultValue="rewards" className="w-full">
         {/* Mobile: horizontally-scrollable tab strip with labels (single row,
