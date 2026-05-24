@@ -9,7 +9,8 @@ import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
-import { Table2, AlertCircle, Save } from "lucide-react";
+import { AlertCircle, Save } from "lucide-react";
+import { HeroCard, StatusPill, cardBase, cardElev } from "../../components/school-ui";
 import {
   getSectionGradebook,
   postGradesBatch,
@@ -178,44 +179,44 @@ export function SectionGradebook() {
 
   return (
     <div className="space-y-4 pb-24">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Table2 className="h-6 w-6 text-indigo-600" />
-          Gradebook
-        </h1>
-        <div className="flex gap-2">
-          <Link to={`/school/orgs/${orgId}/sections/${sectionId}/assignments`}>
-            <Button variant="outline" size="sm">Assignments</Button>
-          </Link>
-          <Link to={`/school/orgs/${orgId}/admin/classes`}>
-            <Button variant="outline" size="sm">← Classes</Button>
-          </Link>
-        </div>
-      </div>
-
-      <Card>
-        <CardContent className="p-3 flex items-end gap-3 flex-wrap">
-          <div className="space-y-1">
-            <Label className="text-xs">From</Label>
-            <Input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="h-8 w-40"
-            />
+      <HeroCard
+        title="Gradebook"
+        subtitle="Spreadsheet of students × assignments"
+        rightSlot={
+          <div className="flex flex-wrap items-end gap-2">
+            <div>
+              <Label className="text-[10px] uppercase tracking-wide text-indigo-200">From</Label>
+              <Input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="h-8 w-36 bg-white/10 border-white/20 text-white"
+              />
+            </div>
+            <div>
+              <Label className="text-[10px] uppercase tracking-wide text-indigo-200">To</Label>
+              <Input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="h-8 w-36 bg-white/10 border-white/20 text-white"
+              />
+            </div>
+            <Button size="sm" variant="outline" onClick={load} className="bg-white/10 border-white/20 text-white hover:bg-white/20">
+              Apply
+            </Button>
+            <Button size="sm" onClick={handleSave} disabled={saving || dirtyCount === 0} className="bg-white text-slate-900 hover:bg-slate-100">
+              <Save className="h-4 w-4 mr-1" /> {saving ? "Saving…" : "Save All"}
+            </Button>
+            <Link to={`/school/orgs/${orgId}/sections/${sectionId}/assignments`}>
+              <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">Assignments</Button>
+            </Link>
+            <Link to={`/school/orgs/${orgId}/admin/classes`}>
+              <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">← Classes</Button>
+            </Link>
           </div>
-          <div className="space-y-1">
-            <Label className="text-xs">To</Label>
-            <Input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="h-8 w-40"
-            />
-          </div>
-          <Button size="sm" variant="outline" onClick={load}>Apply</Button>
-        </CardContent>
-      </Card>
+        }
+      />
 
       {error && (
         <div className="text-sm text-rose-600 flex items-center gap-1">
@@ -232,33 +233,33 @@ export function SectionGradebook() {
           No assignments in this date range. Create one from the Assignments page.
         </CardContent></Card>
       ) : (
-        <div className="border rounded-lg overflow-auto max-h-[70vh]">
+        <div className={`${cardBase} ${cardElev} overflow-auto max-h-[70vh]`}>
           <table className="text-sm border-collapse">
-            <thead className="sticky top-0 z-20 bg-background">
+            <thead className="sticky top-0 z-20 bg-slate-50">
               <tr>
-                <th className="sticky left-0 z-30 bg-background px-3 py-2 text-left border-b border-r min-w-[180px]">
+                <th className="sticky left-0 z-30 bg-slate-50 px-3 py-2 text-left border-b border-r border-slate-200 min-w-[180px] text-[10px] font-bold uppercase tracking-widest text-slate-500">
                   Student
                 </th>
                 {data.assignments.map((a: Assignment) => (
                   <th
                     key={a.id}
-                    className="px-2 py-2 border-b border-r text-xs font-medium whitespace-nowrap"
+                    className="px-2 py-2 border-b border-r border-slate-200 text-[10px] font-bold uppercase tracking-widest text-slate-500 whitespace-nowrap"
                     style={{ minWidth: 80 }}
                     title={a.title}
                   >
                     <Link
                       to={`/school/orgs/${orgId}/assignments/${a.id}`}
-                      className="block truncate max-w-[80px] hover:underline"
+                      className="block truncate max-w-[80px] hover:underline normal-case font-medium text-slate-700"
                     >
                       {a.title}
                     </Link>
-                    <div className="text-[10px] text-muted-foreground">
+                    <div className="text-[10px] text-slate-500 normal-case font-normal tracking-normal">
                       {a.kind} · /{a.max_score}
                     </div>
                   </th>
                 ))}
-                <th className="sticky right-0 z-30 bg-background px-3 py-2 border-b border-l text-right min-w-[80px]">
-                  Avg %
+                <th className="sticky right-0 z-30 bg-slate-50 px-3 py-2 border-b border-l border-slate-200 text-right min-w-[80px] text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                  Avg
                 </th>
               </tr>
             </thead>
@@ -308,13 +309,16 @@ export function SectionGradebook() {
                       </td>
                     );
                   })}
-                  <td className="sticky right-0 z-10 bg-background px-3 py-1.5 border-b border-l text-right">
+                  <td className="sticky right-0 z-10 bg-white px-3 py-1.5 border-b border-l border-slate-200 text-right">
                     {studentAverage[s.id] != null ? (
-                      <span className={"font-semibold tabular-nums px-1 rounded " + pctColor(studentAverage[s.id])}>
-                        {studentAverage[s.id]!.toFixed(0)}%
-                      </span>
+                      (() => {
+                        const pct = studentAverage[s.id]!;
+                        const status: "compliant" | "watch" | "flagged" =
+                          pct >= 80 ? "compliant" : pct >= 60 ? "watch" : "flagged";
+                        return <StatusPill status={status} label={`${pct.toFixed(0)}%`} />;
+                      })()
                     ) : (
-                      <span className="text-xs text-muted-foreground">—</span>
+                      <span className="text-xs text-slate-400">—</span>
                     )}
                   </td>
                 </tr>

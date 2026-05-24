@@ -16,7 +16,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../components/ui/select";
-import { ClipboardCheck, AlertCircle } from "lucide-react";
+import { AlertCircle } from "lucide-react";
+import { HeroCard, cardBase, cardElev } from "../../components/school-ui";
 import {
   getAssignment,
   patchAssignment,
@@ -134,15 +135,15 @@ export function AssignmentForm() {
 
   return (
     <div className="space-y-4 max-w-2xl">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <ClipboardCheck className="h-6 w-6 text-indigo-600" />
-          {editMode ? "Edit assignment" : "New assignment"}
-        </h1>
-        <Link to={backLink}>
-          <Button variant="outline" size="sm">← Back</Button>
-        </Link>
-      </div>
+      <HeroCard
+        title={editMode ? "Edit assignment" : "New assignment"}
+        subtitle="Quiz, test, homework, project, or class participation"
+        rightSlot={
+          <Link to={backLink}>
+            <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">← Back</Button>
+          </Link>
+        }
+      />
 
       {error && (
         <div className="text-sm text-rose-600 flex items-center gap-1">
@@ -150,7 +151,7 @@ export function AssignmentForm() {
         </div>
       )}
 
-      <Card>
+      <Card className={`${cardBase} ${cardElev}`}>
         <CardHeader><CardTitle className="text-base">Details</CardTitle></CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">

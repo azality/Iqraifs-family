@@ -4,7 +4,6 @@
 import { useEffect, useState } from "react";
 import { Link, Navigate, useParams } from "react-router";
 import { toast } from "sonner";
-import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
 import { Textarea } from "../../components/ui/textarea";
@@ -16,13 +15,13 @@ import {
   DialogTitle,
 } from "../../components/ui/dialog";
 import {
-  ClipboardList,
   ChevronLeft,
   Check,
   X,
   UserPlus,
   UserMinus,
 } from "lucide-react";
+import { HeroCard, severityClasses, cardBase } from "../../components/school-ui";
 import {
   getRosterRequests,
   getSchoolMe,
@@ -115,19 +114,31 @@ export function RosterReviewQueue() {
     }
   };
 
+  const pendingCount = tab === "pending" ? requests.length : undefined;
+
+  const sevForTab =
+    tab === "pending" ? severityClasses("warning") : tab === "approved" ? severityClasses("success") : severityClasses("neutral");
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <ClipboardList className="h-6 w-6 text-indigo-600" />
-          Roster requests
-        </h1>
-        <Link to={`/school/orgs/${orgId}/admin`}>
-          <Button variant="outline" size="sm">
-            <ChevronLeft className="h-4 w-4 mr-1" /> Admin
-          </Button>
-        </Link>
-      </div>
+      <HeroCard
+        title="Roster Requests"
+        subtitle="Teacher-submitted student moves awaiting review"
+        rightSlot={
+          <div className="flex items-center gap-2">
+            {pendingCount != null && pendingCount > 0 && (
+              <span className="inline-flex items-center rounded-full bg-amber-500 text-white px-2.5 py-0.5 text-xs font-semibold">
+                {pendingCount} pending
+              </span>
+            )}
+            <Link to={`/school/orgs/${orgId}/admin`}>
+              <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">
+                <ChevronLeft className="h-4 w-4 mr-1" /> Admin
+              </Button>
+            </Link>
+          </div>
+        }
+      />
 
       <div className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 p-1">
         {TABS.map((t) => (
@@ -149,18 +160,19 @@ export function RosterReviewQueue() {
 
       {error && <p className="text-sm text-rose-600">{error}</p>}
 
-      <Card>
-        <CardContent className="p-0">
-          {loading && requests.length === 0 ? (
-            <p className="p-6 text-center text-sm text-muted-foreground">Loading…</p>
-          ) : requests.length === 0 ? (
-            <p className="p-6 text-center text-sm text-muted-foreground">
-              No {tab} requests.
-            </p>
-          ) : (
-            <ul className="divide-y">
-              {requests.map((r) => (
-                <li key={r.id} className="p-4 flex flex-wrap items-start gap-3">
+      {loading && requests.length === 0 ? (
+        <div className={`${cardBase} p-6 text-center text-sm text-slate-500`}>Loading…</div>
+      ) : requests.length === 0 ? (
+        <div className={`${cardBase} p-6 text-center text-sm text-slate-500`}>
+          No {tab} requests.
+        </div>
+      ) : (
+        <ul className="space-y-2">
+          {requests.map((r) => (
+            <li
+              key={r.id}
+              className={`rounded-xl border ${sevForTab.bg} ${sevForTab.border} p-4 flex flex-wrap items-start gap-3`}
+            >
                   <div className="mt-1">
                     {r.kind === "add" ? (
                       <UserPlus className="h-5 w-5 text-emerald-600" />
@@ -213,12 +225,10 @@ export function RosterReviewQueue() {
                       </Button>
                     </div>
                   )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
+            </li>
+          ))}
+        </ul>
+      )}
 
       <Dialog open={!!review} onOpenChange={(v) => { if (!v) setReview(null); }}>
         <DialogContent>

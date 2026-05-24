@@ -5,17 +5,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Link, Navigate, useParams } from "react-router";
-import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
+import { ArrowUpDown } from "lucide-react";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "../../components/ui/table";
-import { BookMarked, ArrowUpDown } from "lucide-react";
+  HeroCard,
+  DataTable,
+  cardBase,
+  type DataTableColumn,
+} from "../../components/school-ui";
 import {
   getSchoolMe,
   getSectionHifzSummary,
@@ -90,95 +87,95 @@ export function SectionHifzOverview() {
     }
   };
 
+  const maxAyahs = Math.max(1, ...sorted.map((s) => s.ayahsMemorized));
+
+  const columns: DataTableColumn<SectionHifzSummaryRow>[] = [
+    {
+      key: "name",
+      header: (
+        <button type="button" onClick={() => toggleSort("name")} className="inline-flex items-center gap-1">
+          Student <ArrowUpDown className="h-3 w-3" />
+        </button>
+      ),
+      cell: (s) => <span className="font-medium">{s.studentName}</span>,
+    },
+    {
+      key: "ayahs",
+      header: (
+        <button type="button" onClick={() => toggleSort("ayahs")} className="inline-flex items-center gap-1">
+          Ayahs memorized <ArrowUpDown className="h-3 w-3" />
+        </button>
+      ),
+      cell: (s) => {
+        const pct = (s.ayahsMemorized / maxAyahs) * 100;
+        const color =
+          pct >= 75 ? "bg-emerald-500" : pct >= 40 ? "bg-amber-500" : "bg-rose-500";
+        return (
+          <div className="flex items-center gap-2">
+            <div className="h-1.5 w-24 rounded-full bg-slate-100 overflow-hidden">
+              <div className={`h-full ${color}`} style={{ width: `${Math.max(2, pct)}%` }} />
+            </div>
+            <span className="tabular-nums text-xs text-slate-700">{s.ayahsMemorized}</span>
+          </div>
+        );
+      },
+    },
+    {
+      key: "last",
+      header: (
+        <button type="button" onClick={() => toggleSort("last")} className="inline-flex items-center gap-1">
+          Last entry <ArrowUpDown className="h-3 w-3" />
+        </button>
+      ),
+      cell: (s) => <span className="text-xs text-slate-500">{formatDate(s.lastEntry)}</span>,
+    },
+    {
+      key: "actions",
+      header: "",
+      align: "right",
+      width: "w-20",
+      cell: (s) => (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={(e) => {
+            e.stopPropagation();
+            setLogTarget(s);
+          }}
+        >
+          Log
+        </Button>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <BookMarked className="h-6 w-6 text-indigo-600" />
-          Section hifz overview
-        </h1>
-        <Link to={`/school/orgs/${orgId}/admin/classes`}>
-          <Button variant="outline" size="sm">← Classes</Button>
-        </Link>
-      </div>
+      <HeroCard
+        title="Hifz Progress"
+        subtitle={`${sorted.length} student${sorted.length === 1 ? "" : "s"} · cumulative memorization`}
+        rightSlot={
+          <Link to={`/school/orgs/${orgId}/admin/classes`}>
+            <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">← Classes</Button>
+          </Link>
+        }
+      />
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-rose-600">{error}</p>}
 
-      <Card>
-        <CardContent className="p-0">
-          {loading ? (
-            <p className="p-4 text-sm text-muted-foreground">Loading…</p>
-          ) : sorted.length === 0 ? (
-            <p className="p-4 text-sm text-muted-foreground">
-              No students in this section.
-            </p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>
-                    <button
-                      type="button"
-                      onClick={() => toggleSort("name")}
-                      className="flex items-center gap-1 font-medium"
-                    >
-                      Student <ArrowUpDown className="h-3 w-3" />
-                    </button>
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <button
-                      type="button"
-                      onClick={() => toggleSort("ayahs")}
-                      className="flex items-center gap-1 font-medium ml-auto"
-                    >
-                      Ayahs memorized <ArrowUpDown className="h-3 w-3" />
-                    </button>
-                  </TableHead>
-                  <TableHead>
-                    <button
-                      type="button"
-                      onClick={() => toggleSort("last")}
-                      className="flex items-center gap-1 font-medium"
-                    >
-                      Last entry <ArrowUpDown className="h-3 w-3" />
-                    </button>
-                  </TableHead>
-                  <TableHead></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {sorted.map((s) => (
-                  <TableRow
-                    key={s.studentId}
-                    className="cursor-pointer hover:bg-muted/50"
-                    onClick={() => setLogTarget(s)}
-                  >
-                    <TableCell className="font-medium">{s.studentName}</TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {s.ayahsMemorized}
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {formatDate(s.lastEntry)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setLogTarget(s);
-                        }}
-                      >
-                        Log
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+      {loading ? (
+        <p className="p-4 text-sm text-slate-500">Loading…</p>
+      ) : (
+        <div className={cardBase}>
+          <DataTable<SectionHifzSummaryRow>
+            columns={columns}
+            rows={sorted}
+            rowKey={(s) => s.studentId}
+            emptyMessage="No students in this section."
+            onRowClick={(s) => setLogTarget(s)}
+          />
+        </div>
+      )}
 
       {logTarget && (
         <HifzLogEntry
