@@ -431,3 +431,375 @@ export const recordAttendance = (
     method: "POST",
     body: JSON.stringify(body),
   });
+
+// ─── Phase A Admin: Classes & Sections ─────────────────────────────────
+//
+// These call the Phase A backend endpoints (school-pilot/phase-a-backend).
+// The route shape uses /school/orgs/:orgId/* for org-scoped resources.
+
+export interface AdminSection {
+  id: string;
+  class_id: string;
+  name: string;
+  class_teacher_user_id: string | null;
+}
+
+export interface AdminClass {
+  id: string;
+  organization_id: string;
+  name: string;
+  display_order: number | null;
+  sections: AdminSection[];
+}
+
+export const listClasses = (orgId: string): Promise<AdminClass[]> =>
+  apiCall(`/school/orgs/${orgId}/classes`);
+
+export const adminCreateClass = (
+  orgId: string,
+  body: { name: string; displayOrder?: number },
+): Promise<AdminClass> =>
+  apiCall(`/school/orgs/${orgId}/classes`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const updateClass = (
+  orgId: string,
+  classId: string,
+  partial: Partial<{ name: string; displayOrder: number }>,
+): Promise<AdminClass> =>
+  apiCall(`/school/orgs/${orgId}/classes/${classId}`, {
+    method: "PATCH",
+    body: JSON.stringify(partial),
+  });
+
+export const deleteClass = (orgId: string, classId: string): Promise<void> =>
+  apiCall(`/school/orgs/${orgId}/classes/${classId}`, { method: "DELETE" });
+
+export const createSection = (
+  orgId: string,
+  classId: string,
+  body: { name: string; classTeacherUserId?: string },
+): Promise<AdminSection> =>
+  apiCall(`/school/orgs/${orgId}/classes/${classId}/sections`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const updateSection = (
+  orgId: string,
+  sectionId: string,
+  partial: Partial<{ name: string; classTeacherUserId: string | null }>,
+): Promise<AdminSection> =>
+  apiCall(`/school/orgs/${orgId}/sections/${sectionId}`, {
+    method: "PATCH",
+    body: JSON.stringify(partial),
+  });
+
+export const deleteSection = (orgId: string, sectionId: string): Promise<void> =>
+  apiCall(`/school/orgs/${orgId}/sections/${sectionId}`, { method: "DELETE" });
+
+// ─── Admin: Students ───────────────────────────────────────────────────
+
+export interface AdminStudent {
+  id: string;
+  organization_id: string;
+  gr_number: string;
+  full_name: string;
+  class_section_id: string | null;
+  photo_url: string | null;
+  date_of_birth: string | null;
+  gender: string | null;
+  guardian_phone: string | null;
+  guardian_email: string | null;
+}
+
+export interface AdminParent {
+  id: string;
+  organization_id: string;
+  full_name: string;
+  phone: string | null;
+  email: string | null;
+  relationship: string | null;
+}
+
+export interface StudentWithParents extends AdminStudent {
+  parents: Array<AdminParent & { is_primary: boolean }>;
+}
+
+export const listStudents = (
+  orgId: string,
+  opts: { classSectionId?: string; search?: string } = {},
+): Promise<AdminStudent[]> => {
+  const q = new URLSearchParams();
+  if (opts.classSectionId) q.append("classSectionId", opts.classSectionId);
+  if (opts.search) q.append("search", opts.search);
+  const qs = q.toString() ? `?${q}` : "";
+  return apiCall(`/school/orgs/${orgId}/students${qs}`);
+};
+
+export const getStudent = (orgId: string, studentId: string): Promise<StudentWithParents> =>
+  apiCall(`/school/orgs/${orgId}/students/${studentId}`);
+
+export interface CreateStudentBody {
+  grNumber: string;
+  fullName: string;
+  classSectionId?: string;
+  photoUrl?: string;
+  dateOfBirth?: string;
+  gender?: string;
+  guardianPhone?: string;
+  guardianEmail?: string;
+}
+
+export const adminCreateStudent = (
+  orgId: string,
+  body: CreateStudentBody,
+): Promise<AdminStudent> =>
+  apiCall(`/school/orgs/${orgId}/students`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const updateStudent = (
+  orgId: string,
+  studentId: string,
+  partial: Partial<CreateStudentBody>,
+): Promise<AdminStudent> =>
+  apiCall(`/school/orgs/${orgId}/students/${studentId}`, {
+    method: "PATCH",
+    body: JSON.stringify(partial),
+  });
+
+export const deleteStudent = (orgId: string, studentId: string): Promise<void> =>
+  apiCall(`/school/orgs/${orgId}/students/${studentId}`, { method: "DELETE" });
+
+export interface BulkResult {
+  inserted: number;
+  errors: Array<{ row: number; message: string }>;
+}
+
+export const bulkCreateAdminStudents = (
+  orgId: string,
+  rows: Array<Record<string, unknown>>,
+): Promise<BulkResult> =>
+  apiCall(`/school/orgs/${orgId}/students/bulk`, {
+    method: "POST",
+    body: JSON.stringify({ rows }),
+  });
+
+// ─── Admin: Parents ────────────────────────────────────────────────────
+
+export const listParents = (
+  orgId: string,
+  opts: { studentId?: string; search?: string } = {},
+): Promise<AdminParent[]> => {
+  const q = new URLSearchParams();
+  if (opts.studentId) q.append("studentId", opts.studentId);
+  if (opts.search) q.append("search", opts.search);
+  const qs = q.toString() ? `?${q}` : "";
+  return apiCall(`/school/orgs/${orgId}/parents${qs}`);
+};
+
+export interface CreateParentBody {
+  fullName: string;
+  phone?: string;
+  email?: string;
+  relationship?: string;
+}
+
+export const createParent = (orgId: string, body: CreateParentBody): Promise<AdminParent> =>
+  apiCall(`/school/orgs/${orgId}/parents`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const updateParent = (
+  orgId: string,
+  parentId: string,
+  partial: Partial<CreateParentBody>,
+): Promise<AdminParent> =>
+  apiCall(`/school/orgs/${orgId}/parents/${parentId}`, {
+    method: "PATCH",
+    body: JSON.stringify(partial),
+  });
+
+export const deleteParent = (orgId: string, parentId: string): Promise<void> =>
+  apiCall(`/school/orgs/${orgId}/parents/${parentId}`, { method: "DELETE" });
+
+export const bulkCreateParents = (
+  orgId: string,
+  rows: Array<Record<string, unknown>>,
+): Promise<BulkResult> =>
+  apiCall(`/school/orgs/${orgId}/parents/bulk`, {
+    method: "POST",
+    body: JSON.stringify({ rows }),
+  });
+
+export const linkStudentParent = (
+  orgId: string,
+  body: { studentId: string; parentId: string; isPrimary?: boolean },
+): Promise<void> =>
+  apiCall(`/school/orgs/${orgId}/student-parent-links`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const unlinkStudentParent = (
+  orgId: string,
+  studentId: string,
+  parentId: string,
+): Promise<void> =>
+  apiCall(
+    `/school/orgs/${orgId}/student-parent-links/${studentId}/${parentId}`,
+    { method: "DELETE" },
+  );
+
+// ─── Admin: Teachers & Admins ──────────────────────────────────────────
+
+export type RoleTemplate = "class_teacher" | "visiting_teacher";
+
+export interface AdminTeacher {
+  user_id: string;
+  email: string;
+  full_name: string;
+  role_template: RoleTemplate;
+}
+
+export const listAdminTeachers = (orgId: string): Promise<AdminTeacher[]> =>
+  apiCall(`/school/orgs/${orgId}/teachers`);
+
+export const addTeacher = (
+  orgId: string,
+  body: { email: string; fullName: string; roleTemplate: RoleTemplate },
+): Promise<AdminTeacher> =>
+  apiCall(`/school/orgs/${orgId}/teachers`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const bulkCreateTeachers = (
+  orgId: string,
+  rows: Array<{ email: string; fullName: string; roleTemplate: RoleTemplate }>,
+): Promise<BulkResult> =>
+  apiCall(`/school/orgs/${orgId}/teachers/bulk`, {
+    method: "POST",
+    body: JSON.stringify({ rows }),
+  });
+
+export interface OrgAdmin {
+  user_id: string;
+  email: string;
+  full_name: string;
+}
+
+export const listAdmins = (orgId: string): Promise<OrgAdmin[]> =>
+  apiCall(`/school/orgs/${orgId}/admins`);
+
+export const addAdmin = (
+  orgId: string,
+  body: { email: string; fullName: string },
+): Promise<OrgAdmin> =>
+  apiCall(`/school/orgs/${orgId}/admins`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const removeAdmin = (orgId: string, userId: string): Promise<void> =>
+  apiCall(`/school/orgs/${orgId}/admins/${userId}`, { method: "DELETE" });
+
+// ─── Admin: PIN ────────────────────────────────────────────────────────
+
+export type PinSubjectType = "student" | "parent" | "teacher";
+
+export const setPin = (
+  orgId: string,
+  body: { subjectType: PinSubjectType; subjectId: string; pin: string },
+): Promise<void> =>
+  apiCall(`/school/orgs/${orgId}/pin`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const resetPin = (
+  orgId: string,
+  body: { subjectType: PinSubjectType; subjectId: string },
+): Promise<{ pin: string }> =>
+  apiCall(`/school/orgs/${orgId}/pin/reset`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+// ─── Admin: Link codes ─────────────────────────────────────────────────
+
+export interface LinkCode {
+  code: string;
+  student_id: string;
+  student_name?: string;
+  expires_at: string | null;
+  used_at: string | null;
+  created_at: string;
+}
+
+export const createLinkCode = (
+  orgId: string,
+  body: { studentId: string; expiresInDays?: number },
+): Promise<{ code: string; expiresAt: string | null }> =>
+  apiCall(`/school/orgs/${orgId}/link-codes`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const listLinkCodes = (
+  orgId: string,
+  opts: { studentId?: string; unusedOnly?: boolean } = {},
+): Promise<LinkCode[]> => {
+  const q = new URLSearchParams();
+  if (opts.studentId) q.append("studentId", opts.studentId);
+  if (opts.unusedOnly) q.append("unusedOnly", "true");
+  const qs = q.toString() ? `?${q}` : "";
+  return apiCall(`/school/orgs/${orgId}/link-codes${qs}`);
+};
+
+// ─── Admin: Permissions ────────────────────────────────────────────────
+
+export interface PermissionRow {
+  roleTemplate: RoleTemplate | "admin";
+  permissionKey: string;
+  allowed: boolean;
+}
+
+export const getPermissions = (orgId: string): Promise<PermissionRow[]> =>
+  apiCall(`/school/orgs/${orgId}/permissions`);
+
+export const updatePermissions = (
+  orgId: string,
+  overrides: PermissionRow[],
+): Promise<void> =>
+  apiCall(`/school/orgs/${orgId}/permissions`, {
+    method: "PUT",
+    body: JSON.stringify({ overrides }),
+  });
+
+// ─── Role helpers ──────────────────────────────────────────────────────
+
+export function isOrgAdmin(me: SchoolMeResponse | null, orgId: string): boolean {
+  if (!me) return false;
+  return me.roles.some(
+    (r) =>
+      (r.role_type === "principal" || (r.role_type as string) === "admin") &&
+      r.scope_type === "organization" &&
+      r.scope_id === orgId,
+  );
+}
+
+export function isOrgPrincipal(me: SchoolMeResponse | null, orgId: string): boolean {
+  if (!me) return false;
+  return me.roles.some(
+    (r) =>
+      r.role_type === "principal" &&
+      r.scope_type === "organization" &&
+      r.scope_id === orgId,
+  );
+}

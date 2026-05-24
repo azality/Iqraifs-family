@@ -39,6 +39,17 @@ import { SchoolSetup } from "./pages/school/SchoolSetup";
 import { ClassDetail } from "./pages/school/ClassDetail";
 import { BehaviorCatalog } from "./pages/school/BehaviorCatalog";
 import { HifzProgress } from "./pages/school/HifzProgress";
+// Phase A Admin surfaces (school-pilot/phase-a-admin-ui). Gated client-
+// side via getSchoolMe() — pages render <Navigate to="/school" /> if
+// the caller has no principal/admin role on the org.
+import { AdminDashboard } from "./pages/school/AdminDashboard";
+import { ManageClasses } from "./pages/school/ManageClasses";
+import { ManageStudents } from "./pages/school/ManageStudents";
+import { StudentDetail } from "./pages/school/StudentDetail";
+import { ManageParents } from "./pages/school/ManageParents";
+import { ManageTeachers } from "./pages/school/ManageTeachers";
+import { LinkCodes } from "./pages/school/LinkCodes";
+import { PermissionsEditor } from "./pages/school/PermissionsEditor";
 // Parent-facing redemption page for school invite codes — lands here from
 // the SMS/WhatsApp links the school sends.
 import { ParentConnect } from "./pages/ParentConnect";
@@ -318,6 +329,15 @@ export const router = createBrowserRouter([
           { path: "school/classes/:classId", element: <RequireParentRole><ClassDetail /></RequireParentRole> },
           { path: "school/orgs/:orgId/behavior-catalog", element: <RequireParentRole><BehaviorCatalog /></RequireParentRole> },
           { path: "school/children/:childId/hifz", element: <RequireParentRole><HifzProgress /></RequireParentRole> },
+          // Phase A admin
+          { path: "school/orgs/:orgId/admin", element: <RequireParentRole><AdminDashboard /></RequireParentRole> },
+          { path: "school/orgs/:orgId/admin/classes", element: <RequireParentRole><ManageClasses /></RequireParentRole> },
+          { path: "school/orgs/:orgId/admin/students", element: <RequireParentRole><ManageStudents /></RequireParentRole> },
+          { path: "school/orgs/:orgId/admin/students/:studentId", element: <RequireParentRole><StudentDetail /></RequireParentRole> },
+          { path: "school/orgs/:orgId/admin/parents", element: <RequireParentRole><ManageParents /></RequireParentRole> },
+          { path: "school/orgs/:orgId/admin/teachers", element: <RequireParentRole><ManageTeachers /></RequireParentRole> },
+          { path: "school/orgs/:orgId/admin/link-codes", element: <RequireParentRole><LinkCodes /></RequireParentRole> },
+          { path: "school/orgs/:orgId/admin/permissions", element: <RequireParentRole><PermissionsEditor /></RequireParentRole> },
           // Redirect old routes to homepage
           { path: "kid", element: <Navigate to="/" replace /> },
           { path: "parent", element: <Navigate to="/" replace /> },
