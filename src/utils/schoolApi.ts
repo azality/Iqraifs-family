@@ -947,15 +947,7 @@ export function isOrgAdmin(me: SchoolMeResponse | null, orgId: string): boolean 
   );
 }
 
-export function isOrgPrincipal(me: SchoolMeResponse | null, orgId: string): boolean {
-  if (!me) return false;
-  return me.roles.some(
-    (r) =>
-      r.role_type === "principal" &&
-      r.scope_type === "organization" &&
-      r.scope_id === orgId,
-  );
-}
+// isOrgPrincipal is declared above (line ~566) — do not redeclare.
 
 // ─── Phase B: Attendance ───────────────────────────────────────────────
 
