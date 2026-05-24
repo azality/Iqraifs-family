@@ -12,7 +12,7 @@ import { Link, useNavigate, useParams } from "react-router";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
-import { Plus, School, Users, BookOpen, Settings as SettingsIcon, Heart } from "lucide-react";
+import { Plus, School, Users, BookOpen, Settings as SettingsIcon, Heart, Building2 } from "lucide-react";
 import {
   getOrganization,
   getClasses,
@@ -68,17 +68,26 @@ export function PrincipalDashboard() {
             Principal dashboard
           </p>
         </div>
-        {needsSetup ? (
-          <Button onClick={() => navigate(`/school/orgs/${orgId}/setup`)}>
-            <SettingsIcon className="h-4 w-4 mr-2" />
-            Set up the school
+        <div className="flex gap-2 flex-wrap">
+          {/* Phase A admin entry. PrincipalDashboard only renders for
+              users with a principal role, so showing this is safe — the
+              page itself re-checks via /school/me on mount. */}
+          <Button onClick={() => navigate(`/school/orgs/${orgId}/admin`)} variant="outline">
+            <Building2 className="h-4 w-4 mr-2" />
+            Admin
           </Button>
-        ) : (
-          <Button onClick={() => navigate(`/school/orgs/${orgId}/setup`)} variant="outline">
-            <Plus className="h-4 w-4 mr-2" />
-            Add a class
-          </Button>
-        )}
+          {needsSetup ? (
+            <Button onClick={() => navigate(`/school/orgs/${orgId}/setup`)}>
+              <SettingsIcon className="h-4 w-4 mr-2" />
+              Set up the school
+            </Button>
+          ) : (
+            <Button onClick={() => navigate(`/school/orgs/${orgId}/setup`)} variant="outline">
+              <Plus className="h-4 w-4 mr-2" />
+              Add a class
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Counts */}
