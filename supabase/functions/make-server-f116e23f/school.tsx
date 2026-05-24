@@ -2425,7 +2425,6 @@ school.get("/kv-children/:kvChildId/events", async (c) => {
   });
 });
 
-<<<<<<< HEAD
 // POST /school/child-id-map
 // Thin endpoint to record the KV-side child id (e.g. "child:1234567890") →
 // Postgres-side student/child id mapping. Called by the family app right
