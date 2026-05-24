@@ -1346,5 +1346,196 @@ export const deleteHifzEntry = (
     method: "DELETE",
   });
 
+// ─── Phase C.2: Assignments & Grades ───────────────────────────────────
+
+export type AssignmentKind =
+  | "quiz"
+  | "test"
+  | "homework"
+  | "project"
+  | "class_participation"
+  | "other";
+
+export interface Assignment {
+  id: string;
+  org_id: string;
+  class_section_id: string;
+  title: string;
+  kind: AssignmentKind;
+  description: string | null;
+  max_score: number;
+  weight: number;
+  due_date: string | null;
+  assigned_date: string;
+  related_topic: string | null;
+  created_by: string | null;
+  created_by_name?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AssignmentInput {
+  title: string;
+  kind: AssignmentKind;
+  description?: string;
+  maxScore: number;
+  weight?: number;
+  dueDate?: string;
+  relatedTopic?: string;
+}
+
+export type GradeStatus = "graded" | "missing" | "excused" | "late";
+
+export interface GradeEntry {
+  id: string;
+  assignment_id: string;
+  student_id: string;
+  score: number | null;
+  status: GradeStatus;
+  feedback: string | null;
+  graded_by: string | null;
+  graded_by_name?: string | null;
+  graded_at: string | null;
+}
+
+export interface GradebookResponse {
+  assignments: Assignment[];
+  students: Array<{ id: string; full_name: string; gr_number: string }>;
+  grades: Record<string, Record<string, GradeEntry>>;
+}
+
+export interface StudentGradesSummary {
+  assignmentsGraded: number;
+  average: number | null;
+  lastGradedAt: string | null;
+  perKindAverage: Partial<Record<AssignmentKind, number>>;
+}
+
+export interface GradeBatchEntry {
+  studentId: string;
+  score?: number | null;
+  status?: GradeStatus;
+  feedback?: string;
+}
+
+export interface GradeBatchResponse {
+  inserted: number;
+  updated: number;
+  failed: number;
+  results: Array<{ studentId: string; ok: boolean; error?: string }>;
+}
+
+export const postAssignment = (
+  orgId: string,
+  sectionId: string,
+  body: AssignmentInput,
+): Promise<Assignment> =>
+  apiCall(`/school/orgs/${orgId}/sections/${sectionId}/assignments`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const getSectionAssignments = (
+  orgId: string,
+  sectionId: string,
+  opts: { startDate?: string; endDate?: string; kind?: AssignmentKind; limit?: number } = {},
+): Promise<{ assignments: Assignment[] }> => {
+  const q = new URLSearchParams();
+  if (opts.startDate) q.append("startDate", opts.startDate);
+  if (opts.endDate) q.append("endDate", opts.endDate);
+  if (opts.kind) q.append("kind", opts.kind);
+  if (opts.limit) q.append("limit", String(opts.limit));
+  const qs = q.toString() ? `?${q}` : "";
+  return apiCall(`/school/orgs/${orgId}/sections/${sectionId}/assignments${qs}`);
+};
+
+export const getAssignment = (
+  orgId: string,
+  assignmentId: string,
+): Promise<Assignment> =>
+  apiCall(`/school/orgs/${orgId}/assignments/${assignmentId}`);
+
+export const patchAssignment = (
+  orgId: string,
+  assignmentId: string,
+  partial: Partial<AssignmentInput>,
+): Promise<Assignment> =>
+  apiCall(`/school/orgs/${orgId}/assignments/${assignmentId}`, {
+    method: "PATCH",
+    body: JSON.stringify(partial),
+  });
+
+export const deleteAssignment = (
+  orgId: string,
+  assignmentId: string,
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/assignments/${assignmentId}`, {
+    method: "DELETE",
+  });
+
+export const postGradesBatch = (
+  orgId: string,
+  assignmentId: string,
+  entries: GradeBatchEntry[],
+): Promise<GradeBatchResponse> =>
+  apiCall(`/school/orgs/${orgId}/assignments/${assignmentId}/grades/batch`, {
+    method: "POST",
+    body: JSON.stringify({ entries }),
+  });
+
+export const postSingleGrade = (
+  orgId: string,
+  assignmentId: string,
+  entry: GradeBatchEntry,
+): Promise<GradeEntry> =>
+  apiCall(`/school/orgs/${orgId}/assignments/${assignmentId}/grades`, {
+    method: "POST",
+    body: JSON.stringify(entry),
+  });
+
+export const getAssignmentGrades = (
+  orgId: string,
+  assignmentId: string,
+): Promise<{ grades: GradeEntry[] }> =>
+  apiCall(`/school/orgs/${orgId}/assignments/${assignmentId}/grades`);
+
+export const getStudentGrades = (
+  orgId: string,
+  studentId: string,
+  opts: { startDate?: string; endDate?: string; kind?: AssignmentKind; limit?: number } = {},
+): Promise<{ grades: Array<GradeEntry & { assignment: Assignment }> }> => {
+  const q = new URLSearchParams();
+  if (opts.startDate) q.append("startDate", opts.startDate);
+  if (opts.endDate) q.append("endDate", opts.endDate);
+  if (opts.kind) q.append("kind", opts.kind);
+  if (opts.limit) q.append("limit", String(opts.limit));
+  const qs = q.toString() ? `?${q}` : "";
+  return apiCall(`/school/orgs/${orgId}/students/${studentId}/grades${qs}`);
+};
+
+export const getStudentGradesSummary = (
+  orgId: string,
+  studentId: string,
+): Promise<StudentGradesSummary> =>
+  apiCall(`/school/orgs/${orgId}/students/${studentId}/grades/summary`);
+
+export const getSectionGradebook = (
+  orgId: string,
+  sectionId: string,
+  opts: { startDate?: string; endDate?: string } = {},
+): Promise<GradebookResponse> => {
+  const q = new URLSearchParams();
+  if (opts.startDate) q.append("startDate", opts.startDate);
+  if (opts.endDate) q.append("endDate", opts.endDate);
+  const qs = q.toString() ? `?${q}` : "";
+  return apiCall(`/school/orgs/${orgId}/sections/${sectionId}/gradebook${qs}`);
+};
+
+export const deleteGrade = (
+  orgId: string,
+  gradeId: string,
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/grades/${gradeId}`, { method: "DELETE" });
+
 // Re-export apiCall so callers can hit ad-hoc endpoints without a second import.
 export { apiCall };

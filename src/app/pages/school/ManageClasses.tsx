@@ -35,6 +35,8 @@ import {
   UserCog,
   BookOpen,
   BookMarked,
+  ClipboardCheck,
+  Table2,
 } from "lucide-react";
 import {
   getSchoolMe,
@@ -227,6 +229,16 @@ export function ManageClasses() {
                       <Link to={`/school/orgs/${orgId}/sections/${sec.id}/hifz`}>
                         <Button variant="outline" size="sm" className="h-8 text-xs" title="Hifz progress">
                           <BookMarked className="h-3.5 w-3.5 mr-1" /> Hifz
+                        </Button>
+                      </Link>
+                      <Link to={`/school/orgs/${orgId}/sections/${sec.id}/assignments`}>
+                        <Button variant="outline" size="sm" className="h-8 text-xs" title="Assignments">
+                          <ClipboardCheck className="h-3.5 w-3.5 mr-1" /> Assignments
+                        </Button>
+                      </Link>
+                      <Link to={`/school/orgs/${orgId}/sections/${sec.id}/gradebook`}>
+                        <Button variant="outline" size="sm" className="h-8 text-xs" title="Gradebook">
+                          <Table2 className="h-3.5 w-3.5 mr-1" /> Gradebook
                         </Button>
                       </Link>
                       <Link to={`/school/orgs/${orgId}/sections/${sec.id}/roster/new`}>

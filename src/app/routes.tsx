@@ -64,6 +64,11 @@ import { RosterReviewQueue } from "./pages/school/RosterReviewQueue";
 import { SectionLessonsFeed } from "./pages/school/SectionLessonsFeed";
 import { LessonForm } from "./pages/school/LessonForm";
 import { SectionHifzOverview } from "./pages/school/SectionHifzOverview";
+// Phase C.2 — assignments + grades
+import { SectionAssignmentsList } from "./pages/school/SectionAssignmentsList";
+import { AssignmentForm } from "./pages/school/AssignmentForm";
+import { AssignmentDetail } from "./pages/school/AssignmentDetail";
+import { SectionGradebook } from "./pages/school/SectionGradebook";
 // Parent-facing redemption page for school invite codes — lands here from
 // the SMS/WhatsApp links the school sends.
 import { ParentConnect } from "./pages/ParentConnect";
@@ -369,6 +374,12 @@ export const router = createBrowserRouter([
           { path: "school/orgs/:orgId/sections/:sectionId/lessons/new", element: <RequireParentRole><LessonForm /></RequireParentRole> },
           { path: "school/orgs/:orgId/lessons/:lessonId/edit", element: <RequireParentRole><LessonForm /></RequireParentRole> },
           { path: "school/orgs/:orgId/sections/:sectionId/hifz", element: <RequireParentRole><SectionHifzOverview /></RequireParentRole> },
+          // Phase C.2 — assignments + grades
+          { path: "school/orgs/:orgId/sections/:sectionId/assignments", element: <RequireParentRole><SectionAssignmentsList /></RequireParentRole> },
+          { path: "school/orgs/:orgId/sections/:sectionId/assignments/new", element: <RequireParentRole><AssignmentForm /></RequireParentRole> },
+          { path: "school/orgs/:orgId/assignments/:assignmentId", element: <RequireParentRole><AssignmentDetail /></RequireParentRole> },
+          { path: "school/orgs/:orgId/assignments/:assignmentId/edit", element: <RequireParentRole><AssignmentForm /></RequireParentRole> },
+          { path: "school/orgs/:orgId/sections/:sectionId/gradebook", element: <RequireParentRole><SectionGradebook /></RequireParentRole> },
           // Redirect old routes to homepage
           { path: "kid", element: <Navigate to="/" replace /> },
           { path: "parent", element: <Navigate to="/" replace /> },
