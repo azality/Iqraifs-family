@@ -113,6 +113,25 @@ export const createOrganization = (
     body: JSON.stringify(body),
   });
 
+// Principal-only PATCH of organization-level fields (name, contact info,
+// address, academic year). Backend silently drops unknown columns, so
+// passing `academic_year` is safe even if the column hasn't been added
+// to the organizations table yet.
+export const updateOrganization = (
+  orgId: string,
+  body: Partial<{
+    name: string;
+    contact_email: string;
+    contact_phone: string;
+    address: string;
+    academic_year: string;
+  }>,
+): Promise<OrganizationDetail> =>
+  apiCall(`/school/orgs/${orgId}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+
 export const getCampuses = (orgId: string): Promise<Campus[]> =>
   apiCall(`/school/organizations/${orgId}/campuses`);
 

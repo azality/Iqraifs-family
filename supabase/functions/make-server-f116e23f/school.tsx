@@ -319,6 +319,64 @@ school.post("/organizations", async (c) => {
 });
 
 // -----------------------------------------------------------------------------
+// PATCH /school/orgs/:orgId
+// Principal-only. Updates org-level fields. `name` is written to the
+// organizations.name column directly; contact_email / contact_phone /
+// address / academic_year are merged into the organizations.settings
+// jsonb so we don't depend on columns that may not exist yet.
+// Body: Partial<{ name, contact_email, contact_phone, address, academic_year }>
+// -----------------------------------------------------------------------------
+school.patch("/orgs/:orgId", async (c) => {
+  const userId = getAuthUserId(c);
+  if (!userId) return c.json({ error: "unauthenticated" }, 401);
+  const orgId = c.req.param("orgId");
+
+  if (!(await isPrincipalOf(userId, orgId))) {
+    return c.json({ error: "forbidden" }, 403);
+  }
+
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const settingsKeys = ["contact_email", "contact_phone", "address", "academic_year"];
+
+  // Load current settings so we merge rather than overwrite.
+  const { data: current, error: loadErr } = await serviceRoleClient
+    .from("organizations")
+    .select("settings")
+    .eq("id", orgId)
+    .maybeSingle();
+  if (loadErr) return c.json({ error: loadErr.message }, 500);
+  if (!current) return c.json({ error: "not found" }, 404);
+
+  const mergedSettings: Record<string, unknown> = {
+    ...((current.settings as Record<string, unknown>) ?? {}),
+  };
+  let settingsTouched = false;
+  for (const k of settingsKeys) {
+    if (body[k] !== undefined) {
+      mergedSettings[k] = body[k];
+      settingsTouched = true;
+    }
+  }
+
+  const patch: Record<string, unknown> = {};
+  if (typeof body.name === "string") patch.name = body.name;
+  if (settingsTouched) patch.settings = mergedSettings;
+
+  if (Object.keys(patch).length === 0) {
+    return c.json({ error: "no allowed fields in body" }, 400);
+  }
+
+  const { data, error } = await serviceRoleClient
+    .from("organizations")
+    .update(patch)
+    .eq("id", orgId)
+    .select()
+    .maybeSingle();
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json(data);
+});
+
+// -----------------------------------------------------------------------------
 // POST /school/organizations/:orgId/grant-principal
 // Admin-only escape hatch to seed the FIRST principal of a fresh org. Once
 // a principal exists, they grant roles via /school/teachers etc.
