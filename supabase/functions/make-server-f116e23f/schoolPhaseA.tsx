@@ -878,6 +878,72 @@ export function installPhaseA(school: Hono) {
   });
 
   // -------------------------------------------------------------------------
+  // TEACHERS LIST — returns class_teachers + visiting_teachers for the org
+  // -------------------------------------------------------------------------
+  school.get("/orgs/:orgId/teachers", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await hasAnyRoleInOrg(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+
+    // Find user_role rows in this org with teacher-class templates.
+    const { data: roleRows, error: rolesErr } = await serviceRoleClient
+      .from("user_roles")
+      .select("user_id, role_type, scope_type, scope_id")
+      .or("role_type.eq.class_teacher,role_type.eq.visiting_teacher,role_type.eq.teacher")
+      .is("revoked_at", null);
+    if (rolesErr) return c.json({ error: rolesErr.message }, 500);
+
+    // Filter rows scoped to this org (org-scoped roles) OR to a class_section
+    // whose class belongs to this org. We resolve class scope through class_section.
+    const orgScoped = (roleRows ?? []).filter(
+      (r: any) => r.scope_type === "organization" && r.scope_id === orgId,
+    );
+    const classScoped = (roleRows ?? []).filter((r: any) => r.scope_type === "class");
+    let classOwnedHere = new Set<string>();
+    if (classScoped.length > 0) {
+      const sectionIds = classScoped.map((r: any) => r.scope_id);
+      const { data: sections } = await serviceRoleClient
+        .from("class_section")
+        .select("id, class:class_id(org_id)")
+        .in("id", sectionIds);
+      for (const s of sections ?? []) {
+        const c2 = (s as any).class;
+        if (c2 && c2.org_id === orgId) classOwnedHere.add(s.id);
+      }
+    }
+    const inScope = [
+      ...orgScoped,
+      ...classScoped.filter((r: any) => classOwnedHere.has(r.scope_id)),
+    ];
+
+    // Dedupe to a unique set of (user_id, role_type) pairs and hydrate name+email.
+    const seen = new Set<string>();
+    const dedup: Array<{ user_id: string; role_type: string }> = [];
+    for (const r of inScope) {
+      const key = `${r.user_id}::${r.role_type}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      dedup.push({ user_id: r.user_id, role_type: r.role_type });
+    }
+    const out: Array<{ user_id: string; full_name: string; email: string; role_type: string }> = [];
+    for (const d of dedup) {
+      try {
+        const { data: lookup } = await serviceRoleClient.auth.admin.getUserById(d.user_id);
+        const u: any = lookup?.user;
+        out.push({
+          user_id: d.user_id,
+          full_name: u?.user_metadata?.name || u?.email?.split("@")[0] || "Unknown",
+          email: u?.email || "",
+          role_type: d.role_type,
+        });
+      } catch {
+        out.push({ user_id: d.user_id, full_name: "Unknown", email: "", role_type: d.role_type });
+      }
+    }
+    return c.json({ teachers: out });
+  });
+
+  // -------------------------------------------------------------------------
   // TEACHERS BULK
   // -------------------------------------------------------------------------
   school.post("/orgs/:orgId/teachers/bulk", async (c) => {
