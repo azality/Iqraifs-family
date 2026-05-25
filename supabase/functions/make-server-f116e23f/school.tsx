@@ -26,6 +26,7 @@ import { installPhaseB } from "./schoolPhaseB.tsx";
 import { installPhaseC } from "./schoolPhaseC.tsx";
 import { installPhaseC2 } from "./schoolPhaseC2.tsx";
 import { installDashboard } from "./schoolDashboard.tsx";
+import { installPortal } from "./schoolPortal.tsx";
 
 const school = new Hono();
 
@@ -46,6 +47,12 @@ school.use("*", async (c, next) => {
   // tail after that is what we want to test.
   const tail = path.replace(/^.*\/school/, "");
   if (PUBLIC_SCHOOL_PATHS.has(tail)) {
+    await next();
+    return;
+  }
+  // Phase E portal endpoints (/pin-me/*) authenticate via X-Pin-Token, not
+  // the family JWT. Skip requireAuth — each handler enforces requirePinSubject.
+  if (tail === "/pin-me" || tail.startsWith("/pin-me/")) {
     await next();
     return;
   }
@@ -2510,5 +2517,10 @@ installPhaseC2(school);
 // Dashboard aggregate routes (school-at-a-glance, leaderboard, insights)
 // -----------------------------------------------------------------------------
 installDashboard(school);
+
+// -----------------------------------------------------------------------------
+// Phase E — student/parent portal (PIN-authenticated read endpoints)
+// -----------------------------------------------------------------------------
+installPortal(school);
 
 export default school;
