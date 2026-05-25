@@ -1,0 +1,152 @@
+// PortalLogin — entry point for student & parent PIN sign-in.
+// Route: /school-login
+
+import { useMemo, useState, type FormEvent } from "react";
+import { useNavigate, useSearchParams } from "react-router";
+import { GraduationCap } from "lucide-react";
+import { usePinAuth } from "../../contexts/PinAuthContext";
+import type { PinSubjectType } from "../../../utils/schoolPortalApi";
+
+function friendlyError(raw: string): string {
+  const m = raw.toLowerCase();
+  if (m.includes("invalid pin") || m.includes("wrong pin")) return "Invalid PIN. Please try again.";
+  if (m.includes("lock")) return "Account locked. Try again in 15 minutes.";
+  if (m.includes("not found") || m.includes("no user") || m.includes("no such"))
+    return "User not found. Check your details.";
+  if (m.includes("org")) return "School not found. Check the school code.";
+  return "Sign-in failed. Please verify your details.";
+}
+
+export function PortalLogin() {
+  const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const { login } = usePinAuth();
+
+  const defaultOrg = useMemo(() => params.get("org") || "iqra-academy", [params]);
+  const [subjectType, setSubjectType] = useState<PinSubjectType>("student");
+  const [orgIdentifier, setOrgIdentifier] = useState<string>(defaultOrg);
+  const [loginIdentifier, setLoginIdentifier] = useState<string>("");
+  const [pin, setPin] = useState<string>("");
+  const [busy, setBusy] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const idLabel = subjectType === "student" ? "GR Number" : "Phone";
+
+  const onSubmit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      const me = await login({ orgIdentifier, loginIdentifier, pin });
+      if (me.mustChange) {
+        navigate("/school-portal/change-pin", { replace: true });
+      } else {
+        navigate("/school-portal", { replace: true });
+      }
+    } catch (err) {
+      setError(friendlyError(err instanceof Error ? err.message : String(err)));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50">
+      <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950 text-white">
+        <div className="max-w-3xl mx-auto px-4 py-12">
+          <div className="flex items-center gap-3">
+            <GraduationCap className="h-8 w-8 text-indigo-300" />
+            <h1 className="text-2xl font-semibold">Iqra Academy</h1>
+          </div>
+          <p className="mt-2 text-indigo-200 text-sm max-w-xl">
+            Student &amp; Parent Portal — view your child&apos;s lessons, grades, hifz progress,
+            attendance and behavior notes.
+          </p>
+        </div>
+      </div>
+
+      <div className="max-w-md mx-auto px-4 -mt-8">
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
+          <h2 className="text-lg font-semibold text-slate-900">Sign in</h2>
+          <p className="mt-1 text-sm text-slate-500">Use the PIN your school provided.</p>
+
+          <div className="mt-5 flex p-1 bg-slate-100 rounded-lg">
+            {(["student", "parent"] as PinSubjectType[]).map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setSubjectType(t)}
+                className={
+                  "flex-1 py-1.5 text-sm rounded-md capitalize " +
+                  (subjectType === t
+                    ? "bg-white shadow-sm font-medium text-slate-900"
+                    : "text-slate-600")
+                }
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+
+          <form className="mt-5 space-y-4" onSubmit={onSubmit}>
+            <div>
+              <label className="block text-xs font-medium uppercase tracking-wide text-slate-500">
+                School Code
+              </label>
+              <input
+                type="text"
+                value={orgIdentifier}
+                onChange={(e) => setOrgIdentifier(e.target.value)}
+                required
+                className="mt-1 w-full border border-slate-300 rounded-md px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium uppercase tracking-wide text-slate-500">
+                {idLabel}
+              </label>
+              <input
+                type="text"
+                value={loginIdentifier}
+                onChange={(e) => setLoginIdentifier(e.target.value)}
+                required
+                autoComplete="username"
+                className="mt-1 w-full border border-slate-300 rounded-md px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium uppercase tracking-wide text-slate-500">
+                PIN
+              </label>
+              <input
+                type="password"
+                value={pin}
+                onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                inputMode="numeric"
+                pattern="[0-9]{4}"
+                maxLength={4}
+                required
+                autoComplete="current-password"
+                className="mt-1 w-full border border-slate-300 rounded-md px-3 py-2 text-sm tracking-widest"
+              />
+            </div>
+
+            {error && (
+              <div className="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-md px-3 py-2">
+                {error}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={busy || pin.length !== 4}
+              className="w-full inline-flex justify-center items-center bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-medium rounded-md px-3 py-2 text-sm"
+            >
+              {busy ? "Signing in…" : "Sign in"}
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}

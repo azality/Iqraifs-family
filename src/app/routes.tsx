@@ -81,6 +81,19 @@ import { FormResponses } from "./pages/school/FormResponses";
 // Parent-facing redemption page for school invite codes — lands here from
 // the SMS/WhatsApp links the school sends.
 import { ParentConnect } from "./pages/ParentConnect";
+// School Portal (student + parent PIN auth — separate from family JWT).
+import { PinAuthProvider } from "./contexts/PinAuthContext";
+import { PortalRouteGuard } from "./components/PortalRouteGuard";
+import { PortalLayout } from "./layouts/PortalLayout";
+import { PortalLogin } from "./pages/portal/PortalLogin";
+import { PortalChangePin } from "./pages/portal/PortalChangePin";
+import { PortalHome } from "./pages/portal/PortalHome";
+import { StudentDashboard } from "./pages/portal/StudentDashboard";
+import { StudentLessons } from "./pages/portal/StudentLessons";
+import { StudentGrades } from "./pages/portal/StudentGrades";
+import { StudentHifz } from "./pages/portal/StudentHifz";
+import { StudentAttendance } from "./pages/portal/StudentAttendance";
+import { StudentBehavior } from "./pages/portal/StudentBehavior";
 import { RootLayout } from "./layouts/RootLayout";
 import { KidLayout } from "./layouts/KidLayout";
 import { ProvidersLayout } from "./layouts/ProvidersLayout";
@@ -263,6 +276,38 @@ function RequireFamily({ children }: { children: JSX.Element }) {
 }
 
 export const router = createBrowserRouter([
+  // School Portal (PIN auth — student + parent). Lives OUTSIDE the family
+  // auth tree: no Supabase JWT, no FamilyContext, no WorkspaceContext.
+  {
+    path: "school-login",
+    element: (
+      <PinAuthProvider>
+        <PortalLogin />
+      </PinAuthProvider>
+    ),
+    errorElement: <RouterErrorBoundary />,
+  },
+  {
+    path: "school-portal",
+    element: (
+      <PinAuthProvider>
+        <PortalRouteGuard>
+          <PortalLayout />
+        </PortalRouteGuard>
+      </PinAuthProvider>
+    ),
+    errorElement: <RouterErrorBoundary />,
+    children: [
+      { index: true, element: <PortalHome /> },
+      { path: "change-pin", element: <PortalChangePin /> },
+      { path: "students/:studentId", element: <StudentDashboard /> },
+      { path: "students/:studentId/lessons", element: <StudentLessons /> },
+      { path: "students/:studentId/grades", element: <StudentGrades /> },
+      { path: "students/:studentId/hifz", element: <StudentHifz /> },
+      { path: "students/:studentId/attendance", element: <StudentAttendance /> },
+      { path: "students/:studentId/behavior", element: <StudentBehavior /> },
+    ],
+  },
   // Public routes - accessible without auth but wrapped with ProvidersLayout for auth context
   {
     element: <ProvidersLayout />,
