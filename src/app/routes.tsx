@@ -94,6 +94,8 @@ import { StudentGrades } from "./pages/portal/StudentGrades";
 import { StudentHifz } from "./pages/portal/StudentHifz";
 import { StudentAttendance } from "./pages/portal/StudentAttendance";
 import { StudentBehavior } from "./pages/portal/StudentBehavior";
+import { MyForms } from "./pages/portal/MyForms";
+import { FormFill } from "./pages/portal/FormFill";
 import { RootLayout } from "./layouts/RootLayout";
 import { KidLayout } from "./layouts/KidLayout";
 import { ProvidersLayout } from "./layouts/ProvidersLayout";
@@ -306,6 +308,8 @@ export const router = createBrowserRouter([
       { path: "students/:studentId/hifz", element: <StudentHifz /> },
       { path: "students/:studentId/attendance", element: <StudentAttendance /> },
       { path: "students/:studentId/behavior", element: <StudentBehavior /> },
+      { path: "forms", element: <MyForms /> },
+      { path: "forms/:formId", element: <FormFill /> },
     ],
   },
   // Public routes - accessible without auth but wrapped with ProvidersLayout for auth context

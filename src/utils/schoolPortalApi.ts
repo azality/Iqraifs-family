@@ -12,6 +12,9 @@ import type {
   GradeEntry,
   Assignment,
   StudentGradesSummary,
+  Form,
+  FormResponse,
+  MyFormSummary,
 } from "./schoolApi";
 
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f`;
@@ -255,6 +258,36 @@ export interface MyStudentBehaviorResponse {
 export const getMyStudentBehavior = (studentId: string): Promise<MyStudentBehaviorResponse> =>
   pinApiCall(`/school/pin-me/students/${studentId}/behavior`);
 
+// ─── Forms (parent-facing, PIN-authed) ──────────────────────────────────
+//
+// Mirrors listMyForms / getForm / submitFormResponse from schoolApi.ts but
+// uses pinApiCall so requests carry the X-Pin-Token header instead of the
+// family JWT.
+
+export const listMyForms = (orgId: string): Promise<{ forms: MyFormSummary[] }> =>
+  pinApiCall(`/school/orgs/${orgId}/my-forms`);
+
+export const getMyForm = (orgId: string, formId: string): Promise<Form> =>
+  pinApiCall(`/school/orgs/${orgId}/forms/${formId}`);
+
+export const submitFormResponse = (
+  orgId: string,
+  formId: string,
+  body: {
+    onBehalfOfStudentId?: string;
+    values: Array<{
+      fieldId: string;
+      valueText?: string | null;
+      valueNumber?: number | null;
+      valueMulti?: string[] | null;
+    }>;
+  },
+): Promise<FormResponse> =>
+  pinApiCall(`/school/orgs/${orgId}/forms/${formId}/responses`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
 // ─── Re-exported types from schoolApi ───────────────────────────────────
 
 export type {
@@ -264,4 +297,10 @@ export type {
   GradeEntry,
   Assignment,
   StudentGradesSummary,
+  Form,
+  FormField,
+  FormFieldKind,
+  FormResponse,
+  FormResponseValue,
+  MyFormSummary,
 } from "./schoolApi";
