@@ -1544,5 +1544,402 @@ export const deleteGrade = (
 ): Promise<{ ok: true }> =>
   apiCall(`/school/orgs/${orgId}/grades/${gradeId}`, { method: "DELETE" });
 
+// ─── Phase C.3: Curriculum ─────────────────────────────────────────────
+
+export interface CurriculumTopic {
+  id: string;
+  curriculum_id: string;
+  name: string;
+  description: string | null;
+  display_order: number;
+  target_date: string | null;
+  completed: boolean;
+  completed_at: string | null;
+  created_at: string;
+}
+
+export interface Curriculum {
+  id: string;
+  org_id: string;
+  class_section_id: string;
+  academic_year: string;
+  title: string;
+  description: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  topics?: CurriculumTopic[];
+}
+
+export const createCurriculum = (
+  orgId: string,
+  sectionId: string,
+  body: { academicYear: string; title: string; description?: string },
+): Promise<Curriculum> =>
+  apiCall(`/school/orgs/${orgId}/sections/${sectionId}/curriculum`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const getSectionCurriculum = (
+  orgId: string,
+  sectionId: string,
+  opts: { academicYear?: string } = {},
+): Promise<{ curricula: Curriculum[] }> => {
+  const q = new URLSearchParams();
+  if (opts.academicYear) q.append("academicYear", opts.academicYear);
+  const qs = q.toString() ? `?${q}` : "";
+  return apiCall(
+    `/school/orgs/${orgId}/sections/${sectionId}/curriculum${qs}`,
+  );
+};
+
+export const updateCurriculum = (
+  orgId: string,
+  curriculumId: string,
+  partial: Partial<{ title: string; description: string; academicYear: string }>,
+): Promise<Curriculum> =>
+  apiCall(`/school/orgs/${orgId}/curriculum/${curriculumId}`, {
+    method: "PATCH",
+    body: JSON.stringify(partial),
+  });
+
+export const deleteCurriculum = (
+  orgId: string,
+  curriculumId: string,
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/curriculum/${curriculumId}`, {
+    method: "DELETE",
+  });
+
+export const addTopic = (
+  orgId: string,
+  curriculumId: string,
+  body: { name: string; description?: string; displayOrder?: number; targetDate?: string },
+): Promise<CurriculumTopic> =>
+  apiCall(`/school/orgs/${orgId}/curriculum/${curriculumId}/topics`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const updateTopic = (
+  orgId: string,
+  topicId: string,
+  partial: Partial<{
+    name: string;
+    description: string;
+    displayOrder: number;
+    targetDate: string | null;
+    completed: boolean;
+  }>,
+): Promise<CurriculumTopic> =>
+  apiCall(`/school/orgs/${orgId}/topics/${topicId}`, {
+    method: "PATCH",
+    body: JSON.stringify(partial),
+  });
+
+export const deleteTopic = (
+  orgId: string,
+  topicId: string,
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/topics/${topicId}`, { method: "DELETE" });
+
+export const reorderTopics = (
+  orgId: string,
+  curriculumId: string,
+  orderedIds: string[],
+): Promise<{ ok: true }> =>
+  apiCall(
+    `/school/orgs/${orgId}/curriculum/${curriculumId}/topics/reorder`,
+    { method: "POST", body: JSON.stringify({ orderedIds }) },
+  );
+
+// ─── Phase C.3: Fees ───────────────────────────────────────────────────
+
+export type FeeStatusValue = "pending" | "paid" | "partial" | "overdue" | "waived";
+
+export interface FeeStatus {
+  id: string;
+  org_id: string;
+  student_id: string;
+  student_name?: string | null;
+  gr_number?: string | null;
+  section_id?: string | null;
+  section_label?: string | null;
+  period: string;
+  amount_due: number | null;
+  amount_paid: number | null;
+  status: FeeStatusValue;
+  due_date: string | null;
+  paid_date: string | null;
+  receipt_url: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FeeStatusInput {
+  period: string;
+  amountDue?: number;
+  dueDate?: string;
+  notes?: string;
+}
+
+export const createFee = (
+  orgId: string,
+  studentId: string,
+  body: FeeStatusInput,
+): Promise<FeeStatus> =>
+  apiCall(`/school/orgs/${orgId}/students/${studentId}/fees`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const listStudentFees = (
+  orgId: string,
+  studentId: string,
+  opts: { startPeriod?: string; endPeriod?: string } = {},
+): Promise<{ fees: FeeStatus[] }> => {
+  const q = new URLSearchParams();
+  if (opts.startPeriod) q.append("startPeriod", opts.startPeriod);
+  if (opts.endPeriod) q.append("endPeriod", opts.endPeriod);
+  const qs = q.toString() ? `?${q}` : "";
+  return apiCall(`/school/orgs/${orgId}/students/${studentId}/fees${qs}`);
+};
+
+export const listOrgFees = (
+  orgId: string,
+  opts: { period?: string; status?: FeeStatusValue; sectionId?: string } = {},
+): Promise<{ fees: FeeStatus[] }> => {
+  const q = new URLSearchParams();
+  if (opts.period) q.append("period", opts.period);
+  if (opts.status) q.append("status", opts.status);
+  if (opts.sectionId) q.append("sectionId", opts.sectionId);
+  const qs = q.toString() ? `?${q}` : "";
+  return apiCall(`/school/orgs/${orgId}/fees${qs}`);
+};
+
+export const updateFee = (
+  orgId: string,
+  feeId: string,
+  partial: Partial<{
+    status: FeeStatusValue;
+    amountPaid: number;
+    paidDate: string;
+    receiptUrl: string;
+    notes: string;
+    amountDue: number;
+    dueDate: string;
+  }>,
+): Promise<FeeStatus> =>
+  apiCall(`/school/orgs/${orgId}/fees/${feeId}`, {
+    method: "PATCH",
+    body: JSON.stringify(partial),
+  });
+
+export const deleteFee = (
+  orgId: string,
+  feeId: string,
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/fees/${feeId}`, { method: "DELETE" });
+
+// ─── Phase D: Forms ────────────────────────────────────────────────────
+
+export type FormStatus = "draft" | "published" | "closed";
+export type FormAudienceKind = "whole_school" | "class_section" | "specific_students";
+export type FormFieldKind =
+  | "short_text"
+  | "long_text"
+  | "single_select"
+  | "multi_select"
+  | "number";
+
+export interface FormField {
+  id: string;
+  form_id: string;
+  kind: FormFieldKind;
+  label: string;
+  required: boolean;
+  options: string[] | null;
+  help_text: string | null;
+  display_order: number;
+}
+
+export interface Form {
+  id: string;
+  org_id: string;
+  title: string;
+  description: string | null;
+  status: FormStatus;
+  audience_kind: FormAudienceKind;
+  audience_section_id: string | null;
+  audience_student_ids: string[] | null;
+  allow_multiple: boolean;
+  deadline: string | null;
+  created_by: string | null;
+  created_by_name?: string | null;
+  created_at: string;
+  updated_at: string;
+  fields?: FormField[];
+  responseCount?: number;
+}
+
+export interface FormResponseValue {
+  fieldId: string;
+  value: string | string[] | number | null;
+}
+
+export interface FormResponse {
+  id: string;
+  form_id: string;
+  submitted_by: string | null;
+  submitted_by_name?: string | null;
+  on_behalf_of_student_id: string | null;
+  on_behalf_of_student_name?: string | null;
+  values: FormResponseValue[];
+  submitted_at: string;
+}
+
+export interface MyFormSummary {
+  form: Form;
+  hasResponded: boolean;
+  responseCount: number;
+}
+
+export const createForm = (
+  orgId: string,
+  body: {
+    title: string;
+    description?: string;
+    audienceKind: FormAudienceKind;
+    audienceSectionId?: string;
+    audienceStudentIds?: string[];
+    allowMultiple?: boolean;
+    deadline?: string;
+  },
+): Promise<Form> =>
+  apiCall(`/school/orgs/${orgId}/forms`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const listForms = (
+  orgId: string,
+  opts: { status?: FormStatus; creatorOnly?: boolean } = {},
+): Promise<{ forms: Form[] }> => {
+  const q = new URLSearchParams();
+  if (opts.status) q.append("status", opts.status);
+  if (opts.creatorOnly) q.append("creatorOnly", "true");
+  const qs = q.toString() ? `?${q}` : "";
+  return apiCall(`/school/orgs/${orgId}/forms${qs}`);
+};
+
+export const getForm = (orgId: string, formId: string): Promise<Form> =>
+  apiCall(`/school/orgs/${orgId}/forms/${formId}`);
+
+export const updateForm = (
+  orgId: string,
+  formId: string,
+  partial: Partial<{
+    title: string;
+    description: string;
+    audienceKind: FormAudienceKind;
+    audienceSectionId: string | null;
+    audienceStudentIds: string[];
+    allowMultiple: boolean;
+    deadline: string | null;
+  }>,
+): Promise<Form> =>
+  apiCall(`/school/orgs/${orgId}/forms/${formId}`, {
+    method: "PATCH",
+    body: JSON.stringify(partial),
+  });
+
+export const publishForm = (orgId: string, formId: string): Promise<Form> =>
+  apiCall(`/school/orgs/${orgId}/forms/${formId}/publish`, { method: "POST" });
+
+export const closeForm = (orgId: string, formId: string): Promise<Form> =>
+  apiCall(`/school/orgs/${orgId}/forms/${formId}/close`, { method: "POST" });
+
+export const deleteForm = (
+  orgId: string,
+  formId: string,
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/forms/${formId}`, { method: "DELETE" });
+
+export const addFormField = (
+  orgId: string,
+  formId: string,
+  body: {
+    kind: FormFieldKind;
+    label: string;
+    required?: boolean;
+    options?: string[];
+    helpText?: string;
+    displayOrder?: number;
+  },
+): Promise<FormField> =>
+  apiCall(`/school/orgs/${orgId}/forms/${formId}/fields`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const updateFormField = (
+  orgId: string,
+  fieldId: string,
+  partial: Partial<{
+    kind: FormFieldKind;
+    label: string;
+    required: boolean;
+    options: string[];
+    helpText: string;
+    displayOrder: number;
+  }>,
+): Promise<FormField> =>
+  apiCall(`/school/orgs/${orgId}/fields/${fieldId}`, {
+    method: "PATCH",
+    body: JSON.stringify(partial),
+  });
+
+export const deleteFormField = (
+  orgId: string,
+  fieldId: string,
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/fields/${fieldId}`, { method: "DELETE" });
+
+export const reorderFormFields = (
+  orgId: string,
+  formId: string,
+  orderedIds: string[],
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/forms/${formId}/fields/reorder`, {
+    method: "POST",
+    body: JSON.stringify({ orderedIds }),
+  });
+
+export const listFormResponses = (
+  orgId: string,
+  formId: string,
+): Promise<{ responses: FormResponse[] }> =>
+  apiCall(`/school/orgs/${orgId}/forms/${formId}/responses`);
+
+// ─── Parent-facing forms (would normally live in schoolPortalApi.ts) ──
+
+export const listMyForms = (orgId: string): Promise<{ forms: MyFormSummary[] }> =>
+  apiCall(`/school/orgs/${orgId}/my-forms`);
+
+export const submitFormResponse = (
+  orgId: string,
+  formId: string,
+  body: {
+    onBehalfOfStudentId?: string;
+    values: FormResponseValue[];
+  },
+): Promise<FormResponse> =>
+  apiCall(`/school/orgs/${orgId}/forms/${formId}/responses`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
 // Re-export apiCall so callers can hit ad-hoc endpoints without a second import.
 export { apiCall };

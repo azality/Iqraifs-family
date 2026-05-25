@@ -19,6 +19,8 @@ import {
   KeyRound,
   ShieldCheck,
   ClipboardList,
+  Wallet,
+  FileText,
 } from "lucide-react";
 import { HeroCard, KpiTile } from "../../components/school-ui";
 import {
@@ -31,6 +33,8 @@ import {
   listParents,
   listAdminTeachers,
   listLinkCodes,
+  listOrgFees,
+  listForms,
   type SchoolMeResponse,
 } from "../../../utils/schoolApi";
 
@@ -56,7 +60,9 @@ export function AdminDashboard() {
     teachers: number | null;
     linkCodes: number | null;
     rosterPending: number | null;
-  }>({ classes: null, students: null, parents: null, teachers: null, linkCodes: null, rosterPending: null });
+    feesUnpaid: number | null;
+    formsDraft: number | null;
+  }>({ classes: null, students: null, parents: null, teachers: null, linkCodes: null, rosterPending: null, feesUnpaid: null, formsDraft: null });
 
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
@@ -77,6 +83,12 @@ export function AdminDashboard() {
     // waiting on them.
     getRosterRequests(orgId, { status: "pending" })
       .then((r) => setCounts((cc) => ({ ...cc, rosterPending: r.requests.length })))
+      .catch(() => {});
+    listOrgFees(orgId, { status: "pending" })
+      .then((r) => setCounts((cc) => ({ ...cc, feesUnpaid: r.fees.length })))
+      .catch(() => {});
+    listForms(orgId, { status: "draft" })
+      .then((r) => setCounts((cc) => ({ ...cc, formsDraft: r.forms.length })))
       .catch(() => {});
   }, [orgId]);
 
@@ -101,6 +113,8 @@ export function AdminDashboard() {
     { to: `/school/orgs/${orgId}/admin/teachers`, label: "Teachers", count: counts.teachers, icon: UserCog },
     { to: `/school/orgs/${orgId}/admin/link-codes`, label: "Link codes", count: counts.linkCodes, icon: KeyRound },
     { to: `/school/orgs/${orgId}/admin/roster-requests`, label: "Roster requests", count: counts.rosterPending, icon: ClipboardList, badge: true },
+    { to: `/school/orgs/${orgId}/admin/fees`, label: "Fees", count: counts.feesUnpaid, icon: Wallet, badge: true },
+    { to: `/school/orgs/${orgId}/admin/forms`, label: "Forms", count: counts.formsDraft, icon: FileText, badge: true },
     { to: `/school/orgs/${orgId}/admin/permissions`, label: "Permissions", count: null, icon: ShieldCheck, principalOnly: true },
   ];
 

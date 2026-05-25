@@ -71,6 +71,13 @@ import { SectionAssignmentsList } from "./pages/school/SectionAssignmentsList";
 import { AssignmentForm } from "./pages/school/AssignmentForm";
 import { AssignmentDetail } from "./pages/school/AssignmentDetail";
 import { SectionGradebook } from "./pages/school/SectionGradebook";
+// Phase C.3 + Phase D — curriculum, fees, forms
+import { SectionCurriculum } from "./pages/school/SectionCurriculum";
+import { FeesOverview } from "./pages/school/FeesOverview";
+import { StudentFees } from "./pages/school/StudentFees";
+import { FormsList } from "./pages/school/FormsList";
+import { FormBuilder } from "./pages/school/FormBuilder";
+import { FormResponses } from "./pages/school/FormResponses";
 // Parent-facing redemption page for school invite codes — lands here from
 // the SMS/WhatsApp links the school sends.
 import { ParentConnect } from "./pages/ParentConnect";
@@ -383,6 +390,14 @@ export const router = createBrowserRouter([
           { path: "school/orgs/:orgId/assignments/:assignmentId", element: <RequireParentRole><AssignmentDetail /></RequireParentRole> },
           { path: "school/orgs/:orgId/assignments/:assignmentId/edit", element: <RequireParentRole><AssignmentForm /></RequireParentRole> },
           { path: "school/orgs/:orgId/sections/:sectionId/gradebook", element: <RequireParentRole><SectionGradebook /></RequireParentRole> },
+          // Phase C.3 + Phase D — curriculum, fees, forms
+          { path: "school/orgs/:orgId/sections/:sectionId/curriculum", element: <RequireParentRole><SectionCurriculum /></RequireParentRole> },
+          { path: "school/orgs/:orgId/admin/fees", element: <RequireParentRole><FeesOverview /></RequireParentRole> },
+          { path: "school/orgs/:orgId/students/:studentId/fees", element: <RequireParentRole><StudentFees /></RequireParentRole> },
+          { path: "school/orgs/:orgId/admin/forms", element: <RequireParentRole><FormsList /></RequireParentRole> },
+          { path: "school/orgs/:orgId/admin/forms/new", element: <RequireParentRole><FormBuilder /></RequireParentRole> },
+          { path: "school/orgs/:orgId/admin/forms/:formId", element: <RequireParentRole><FormBuilder /></RequireParentRole> },
+          { path: "school/orgs/:orgId/admin/forms/:formId/responses", element: <RequireParentRole><FormResponses /></RequireParentRole> },
           // Redirect old routes to homepage
           { path: "kid", element: <Navigate to="/" replace /> },
           { path: "parent", element: <Navigate to="/" replace /> },
