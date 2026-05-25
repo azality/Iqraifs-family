@@ -11,9 +11,7 @@
 import { useContext, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import {
-  Bell,
   BookOpen,
-  Building2,
   CheckCircle,
   ChevronRight,
   Clock,
@@ -22,7 +20,6 @@ import {
   GraduationCap,
   Heart,
   KeyRound,
-  Search,
   Settings as SettingsIcon,
   ShieldCheck,
   Sparkles,
@@ -45,9 +42,7 @@ import {
   Tooltip,
 } from "recharts";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
-import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
-import { Input } from "../../components/ui/input";
 import { WorkspaceContext } from "../../contexts/WorkspaceContext";
 import {
   getDashboard,
@@ -113,10 +108,12 @@ function ManageToolbar({
   orgId,
   showPermissions,
   showRosterRequests,
+  showSettings,
 }: {
   orgId: string;
   showPermissions: boolean;
   showRosterRequests: boolean;
+  showSettings: boolean;
 }) {
   // Phase B wired these to the real admin pages. Until Phase B shipped these
   // all pointed at /setup as a placeholder.
@@ -141,6 +138,14 @@ function ManageToolbar({
       label: "Permissions",
       to: `/school/orgs/${orgId}/admin/permissions`,
       Icon: ShieldCheck,
+    });
+  }
+  if (showSettings) {
+    items.push({
+      key: "settings",
+      label: "Settings",
+      to: `/school/orgs/${orgId}/admin/settings`,
+      Icon: SettingsIcon,
     });
   }
   return (
@@ -676,41 +681,13 @@ export function PerformanceDashboard() {
 
   return (
     <div className="space-y-5">
-      {/* Sticky top toolbar */}
-      <div className="sticky top-0 z-10 -mx-4 border-b border-slate-200 bg-white/85 px-4 py-3 backdrop-blur-md">
-        <div className="flex items-center gap-4">
-          <div className="flex min-w-0 items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-100 text-indigo-700">
-              <Building2 className="h-4 w-4" />
-            </div>
-            <div className="min-w-0">
-              <div className="truncate text-sm font-semibold text-slate-900">
-                {org?.organization.name || "School"}
-              </div>
-              <div className="text-[11px] text-slate-500">Network Overview</div>
-            </div>
-          </div>
-          <div className="relative mx-auto hidden max-w-md flex-1 md:block">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <Input
-              type="search"
-              placeholder="Search students, teachers..."
-              className="h-9 pl-8 text-sm"
-            />
-          </div>
-          <div className="ml-auto flex items-center gap-1">
-            <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-              <Bell className="h-4 w-4" />
-            </Button>
-            <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-              <SettingsIcon className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      </div>
-
       {/* Manage actions toolbar */}
-      <ManageToolbar orgId={orgId} showPermissions={showPermissions} showRosterRequests={showRosterRequests} />
+      <ManageToolbar
+        orgId={orgId}
+        showPermissions={showPermissions}
+        showRosterRequests={showRosterRequests}
+        showSettings={showPermissions}
+      />
 
       {/* Page title + period */}
       <div className="flex flex-wrap items-end justify-between gap-3">
