@@ -949,15 +949,19 @@ export interface PermissionRow {
   allowed: boolean;
 }
 
-export const getPermissions = (orgId: string): Promise<PermissionRow[]> =>
-  apiCall(`/school/orgs/${orgId}/permissions`);
+export const getPermissions = async (orgId: string): Promise<PermissionRow[]> => {
+  // Backend wraps the array in { permissions: [...] }; unwrap here so the
+  // helper's return type matches what PermissionsEditor expects (a bare array).
+  const r = await apiCall<{ permissions: PermissionRow[] }>(`/school/orgs/${orgId}/permissions`);
+  return r?.permissions ?? [];
+};
 
 export const updatePermissions = (
   orgId: string,
   overrides: PermissionRow[],
 ): Promise<void> =>
   apiCall(`/school/orgs/${orgId}/permissions`, {
-    method: "PUT",
+    method: "PATCH",
     body: JSON.stringify({ overrides }),
   });
 
