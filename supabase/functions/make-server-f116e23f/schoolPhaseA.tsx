@@ -362,7 +362,7 @@ export function installPhaseA(school: Hono) {
     const { data, error } = await serviceRoleClient
       .from("class")
       .insert({
-        organization_id: orgId,
+        org_id: orgId,
         name: body.name.trim(),
         display_order: typeof body.displayOrder === "number" ? body.displayOrder : 0,
       })
@@ -386,7 +386,7 @@ export function installPhaseA(school: Hono) {
     const { data: classes, error } = await serviceRoleClient
       .from("class")
       .select("*")
-      .eq("organization_id", orgId)
+      .eq("org_id", orgId)
       .order("display_order")
       .order("name");
     if (error) return c.json({ error: error.message }, 500);
@@ -425,7 +425,7 @@ export function installPhaseA(school: Hono) {
       .from("class")
       .update(patch)
       .eq("id", classId)
-      .eq("organization_id", orgId)
+      .eq("org_id", orgId)
       .select()
       .single();
     if (error) return c.json({ error: error.message }, 500);
@@ -441,7 +441,7 @@ export function installPhaseA(school: Hono) {
       .from("class")
       .delete()
       .eq("id", classId)
-      .eq("organization_id", orgId);
+      .eq("org_id", orgId);
     if (error) return c.json({ error: error.message }, 500);
     return c.json({ ok: true });
   });
@@ -460,7 +460,7 @@ export function installPhaseA(school: Hono) {
 
     // Verify the class belongs to this org
     const { data: cls } = await serviceRoleClient
-      .from("class").select("id").eq("id", classId).eq("organization_id", orgId).maybeSingle();
+      .from("class").select("id").eq("id", classId).eq("org_id", orgId).maybeSingle();
     if (!cls) return c.json({ error: "class not found in this org" }, 404);
 
     const { data, error } = await serviceRoleClient
@@ -492,10 +492,10 @@ export function installPhaseA(school: Hono) {
     // Verify section belongs to this org via class join
     const { data: secCheck } = await serviceRoleClient
       .from("class_section")
-      .select("id, class:class_id(organization_id)")
+      .select("id, class:class_id(org_id)")
       .eq("id", sectionId)
       .maybeSingle();
-    if (!secCheck || (secCheck as any).class?.organization_id !== orgId) {
+    if (!secCheck || (secCheck as any).class?.org_id !== orgId) {
       return c.json({ error: "section not found in this org" }, 404);
     }
 
@@ -518,10 +518,10 @@ export function installPhaseA(school: Hono) {
 
     const { data: secCheck } = await serviceRoleClient
       .from("class_section")
-      .select("id, class:class_id(organization_id)")
+      .select("id, class:class_id(org_id)")
       .eq("id", sectionId)
       .maybeSingle();
-    if (!secCheck || (secCheck as any).class?.organization_id !== orgId) {
+    if (!secCheck || (secCheck as any).class?.org_id !== orgId) {
       return c.json({ error: "section not found in this org" }, 404);
     }
     const { error } = await serviceRoleClient.from("class_section").delete().eq("id", sectionId);
@@ -544,7 +544,7 @@ export function installPhaseA(school: Hono) {
     const { data, error } = await serviceRoleClient
       .from("student")
       .insert({
-        organization_id: orgId,
+        org_id: orgId,
         gr_number: v.row.grNumber,
         full_name: v.row.fullName,
         class_section_id: v.row.classSectionId ?? null,
@@ -571,7 +571,7 @@ export function installPhaseA(school: Hono) {
     if (!(await hasAnyRoleInOrg(userId, orgId))) return c.json({ error: "forbidden" }, 403);
     const classSectionId = c.req.query("classSectionId");
     const search = c.req.query("search");
-    let q = serviceRoleClient.from("student").select("*").eq("organization_id", orgId);
+    let q = serviceRoleClient.from("student").select("*").eq("org_id", orgId);
     if (classSectionId) q = q.eq("class_section_id", classSectionId);
     if (search) q = q.ilike("full_name", `%${search}%`);
     const { data, error } = await q.order("full_name").limit(500);
@@ -585,7 +585,7 @@ export function installPhaseA(school: Hono) {
     const studentId = c.req.param("studentId");
     if (!(await hasAnyRoleInOrg(userId, orgId))) return c.json({ error: "forbidden" }, 403);
     const { data: student, error } = await serviceRoleClient
-      .from("student").select("*").eq("id", studentId).eq("organization_id", orgId).maybeSingle();
+      .from("student").select("*").eq("id", studentId).eq("org_id", orgId).maybeSingle();
     if (error) return c.json({ error: error.message }, 500);
     if (!student) return c.json({ error: "not found" }, 404);
     const { data: links } = await serviceRoleClient
@@ -621,7 +621,7 @@ export function installPhaseA(school: Hono) {
     }
     if (Object.keys(patch).length === 0) return c.json({ error: "no fields to update" }, 400);
     const { data, error } = await serviceRoleClient
-      .from("student").update(patch).eq("id", studentId).eq("organization_id", orgId)
+      .from("student").update(patch).eq("id", studentId).eq("org_id", orgId)
       .select().single();
     if (error) {
       if ((error as any).code === "23505") return c.json({ error: "GR number already in use" }, 409);
@@ -636,7 +636,7 @@ export function installPhaseA(school: Hono) {
     const studentId = c.req.param("studentId");
     if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
     const { error } = await serviceRoleClient
-      .from("student").delete().eq("id", studentId).eq("organization_id", orgId);
+      .from("student").delete().eq("id", studentId).eq("org_id", orgId);
     if (error) return c.json({ error: error.message }, 500);
     return c.json({ ok: true });
   });
@@ -666,7 +666,7 @@ export function installPhaseA(school: Hono) {
     if (validRows.length === 0) return c.json({ inserted: 0, errors });
 
     const payload = validRows.map(({ row }) => ({
-      organization_id: orgId,
+      org_id: orgId,
       gr_number: row.grNumber,
       full_name: row.fullName,
       class_section_id: row.classSectionId ?? null,
@@ -684,7 +684,7 @@ export function installPhaseA(school: Hono) {
       let inserted = 0;
       for (const { idx, row } of validRows) {
         const { error: rowErr } = await serviceRoleClient.from("student").insert({
-          organization_id: orgId,
+          org_id: orgId,
           gr_number: row.grNumber,
           full_name: row.fullName,
           class_section_id: row.classSectionId ?? null,
@@ -719,7 +719,7 @@ export function installPhaseA(school: Hono) {
     const { data, error } = await serviceRoleClient
       .from("parent")
       .insert({
-        organization_id: orgId,
+        org_id: orgId,
         full_name: v.row.fullName,
         phone: v.row.phone ?? null,
         email: v.row.email ?? null,
@@ -747,11 +747,11 @@ export function installPhaseA(school: Hono) {
       return c.json({
         parents: (data ?? [])
           .map((r: any) => ({ ...r.parent, isPrimary: r.is_primary }))
-          .filter((p: any) => p.organization_id === orgId),
+          .filter((p: any) => p.org_id === orgId),
       });
     }
 
-    let q = serviceRoleClient.from("parent").select("*").eq("organization_id", orgId);
+    let q = serviceRoleClient.from("parent").select("*").eq("org_id", orgId);
     if (search) q = q.ilike("full_name", `%${search}%`);
     const { data, error } = await q.order("full_name").limit(500);
     if (error) return c.json({ error: error.message }, 500);
@@ -777,7 +777,7 @@ export function installPhaseA(school: Hono) {
     }
     if (Object.keys(patch).length === 0) return c.json({ error: "no fields to update" }, 400);
     const { data, error } = await serviceRoleClient
-      .from("parent").update(patch).eq("id", parentId).eq("organization_id", orgId)
+      .from("parent").update(patch).eq("id", parentId).eq("org_id", orgId)
       .select().single();
     if (error) return c.json({ error: error.message }, 500);
     return c.json(data);
@@ -789,7 +789,7 @@ export function installPhaseA(school: Hono) {
     const parentId = c.req.param("parentId");
     if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
     const { error } = await serviceRoleClient
-      .from("parent").delete().eq("id", parentId).eq("organization_id", orgId);
+      .from("parent").delete().eq("id", parentId).eq("org_id", orgId);
     if (error) return c.json({ error: error.message }, 500);
     return c.json({ ok: true });
   });
@@ -812,7 +812,7 @@ export function installPhaseA(school: Hono) {
     if (valid.length === 0) return c.json({ inserted: 0, errors });
 
     const payload = valid.map(({ row }) => ({
-      organization_id: orgId,
+      org_id: orgId,
       full_name: row.fullName,
       phone: row.phone ?? null,
       email: row.email ?? null,
@@ -823,7 +823,7 @@ export function installPhaseA(school: Hono) {
       let inserted = 0;
       for (const { idx, row } of valid) {
         const { error: rowErr } = await serviceRoleClient.from("parent").insert({
-          organization_id: orgId,
+          org_id: orgId,
           full_name: row.fullName,
           phone: row.phone ?? null,
           email: row.email ?? null,
@@ -847,8 +847,8 @@ export function installPhaseA(school: Hono) {
 
     // Verify both belong to this org.
     const [{ data: s }, { data: p }] = await Promise.all([
-      serviceRoleClient.from("student").select("id").eq("id", body.studentId).eq("organization_id", orgId).maybeSingle(),
-      serviceRoleClient.from("parent").select("id").eq("id", body.parentId).eq("organization_id", orgId).maybeSingle(),
+      serviceRoleClient.from("student").select("id").eq("id", body.studentId).eq("org_id", orgId).maybeSingle(),
+      serviceRoleClient.from("parent").select("id").eq("id", body.parentId).eq("org_id", orgId).maybeSingle(),
     ]);
     if (!s || !p) return c.json({ error: "student or parent not found in this org" }, 404);
 
@@ -1052,12 +1052,12 @@ export function installPhaseA(school: Hono) {
     let loginIdentifier = "";
     if (subjectType === "student") {
       const { data: s } = await serviceRoleClient
-        .from("student").select("gr_number").eq("id", subjectId).eq("organization_id", orgId).maybeSingle();
+        .from("student").select("gr_number").eq("id", subjectId).eq("org_id", orgId).maybeSingle();
       if (!s) return c.json({ error: "student not found in this org" }, 404);
       loginIdentifier = s.gr_number;
     } else {
       const { data: p } = await serviceRoleClient
-        .from("parent").select("phone").eq("id", subjectId).eq("organization_id", orgId).maybeSingle();
+        .from("parent").select("phone").eq("id", subjectId).eq("org_id", orgId).maybeSingle();
       if (!p) return c.json({ error: "parent not found in this org" }, 404);
       if (!p.phone) return c.json({ error: "parent must have a phone before setting a PIN" }, 400);
       loginIdentifier = p.phone;
@@ -1067,7 +1067,7 @@ export function installPhaseA(school: Hono) {
     // true on first set.
     const { data: existing } = await serviceRoleClient
       .from("pin_credential").select("id")
-      .eq("organization_id", orgId).eq("subject_type", subjectType).eq("subject_id", subjectId)
+      .eq("org_id", orgId).eq("subject_type", subjectType).eq("subject_id", subjectId)
       .maybeSingle();
     const mustChange = !existing;
 
@@ -1076,7 +1076,7 @@ export function installPhaseA(school: Hono) {
       .from("pin_credential")
       .upsert(
         {
-          organization_id: orgId,
+          org_id: orgId,
           subject_type: subjectType,
           subject_id: subjectId,
           login_identifier: loginIdentifier,
@@ -1085,7 +1085,7 @@ export function installPhaseA(school: Hono) {
           failed_attempts: 0,
           locked_until: null,
         },
-        { onConflict: "organization_id,subject_type,subject_id" },
+        { onConflict: "org_id,subject_type,subject_id" },
       );
     if (error) return c.json({ error: error.message }, 500);
     return c.json({ ok: true, mustChange });
@@ -1106,12 +1106,12 @@ export function installPhaseA(school: Hono) {
     let loginIdentifier = "";
     if (subjectType === "student") {
       const { data: s } = await serviceRoleClient
-        .from("student").select("gr_number").eq("id", subjectId).eq("organization_id", orgId).maybeSingle();
+        .from("student").select("gr_number").eq("id", subjectId).eq("org_id", orgId).maybeSingle();
       if (!s) return c.json({ error: "student not found in this org" }, 404);
       loginIdentifier = s.gr_number;
     } else {
       const { data: p } = await serviceRoleClient
-        .from("parent").select("phone").eq("id", subjectId).eq("organization_id", orgId).maybeSingle();
+        .from("parent").select("phone").eq("id", subjectId).eq("org_id", orgId).maybeSingle();
       if (!p) return c.json({ error: "parent not found in this org" }, 404);
       if (!p.phone) return c.json({ error: "parent must have a phone before setting a PIN" }, 400);
       loginIdentifier = p.phone;
@@ -1124,7 +1124,7 @@ export function installPhaseA(school: Hono) {
       .from("pin_credential")
       .upsert(
         {
-          organization_id: orgId,
+          org_id: orgId,
           subject_type: subjectType,
           subject_id: subjectId,
           login_identifier: loginIdentifier,
@@ -1133,7 +1133,7 @@ export function installPhaseA(school: Hono) {
           failed_attempts: 0,
           locked_until: null,
         },
-        { onConflict: "organization_id,subject_type,subject_id" },
+        { onConflict: "org_id,subject_type,subject_id" },
       );
     if (error) return c.json({ error: error.message }, 500);
     return c.json({ pin: newPin });
@@ -1157,7 +1157,7 @@ export function installPhaseA(school: Hono) {
     const { data: cred } = await serviceRoleClient
       .from("pin_credential")
       .select("*")
-      .eq("organization_id", org.id)
+      .eq("org_id", org.id)
       .eq("login_identifier", loginIdentifier)
       .maybeSingle();
     if (!cred) return c.json({ error: "invalid credentials" }, 401);
@@ -1222,7 +1222,7 @@ export function installPhaseA(school: Hono) {
     const { data: cred } = await serviceRoleClient
       .from("pin_credential")
       .select("*")
-      .eq("organization_id", payload.orgId)
+      .eq("org_id", payload.orgId)
       .eq("subject_type", subjectType)
       .eq("subject_id", subjectId)
       .maybeSingle();
@@ -1251,7 +1251,7 @@ export function installPhaseA(school: Hono) {
     if (!body?.studentId) return c.json({ error: "studentId required" }, 400);
 
     const { data: s } = await serviceRoleClient
-      .from("student").select("id").eq("id", body.studentId).eq("organization_id", orgId).maybeSingle();
+      .from("student").select("id").eq("id", body.studentId).eq("org_id", orgId).maybeSingle();
     if (!s) return c.json({ error: "student not found in this org" }, 404);
 
     const days = Math.max(1, Math.min(365, body.expiresInDays ?? 30));
@@ -1263,7 +1263,7 @@ export function installPhaseA(school: Hono) {
       const { data, error } = await serviceRoleClient
         .from("link_code")
         .insert({
-          organization_id: orgId,
+          org_id: orgId,
           student_id: body.studentId,
           code,
           expires_at: expiresAt,
@@ -1286,7 +1286,7 @@ export function installPhaseA(school: Hono) {
     if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
     const studentId = c.req.query("studentId");
     const unusedOnly = c.req.query("unusedOnly") === "true";
-    let q = serviceRoleClient.from("link_code").select("*").eq("organization_id", orgId);
+    let q = serviceRoleClient.from("link_code").select("*").eq("org_id", orgId);
     if (studentId) q = q.eq("student_id", studentId);
     if (unusedOnly) q = q.is("consumed_at", null);
     const { data, error } = await q.order("created_at", { ascending: false }).limit(500);
@@ -1302,7 +1302,7 @@ export function installPhaseA(school: Hono) {
 
     const { data: row, error } = await serviceRoleClient
       .from("link_code")
-      .select("*, student:student_id(id, full_name, organization_id)")
+      .select("*, student:student_id(id, full_name, org_id)")
       .eq("code", body.code.trim())
       .maybeSingle();
     if (error) return c.json({ error: error.message }, 500);
@@ -1318,7 +1318,7 @@ export function installPhaseA(school: Hono) {
 
     return c.json({
       studentId: row.student_id,
-      orgId: (row.student as any)?.organization_id ?? row.organization_id,
+      orgId: (row.student as any)?.org_id ?? row.org_id,
       studentName: (row.student as any)?.full_name ?? null,
     });
   });
@@ -1331,7 +1331,7 @@ export function installPhaseA(school: Hono) {
     const orgId = c.req.param("orgId");
     if (!(await hasAnyRoleInOrg(userId, orgId))) return c.json({ error: "forbidden" }, 403);
     const { data: overrides, error } = await serviceRoleClient
-      .from("role_template_override").select("*").eq("organization_id", orgId);
+      .from("role_template_override").select("*").eq("org_id", orgId);
     if (error) return c.json({ error: error.message }, 500);
 
     const overrideMap = new Map<string, boolean>();
@@ -1365,7 +1365,7 @@ export function installPhaseA(school: Hono) {
       if (!validKeys.has(o.permissionKey)) return c.json({ error: `invalid permissionKey: ${o.permissionKey}` }, 400);
       if (typeof o.allowed !== "boolean") return c.json({ error: "allowed must be boolean" }, 400);
       rows.push({
-        organization_id: orgId,
+        org_id: orgId,
         role_template: o.roleTemplate,
         permission_key: o.permissionKey,
         allowed: o.allowed,
@@ -1375,7 +1375,7 @@ export function installPhaseA(school: Hono) {
 
     const { error } = await serviceRoleClient
       .from("role_template_override")
-      .upsert(rows, { onConflict: "organization_id,role_template,permission_key" });
+      .upsert(rows, { onConflict: "org_id,role_template,permission_key" });
     if (error) return c.json({ error: error.message }, 500);
     return c.json({ ok: true, updated: rows.length });
   });
