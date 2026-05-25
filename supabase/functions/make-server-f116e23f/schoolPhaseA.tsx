@@ -259,7 +259,7 @@ async function hmacSign(payload: string, secret: string): Promise<string> {
   return b64encode(new Uint8Array(sig));
 }
 
-interface PinTokenPayload {
+export interface PinTokenPayload {
   subjectType: "student" | "parent";
   subjectId: string;
   orgId: string;
@@ -272,7 +272,7 @@ async function makePinToken(p: PinTokenPayload): Promise<string> {
   return `pin.${body}.${sig}`;
 }
 
-async function verifyPinToken(token: string): Promise<PinTokenPayload | null> {
+export async function verifyPinToken(token: string): Promise<PinTokenPayload | null> {
   if (!token.startsWith("pin.")) return null;
   const parts = token.split(".");
   if (parts.length !== 3) return null;
