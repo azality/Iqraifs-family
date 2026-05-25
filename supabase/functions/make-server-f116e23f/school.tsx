@@ -25,8 +25,10 @@ import { installPhaseA } from "./schoolPhaseA.tsx";
 import { installPhaseB } from "./schoolPhaseB.tsx";
 import { installPhaseC } from "./schoolPhaseC.tsx";
 import { installPhaseC2 } from "./schoolPhaseC2.tsx";
+import { installPhaseCD } from "./schoolPhaseCD.tsx";
 import { installDashboard } from "./schoolDashboard.tsx";
 import { installPortal } from "./schoolPortal.tsx";
+import { verifyPinToken } from "./schoolPhaseA.tsx";
 
 const school = new Hono();
 
@@ -38,6 +40,15 @@ const PUBLIC_SCHOOL_PATHS = new Set<string>([
   // pin-change carries its own X-Pin-Token; the handler verifies it.
   "/auth/pin-change",
 ]);
+
+// Tail patterns that may be authenticated via X-Pin-Token (parent subject)
+// INSTEAD of family-JWT. The downstream handler still validates the token
+// and decides what to do; this middleware just lets the request through
+// when a valid PIN token is present.
+const PIN_TOKEN_ALLOWED_PATTERNS: RegExp[] = [
+  /^\/orgs\/[^/]+\/my-forms$/,
+  /^\/orgs\/[^/]+\/forms\/[^/]+\/responses$/,
+];
 
 // All routes require auth EXCEPT the explicitly-public PIN login endpoint.
 school.use("*", async (c, next) => {
@@ -55,6 +66,17 @@ school.use("*", async (c, next) => {
   if (tail === "/pin-me" || tail.startsWith("/pin-me/")) {
     await next();
     return;
+  }
+  // For Phase C.3+D parent-facing endpoints (my-forms, form responses),
+  // a valid X-Pin-Token also bypasses family-JWT requireAuth so PIN-authed
+  // parents can call those handlers.
+  const pinTokenHeader = c.req.header("X-Pin-Token") || "";
+  if (pinTokenHeader && PIN_TOKEN_ALLOWED_PATTERNS.some((re) => re.test(tail))) {
+    const payload = await verifyPinToken(pinTokenHeader);
+    if (payload) {
+      await next();
+      return;
+    }
   }
   return requireAuth(c, next);
 });
@@ -2512,6 +2534,11 @@ installPhaseC(school);
 // Phase C.2 routes (assignments + grades)
 // -----------------------------------------------------------------------------
 installPhaseC2(school);
+
+// -----------------------------------------------------------------------------
+// Phase C.3 + Phase D routes (curriculum, fees, native form builder)
+// -----------------------------------------------------------------------------
+installPhaseCD(school);
 
 // -----------------------------------------------------------------------------
 // Dashboard aggregate routes (school-at-a-glance, leaderboard, insights)
