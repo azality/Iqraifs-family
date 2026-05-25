@@ -1,10 +1,11 @@
 // PortalLayout — sticky top bar (org + subject + logout) and nav under it.
 // Renders <Outlet /> for the nested portal pages.
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate, useParams } from "react-router";
 import { LogOut } from "lucide-react";
 import { usePinAuth } from "../contexts/PinAuthContext";
+import { listMyForms } from "../../utils/schoolPortalApi";
 
 interface NavItem {
   label: string;
@@ -59,6 +60,24 @@ export function PortalLayout() {
   }, [params.studentId, subject]);
 
   const subjectName = subject?.parent?.fullName || subject?.student?.fullName || "";
+
+  // Parent-only: fetch unanswered-forms count once for the nav badge.
+  const [unansweredForms, setUnansweredForms] = useState<number>(0);
+  useEffect(() => {
+    if (subject?.subjectType !== "parent" || !subject.orgId) return;
+    listMyForms(subject.orgId)
+      .then((r) => {
+        const count = (r.forms ?? []).filter((f) => {
+          if (f.hasResponded) return false;
+          if (f.form.status !== "published") return false;
+          if (f.form.deadline && new Date(f.form.deadline).getTime() < Date.now()) return false;
+          return true;
+        }).length;
+        setUnansweredForms(count);
+      })
+      .catch(() => setUnansweredForms(0));
+  }, [subject?.subjectType, subject?.orgId]);
+  const formsActive = location.pathname.startsWith("/school-portal/forms");
 
   const handleLogout = () => {
     logout();
@@ -128,6 +147,24 @@ export function PortalLayout() {
                 </NavLink>
               );
             })}
+            {subject?.subjectType === "parent" && (
+              <NavLink
+                to="/school-portal/forms"
+                className={
+                  "px-3 py-2 text-sm border-b-2 -mb-px whitespace-nowrap inline-flex items-center gap-1.5 " +
+                  (formsActive
+                    ? "border-indigo-600 text-indigo-700 font-medium"
+                    : "border-transparent text-slate-600 hover:text-slate-900")
+                }
+              >
+                Forms
+                {unansweredForms > 0 && (
+                  <span className="inline-flex items-center justify-center h-4 min-w-[1rem] px-1 rounded-full bg-rose-500 text-white text-[10px] font-semibold">
+                    {unansweredForms}
+                  </span>
+                )}
+              </NavLink>
+            )}
           </nav>
         )}
       </header>
