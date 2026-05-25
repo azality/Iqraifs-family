@@ -631,8 +631,11 @@ export interface AdminClass {
   sections: AdminSection[];
 }
 
-export const listClasses = (orgId: string): Promise<AdminClass[]> =>
-  apiCall(`/school/orgs/${orgId}/classes`);
+export const listClasses = async (orgId: string): Promise<AdminClass[]> => {
+  // Backend wraps the array in { classes: [...] }.
+  const r = await apiCall<{ classes: AdminClass[] }>(`/school/orgs/${orgId}/classes`);
+  return r?.classes ?? [];
+};
 
 export const adminCreateClass = (
   orgId: string,
@@ -707,7 +710,7 @@ export interface StudentWithParents extends AdminStudent {
   parents: Array<AdminParent & { is_primary: boolean }>;
 }
 
-export const listStudents = (
+export const listStudents = async (
   orgId: string,
   opts: { classSectionId?: string; search?: string } = {},
 ): Promise<AdminStudent[]> => {
@@ -715,7 +718,9 @@ export const listStudents = (
   if (opts.classSectionId) q.append("classSectionId", opts.classSectionId);
   if (opts.search) q.append("search", opts.search);
   const qs = q.toString() ? `?${q}` : "";
-  return apiCall(`/school/orgs/${orgId}/students${qs}`);
+  // Backend wraps the array in { students: [...] }.
+  const r = await apiCall<{ students: AdminStudent[] }>(`/school/orgs/${orgId}/students${qs}`);
+  return r?.students ?? [];
 };
 
 export const getStudent = (orgId: string, studentId: string): Promise<StudentWithParents> =>
@@ -770,7 +775,7 @@ export const bulkCreateAdminStudents = (
 
 // ─── Admin: Parents ────────────────────────────────────────────────────
 
-export const listParents = (
+export const listParents = async (
   orgId: string,
   opts: { studentId?: string; search?: string } = {},
 ): Promise<AdminParent[]> => {
@@ -778,7 +783,9 @@ export const listParents = (
   if (opts.studentId) q.append("studentId", opts.studentId);
   if (opts.search) q.append("search", opts.search);
   const qs = q.toString() ? `?${q}` : "";
-  return apiCall(`/school/orgs/${orgId}/parents${qs}`);
+  // Backend wraps the array in { parents: [...] }.
+  const r = await apiCall<{ parents: AdminParent[] }>(`/school/orgs/${orgId}/parents${qs}`);
+  return r?.parents ?? [];
 };
 
 export interface CreateParentBody {
@@ -846,8 +853,11 @@ export interface AdminTeacher {
   role_template: RoleTemplate;
 }
 
-export const listAdminTeachers = (orgId: string): Promise<AdminTeacher[]> =>
-  apiCall(`/school/orgs/${orgId}/teachers`);
+export const listAdminTeachers = async (orgId: string): Promise<AdminTeacher[]> => {
+  // Backend wraps the array in { teachers: [...] }.
+  const r = await apiCall<{ teachers: AdminTeacher[] }>(`/school/orgs/${orgId}/teachers`);
+  return r?.teachers ?? [];
+};
 
 export const addTeacher = (
   orgId: string,
@@ -873,8 +883,11 @@ export interface OrgAdmin {
   full_name: string;
 }
 
-export const listAdmins = (orgId: string): Promise<OrgAdmin[]> =>
-  apiCall(`/school/orgs/${orgId}/admins`);
+export const listAdmins = async (orgId: string): Promise<OrgAdmin[]> => {
+  // Backend wraps the array in { admins: [...] }.
+  const r = await apiCall<{ admins: OrgAdmin[] }>(`/school/orgs/${orgId}/admins`);
+  return r?.admins ?? [];
+};
 
 export const addAdmin = (
   orgId: string,
@@ -930,7 +943,7 @@ export const createLinkCode = (
     body: JSON.stringify(body),
   });
 
-export const listLinkCodes = (
+export const listLinkCodes = async (
   orgId: string,
   opts: { studentId?: string; unusedOnly?: boolean } = {},
 ): Promise<LinkCode[]> => {
@@ -938,7 +951,9 @@ export const listLinkCodes = (
   if (opts.studentId) q.append("studentId", opts.studentId);
   if (opts.unusedOnly) q.append("unusedOnly", "true");
   const qs = q.toString() ? `?${q}` : "";
-  return apiCall(`/school/orgs/${orgId}/link-codes${qs}`);
+  // Backend wraps the array in { linkCodes: [...] }.
+  const r = await apiCall<{ linkCodes: LinkCode[] }>(`/school/orgs/${orgId}/link-codes${qs}`);
+  return r?.linkCodes ?? [];
 };
 
 // ─── Admin: Permissions ────────────────────────────────────────────────
