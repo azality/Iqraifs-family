@@ -42,6 +42,7 @@ import {
   BookMarked,
   ClipboardCheck,
   Table2,
+  ListChecks,
 } from "lucide-react";
 import {
   getSchoolMe,
@@ -246,6 +247,11 @@ export function ManageClasses() {
                         <Link to={`/school/orgs/${orgId}/sections/${sec.id}/gradebook`}>
                           <Button variant="outline" size="icon" className="h-8 w-8" title="Gradebook">
                             <Table2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </Link>
+                        <Link to={`/school/orgs/${orgId}/sections/${sec.id}/curriculum`}>
+                          <Button variant="outline" size="icon" className="h-8 w-8" title="Curriculum">
+                            <ListChecks className="h-3.5 w-3.5" />
                           </Button>
                         </Link>
                         <Link to={`/school/orgs/${orgId}/sections/${sec.id}/roster/new`}>

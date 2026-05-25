@@ -16,7 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../../components/ui/dialog";
-import { Users, KeyRound, Plus, Copy, Trash2, Link2, BookMarked, Trophy, ClipboardCheck } from "lucide-react";
+import { Users, KeyRound, Plus, Copy, Trash2, Link2, BookMarked, Trophy, ClipboardCheck, Wallet } from "lucide-react";
 import { HeroCard, sectionTitleClasses } from "../../components/school-ui";
 import { HifzLogEntry } from "./HifzLogEntry";
 import { HifzProgressFeed } from "./HifzProgressFeed";
@@ -257,6 +257,20 @@ export function StudentDetail() {
         </CardHeader>
         <CardContent>
           <StudentGradesFeed orgId={orgId} studentId={studentId} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="pt-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 font-semibold text-slate-900">
+              <Wallet className="h-4 w-4 text-emerald-600" /> Fees
+            </div>
+            <Link to={`/school/orgs/${orgId}/students/${studentId}/fees`}>
+              <Button size="sm" variant="outline">Manage fees →</Button>
+            </Link>
+          </div>
+          <p className="text-xs text-slate-500 mt-1">View fee history, mark periods paid, and add new fee periods.</p>
         </CardContent>
       </Card>
 
