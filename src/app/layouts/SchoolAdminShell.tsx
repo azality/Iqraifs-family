@@ -14,6 +14,7 @@
 import { useContext, useEffect, useState } from "react";
 import { Outlet, useParams } from "react-router";
 import { ManageToolbar } from "../components/school-ui";
+import { WorkspaceSwitcher } from "../components/WorkspaceSwitcher";
 import { WorkspaceContext } from "../contexts/WorkspaceContext";
 import { getSchoolMe, isOrgPrincipal, type SchoolMeResponse } from "../../utils/schoolApi";
 
@@ -43,9 +44,22 @@ export function SchoolAdminShell() {
   const me = workspaceCtx?.me ?? localMe;
   const isPrincipal = isOrgPrincipal(me, orgId);
 
+  // Sticky single-row header: workspace switcher on the left, ManageToolbar
+  // on the right. Replaces the previous stacked layout (near-empty RootLayout
+  // header row + standalone toolbar row below). RootLayout suppresses its
+  // own inline WorkspaceSwitcher while we're in the school workspace
+  // (see RootLayout.tsx) so we don't render two switcher pills.
+  // On narrow screens the ManageToolbar's flex-wrap keeps things responsive.
   return (
     <div className="space-y-5">
-      <ManageToolbar orgId={orgId} isPrincipal={isPrincipal} />
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
+        <div className="flex-shrink-0">
+          <WorkspaceSwitcher />
+        </div>
+        <div className="flex-1 min-w-0 flex justify-end">
+          <ManageToolbar orgId={orgId} isPrincipal={isPrincipal} />
+        </div>
+      </div>
       <Outlet />
     </div>
   );

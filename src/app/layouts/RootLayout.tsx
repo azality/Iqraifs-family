@@ -325,8 +325,12 @@ export function RootLayout() {
             {/* Right: workspace switcher + mode switcher + user + logout */}
             <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
               {/* Workspace switcher renders nothing if the user has no
-                  school role, so family-only users see no extra chrome. */}
-              {!isChildLoggedIn && <WorkspaceSwitcher />}
+                  school role, so family-only users see no extra chrome.
+                  Hidden in the school workspace because SchoolAdminShell
+                  renders its own switcher pill inline with the ManageToolbar
+                  (single combined row) — showing it here too would duplicate
+                  the control. */}
+              {!isChildLoggedIn && !isSchoolWorkspace && <WorkspaceSwitcher />}
               {/* Mode (parent/kid preview) only makes sense in family
                   workspace; hide it in school workspace. */}
               {!isChildLoggedIn && !isSchoolWorkspace && (
