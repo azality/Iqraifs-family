@@ -43,6 +43,11 @@ import {
   getInsights,
   getOrganization,
   getSectionsLeaderboard,
+  listClasses,
+  listStudents,
+  listAdminTeachers,
+  listLinkCodes,
+  listAnnouncements,
   type DashboardAlert,
   type DashboardPeriod,
   type DashboardResponse,
@@ -51,6 +56,7 @@ import {
   type LeaderboardRow,
   type OrgWithCounts,
 } from "../../../utils/schoolApi";
+import { SetupChecklist, setupChecklistDismissed } from "../../components/school-ui";
 
 // ─── Period selector ─────────────────────────────────────────────────────
 
@@ -566,6 +572,54 @@ export function PerformanceDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Setup-checklist state. We fetch the 5 counts in parallel on mount and
+  // render the card above the hero unless the user has dismissed it for
+  // this org or all actionable steps are already complete.
+  const [setupCounts, setSetupCounts] = useState<{
+    classCount: number;
+    studentCount: number;
+    teacherCount: number;
+    linkCodeCount: number;
+    announcementCount: number;
+  } | null>(null);
+  const [setupDismissed, setSetupDismissed] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!orgId) return;
+    setSetupDismissed(setupChecklistDismissed(orgId));
+    Promise.all([
+      listClasses(orgId).catch(() => []),
+      listStudents(orgId).catch(() => []),
+      listAdminTeachers(orgId).catch(() => []),
+      listLinkCodes(orgId, { unusedOnly: true }).catch(() => []),
+      listAnnouncements(orgId)
+        .then((r) => r.announcements.length)
+        .catch(() => 0),
+    ]).then(([classes, students, teachers, linkCodes, announcementCount]) => {
+      setSetupCounts({
+        classCount: classes.length,
+        studentCount: students.length,
+        teacherCount: teachers.length,
+        linkCodeCount: linkCodes.length,
+        announcementCount,
+      });
+    });
+  }, [orgId]);
+
+  // Show the checklist if (a) the user hasn't dismissed it, AND
+  // (b) at least one actionable (non-review-only) step is incomplete.
+  // The "set permissions" step is review-only and intentionally excluded
+  // from the completion gate so we don't keep nagging once the other 5
+  // steps are done.
+  const showSetupChecklist =
+    !!setupCounts &&
+    !setupDismissed &&
+    (setupCounts.classCount === 0 ||
+      setupCounts.studentCount === 0 ||
+      setupCounts.teacherCount === 0 ||
+      setupCounts.linkCodeCount === 0 ||
+      setupCounts.announcementCount === 0);
+
   // Fetch the org meta once.
   useEffect(() => {
     if (!orgId) return;
@@ -608,6 +662,20 @@ export function PerformanceDashboard() {
     <div className="space-y-5">
       {/* ManageToolbar is now rendered by SchoolAdminShell, which wraps
           every /school/orgs/:orgId/* route. */}
+
+      {/* Setup checklist — only for fresh schools with at least one
+          incomplete actionable step and no prior dismissal. */}
+      {showSetupChecklist && setupCounts && (
+        <SetupChecklist
+          orgId={orgId}
+          classCount={setupCounts.classCount}
+          studentCount={setupCounts.studentCount}
+          teacherCount={setupCounts.teacherCount}
+          linkCodeCount={setupCounts.linkCodeCount}
+          announcementCount={setupCounts.announcementCount}
+          onDismiss={() => setSetupDismissed(true)}
+        />
+      )}
 
       {/* Page title + period */}
       <div className="flex flex-wrap items-end justify-between gap-3">

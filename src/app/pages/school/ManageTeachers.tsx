@@ -58,6 +58,7 @@ export function ManageTeachers() {
   const [adminOpen, setAdminOpen] = useState(false);
   const [adminForm, setAdminForm] = useState({ email: "", fullName: "" });
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
@@ -79,7 +80,14 @@ export function ManageTeachers() {
   const submitTeacher = async () => {
     if (!form.email || !form.fullName) return;
     try {
-      await addTeacher(orgId, form);
+      const res = await addTeacher(orgId, form);
+      const invited = res.invitedCount ?? 0;
+      setNotice(
+        invited > 0
+          ? `1 teacher added. Password-reset email sent to ${invited} new user so they can set their password and log in.`
+          : `1 teacher added (account already existed).`,
+      );
+      setError(null);
       setForm({ email: "", fullName: "", roleTemplate: "class_teacher" });
       setAddOpen(false);
       refresh();
@@ -88,10 +96,21 @@ export function ManageTeachers() {
 
   const submitAdmin = async () => {
     if (!adminForm.email || !adminForm.fullName) return;
-    await addAdmin(orgId, adminForm);
-    setAdminForm({ email: "", fullName: "" });
-    setAdminOpen(false);
-    refresh();
+    try {
+      const res = await addAdmin(orgId, adminForm);
+      const invited = res.invitedCount ?? 0;
+      setNotice(
+        invited > 0
+          ? `1 admin added. Password-reset email sent to ${invited} new user so they can set their password and log in.`
+          : `1 admin added (account already existed).`,
+      );
+      setError(null);
+      setAdminForm({ email: "", fullName: "" });
+      setAdminOpen(false);
+      refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
   };
 
   const handleRemoveAdmin = async (a: OrgAdmin) => {
@@ -101,12 +120,32 @@ export function ManageTeachers() {
   };
 
   const handleCsvSubmit = async (rows: Array<Record<string, string>>) => {
-    const typed = rows.map((r) => ({
-      email: r.email,
-      fullName: r.fullName,
-      roleTemplate: (r.roleTemplate === "visiting_teacher" ? "visiting_teacher" : "class_teacher") as RoleTemplate,
-    }));
+    const allowed: ReadonlyArray<RoleTemplate> = [
+      "class_teacher",
+      "visiting_teacher",
+      "financial_staff",
+      "office_staff",
+    ];
+    const typed = rows.map((r) => {
+      const raw = (r.roleTemplate || "").trim();
+      const roleTemplate: RoleTemplate = (allowed as readonly string[]).includes(raw)
+        ? (raw as RoleTemplate)
+        : "class_teacher";
+      return {
+        email: r.email,
+        fullName: r.fullName,
+        roleTemplate,
+      };
+    });
     const res = await bulkCreateTeachers(orgId, typed);
+    const invited = res.invitedCount ?? 0;
+    const inserted = res.inserted;
+    setNotice(
+      invited > 0
+        ? `${inserted} teacher${inserted === 1 ? "" : "s"} added. Password-reset emails sent to ${invited} new user${invited === 1 ? "" : "s"} so they can set their password and log in.`
+        : `${inserted} teacher${inserted === 1 ? "" : "s"} added (all already had accounts).`,
+    );
+    setError(null);
     refresh();
     return res;
   };
@@ -158,6 +197,19 @@ export function ManageTeachers() {
       />
 
       {error && <p className="text-sm text-rose-600">{error}</p>}
+      {notice && (
+        <div className="flex items-start justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          <span>{notice}</span>
+          <button
+            type="button"
+            onClick={() => setNotice(null)}
+            className="text-emerald-700 hover:text-emerald-900"
+            aria-label="Dismiss notice"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       <div className={cardBase}>
         <DataTable<AdminTeacher>
@@ -202,8 +254,10 @@ export function ManageTeachers() {
               <Select value={form.roleTemplate} onValueChange={(v) => setForm({ ...form, roleTemplate: v as RoleTemplate })}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="class_teacher">Class teacher</SelectItem>
-                  <SelectItem value="visiting_teacher">Visiting teacher</SelectItem>
+                  <SelectItem value="class_teacher">Class Teacher</SelectItem>
+                  <SelectItem value="visiting_teacher">Visiting Teacher</SelectItem>
+                  <SelectItem value="financial_staff">Financial Staff (fees only)</SelectItem>
+                  <SelectItem value="office_staff">Office Staff (admin lite)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -237,7 +291,7 @@ export function ManageTeachers() {
         columns={[
           { key: "email", label: "Email", required: true },
           { key: "fullName", label: "Full name", required: true, aliases: ["name", "full_name"] },
-          { key: "roleTemplate", label: "Role (class_teacher / visiting_teacher)", required: true, aliases: ["role", "role_template"] },
+          { key: "roleTemplate", label: "Role (class_teacher / visiting_teacher / financial_staff / office_staff)", required: true, aliases: ["role", "role_template"] },
         ]}
         onSubmit={handleCsvSubmit}
       />
