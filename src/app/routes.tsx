@@ -97,6 +97,10 @@ import { StudentHifz } from "./pages/portal/StudentHifz";
 import { StudentAttendance } from "./pages/portal/StudentAttendance";
 import { StudentBehavior } from "./pages/portal/StudentBehavior";
 import { MyForms } from "./pages/portal/MyForms";
+import { MyAnnouncements } from "./pages/portal/MyAnnouncements";
+import { MyStudentFees } from "./pages/portal/MyStudentFees";
+import { AnnouncementsList } from "./pages/school/AnnouncementsList";
+import { AnnouncementComposer } from "./pages/school/AnnouncementComposer";
 import { FormFill } from "./pages/portal/FormFill";
 import { RootLayout } from "./layouts/RootLayout";
 import { KidLayout } from "./layouts/KidLayout";
@@ -310,8 +314,10 @@ export const router = createBrowserRouter([
       { path: "students/:studentId/hifz", element: <StudentHifz /> },
       { path: "students/:studentId/attendance", element: <StudentAttendance /> },
       { path: "students/:studentId/behavior", element: <StudentBehavior /> },
+      { path: "students/:studentId/fees", element: <MyStudentFees /> },
       { path: "forms", element: <MyForms /> },
       { path: "forms/:formId", element: <FormFill /> },
+      { path: "announcements", element: <MyAnnouncements /> },
     ],
   },
   // Public routes - accessible without auth but wrapped with ProvidersLayout for auth context
@@ -435,6 +441,9 @@ export const router = createBrowserRouter([
               { path: "admin/permissions", element: <PermissionsEditor /> },
               { path: "admin/settings", element: <OrgSettings /> },
               { path: "admin/roster-requests", element: <RosterReviewQueue /> },
+              { path: "admin/announcements", element: <AnnouncementsList /> },
+              { path: "admin/announcements/new", element: <AnnouncementComposer /> },
+              { path: "admin/announcements/:announcementId", element: <AnnouncementComposer /> },
               // Phase B section-scoped daily ops
               { path: "sections/:sectionId/attendance", element: <AttendanceRollCall /> },
               { path: "sections/:sectionId/behavior", element: <SectionBehaviorFeed /> },

@@ -46,6 +46,8 @@ const NAV: NavItem[] = [
   },
 ];
 
+const ANNOUNCEMENTS_PATH = "/school-portal/announcements";
+
 export function PortalLayout() {
   const { subject, logout } = usePinAuth();
   const location = useLocation();
@@ -78,6 +80,10 @@ export function PortalLayout() {
       .catch(() => setUnansweredForms(0));
   }, [subject?.subjectType, subject?.orgId]);
   const formsActive = location.pathname.startsWith("/school-portal/forms");
+  const announcementsActive = location.pathname.startsWith(ANNOUNCEMENTS_PATH);
+  const feesActive =
+    activeStudentId !== null &&
+    location.pathname.startsWith(`/school-portal/students/${activeStudentId}/fees`);
 
   const handleLogout = () => {
     logout();
@@ -147,6 +153,30 @@ export function PortalLayout() {
                 </NavLink>
               );
             })}
+            <NavLink
+              to={ANNOUNCEMENTS_PATH}
+              className={
+                "px-3 py-2 text-sm border-b-2 -mb-px whitespace-nowrap " +
+                (announcementsActive
+                  ? "border-indigo-600 text-indigo-700 font-medium"
+                  : "border-transparent text-slate-600 hover:text-slate-900")
+              }
+            >
+              Announcements
+            </NavLink>
+            {subject?.subjectType === "parent" && activeStudentId && (
+              <NavLink
+                to={`/school-portal/students/${activeStudentId}/fees`}
+                className={
+                  "px-3 py-2 text-sm border-b-2 -mb-px whitespace-nowrap " +
+                  (feesActive
+                    ? "border-indigo-600 text-indigo-700 font-medium"
+                    : "border-transparent text-slate-600 hover:text-slate-900")
+                }
+              >
+                Fees
+              </NavLink>
+            )}
             {subject?.subjectType === "parent" && (
               <NavLink
                 to="/school-portal/forms"
