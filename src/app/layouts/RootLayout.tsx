@@ -15,6 +15,7 @@ import { Button } from "../components/ui/button";
 import { toast } from "sonner";
 import { useAuth } from "../contexts/AuthContext";
 import { AppModeGuard } from "../components/AppModeGuard";
+import { LanguageDropdown } from "../components/LanguageDropdown";
 import { getStorageSync } from '../../utils/storage';
 
 // ---------------------------------------------------------------------------
@@ -356,6 +357,8 @@ export function RootLayout() {
                   {userName}
                 </span>
               </div>
+
+              <LanguageDropdown />
 
               <Button
                 variant="ghost"

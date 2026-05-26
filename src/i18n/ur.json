@@ -1,0 +1,119 @@
+{
+  "common": {
+    "save": "محفوظ کریں",
+    "cancel": "منسوخ کریں",
+    "delete": "حذف کریں",
+    "edit": "تبدیل کریں",
+    "add": "شامل کریں",
+    "search": "تلاش کریں",
+    "loading": "لوڈ ہو رہا ہے…",
+    "submit": "جمع کرائیں",
+    "back": "واپس",
+    "logout": "لاگ آؤٹ",
+    "close": "بند کریں"
+  },
+  "status": {
+    "active": "فعال",
+    "pending": "زیر التواء",
+    "completed": "مکمل",
+    "approved": "منظور شدہ",
+    "rejected": "مسترد",
+    "paid": "ادا شدہ",
+    "unpaid": "غیر ادا شدہ"
+  },
+  "workspace": {
+    "family": "خاندان",
+    "school": "اسکول"
+  },
+  "auth": {
+    "parentLogin": "والدین کا لاگ ان",
+    "email": "ای میل",
+    "password": "پاس ورڈ",
+    "forgotPassword": "پاس ورڈ بھول گئے؟",
+    "signUp": "سائن اپ",
+    "signIn": "سائن ان",
+    "signingIn": "سائن ان ہو رہا ہے…"
+  },
+  "toolbar": {
+    "classes": "کلاسز",
+    "students": "طلباء",
+    "parents": "والدین",
+    "teachers": "اساتذہ",
+    "linkCodes": "لنک کوڈز",
+    "rosterRequests": "روسٹر درخواستیں",
+    "announcements": "اعلانات",
+    "permissions": "اجازتیں",
+    "settings": "ترتیبات"
+  },
+  "dashboard": {
+    "title": "پرفارمنس ڈیش بورڈ",
+    "schoolAtGlance": "اسکول ایک نظر میں",
+    "atAGlance": "ایک نظر میں",
+    "tiles": {
+      "students": "طلباء",
+      "attendanceToday": "آج کی حاضری",
+      "attendancePeriod": "مدت کی حاضری",
+      "teachers": "اساتذہ",
+      "behaviorScore": "رویے کا اسکور",
+      "pendingApprovals": "زیر التواء منظوریاں",
+      "concernsOpen": "کھلے خدشات",
+      "feesPaidPct": "فیس ادا شدہ",
+      "hifzProgress": "حفظ کی پیشرفت",
+      "formsAwaiting": "زیر التواء فارمز"
+    },
+    "period": {
+      "T": "آج",
+      "WTD": "ہفتہ تک",
+      "MTD": "ماہ تک",
+      "QTD": "سہ ماہی تک",
+      "YTD": "سال تک"
+    },
+    "alertsTitle": "انتباہات"
+  },
+  "setup": {
+    "title": "اپنا اسکول ترتیب دیں",
+    "subtitle": "روزانہ کے کام شروع کرنے کے لیے ان کو مکمل کریں۔",
+    "createClass": "اپنی پہلی کلاس بنائیں",
+    "addStudents": "طلباء شامل کریں",
+    "addTeachers": "اساتذہ شامل کریں",
+    "generateLinkCodes": "والدین کے لنک کوڈز بنائیں",
+    "setPermissions": "کرداروں کے لیے اجازتیں طے کریں",
+    "postAnnouncement": "پہلا اعلان شائع کریں",
+    "done": "مکمل",
+    "open": "کھولیں"
+  },
+  "portal": {
+    "loginTitle": "اقراء اکیڈمی — طالب علم اور والدین کا پورٹل",
+    "schoolName": "اقراء اکیڈمی",
+    "loginIntro": "طالب علم اور والدین کا پورٹل — اپنے بچے کے اسباق، گریڈز، حفظ کی پیشرفت، حاضری اور رویے کے نوٹس دیکھیں۔",
+    "useProvidedPin": "وہ پن استعمال کریں جو آپ کے اسکول نے فراہم کیا ہے۔",
+    "schoolCode": "اسکول کوڈ",
+    "student": "طالب علم",
+    "parent": "والد/والدہ",
+    "grNumber": "جی آر نمبر",
+    "phone": "فون",
+    "pin": "پن",
+    "nav": {
+      "dashboard": "ڈیش بورڈ",
+      "lessons": "اسباق",
+      "grades": "گریڈز",
+      "hifz": "حفظ",
+      "attendance": "حاضری",
+      "behavior": "رویہ",
+      "forms": "فارمز",
+      "fees": "فیس",
+      "announcements": "اعلانات"
+    },
+    "tiles": {
+      "attendance": "حاضری",
+      "averageGrade": "اوسط گریڈ",
+      "ayahsMemorized": "حفظ شدہ آیات",
+      "behaviorScore": "رویے کا اسکور"
+    },
+    "recentActivity": "حالیہ سرگرمی"
+  },
+  "lang": {
+    "english": "English",
+    "urdu": "اردو"
+  }
+}

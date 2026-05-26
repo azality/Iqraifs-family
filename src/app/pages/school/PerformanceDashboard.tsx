@@ -10,6 +10,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
+import { useTranslation } from "react-i18next";
 import {
   BookOpen,
   CheckCircle,
@@ -66,12 +67,12 @@ import { pickTourForUser } from "../../../utils/tours";
 
 // ─── Period selector ─────────────────────────────────────────────────────
 
-const PERIODS: ReadonlyArray<{ value: DashboardPeriod; label: string; full: string }> = [
-  { value: "T", label: "T", full: "Today" },
-  { value: "WTD", label: "WTD", full: "Week-to-date" },
-  { value: "MTD", label: "MTD", full: "Month-to-date" },
-  { value: "QTD", label: "QTD", full: "Quarter-to-date" },
-  { value: "YTD", label: "YTD", full: "Year-to-date" },
+const PERIODS: ReadonlyArray<{ value: DashboardPeriod; label: string }> = [
+  { value: "T", label: "T" },
+  { value: "WTD", label: "WTD" },
+  { value: "MTD", label: "MTD" },
+  { value: "QTD", label: "QTD" },
+  { value: "YTD", label: "YTD" },
 ];
 
 function PeriodSelector({
@@ -81,6 +82,7 @@ function PeriodSelector({
   value: DashboardPeriod;
   onChange: (v: DashboardPeriod) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="inline-flex items-center rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
       {PERIODS.map((p) => {
@@ -90,7 +92,7 @@ function PeriodSelector({
             key={p.value}
             type="button"
             onClick={() => onChange(p.value)}
-            title={p.full}
+            title={t(`dashboard.period.${p.value}`)}
             className={
               "rounded-md px-3 py-1 text-xs font-medium transition-colors " +
               (active
@@ -569,6 +571,7 @@ function RecentActivity({ rows }: { rows: InsightsResponse["recentActivity"] }) 
 // ─── Page ────────────────────────────────────────────────────────────────
 
 export function PerformanceDashboard() {
+  const { t } = useTranslation();
   const { orgId = "" } = useParams();
   const [period, setPeriod] = useState<DashboardPeriod>("MTD");
   const [org, setOrg] = useState<OrgWithCounts | null>(null);
@@ -715,7 +718,7 @@ export function PerformanceDashboard() {
       {/* Page title + period */}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900">Performance Dashboard</h1>
+          <h1 className="text-xl font-semibold text-slate-900">{t("dashboard.title")}</h1>
           {dashboard?.viewScope?.kind === "sections" ? (
             <p className="text-sm text-slate-500">
               Your sections:{" "}
@@ -757,8 +760,8 @@ export function PerformanceDashboard() {
         <div className="rounded-2xl bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950 p-5 shadow-lg ring-1 ring-white/5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <div className="text-[11px] uppercase tracking-wider text-slate-400">At a glance</div>
-              <h2 className="mt-0.5 text-lg font-semibold text-white">School at a Glance</h2>
+              <div className="text-[11px] uppercase tracking-wider text-slate-400">{t("dashboard.atAGlance")}</div>
+              <h2 className="mt-0.5 text-lg font-semibold text-white">{t("dashboard.schoolAtGlance")}</h2>
               <div className="mt-0.5 text-[11px] text-slate-400">As of {asOfLabel}</div>
             </div>
             {health && (
@@ -772,16 +775,16 @@ export function PerformanceDashboard() {
             )}
           </div>
           <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5" data-tour="kpi-grid">
-            <KpiTile label="Students" tile={dashboard.tiles.students} Icon={Users} />
-            <KpiTile label="Attendance Today" tile={dashboard.tiles.attendanceToday} Icon={CheckCircle} asPercent />
-            <KpiTile label="Attendance Period" tile={dashboard.tiles.attendancePeriod} Icon={TrendingUp} asPercent />
-            <KpiTile label="Teachers" tile={dashboard.tiles.teachers} Icon={GraduationCap} />
-            <KpiTile label="Behavior Score" tile={dashboard.tiles.behaviorScore} Icon={Sparkles} signed />
-            <KpiTile label="Pending Approvals" tile={dashboard.tiles.pendingApprovals} Icon={Clock} />
-            <KpiTile label="Concerns Open" tile={dashboard.tiles.concernsOpen} Icon={AlertTriangle} />
-            <KpiTile label="Fees Paid" tile={dashboard.tiles.feesPaidPct} Icon={DollarSign} asPercent />
-            <KpiTile label="Hifz Progress" tile={dashboard.tiles.hifzProgress} Icon={BookOpen} asPercent />
-            <KpiTile label="Forms Awaiting" tile={dashboard.tiles.formsAwaiting} Icon={FileText} />
+            <KpiTile label={t("dashboard.tiles.students")} tile={dashboard.tiles.students} Icon={Users} />
+            <KpiTile label={t("dashboard.tiles.attendanceToday")} tile={dashboard.tiles.attendanceToday} Icon={CheckCircle} asPercent />
+            <KpiTile label={t("dashboard.tiles.attendancePeriod")} tile={dashboard.tiles.attendancePeriod} Icon={TrendingUp} asPercent />
+            <KpiTile label={t("dashboard.tiles.teachers")} tile={dashboard.tiles.teachers} Icon={GraduationCap} />
+            <KpiTile label={t("dashboard.tiles.behaviorScore")} tile={dashboard.tiles.behaviorScore} Icon={Sparkles} signed />
+            <KpiTile label={t("dashboard.tiles.pendingApprovals")} tile={dashboard.tiles.pendingApprovals} Icon={Clock} />
+            <KpiTile label={t("dashboard.tiles.concernsOpen")} tile={dashboard.tiles.concernsOpen} Icon={AlertTriangle} />
+            <KpiTile label={t("dashboard.tiles.feesPaidPct")} tile={dashboard.tiles.feesPaidPct} Icon={DollarSign} asPercent />
+            <KpiTile label={t("dashboard.tiles.hifzProgress")} tile={dashboard.tiles.hifzProgress} Icon={BookOpen} asPercent />
+            <KpiTile label={t("dashboard.tiles.formsAwaiting")} tile={dashboard.tiles.formsAwaiting} Icon={FileText} />
           </div>
         </div>
       )}

@@ -4,7 +4,9 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { GraduationCap } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { usePinAuth } from "../../contexts/PinAuthContext";
+import { LanguageDropdown } from "../../components/LanguageDropdown";
 import type { PinSubjectType } from "../../../utils/schoolPortalApi";
 
 function friendlyError(raw: string): string {
@@ -21,6 +23,7 @@ export function PortalLogin() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const { login } = usePinAuth();
+  const { t } = useTranslation();
 
   const defaultOrg = useMemo(() => params.get("org") || "iqra-academy", [params]);
   const [subjectType, setSubjectType] = useState<PinSubjectType>("student");
@@ -30,7 +33,7 @@ export function PortalLogin() {
   const [busy, setBusy] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  const idLabel = subjectType === "student" ? "GR Number" : "Phone";
+  const idLabel = subjectType === "student" ? t("portal.grNumber") : t("portal.phone");
 
   const onSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -53,37 +56,39 @@ export function PortalLogin() {
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950 text-white">
-        <div className="max-w-3xl mx-auto px-4 py-12">
+        <div className="max-w-3xl mx-auto px-4 py-12 relative">
+          <div className="absolute top-3 right-4">
+            <LanguageDropdown />
+          </div>
           <div className="flex items-center gap-3">
             <GraduationCap className="h-8 w-8 text-indigo-300" />
-            <h1 className="text-2xl font-semibold">Iqra Academy</h1>
+            <h1 className="text-2xl font-semibold">{t("portal.schoolName")}</h1>
           </div>
           <p className="mt-2 text-indigo-200 text-sm max-w-xl">
-            Student &amp; Parent Portal — view your child&apos;s lessons, grades, hifz progress,
-            attendance and behavior notes.
+            {t("portal.loginIntro")}
           </p>
         </div>
       </div>
 
       <div className="max-w-md mx-auto px-4 -mt-8">
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
-          <h2 className="text-lg font-semibold text-slate-900">Sign in</h2>
-          <p className="mt-1 text-sm text-slate-500">Use the PIN your school provided.</p>
+          <h2 className="text-lg font-semibold text-slate-900">{t("auth.signIn")}</h2>
+          <p className="mt-1 text-sm text-slate-500">{t("portal.useProvidedPin")}</p>
 
           <div className="mt-5 flex p-1 bg-slate-100 rounded-lg">
-            {(["student", "parent"] as PinSubjectType[]).map((t) => (
+            {(["student", "parent"] as PinSubjectType[]).map((tab) => (
               <button
-                key={t}
+                key={tab}
                 type="button"
-                onClick={() => setSubjectType(t)}
+                onClick={() => setSubjectType(tab)}
                 className={
-                  "flex-1 py-1.5 text-sm rounded-md capitalize " +
-                  (subjectType === t
+                  "flex-1 py-1.5 text-sm rounded-md " +
+                  (subjectType === tab
                     ? "bg-white shadow-sm font-medium text-slate-900"
                     : "text-slate-600")
                 }
               >
-                {t}
+                {tab === "student" ? t("portal.student") : t("portal.parent")}
               </button>
             ))}
           </div>
@@ -91,7 +96,7 @@ export function PortalLogin() {
           <form className="mt-5 space-y-4" onSubmit={onSubmit}>
             <div>
               <label className="block text-xs font-medium uppercase tracking-wide text-slate-500">
-                School Code
+                {t("portal.schoolCode")}
               </label>
               <input
                 type="text"
@@ -116,7 +121,7 @@ export function PortalLogin() {
             </div>
             <div>
               <label className="block text-xs font-medium uppercase tracking-wide text-slate-500">
-                PIN
+                {t("portal.pin")}
               </label>
               <input
                 type="password"
@@ -142,7 +147,7 @@ export function PortalLogin() {
               disabled={busy || pin.length !== 4}
               className="w-full inline-flex justify-center items-center bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-medium rounded-md px-3 py-2 text-sm"
             >
-              {busy ? "Signing in…" : "Sign in"}
+              {busy ? t("auth.signingIn") : t("auth.signIn")}
             </button>
           </form>
         </div>

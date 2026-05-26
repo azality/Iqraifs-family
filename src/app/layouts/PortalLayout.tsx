@@ -4,45 +4,48 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate, useParams } from "react-router";
 import { LogOut } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { usePinAuth } from "../contexts/PinAuthContext";
 import { listMyForms } from "../../utils/schoolPortalApi";
 import { RoleTour } from "../components/RoleTour";
+import { LanguageDropdown } from "../components/LanguageDropdown";
 import type { TourRole } from "../../utils/tours";
 
 interface NavItem {
-  label: string;
+  /** Translation key under `portal.nav.*`. */
+  labelKey: string;
   path: (sid: string) => string;
   match: (pathname: string, sid: string) => boolean;
 }
 
 const NAV: NavItem[] = [
   {
-    label: "Dashboard",
+    labelKey: "dashboard",
     path: (sid) => `/school-portal/students/${sid}`,
     match: (p, sid) => p === `/school-portal/students/${sid}`,
   },
   {
-    label: "Lessons",
+    labelKey: "lessons",
     path: (sid) => `/school-portal/students/${sid}/lessons`,
     match: (p, sid) => p.startsWith(`/school-portal/students/${sid}/lessons`),
   },
   {
-    label: "Grades",
+    labelKey: "grades",
     path: (sid) => `/school-portal/students/${sid}/grades`,
     match: (p, sid) => p.startsWith(`/school-portal/students/${sid}/grades`),
   },
   {
-    label: "Hifz",
+    labelKey: "hifz",
     path: (sid) => `/school-portal/students/${sid}/hifz`,
     match: (p, sid) => p.startsWith(`/school-portal/students/${sid}/hifz`),
   },
   {
-    label: "Attendance",
+    labelKey: "attendance",
     path: (sid) => `/school-portal/students/${sid}/attendance`,
     match: (p, sid) => p.startsWith(`/school-portal/students/${sid}/attendance`),
   },
   {
-    label: "Behavior",
+    labelKey: "behavior",
     path: (sid) => `/school-portal/students/${sid}/behavior`,
     match: (p, sid) => p.startsWith(`/school-portal/students/${sid}/behavior`),
   },
@@ -51,6 +54,7 @@ const NAV: NavItem[] = [
 const ANNOUNCEMENTS_PATH = "/school-portal/announcements";
 
 export function PortalLayout() {
+  const { t } = useTranslation();
   const { subject, logout } = usePinAuth();
   const location = useLocation();
   const navigate = useNavigate();
@@ -108,7 +112,7 @@ export function PortalLayout() {
               {subject?.orgName ?? "Portal"}
             </span>
             <span className="text-sm font-medium text-slate-900 truncate">
-              Student &amp; Parent Portal
+              {t("portal.loginTitle").split("—")[1]?.trim() || "Student & Parent Portal"}
             </span>
           </Link>
           <div className="flex items-center gap-3">
@@ -132,13 +136,14 @@ export function PortalLayout() {
               <span className="text-sm font-medium text-slate-900">{subjectName}</span>
               <span className="text-xs text-slate-500 capitalize">{subject?.subjectType}</span>
             </div>
+            <LanguageDropdown />
             <button
               type="button"
               onClick={handleLogout}
               className="inline-flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-900 border border-slate-300 rounded-md px-3 py-1.5"
             >
               <LogOut className="h-4 w-4" />
-              <span className="hidden sm:inline">Log out</span>
+              <span className="hidden sm:inline">{t("common.logout")}</span>
             </button>
           </div>
         </div>
@@ -151,9 +156,9 @@ export function PortalLayout() {
               const active = item.match(location.pathname, activeStudentId);
               return (
                 <NavLink
-                  key={item.label}
+                  key={item.labelKey}
                   to={item.path(activeStudentId)}
-                  end={item.label === "Dashboard"}
+                  end={item.labelKey === "dashboard"}
                   className={
                     "px-3 py-2 text-sm border-b-2 -mb-px whitespace-nowrap " +
                     (active
@@ -161,7 +166,7 @@ export function PortalLayout() {
                       : "border-transparent text-slate-600 hover:text-slate-900")
                   }
                 >
-                  {item.label}
+                  {t(`portal.nav.${item.labelKey}`)}
                 </NavLink>
               );
             })}
@@ -174,7 +179,7 @@ export function PortalLayout() {
                   : "border-transparent text-slate-600 hover:text-slate-900")
               }
             >
-              Announcements
+              {t("portal.nav.announcements")}
             </NavLink>
             {subject?.subjectType === "parent" && activeStudentId && (
               <NavLink
@@ -186,7 +191,7 @@ export function PortalLayout() {
                     : "border-transparent text-slate-600 hover:text-slate-900")
                 }
               >
-                Fees
+                {t("portal.nav.fees")}
               </NavLink>
             )}
             {subject?.subjectType === "parent" && (
@@ -199,7 +204,7 @@ export function PortalLayout() {
                     : "border-transparent text-slate-600 hover:text-slate-900")
                 }
               >
-                Forms
+                {t("portal.nav.forms")}
                 {unansweredForms > 0 && (
                   <span className="inline-flex items-center justify-center h-4 min-w-[1rem] px-1 rounded-full bg-rose-500 text-white text-[10px] font-semibold">
                     {unansweredForms}

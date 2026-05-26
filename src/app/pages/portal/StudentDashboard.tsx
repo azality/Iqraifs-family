@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router";
 import { CalendarCheck, Award, BookOpen, Sparkles } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { DataTable, HeroCard, KpiTile } from "../../components/school-ui";
 import {
   getStudentDashboard,
@@ -24,6 +25,7 @@ function relativeTime(iso: string): string {
 }
 
 export function StudentDashboard() {
+  const { t } = useTranslation();
   const { studentId = "" } = useParams<{ studentId: string }>();
   const [data, setData] = useState<StudentDashboardResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -51,7 +53,7 @@ export function StudentDashboard() {
     );
   }
   if (!data) {
-    return <div className="text-slate-500 text-sm">Loading…</div>;
+    return <div className="text-slate-500 text-sm">{t("common.loading")}</div>;
   }
 
   const { student, tiles, recentActivity } = data;
@@ -67,25 +69,25 @@ export function StudentDashboard() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" data-tour="portal-dashboard-tiles">
           <KpiTile
             icon={CalendarCheck}
-            label="Attendance"
+            label={t("portal.tiles.attendance")}
             value={tiles.attendancePct !== null ? `${tiles.attendancePct}%` : null}
             variant="light"
           />
           <KpiTile
             icon={Award}
-            label="Avg Grade"
+            label={t("portal.tiles.averageGrade")}
             value={tiles.averageGrade !== null ? `${tiles.averageGrade}%` : null}
             variant="light"
           />
           <KpiTile
             icon={BookOpen}
-            label="Ayahs Memorized"
+            label={t("portal.tiles.ayahsMemorized")}
             value={tiles.ayahsMemorized ?? null}
             variant="light"
           />
           <KpiTile
             icon={Sparkles}
-            label="Behavior Score"
+            label={t("portal.tiles.behaviorScore")}
             value={tiles.behaviorScore ?? null}
             variant="light"
           />
@@ -95,7 +97,7 @@ export function StudentDashboard() {
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm">
         <div className="px-5 py-3 border-b border-slate-100">
           <h3 className="text-sm font-bold uppercase tracking-widest text-slate-500">
-            Recent Activity
+            {t("portal.recentActivity")}
           </h3>
         </div>
         <DataTable<DashboardActivityItem>
