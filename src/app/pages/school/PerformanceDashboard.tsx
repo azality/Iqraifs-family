@@ -8,7 +8,7 @@
 // Backend endpoints land in the parallel PR `school-pilot/dashboard-backend`.
 // Until then the page will surface its error state — that's expected.
 
-import { useContext, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import {
   BookOpen,
@@ -18,15 +18,10 @@ import {
   DollarSign,
   FileText,
   GraduationCap,
-  Heart,
-  KeyRound,
-  Settings as SettingsIcon,
-  ShieldCheck,
   Sparkles,
   TrendingDown,
   TrendingUp,
   Users,
-  UserSquare2,
   AlertTriangle,
   Info,
   AlertOctagon,
@@ -43,14 +38,11 @@ import {
 } from "recharts";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
 import { Badge } from "../../components/ui/badge";
-import { WorkspaceContext } from "../../contexts/WorkspaceContext";
 import {
   getDashboard,
   getInsights,
   getOrganization,
   getSectionsLeaderboard,
-  isOrgAdmin,
-  isOrgPrincipal,
   type DashboardAlert,
   type DashboardPeriod,
   type DashboardResponse,
@@ -98,68 +90,6 @@ function PeriodSelector({
           </button>
         );
       })}
-    </div>
-  );
-}
-
-// ─── Manage toolbar ──────────────────────────────────────────────────────
-
-function ManageToolbar({
-  orgId,
-  showPermissions,
-  showRosterRequests,
-  showSettings,
-}: {
-  orgId: string;
-  showPermissions: boolean;
-  showRosterRequests: boolean;
-  showSettings: boolean;
-}) {
-  // Phase B wired these to the real admin pages. Until Phase B shipped these
-  // all pointed at /setup as a placeholder.
-  const items: Array<{ label: string; to: string; Icon: typeof Users; key: string }> = [
-    { key: "classes", label: "Classes", to: `/school/orgs/${orgId}/admin/classes`, Icon: BookOpen },
-    { key: "students", label: "Students", to: `/school/orgs/${orgId}/admin/students`, Icon: Users },
-    { key: "parents", label: "Parents", to: `/school/orgs/${orgId}/admin/parents`, Icon: Heart },
-    { key: "teachers", label: "Teachers", to: `/school/orgs/${orgId}/admin/teachers`, Icon: UserSquare2 },
-    { key: "linkcodes", label: "Link Codes", to: `/school/orgs/${orgId}/admin/link-codes`, Icon: KeyRound },
-  ];
-  if (showRosterRequests) {
-    items.push({
-      key: "roster-requests",
-      label: "Roster Requests",
-      to: `/school/orgs/${orgId}/admin/roster-requests`,
-      Icon: FileText,
-    });
-  }
-  if (showPermissions) {
-    items.push({
-      key: "permissions",
-      label: "Permissions",
-      to: `/school/orgs/${orgId}/admin/permissions`,
-      Icon: ShieldCheck,
-    });
-  }
-  if (showSettings) {
-    items.push({
-      key: "settings",
-      label: "Settings",
-      to: `/school/orgs/${orgId}/admin/settings`,
-      Icon: SettingsIcon,
-    });
-  }
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      {items.map(({ key, label, to, Icon }) => (
-        <Link
-          key={key}
-          to={to}
-          className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
-        >
-          <Icon className="h-3.5 w-3.5" />
-          {label}
-        </Link>
-      ))}
     </div>
   );
 }
@@ -628,7 +558,6 @@ function RecentActivity({ rows }: { rows: InsightsResponse["recentActivity"] }) 
 
 export function PerformanceDashboard() {
   const { orgId = "" } = useParams();
-  const workspaceCtx = useContext(WorkspaceContext);
   const [period, setPeriod] = useState<DashboardPeriod>("MTD");
   const [org, setOrg] = useState<OrgWithCounts | null>(null);
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
@@ -664,10 +593,6 @@ export function PerformanceDashboard() {
       .finally(() => setLoading(false));
   }, [orgId, period]);
 
-  const me = workspaceCtx?.me ?? null;
-  const showPermissions = isOrgPrincipal(me, orgId);
-  const showRosterRequests = isOrgAdmin(me, orgId);
-
   const health = dashboard?.health;
   const totalSections = leaderboard?.length ?? 0;
   const asOfLabel = dashboard?.asOf
@@ -681,13 +606,8 @@ export function PerformanceDashboard() {
 
   return (
     <div className="space-y-5">
-      {/* Manage actions toolbar */}
-      <ManageToolbar
-        orgId={orgId}
-        showPermissions={showPermissions}
-        showRosterRequests={showRosterRequests}
-        showSettings={showPermissions}
-      />
+      {/* ManageToolbar is now rendered by SchoolAdminShell, which wraps
+          every /school/orgs/:orgId/* route. */}
 
       {/* Page title + period */}
       <div className="flex flex-wrap items-end justify-between gap-3">
