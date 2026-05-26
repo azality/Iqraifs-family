@@ -312,9 +312,37 @@ export function installPhaseC(school: Hono): void {
     const { data, error } = await q;
     if (error) return c.json({ error: error.message }, 500);
 
+    const lessons = (data ?? []) as any[];
+    // Augment with completion_count and section_size for the teacher feed.
+    const lessonIds = lessons.map((l) => l.id);
+    const countMap = new Map<string, number>();
+    if (lessonIds.length > 0) {
+      const { data: comps, error: compErr } = await serviceRoleClient
+        .from("lesson_completion")
+        .select("lesson_id")
+        .in("lesson_id", lessonIds);
+      if (!compErr && comps) {
+        for (const r of comps as any[]) {
+          countMap.set(r.lesson_id, (countMap.get(r.lesson_id) ?? 0) + 1);
+        }
+      }
+    }
+    let sectionSize = 0;
+    {
+      const { count } = await serviceRoleClient
+        .from("student")
+        .select("id", { count: "exact", head: true })
+        .eq("class_section_id", sectionId);
+      sectionSize = count ?? 0;
+    }
+
     return c.json({
       sectionId,
-      lessons: (data ?? []).map(lessonToJson),
+      lessons: lessons.map((r) => ({
+        ...lessonToJson(r),
+        completionCount: countMap.get(r.id) ?? 0,
+        sectionSize,
+      })),
     });
   });
 

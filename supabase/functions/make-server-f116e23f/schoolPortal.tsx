@@ -437,7 +437,26 @@ export function installPortal(school: Hono): void {
 
     const { data, error } = await q;
     if (error) return c.json({ error: error.message }, 500);
-    return c.json({ lessons: (data ?? []).map(lessonToJson) });
+    const lessons = (data ?? []) as any[];
+
+    // Lookup completion flags for this student across these lessons.
+    const lessonIds = lessons.map((l) => l.id);
+    const completed = new Set<string>();
+    if (lessonIds.length > 0) {
+      const { data: comps } = await serviceRoleClient
+        .from("lesson_completion")
+        .select("lesson_id")
+        .eq("student_id", studentId)
+        .in("lesson_id", lessonIds);
+      for (const r of (comps ?? []) as any[]) completed.add(r.lesson_id);
+    }
+
+    return c.json({
+      lessons: lessons.map((r) => ({
+        ...lessonToJson(r),
+        completed: completed.has(r.id),
+      })),
+    });
   });
 
   // ---------------------------------------------------------------------------

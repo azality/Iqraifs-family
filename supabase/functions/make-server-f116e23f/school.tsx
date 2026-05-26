@@ -28,6 +28,7 @@ import { installPhaseC2 } from "./schoolPhaseC2.tsx";
 import { installPhaseCD } from "./schoolPhaseCD.tsx";
 import { installDashboard } from "./schoolDashboard.tsx";
 import { installPortal } from "./schoolPortal.tsx";
+import { installAnnounce } from "./schoolAnnounce.tsx";
 import { verifyPinToken } from "./schoolPhaseA.tsx";
 
 const school = new Hono();
@@ -2607,5 +2608,10 @@ installDashboard(school);
 // Phase E — student/parent portal (PIN-authenticated read endpoints)
 // -----------------------------------------------------------------------------
 installPortal(school);
+
+// -----------------------------------------------------------------------------
+// Phase F — announcements + lesson completion + parent fees in portal
+// -----------------------------------------------------------------------------
+installAnnounce(school);
 
 export default school;
