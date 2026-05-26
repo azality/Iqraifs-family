@@ -12,6 +12,7 @@
 // gated by the `isPrincipal` prop — caller computes it via isOrgPrincipal().
 
 import { Link, useLocation } from "react-router";
+import { useTranslation } from "react-i18next";
 import {
   BookOpen,
   Users,
@@ -39,22 +40,23 @@ interface ToolbarItem {
 
 export function ManageToolbar({ orgId, isPrincipal }: ManageToolbarProps) {
   const { pathname } = useLocation();
+  const { t } = useTranslation();
 
   const items: ToolbarItem[] = [
-    { key: "classes", label: "Classes", to: `/school/orgs/${orgId}/admin/classes`, Icon: BookOpen },
-    { key: "students", label: "Students", to: `/school/orgs/${orgId}/admin/students`, Icon: Users },
-    { key: "parents", label: "Parents", to: `/school/orgs/${orgId}/admin/parents`, Icon: Heart },
-    { key: "teachers", label: "Teachers", to: `/school/orgs/${orgId}/admin/teachers`, Icon: UserCog },
-    { key: "link-codes", label: "Link Codes", to: `/school/orgs/${orgId}/admin/link-codes`, Icon: KeyRound },
+    { key: "classes", label: t("toolbar.classes"), to: `/school/orgs/${orgId}/admin/classes`, Icon: BookOpen },
+    { key: "students", label: t("toolbar.students"), to: `/school/orgs/${orgId}/admin/students`, Icon: Users },
+    { key: "parents", label: t("toolbar.parents"), to: `/school/orgs/${orgId}/admin/parents`, Icon: Heart },
+    { key: "teachers", label: t("toolbar.teachers"), to: `/school/orgs/${orgId}/admin/teachers`, Icon: UserCog },
+    { key: "link-codes", label: t("toolbar.linkCodes"), to: `/school/orgs/${orgId}/admin/link-codes`, Icon: KeyRound },
     {
       key: "roster-requests",
-      label: "Roster Requests",
+      label: t("toolbar.rosterRequests"),
       to: `/school/orgs/${orgId}/admin/roster-requests`,
       Icon: ClipboardList,
     },
     {
       key: "announcements",
-      label: "Announcements",
+      label: t("toolbar.announcements"),
       to: `/school/orgs/${orgId}/admin/announcements`,
       Icon: Megaphone,
     },
@@ -62,13 +64,13 @@ export function ManageToolbar({ orgId, isPrincipal }: ManageToolbarProps) {
   if (isPrincipal) {
     items.push({
       key: "permissions",
-      label: "Permissions",
+      label: t("toolbar.permissions"),
       to: `/school/orgs/${orgId}/admin/permissions`,
       Icon: ShieldCheck,
     });
     items.push({
       key: "settings",
-      label: "Settings",
+      label: t("toolbar.settings"),
       to: `/school/orgs/${orgId}/admin/settings`,
       Icon: SettingsIcon,
     });

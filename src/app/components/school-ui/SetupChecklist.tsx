@@ -7,6 +7,7 @@
 
 import { Link } from "react-router";
 import { CheckCircle2, Circle, X, ArrowRight } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { cardBase, cardElev } from "./tokens";
 
 export interface SetupChecklistProps {
@@ -56,6 +57,7 @@ export function SetupChecklist(props: SetupChecklistProps) {
     adminCount = 0,
     onDismiss,
   } = props;
+  const { t } = useTranslation();
 
   if (viewerRole === "other") return null;
 
@@ -65,18 +67,18 @@ export function SetupChecklist(props: SetupChecklistProps) {
     viewerRole === "principal"
       ? [
           {
-            label: "Add an Admin",
+            label: t("setup.principal.addAdmin", "Add an Admin"),
             to: `${base}/admin/teachers`,
             complete: adminCount > 0,
           },
           {
-            label: "Review role permissions",
+            label: t("setup.principal.reviewPermissions", "Review role permissions"),
             to: `${base}/admin/permissions`,
             complete: false,
             reviewOnly: true,
           },
           {
-            label: "Add an Office Staff or Financial Staff (optional)",
+            label: t("setup.principal.addStaff", "Add an Office Staff or Financial Staff (optional)"),
             to: `${base}/admin/teachers`,
             complete: false,
             reviewOnly: true,
@@ -84,33 +86,33 @@ export function SetupChecklist(props: SetupChecklistProps) {
         ]
       : [
           {
-            label: "Create your first class",
+            label: t("setup.createClass"),
             to: `${base}/admin/classes`,
             complete: classCount > 0,
           },
           {
-            label: "Add students",
+            label: t("setup.addStudents"),
             to: `${base}/admin/students`,
             complete: studentCount > 0,
           },
           {
-            label: "Add teachers",
+            label: t("setup.addTeachers"),
             to: `${base}/admin/teachers`,
             complete: teacherCount > 0,
           },
           {
-            label: "Generate parent link codes",
+            label: t("setup.generateLinkCodes"),
             to: `${base}/admin/link-codes`,
             complete: linkCodeCount > 0,
           },
           {
-            label: "Set permissions for roles",
+            label: t("setup.setPermissions"),
             to: `${base}/admin/permissions`,
             complete: false,
             reviewOnly: true,
           },
           {
-            label: "Post your first announcement",
+            label: t("setup.postAnnouncement"),
             to: `${base}/admin/announcements/new`,
             complete: announcementCount > 0,
           },
@@ -161,14 +163,14 @@ export function SetupChecklist(props: SetupChecklistProps) {
         )}
         {totalActionable > 0 ? (
           <p className="mt-0.5 text-xs text-slate-500">
-            Knock these out to start daily ops.{" "}
+            {t("setup.subtitle")}{" "}
             <span className="font-medium text-indigo-600">
-              {completedCount} of {totalActionable} done
+              {completedCount} {t("setup.progressOf", "of")} {totalActionable} {t("setup.progressDone", "done")}
             </span>
           </p>
         ) : (
           <p className="mt-0.5 text-xs text-slate-500">
-            A few things to review.
+            {t("setup.principal.reviewOnly", "A few things to review.")}
           </p>
         )}
       </div>
@@ -198,14 +200,14 @@ export function SetupChecklist(props: SetupChecklistProps) {
             </span>
             {s.complete ? (
               <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 ring-1 ring-inset ring-emerald-200">
-                Done
+                {t("setup.done")}
               </span>
             ) : (
               <Link
                 to={s.to}
                 className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700"
               >
-                Open
+                {t("setup.open")}
                 <ArrowRight className="h-3 w-3" />
               </Link>
             )}

@@ -1,0 +1,119 @@
+{
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "add": "Add",
+    "search": "Search",
+    "loading": "Loading…",
+    "submit": "Submit",
+    "back": "Back",
+    "logout": "Log out",
+    "close": "Close"
+  },
+  "status": {
+    "active": "Active",
+    "pending": "Pending",
+    "completed": "Completed",
+    "approved": "Approved",
+    "rejected": "Rejected",
+    "paid": "Paid",
+    "unpaid": "Unpaid"
+  },
+  "workspace": {
+    "family": "Family",
+    "school": "School"
+  },
+  "auth": {
+    "parentLogin": "Parent Login",
+    "email": "Email",
+    "password": "Password",
+    "forgotPassword": "Forgot password?",
+    "signUp": "Sign up",
+    "signIn": "Sign in",
+    "signingIn": "Signing in…"
+  },
+  "toolbar": {
+    "classes": "Classes",
+    "students": "Students",
+    "parents": "Parents",
+    "teachers": "Teachers",
+    "linkCodes": "Link Codes",
+    "rosterRequests": "Roster Requests",
+    "announcements": "Announcements",
+    "permissions": "Permissions",
+    "settings": "Settings"
+  },
+  "dashboard": {
+    "title": "Performance Dashboard",
+    "schoolAtGlance": "School at a Glance",
+    "atAGlance": "At a glance",
+    "tiles": {
+      "students": "Students",
+      "attendanceToday": "Attendance Today",
+      "attendancePeriod": "Attendance Period",
+      "teachers": "Teachers",
+      "behaviorScore": "Behavior Score",
+      "pendingApprovals": "Pending Approvals",
+      "concernsOpen": "Concerns Open",
+      "feesPaidPct": "Fees Paid",
+      "hifzProgress": "Hifz Progress",
+      "formsAwaiting": "Forms Awaiting"
+    },
+    "period": {
+      "T": "Today",
+      "WTD": "Week to Date",
+      "MTD": "Month to Date",
+      "QTD": "Quarter to Date",
+      "YTD": "Year to Date"
+    },
+    "alertsTitle": "Alerts"
+  },
+  "setup": {
+    "title": "Get your school set up",
+    "subtitle": "Knock these out to start daily ops.",
+    "createClass": "Create your first class",
+    "addStudents": "Add students",
+    "addTeachers": "Add teachers",
+    "generateLinkCodes": "Generate parent link codes",
+    "setPermissions": "Set permissions for roles",
+    "postAnnouncement": "Post your first announcement",
+    "done": "Done",
+    "open": "Open"
+  },
+  "portal": {
+    "loginTitle": "Iqra Academy — Student & Parent Portal",
+    "schoolName": "Iqra Academy",
+    "loginIntro": "Student & Parent Portal — view your child's lessons, grades, hifz progress, attendance and behavior notes.",
+    "useProvidedPin": "Use the PIN your school provided.",
+    "schoolCode": "School Code",
+    "student": "Student",
+    "parent": "Parent",
+    "grNumber": "GR Number",
+    "phone": "Phone",
+    "pin": "PIN",
+    "nav": {
+      "dashboard": "Dashboard",
+      "lessons": "Lessons",
+      "grades": "Grades",
+      "hifz": "Hifz",
+      "attendance": "Attendance",
+      "behavior": "Behavior",
+      "forms": "Forms",
+      "fees": "Fees",
+      "announcements": "Announcements"
+    },
+    "tiles": {
+      "attendance": "Attendance",
+      "averageGrade": "Avg Grade",
+      "ayahsMemorized": "Ayahs Memorized",
+      "behaviorScore": "Behavior Score"
+    },
+    "recentActivity": "Recent Activity"
+  },
+  "lang": {
+    "english": "English",
+    "urdu": "اردو"
+  }
+}
