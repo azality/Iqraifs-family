@@ -19,6 +19,9 @@ export type { StatusPillProps } from "./StatusPill";
 export { DataTable } from "./DataTable";
 export type { DataTableProps, DataTableColumn } from "./DataTable";
 
+export { ManageToolbar } from "./ManageToolbar";
+export type { ManageToolbarProps } from "./ManageToolbar";
+
 export {
   severityClasses,
   statusClasses,

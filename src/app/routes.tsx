@@ -79,6 +79,7 @@ import { StudentFees } from "./pages/school/StudentFees";
 import { FormsList } from "./pages/school/FormsList";
 import { FormBuilder } from "./pages/school/FormBuilder";
 import { FormResponses } from "./pages/school/FormResponses";
+import { SchoolAdminShell } from "./layouts/SchoolAdminShell";
 // Parent-facing redemption page for school invite codes — lands here from
 // the SMS/WhatsApp links the school sends.
 import { ParentConnect } from "./pages/ParentConnect";
@@ -408,47 +409,57 @@ export const router = createBrowserRouter([
           // teacher rows in user_roles.
           { path: "school", element: <RequireParentRole><SchoolHome /></RequireParentRole> },
           { path: "school/_design", element: <RequireParentRole><_DesignSystemPreview /></RequireParentRole> },
-          { path: "school/orgs/:orgId", element: <RequireParentRole><PerformanceDashboard /></RequireParentRole> },
-          { path: "school/orgs/:orgId/setup", element: <RequireParentRole><SchoolSetup /></RequireParentRole> },
           { path: "school/classes/:classId", element: <RequireParentRole><ClassDetail /></RequireParentRole> },
-          { path: "school/orgs/:orgId/behavior-catalog", element: <RequireParentRole><BehaviorCatalog /></RequireParentRole> },
           { path: "school/children/:childId/hifz", element: <RequireParentRole><HifzProgress /></RequireParentRole> },
-          // Phase A admin
-          { path: "school/orgs/:orgId/admin", element: <RequireParentRole><AdminDashboard /></RequireParentRole> },
-          { path: "school/orgs/:orgId/admin/classes", element: <RequireParentRole><ManageClasses /></RequireParentRole> },
-          { path: "school/orgs/:orgId/admin/students", element: <RequireParentRole><ManageStudents /></RequireParentRole> },
-          { path: "school/orgs/:orgId/admin/students/:studentId", element: <RequireParentRole><StudentDetail /></RequireParentRole> },
-          { path: "school/orgs/:orgId/admin/parents", element: <RequireParentRole><ManageParents /></RequireParentRole> },
-          { path: "school/orgs/:orgId/admin/teachers", element: <RequireParentRole><ManageTeachers /></RequireParentRole> },
-          { path: "school/orgs/:orgId/admin/link-codes", element: <RequireParentRole><LinkCodes /></RequireParentRole> },
-          { path: "school/orgs/:orgId/admin/permissions", element: <RequireParentRole><PermissionsEditor /></RequireParentRole> },
-          { path: "school/orgs/:orgId/admin/settings", element: <RequireParentRole><OrgSettings /></RequireParentRole> },
-          { path: "school/orgs/:orgId/admin/roster-requests", element: <RequireParentRole><RosterReviewQueue /></RequireParentRole> },
-          // Phase B section-scoped daily ops (attendance, behavior log,
-          // roster change requests). All gated by RequireParentRole; the
-          // pages themselves enforce teacher/admin scope on the server.
-          { path: "school/orgs/:orgId/sections/:sectionId/attendance", element: <RequireParentRole><AttendanceRollCall /></RequireParentRole> },
-          { path: "school/orgs/:orgId/sections/:sectionId/behavior", element: <RequireParentRole><SectionBehaviorFeed /></RequireParentRole> },
-          { path: "school/orgs/:orgId/sections/:sectionId/roster/new", element: <RequireParentRole><RosterRequestForm /></RequireParentRole> },
-          // Phase C.1: daily sabaq + hifz progress
-          { path: "school/orgs/:orgId/sections/:sectionId/lessons", element: <RequireParentRole><SectionLessonsFeed /></RequireParentRole> },
-          { path: "school/orgs/:orgId/sections/:sectionId/lessons/new", element: <RequireParentRole><LessonForm /></RequireParentRole> },
-          { path: "school/orgs/:orgId/lessons/:lessonId/edit", element: <RequireParentRole><LessonForm /></RequireParentRole> },
-          { path: "school/orgs/:orgId/sections/:sectionId/hifz", element: <RequireParentRole><SectionHifzOverview /></RequireParentRole> },
-          // Phase C.2 — assignments + grades
-          { path: "school/orgs/:orgId/sections/:sectionId/assignments", element: <RequireParentRole><SectionAssignmentsList /></RequireParentRole> },
-          { path: "school/orgs/:orgId/sections/:sectionId/assignments/new", element: <RequireParentRole><AssignmentForm /></RequireParentRole> },
-          { path: "school/orgs/:orgId/assignments/:assignmentId", element: <RequireParentRole><AssignmentDetail /></RequireParentRole> },
-          { path: "school/orgs/:orgId/assignments/:assignmentId/edit", element: <RequireParentRole><AssignmentForm /></RequireParentRole> },
-          { path: "school/orgs/:orgId/sections/:sectionId/gradebook", element: <RequireParentRole><SectionGradebook /></RequireParentRole> },
-          // Phase C.3 + Phase D — curriculum, fees, forms
-          { path: "school/orgs/:orgId/sections/:sectionId/curriculum", element: <RequireParentRole><SectionCurriculum /></RequireParentRole> },
-          { path: "school/orgs/:orgId/admin/fees", element: <RequireParentRole><FeesOverview /></RequireParentRole> },
-          { path: "school/orgs/:orgId/students/:studentId/fees", element: <RequireParentRole><StudentFees /></RequireParentRole> },
-          { path: "school/orgs/:orgId/admin/forms", element: <RequireParentRole><FormsList /></RequireParentRole> },
-          { path: "school/orgs/:orgId/admin/forms/new", element: <RequireParentRole><FormBuilder /></RequireParentRole> },
-          { path: "school/orgs/:orgId/admin/forms/:formId", element: <RequireParentRole><FormBuilder /></RequireParentRole> },
-          { path: "school/orgs/:orgId/admin/forms/:formId/responses", element: <RequireParentRole><FormResponses /></RequireParentRole> },
+          // School admin shell — wraps every /school/orgs/:orgId/* route so
+          // the ManageToolbar (Classes / Students / Parents / Teachers /
+          // Link Codes / Roster Requests / Permissions / Settings) is
+          // always present and users can hop between sections without
+          // back-buttoning to the dashboard. RequireParentRole gates the
+          // shell once; child routes inherit the gate via the Outlet.
+          {
+            path: "school/orgs/:orgId",
+            element: <RequireParentRole><SchoolAdminShell /></RequireParentRole>,
+            children: [
+              { index: true, element: <PerformanceDashboard /> },
+              { path: "setup", element: <SchoolSetup /> },
+              { path: "behavior-catalog", element: <BehaviorCatalog /> },
+              // Phase A admin
+              { path: "admin", element: <AdminDashboard /> },
+              { path: "admin/classes", element: <ManageClasses /> },
+              { path: "admin/students", element: <ManageStudents /> },
+              { path: "admin/students/:studentId", element: <StudentDetail /> },
+              { path: "admin/parents", element: <ManageParents /> },
+              { path: "admin/teachers", element: <ManageTeachers /> },
+              { path: "admin/link-codes", element: <LinkCodes /> },
+              { path: "admin/permissions", element: <PermissionsEditor /> },
+              { path: "admin/settings", element: <OrgSettings /> },
+              { path: "admin/roster-requests", element: <RosterReviewQueue /> },
+              // Phase B section-scoped daily ops
+              { path: "sections/:sectionId/attendance", element: <AttendanceRollCall /> },
+              { path: "sections/:sectionId/behavior", element: <SectionBehaviorFeed /> },
+              { path: "sections/:sectionId/roster/new", element: <RosterRequestForm /> },
+              // Phase C.1: daily sabaq + hifz progress
+              { path: "sections/:sectionId/lessons", element: <SectionLessonsFeed /> },
+              { path: "sections/:sectionId/lessons/new", element: <LessonForm /> },
+              { path: "lessons/:lessonId/edit", element: <LessonForm /> },
+              { path: "sections/:sectionId/hifz", element: <SectionHifzOverview /> },
+              // Phase C.2 — assignments + grades
+              { path: "sections/:sectionId/assignments", element: <SectionAssignmentsList /> },
+              { path: "sections/:sectionId/assignments/new", element: <AssignmentForm /> },
+              { path: "assignments/:assignmentId", element: <AssignmentDetail /> },
+              { path: "assignments/:assignmentId/edit", element: <AssignmentForm /> },
+              { path: "sections/:sectionId/gradebook", element: <SectionGradebook /> },
+              // Phase C.3 + Phase D — curriculum, fees, forms
+              { path: "sections/:sectionId/curriculum", element: <SectionCurriculum /> },
+              { path: "admin/fees", element: <FeesOverview /> },
+              { path: "students/:studentId/fees", element: <StudentFees /> },
+              { path: "admin/forms", element: <FormsList /> },
+              { path: "admin/forms/new", element: <FormBuilder /> },
+              { path: "admin/forms/:formId", element: <FormBuilder /> },
+              { path: "admin/forms/:formId/responses", element: <FormResponses /> },
+            ],
+          },
           // Redirect old routes to homepage
           { path: "kid", element: <Navigate to="/" replace /> },
           { path: "parent", element: <Navigate to="/" replace /> },
