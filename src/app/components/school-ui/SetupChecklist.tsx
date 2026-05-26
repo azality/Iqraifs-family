@@ -1,7 +1,9 @@
-// Setup checklist card for fresh schools — surfaces the 6 first-week
-// operational steps an admin needs to complete to start daily ops.
-// Rendered above the Performance Dashboard hero; dismissable per-org via
-// localStorage so we don't nag once the school is running.
+// Setup checklist card for fresh schools. Step set depends on viewer role:
+//   - principal → org-level setup (add Admin, review permissions, optional staff)
+//   - admin     → 6-step data setup (classes, students, teachers, link codes,
+//                 permissions, announcements)
+//   - other     → checklist is not rendered
+// Dismissable per-org via localStorage so we don't nag once the school is running.
 
 import { Link } from "react-router";
 import { CheckCircle2, Circle, X, ArrowRight } from "lucide-react";
@@ -9,11 +11,14 @@ import { cardBase, cardElev } from "./tokens";
 
 export interface SetupChecklistProps {
   orgId: string;
+  viewerRole: "principal" | "admin" | "other";
   classCount: number;
   studentCount: number;
   teacherCount: number;
   linkCodeCount: number;
   announcementCount: number;
+  /** Number of org Admins. Only used by the principal view. */
+  adminCount?: number;
   /** Called after the user clicks the dismiss "x". The parent should hide
    *  the card; the component also writes to localStorage so a remount won't
    *  re-show it. */
@@ -42,49 +47,74 @@ interface Step {
 export function SetupChecklist(props: SetupChecklistProps) {
   const {
     orgId,
+    viewerRole,
     classCount,
     studentCount,
     teacherCount,
     linkCodeCount,
     announcementCount,
+    adminCount = 0,
     onDismiss,
   } = props;
 
+  if (viewerRole === "other") return null;
+
   const base = `/school/orgs/${orgId}`;
 
-  const steps: Step[] = [
-    {
-      label: "Create your first class",
-      to: `${base}/admin/classes`,
-      complete: classCount > 0,
-    },
-    {
-      label: "Add students",
-      to: `${base}/admin/students`,
-      complete: studentCount > 0,
-    },
-    {
-      label: "Add teachers",
-      to: `${base}/admin/teachers`,
-      complete: teacherCount > 0,
-    },
-    {
-      label: "Generate parent link codes",
-      to: `${base}/admin/link-codes`,
-      complete: linkCodeCount > 0,
-    },
-    {
-      label: "Set permissions for roles",
-      to: `${base}/admin/permissions`,
-      complete: false,
-      reviewOnly: true,
-    },
-    {
-      label: "Post your first announcement",
-      to: `${base}/admin/announcements/new`,
-      complete: announcementCount > 0,
-    },
-  ];
+  const steps: Step[] =
+    viewerRole === "principal"
+      ? [
+          {
+            label: "Add an Admin",
+            to: `${base}/admin/teachers`,
+            complete: adminCount > 0,
+          },
+          {
+            label: "Review role permissions",
+            to: `${base}/admin/permissions`,
+            complete: false,
+            reviewOnly: true,
+          },
+          {
+            label: "Add an Office Staff or Financial Staff (optional)",
+            to: `${base}/admin/teachers`,
+            complete: false,
+            reviewOnly: true,
+          },
+        ]
+      : [
+          {
+            label: "Create your first class",
+            to: `${base}/admin/classes`,
+            complete: classCount > 0,
+          },
+          {
+            label: "Add students",
+            to: `${base}/admin/students`,
+            complete: studentCount > 0,
+          },
+          {
+            label: "Add teachers",
+            to: `${base}/admin/teachers`,
+            complete: teacherCount > 0,
+          },
+          {
+            label: "Generate parent link codes",
+            to: `${base}/admin/link-codes`,
+            complete: linkCodeCount > 0,
+          },
+          {
+            label: "Set permissions for roles",
+            to: `${base}/admin/permissions`,
+            complete: false,
+            reviewOnly: true,
+          },
+          {
+            label: "Post your first announcement",
+            to: `${base}/admin/announcements/new`,
+            complete: announcementCount > 0,
+          },
+        ];
 
   const completedCount = steps.filter((s) => s.complete && !s.reviewOnly).length;
   const totalActionable = steps.filter((s) => !s.reviewOnly).length;
@@ -97,6 +127,16 @@ export function SetupChecklist(props: SetupChecklistProps) {
     }
     onDismiss?.();
   };
+
+  const heading =
+    viewerRole === "principal"
+      ? "Get your school set up"
+      : "Get your school set up";
+
+  const subline =
+    viewerRole === "principal"
+      ? "Your job as Principal is to set up the team. Your Admin will handle students, classes, and daily ops."
+      : null;
 
   return (
     <div
@@ -115,15 +155,22 @@ export function SetupChecklist(props: SetupChecklistProps) {
       </button>
 
       <div className="pr-8">
-        <h2 className="text-base font-semibold text-slate-900">
-          Get your school set up
-        </h2>
-        <p className="mt-0.5 text-xs text-slate-500">
-          Knock these out to start daily ops.{" "}
-          <span className="font-medium text-indigo-600">
-            {completedCount} of {totalActionable} done
-          </span>
-        </p>
+        <h2 className="text-base font-semibold text-slate-900">{heading}</h2>
+        {subline && (
+          <p className="mt-1 text-xs text-slate-600">{subline}</p>
+        )}
+        {totalActionable > 0 ? (
+          <p className="mt-0.5 text-xs text-slate-500">
+            Knock these out to start daily ops.{" "}
+            <span className="font-medium text-indigo-600">
+              {completedCount} of {totalActionable} done
+            </span>
+          </p>
+        ) : (
+          <p className="mt-0.5 text-xs text-slate-500">
+            A few things to review.
+          </p>
+        )}
       </div>
 
       <ul className="mt-4 divide-y divide-slate-100">

@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, Navigate, useParams } from "react-router";
 import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
-import { ShieldCheck } from "lucide-react";
+import { ShieldCheck, Info } from "lucide-react";
 import {
   HeroCard,
   cardBase,
@@ -22,6 +22,46 @@ import {
   type PermissionRow,
   type SchoolMeResponse,
 } from "../../../utils/schoolApi";
+
+const PERMISSION_META: Record<string, { label: string; description: string }> = {
+  manage_students: {
+    label: "Manage students",
+    description: "Add, edit, and delete student records. Includes bulk CSV upload.",
+  },
+  mark_attendance: {
+    label: "Mark attendance",
+    description: "Take daily attendance for a section (present / late / absent / excused).",
+  },
+  edit_grades: {
+    label: "Edit grades",
+    description: "Create assignments and enter / edit grades for students.",
+  },
+  mark_fees_status: {
+    label: "Mark fees status",
+    description: "Update fee status (paid / unpaid / partial / waived) and attach receipts.",
+  },
+  create_forms: {
+    label: "Create forms",
+    description: "Build and publish custom forms — permission slips, surveys, info collection.",
+  },
+  define_curriculum: {
+    label: "Define curriculum",
+    description: "Set up the per-section yearly curriculum and topics.",
+  },
+  manage_teachers: {
+    label: "Manage teachers",
+    description: "Add, edit, and assign teachers to class sections.",
+  },
+  view_all_classes: {
+    label: "View all classes",
+    description: "See all classes in the school (not just the user's own section).",
+  },
+};
+
+function prettify(key: string): string {
+  const spaced = key.replace(/_/g, " ");
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
 
 const ROLE_COLUMNS: Array<{ key: PermissionRow["roleTemplate"]; label: string }> = [
   { key: "admin", label: "Admin" },
@@ -140,7 +180,18 @@ export function PermissionsEditor() {
             )}
             {permissionKeys.map((pk) => (
               <tr key={pk} className="border-t border-slate-100">
-                <td className="px-3 py-2 font-mono text-xs text-slate-700">{pk}</td>
+                <td className="px-3 py-2 text-sm text-slate-700">
+                  <span className="inline-flex items-center gap-1.5">
+                    <span>{PERMISSION_META[pk]?.label || prettify(pk)}</span>
+                    <span
+                      title={PERMISSION_META[pk]?.description || pk}
+                      className="inline-flex items-center text-slate-400 hover:text-slate-600 cursor-help"
+                      aria-label={PERMISSION_META[pk]?.description || pk}
+                    >
+                      <Info className="h-3.5 w-3.5" />
+                    </span>
+                  </span>
+                </td>
                 {ROLE_COLUMNS.map((col) => {
                   const row = keyed.get(`${pk}::${col.key}`);
                   const checked = !!row?.allowed;

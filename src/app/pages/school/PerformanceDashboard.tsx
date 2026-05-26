@@ -47,6 +47,7 @@ import {
   listClasses,
   listStudents,
   listAdminTeachers,
+  listAdmins,
   listLinkCodes,
   listAnnouncements,
   isOrgPrincipal,
@@ -593,6 +594,7 @@ export function PerformanceDashboard() {
     teacherCount: number;
     linkCodeCount: number;
     announcementCount: number;
+    adminCount: number;
   } | null>(null);
   const [setupDismissed, setSetupDismissed] = useState<boolean>(false);
 
@@ -607,13 +609,17 @@ export function PerformanceDashboard() {
       listAnnouncements(orgId)
         .then((r) => r.announcements.length)
         .catch(() => 0),
-    ]).then(([classes, students, teachers, linkCodes, announcementCount]) => {
+      listAdmins(orgId)
+        .then((arr) => arr.length)
+        .catch(() => 0),
+    ]).then(([classes, students, teachers, linkCodes, announcementCount, adminCount]) => {
       setSetupCounts({
         classCount: classes.length,
         studentCount: students.length,
         teacherCount: teachers.length,
         linkCodeCount: linkCodes.length,
         announcementCount,
+        adminCount,
       });
     });
   }, [orgId]);
@@ -623,14 +629,26 @@ export function PerformanceDashboard() {
   // The "set permissions" step is review-only and intentionally excluded
   // from the completion gate so we don't keep nagging once the other 5
   // steps are done.
+  const viewerRole: "principal" | "admin" | "other" = (() => {
+    if (!me) return "other";
+    if (isOrgPrincipal(me, orgId)) return "principal";
+    const hasAdmin = me.roles?.some(
+      (r) => (r.role_type as string) === "admin" && r.scope_id === orgId,
+    );
+    return hasAdmin ? "admin" : "other";
+  })();
+
   const showSetupChecklist =
     !!setupCounts &&
     !setupDismissed &&
-    (setupCounts.classCount === 0 ||
-      setupCounts.studentCount === 0 ||
-      setupCounts.teacherCount === 0 ||
-      setupCounts.linkCodeCount === 0 ||
-      setupCounts.announcementCount === 0);
+    viewerRole !== "other" &&
+    (viewerRole === "principal"
+      ? setupCounts.adminCount === 0
+      : setupCounts.classCount === 0 ||
+        setupCounts.studentCount === 0 ||
+        setupCounts.teacherCount === 0 ||
+        setupCounts.linkCodeCount === 0 ||
+        setupCounts.announcementCount === 0);
 
   // Fetch the org meta once.
   useEffect(() => {
@@ -682,11 +700,13 @@ export function PerformanceDashboard() {
         <div data-tour="setup-checklist">
           <SetupChecklist
             orgId={orgId}
+            viewerRole={viewerRole}
             classCount={setupCounts.classCount}
             studentCount={setupCounts.studentCount}
             teacherCount={setupCounts.teacherCount}
             linkCodeCount={setupCounts.linkCodeCount}
             announcementCount={setupCounts.announcementCount}
+            adminCount={setupCounts.adminCount}
             onDismiss={() => setSetupDismissed(true)}
           />
         </div>
