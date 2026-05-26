@@ -53,14 +53,14 @@ export interface ParentRow {
 export interface TeacherRow {
   email: string;
   fullName: string;
-  roleTemplate: "class_teacher" | "visiting_teacher";
+  roleTemplate: "class_teacher" | "visiting_teacher" | "financial_staff" | "office_staff";
 }
 
 // ---------------------------------------------------------------------------
 // Permission defaults — defaults that apply unless role_template_override
 // stores a deviating row for (org, role_template, permission_key).
 // ---------------------------------------------------------------------------
-type RoleTemplate = "admin" | "class_teacher" | "visiting_teacher";
+type RoleTemplate = "admin" | "class_teacher" | "visiting_teacher" | "financial_staff" | "office_staff";
 type PermissionKey =
   | "manage_students"
   | "mark_attendance"
@@ -112,6 +112,26 @@ const DEFAULT_PERMISSIONS: Record<RoleTemplate, Record<PermissionKey, boolean>> 
     define_curriculum: false,
     manage_teachers: false,
     view_all_classes: false,
+  },
+  financial_staff: {
+    manage_students: false,
+    mark_attendance: false,
+    edit_grades: false,
+    mark_fees_status: true,
+    create_forms: false,
+    define_curriculum: false,
+    manage_teachers: false,
+    view_all_classes: false,
+  },
+  office_staff: {
+    manage_students: true,
+    mark_attendance: false,
+    edit_grades: false,
+    mark_fees_status: false,
+    create_forms: true,
+    define_curriculum: false,
+    manage_teachers: true,
+    view_all_classes: true,
   },
 };
 
@@ -956,6 +976,10 @@ export function installPhaseA(school: Hono) {
 
     const errors: Array<{ rowIndex: number; message: string }> = [];
     let inserted = 0;
+    let updated = 0;
+    let invitedCount = 0;
+    const siteOrigin = Deno.env.get("SITE_URL") || "https://iqraifs.com";
+    const validTemplates = new Set(["class_teacher", "visiting_teacher", "financial_staff", "office_staff"]);
 
     for (let i = 0; i < body.rows.length; i++) {
       const r = body.rows[i] as TeacherRow;
@@ -963,12 +987,13 @@ export function installPhaseA(school: Hono) {
         errors.push({ rowIndex: i, message: "email, fullName, roleTemplate required" });
         continue;
       }
-      if (r.roleTemplate !== "class_teacher" && r.roleTemplate !== "visiting_teacher") {
-        errors.push({ rowIndex: i, message: "roleTemplate must be class_teacher or visiting_teacher" });
+      if (!validTemplates.has(r.roleTemplate as string)) {
+        errors.push({ rowIndex: i, message: "roleTemplate must be class_teacher, visiting_teacher, financial_staff, or office_staff" });
         continue;
       }
       try {
         let targetUserId: string | null = null;
+        let wasCreated = false;
 
         // Try to find an existing auth user by email.
         const { data: listed } = await (serviceRoleClient as any).auth.admin.listUsers({ page: 1, perPage: 200 });
@@ -989,6 +1014,7 @@ export function installPhaseA(school: Hono) {
             continue;
           }
           targetUserId = created.user.id;
+          wasCreated = true;
         }
 
         const { error: roleErr } = await serviceRoleClient.from("user_roles").insert({
@@ -1002,13 +1028,27 @@ export function installPhaseA(school: Hono) {
           errors.push({ rowIndex: i, message: roleErr.message });
           continue;
         }
-        inserted++;
+        if (wasCreated) {
+          inserted++;
+          // Trigger password-reset email so the newly-created user can log in.
+          const { error: resetErr } = await (serviceRoleClient as any).auth.resetPasswordForEmail(r.email, {
+            redirectTo: `${siteOrigin}/reset-password`,
+          });
+          if (resetErr) {
+            console.error("[invite] failed to send reset email:", resetErr);
+            // non-fatal — user was created, they just won't get the email
+          } else {
+            invitedCount++;
+          }
+        } else {
+          updated++;
+        }
       } catch (e: any) {
         errors.push({ rowIndex: i, message: e?.message ?? String(e) });
       }
     }
 
-    return c.json({ inserted, errors });
+    return c.json({ inserted, updated, invitedCount, errors });
   });
 
   // -------------------------------------------------------------------------
@@ -1023,6 +1063,7 @@ export function installPhaseA(school: Hono) {
     if (!body?.email || !body?.fullName) return c.json({ error: "email and fullName required" }, 400);
 
     let targetUserId: string | null = null;
+    let wasCreated = false;
     const { data: listed } = await (serviceRoleClient as any).auth.admin.listUsers({ page: 1, perPage: 200 });
     const existing = (listed?.users ?? []).find((u: any) => (u.email ?? "").toLowerCase() === body.email.toLowerCase());
     if (existing) {
@@ -1037,6 +1078,7 @@ export function installPhaseA(school: Hono) {
       });
       if (error || !created?.user) return c.json({ error: error?.message ?? "could not create user" }, 500);
       targetUserId = created.user.id;
+      wasCreated = true;
     }
 
     const { error: roleErr } = await serviceRoleClient.from("user_roles").insert({
@@ -1047,7 +1089,21 @@ export function installPhaseA(school: Hono) {
       granted_by: userId,
     });
     if (roleErr && (roleErr as any).code !== "23505") return c.json({ error: roleErr.message }, 500);
-    return c.json({ userId: targetUserId, ok: true }, 201);
+
+    let invited = false;
+    if (wasCreated) {
+      const siteOrigin = Deno.env.get("SITE_URL") || "https://iqraifs.com";
+      const { error: resetErr } = await (serviceRoleClient as any).auth.resetPasswordForEmail(body.email, {
+        redirectTo: `${siteOrigin}/reset-password`,
+      });
+      if (resetErr) {
+        console.error("[invite] failed to send reset email:", resetErr);
+        // non-fatal — user was created, they just won't get the email
+      } else {
+        invited = true;
+      }
+    }
+    return c.json({ userId: targetUserId, ok: true, invited }, 201);
   });
 
   school.delete("/orgs/:orgId/admins/:userId", async (c) => {
