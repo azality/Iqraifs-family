@@ -42,12 +42,14 @@ import {
   getDashboard,
   getInsights,
   getOrganization,
+  getSchoolMe,
   getSectionsLeaderboard,
   listClasses,
   listStudents,
   listAdminTeachers,
   listLinkCodes,
   listAnnouncements,
+  isOrgPrincipal,
   type DashboardAlert,
   type DashboardPeriod,
   type DashboardResponse,
@@ -55,8 +57,11 @@ import {
   type InsightsResponse,
   type LeaderboardRow,
   type OrgWithCounts,
+  type SchoolMeResponse,
 } from "../../../utils/schoolApi";
 import { SetupChecklist, setupChecklistDismissed } from "../../components/school-ui";
+import { RoleTour } from "../../components/RoleTour";
+import { pickTourForUser } from "../../../utils/tours";
 
 // ─── Period selector ─────────────────────────────────────────────────────
 
@@ -571,6 +576,13 @@ export function PerformanceDashboard() {
   const [insights, setInsights] = useState<InsightsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [me, setMe] = useState<SchoolMeResponse | null>(null);
+
+  useEffect(() => {
+    getSchoolMe().then(setMe).catch(() => setMe(null));
+  }, []);
+
+  const tourRole = me ? pickTourForUser(me, isOrgPrincipal(me, orgId)) : null;
 
   // Setup-checklist state. We fetch the 5 counts in parallel on mount and
   // render the card above the hero unless the user has dismissed it for
@@ -662,19 +674,22 @@ export function PerformanceDashboard() {
     <div className="space-y-5">
       {/* ManageToolbar is now rendered by SchoolAdminShell, which wraps
           every /school/orgs/:orgId/* route. */}
+      {tourRole && me?.userId && <RoleTour role={tourRole} userId={me.userId} />}
 
       {/* Setup checklist — only for fresh schools with at least one
           incomplete actionable step and no prior dismissal. */}
       {showSetupChecklist && setupCounts && (
-        <SetupChecklist
-          orgId={orgId}
-          classCount={setupCounts.classCount}
-          studentCount={setupCounts.studentCount}
-          teacherCount={setupCounts.teacherCount}
-          linkCodeCount={setupCounts.linkCodeCount}
-          announcementCount={setupCounts.announcementCount}
-          onDismiss={() => setSetupDismissed(true)}
-        />
+        <div data-tour="setup-checklist">
+          <SetupChecklist
+            orgId={orgId}
+            classCount={setupCounts.classCount}
+            studentCount={setupCounts.studentCount}
+            teacherCount={setupCounts.teacherCount}
+            linkCodeCount={setupCounts.linkCodeCount}
+            announcementCount={setupCounts.announcementCount}
+            onDismiss={() => setSetupDismissed(true)}
+          />
+        </div>
       )}
 
       {/* Page title + period */}
@@ -736,7 +751,7 @@ export function PerformanceDashboard() {
               </div>
             )}
           </div>
-          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5">
+          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5" data-tour="kpi-grid">
             <KpiTile label="Students" tile={dashboard.tiles.students} Icon={Users} />
             <KpiTile label="Attendance Today" tile={dashboard.tiles.attendanceToday} Icon={CheckCircle} asPercent />
             <KpiTile label="Attendance Period" tile={dashboard.tiles.attendancePeriod} Icon={TrendingUp} asPercent />
@@ -754,11 +769,17 @@ export function PerformanceDashboard() {
       {/* Alerts row */}
       {dashboard && (
         dashboard.alerts.length === 0 ? (
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          <div
+            className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
+            data-tour="alerts-row"
+          >
             <span className="font-medium">All systems green</span> — no active alerts.
           </div>
         ) : (
-          <div className="flex gap-3 overflow-x-auto pb-1 lg:grid lg:grid-cols-5 lg:overflow-visible">
+          <div
+            className="flex gap-3 overflow-x-auto pb-1 lg:grid lg:grid-cols-5 lg:overflow-visible"
+            data-tour="alerts-row"
+          >
             {dashboard.alerts.map((a) => (
               <AlertCard key={a.id} alert={a} />
             ))}
@@ -767,7 +788,11 @@ export function PerformanceDashboard() {
       )}
 
       {/* Leaderboard */}
-      {leaderboard && <Leaderboard rows={leaderboard} orgId={orgId} />}
+      {leaderboard && (
+        <div data-tour="leaderboard">
+          <Leaderboard rows={leaderboard} orgId={orgId} />
+        </div>
+      )}
 
       {/* Breakdown panels */}
       {insights && (

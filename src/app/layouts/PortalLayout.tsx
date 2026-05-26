@@ -6,6 +6,8 @@ import { Link, NavLink, Outlet, useLocation, useNavigate, useParams } from "reac
 import { LogOut } from "lucide-react";
 import { usePinAuth } from "../contexts/PinAuthContext";
 import { listMyForms } from "../../utils/schoolPortalApi";
+import { RoleTour } from "../components/RoleTour";
+import type { TourRole } from "../../utils/tours";
 
 interface NavItem {
   label: string;
@@ -90,6 +92,13 @@ export function PortalLayout() {
     navigate("/school-login", { replace: true });
   };
 
+  const portalRole: TourRole | null =
+    subject?.subjectType === "student"
+      ? "portal_student"
+      : subject?.subjectType === "parent"
+      ? "portal_parent"
+      : null;
+
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="sticky top-0 z-30 bg-white border-b border-slate-200">
@@ -134,7 +143,10 @@ export function PortalLayout() {
           </div>
         </div>
         {activeStudentId && (
-          <nav className="max-w-6xl mx-auto px-4 -mb-px flex items-center gap-1 overflow-x-auto">
+          <nav
+            className="max-w-6xl mx-auto px-4 -mb-px flex items-center gap-1 overflow-x-auto"
+            data-tour="portal-nav"
+          >
             {NAV.map((item) => {
               const active = item.match(location.pathname, activeStudentId);
               return (
@@ -202,6 +214,10 @@ export function PortalLayout() {
       <main className="max-w-6xl mx-auto px-4 py-6">
         <Outlet />
       </main>
+
+      {portalRole && subject?.subjectId && (
+        <RoleTour role={portalRole} userId={subject.subjectId} />
+      )}
     </div>
   );
 }

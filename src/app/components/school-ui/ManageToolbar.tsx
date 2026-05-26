@@ -75,7 +75,7 @@ export function ManageToolbar({ orgId, isPrincipal }: ManageToolbarProps) {
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2" data-tour="manage-toolbar">
       {items.map(({ key, label, to, Icon }) => {
         const active = pathname === to || pathname.startsWith(to + "/");
         const activeClasses = `${accentBg} ${accentBorder} ${accentText} border`;

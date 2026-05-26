@@ -5,7 +5,7 @@
 // plus a placeholder danger-zone for future archive support.
 
 import { useEffect, useState } from "react";
-import { Navigate, useParams } from "react-router";
+import { Navigate, useNavigate, useParams } from "react-router";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
@@ -24,6 +24,7 @@ import {
   type OrgWithCounts,
   type SchoolMeResponse,
 } from "../../../utils/schoolApi";
+import { pickTourForUser, resetTour } from "../../../utils/tours";
 
 interface OrgFormState {
   name: string;
@@ -34,6 +35,7 @@ interface OrgFormState {
 
 export function OrgSettings() {
   const { orgId = "" } = useParams();
+  const navigate = useNavigate();
   const [me, setMe] = useState<SchoolMeResponse | null>(null);
   const [meLoading, setMeLoading] = useState(true);
   const [org, setOrg] = useState<OrgWithCounts | null>(null);
@@ -212,7 +214,28 @@ export function OrgSettings() {
         </div>
       </section>
 
-      {/* Section 3: Danger zone */}
+      {/* Section: Replay onboarding tour */}
+      <section className={`${cardBase} ${cardElev} p-5`}>
+        <h3 className={sectionTitleClasses}>Help &amp; onboarding</h3>
+        <div className="mt-4 flex items-center gap-3">
+          <Button
+            variant="outline"
+            onClick={() => {
+              if (!me) return;
+              const role = pickTourForUser(me, isOrgPrincipal(me, orgId));
+              if (role) resetTour(role, me.userId);
+              navigate(`/school/orgs/${orgId}`);
+            }}
+          >
+            Replay setup tour
+          </Button>
+          <span className="text-xs text-slate-500">
+            Walks you through the dashboard again.
+          </span>
+        </div>
+      </section>
+
+      {/* Section: Danger zone */}
       <section
         className={`bg-white border border-rose-200 rounded-xl shadow-sm p-5`}
       >

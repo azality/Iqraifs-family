@@ -64,7 +64,7 @@ export function StudentDashboard() {
         subtitle={sectionSubtitle || `GR # ${student.grNumber}`}
         asOf={`As of ${new Date().toLocaleDateString()}`}
       >
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" data-tour="portal-dashboard-tiles">
           <KpiTile
             icon={CalendarCheck}
             label="Attendance"
