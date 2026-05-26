@@ -762,6 +762,9 @@ export const deleteStudent = (orgId: string, studentId: string): Promise<void> =
 export interface BulkResult {
   inserted: number;
   errors: Array<{ row: number; message: string }>;
+  /** Number of newly-created auth users for whom a password-reset / set-password
+   *  email was sent. Optional — older endpoints don't populate it. */
+  invitedCount?: number;
 }
 
 export const bulkCreateAdminStudents = (
@@ -844,7 +847,11 @@ export const unlinkStudentParent = (
 
 // ─── Admin: Teachers & Admins ──────────────────────────────────────────
 
-export type RoleTemplate = "class_teacher" | "visiting_teacher";
+export type RoleTemplate =
+  | "class_teacher"
+  | "visiting_teacher"
+  | "financial_staff"
+  | "office_staff";
 
 export interface AdminTeacher {
   user_id: string;
@@ -859,14 +866,23 @@ export const listAdminTeachers = async (orgId: string): Promise<AdminTeacher[]> 
   return r?.teachers ?? [];
 };
 
+/** Response from POST /teachers — the created teacher, plus an optional
+ *  `invitedCount` (0 or 1) indicating whether a password-reset email was
+ *  sent to a new auth user. Older backends may return just the AdminTeacher
+ *  fields without `invitedCount`. */
+export type AddTeacherResponse = AdminTeacher & { invitedCount?: number };
+
 export const addTeacher = (
   orgId: string,
   body: { email: string; fullName: string; roleTemplate: RoleTemplate },
-): Promise<AdminTeacher> =>
+): Promise<AddTeacherResponse> =>
   apiCall(`/school/orgs/${orgId}/teachers`, {
     method: "POST",
     body: JSON.stringify(body),
   });
+
+/** Response from POST /admins — same idea as AddTeacherResponse. */
+export type AddAdminResponse = OrgAdmin & { invitedCount?: number };
 
 export const bulkCreateTeachers = (
   orgId: string,
@@ -892,7 +908,7 @@ export const listAdmins = async (orgId: string): Promise<OrgAdmin[]> => {
 export const addAdmin = (
   orgId: string,
   body: { email: string; fullName: string },
-): Promise<OrgAdmin> =>
+): Promise<AddAdminResponse> =>
   apiCall(`/school/orgs/${orgId}/admins`, {
     method: "POST",
     body: JSON.stringify(body),
