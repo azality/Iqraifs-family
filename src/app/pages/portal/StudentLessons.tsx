@@ -2,9 +2,17 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router";
-import { Video, Headphones, Paperclip } from "lucide-react";
+import { toast } from "sonner";
+import { Video, Headphones, Paperclip, CheckCircle2, Circle } from "lucide-react";
 import { HeroCard, cardBase, cardElev } from "../../components/school-ui";
-import { getMyStudentLessons, type Lesson } from "../../../utils/schoolPortalApi";
+import { usePinAuth } from "../../contexts/PinAuthContext";
+import {
+  getMyStudentLessons,
+  markLessonComplete,
+  unmarkLessonComplete,
+  getLessonCompletion,
+  type Lesson,
+} from "../../../utils/schoolPortalApi";
 
 function isoDaysAgo(days: number): string {
   const d = new Date();
@@ -18,10 +26,16 @@ function todayIso(): string {
 
 export function StudentLessons() {
   const { studentId = "" } = useParams<{ studentId: string }>();
+  const { subject } = usePinAuth();
+  const isStudent = subject?.subjectType === "student";
   const [startDate, setStartDate] = useState<string>(isoDaysAgo(30));
   const [endDate, setEndDate] = useState<string>(todayIso());
   const [lessons, setLessons] = useState<Lesson[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Map of lessonId → completedAt ISO (null = not completed). Hydrated
+  // lazily; null entries are "unknown until fetched".
+  const [completion, setCompletion] = useState<Record<string, string | null>>({});
+  const [pending, setPending] = useState<Set<string>>(new Set());
 
   const range = useMemo(() => ({ startDate, endDate, limit: 100 }), [startDate, endDate]);
 
@@ -40,6 +54,52 @@ export function StudentLessons() {
       cancelled = true;
     };
   }, [studentId, range]);
+
+  // Fetch completion state for each lesson we don't yet have.
+  useEffect(() => {
+    if (!lessons || !studentId) return;
+    let cancelled = false;
+    (async () => {
+      for (const l of lessons) {
+        if (l.id in completion) continue;
+        try {
+          const r = await getLessonCompletion(studentId, l.id);
+          if (cancelled) return;
+          setCompletion((s) => ({ ...s, [l.id]: r.completed ? r.completedAt : null }));
+        } catch {
+          // ignore individual failures — keeps the toggle usable as fallback
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // intentionally only depends on lessons + studentId; completion is mutated here
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lessons, studentId]);
+
+  const toggleComplete = async (lessonId: string) => {
+    if (!isStudent || pending.has(lessonId)) return;
+    const wasComplete = Boolean(completion[lessonId]);
+    setPending((s) => new Set(s).add(lessonId));
+    try {
+      if (wasComplete) {
+        await unmarkLessonComplete(studentId, lessonId);
+        setCompletion((s) => ({ ...s, [lessonId]: null }));
+      } else {
+        const r = await markLessonComplete(studentId, lessonId);
+        setCompletion((s) => ({ ...s, [lessonId]: r.completedAt }));
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to update");
+    } finally {
+      setPending((s) => {
+        const next = new Set(s);
+        next.delete(lessonId);
+        return next;
+      });
+    }
+  };
 
   return (
     <div className="space-y-5">
@@ -80,7 +140,11 @@ export function StudentLessons() {
       )}
 
       <div className="space-y-3">
-        {lessons?.map((l) => (
+        {lessons?.map((l) => {
+          const completedAt = completion[l.id];
+          const isComplete = Boolean(completedAt);
+          const isPending = pending.has(l.id);
+          return (
           <article key={l.id} className={`${cardBase} ${cardElev} p-5`}>
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
@@ -90,6 +154,37 @@ export function StudentLessons() {
                   {l.taught_by_name ? ` · by ${l.taught_by_name}` : ""}
                 </p>
               </div>
+              {isStudent ? (
+                <button
+                  type="button"
+                  onClick={() => toggleComplete(l.id)}
+                  disabled={isPending}
+                  className={
+                    "inline-flex items-center gap-1.5 text-xs rounded-md px-2.5 py-1.5 border font-medium whitespace-nowrap transition " +
+                    (isComplete
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
+                      : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50") +
+                    (isPending ? " opacity-50 cursor-wait" : "")
+                  }
+                >
+                  {isComplete ? (
+                    <>
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      Completed
+                    </>
+                  ) : (
+                    <>
+                      <Circle className="h-3.5 w-3.5" />
+                      Mark complete
+                    </>
+                  )}
+                </button>
+              ) : isComplete && completedAt ? (
+                <span className="inline-flex items-center gap-1.5 text-xs rounded-md px-2.5 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 whitespace-nowrap">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  Completed {new Date(completedAt).toLocaleDateString()}
+                </span>
+              ) : null}
             </div>
             {l.body && (
               <p className="mt-3 text-sm text-slate-700 whitespace-pre-wrap">{l.body}</p>
@@ -131,7 +226,8 @@ export function StudentLessons() {
               ))}
             </div>
           </article>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

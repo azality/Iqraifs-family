@@ -15,6 +15,9 @@ import type {
   Form,
   FormResponse,
   MyFormSummary,
+  Announcement,
+  AnnouncementAudienceKind,
+  FeeStatus,
 } from "./schoolApi";
 
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f`;
@@ -288,6 +291,42 @@ export const submitFormResponse = (
     body: JSON.stringify(body),
   });
 
+// ─── Announcements / Lesson completion / Fees (PIN-auth) ───────────────
+
+export const listMyAnnouncements = (): Promise<{ announcements: Announcement[] }> =>
+  pinApiCall(`/school/pin-me/announcements`);
+
+export const markLessonComplete = (
+  studentId: string,
+  lessonId: string,
+): Promise<{ ok: true; completedAt: string }> =>
+  pinApiCall(
+    `/school/pin-me/students/${studentId}/lessons/${lessonId}/complete`,
+    { method: "POST" },
+  );
+
+export const unmarkLessonComplete = (
+  studentId: string,
+  lessonId: string,
+): Promise<{ ok: true }> =>
+  pinApiCall(
+    `/school/pin-me/students/${studentId}/lessons/${lessonId}/complete`,
+    { method: "DELETE" },
+  );
+
+export const getLessonCompletion = (
+  studentId: string,
+  lessonId: string,
+): Promise<{ completed: boolean; completedAt: string | null }> =>
+  pinApiCall(
+    `/school/pin-me/students/${studentId}/lessons/${lessonId}/completion`,
+  );
+
+export const getMyStudentFees = (
+  studentId: string,
+): Promise<{ fees: FeeStatus[] }> =>
+  pinApiCall(`/school/pin-me/students/${studentId}/fees`);
+
 // ─── Re-exported types from schoolApi ───────────────────────────────────
 
 export type {
@@ -303,4 +342,7 @@ export type {
   FormResponse,
   FormResponseValue,
   MyFormSummary,
+  Announcement,
+  AnnouncementAudienceKind,
+  FeeStatus,
 } from "./schoolApi";

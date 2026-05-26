@@ -21,6 +21,7 @@ import {
   ClipboardList,
   ShieldCheck,
   Settings as SettingsIcon,
+  Megaphone,
 } from "lucide-react";
 import { accentBg, accentBorder, accentText } from "./tokens";
 
@@ -50,6 +51,12 @@ export function ManageToolbar({ orgId, isPrincipal }: ManageToolbarProps) {
       label: "Roster Requests",
       to: `/school/orgs/${orgId}/admin/roster-requests`,
       Icon: ClipboardList,
+    },
+    {
+      key: "announcements",
+      label: "Announcements",
+      to: `/school/orgs/${orgId}/admin/announcements`,
+      Icon: Megaphone,
     },
   ];
   if (isPrincipal) {

@@ -1979,5 +1979,86 @@ export const submitFormResponse = (
     body: JSON.stringify(body),
   });
 
+// ─── Announcements ─────────────────────────────────────────────────────
+
+export type AnnouncementAudienceKind =
+  | "whole_school"
+  | "class_section"
+  | "parents_only"
+  | "students_only"
+  | "specific_students";
+
+export interface Announcement {
+  id: string;
+  org_id: string;
+  author_user_id: string | null;
+  author_name?: string | null;
+  audience_kind: AnnouncementAudienceKind;
+  audience_section_id: string | null;
+  audience_student_ids: string[] | null;
+  title: string;
+  body: string;
+  attachments: Array<{ label: string; url: string }>;
+  published_at: string;
+  expires_at: string | null;
+  created_at: string;
+}
+
+export interface AnnouncementInput {
+  title: string;
+  body: string;
+  audienceKind: AnnouncementAudienceKind;
+  audienceSectionId?: string;
+  audienceStudentIds?: string[];
+  attachments?: Array<{ label: string; url: string }>;
+  expiresAt?: string;
+}
+
+export const postAnnouncement = (
+  orgId: string,
+  body: AnnouncementInput,
+): Promise<Announcement> =>
+  apiCall(`/school/orgs/${orgId}/announcements`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const listAnnouncements = (
+  orgId: string,
+  opts: { creatorOnly?: boolean } = {},
+): Promise<{ announcements: Announcement[] }> => {
+  const q = new URLSearchParams();
+  if (opts.creatorOnly) q.append("creatorOnly", "true");
+  const qs = q.toString() ? `?${q}` : "";
+  return apiCall(`/school/orgs/${orgId}/announcements${qs}`);
+};
+
+export const getAnnouncement = (
+  orgId: string,
+  announcementId: string,
+): Promise<Announcement> =>
+  apiCall(`/school/orgs/${orgId}/announcements/${announcementId}`);
+
+export const deleteAnnouncement = (
+  orgId: string,
+  announcementId: string,
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/announcements/${announcementId}`, {
+    method: "DELETE",
+  });
+
+export const getLessonCompletions = (
+  orgId: string,
+  sectionId: string,
+  lessonId: string,
+): Promise<{
+  completions: Array<{ studentId: string; completedAt: string }>;
+  totalStudents: number;
+  completedCount: number;
+}> =>
+  apiCall(
+    `/school/orgs/${orgId}/sections/${sectionId}/lessons/${lessonId}/completions`,
+  );
+
 // Re-export apiCall so callers can hit ad-hoc endpoints without a second import.
 export { apiCall };
