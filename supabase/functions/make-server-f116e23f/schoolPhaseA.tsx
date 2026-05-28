@@ -1103,7 +1103,12 @@ export function installPhaseA(school: Hono) {
         invited = true;
       }
     }
-    return c.json({ userId: targetUserId, ok: true, invited }, 201);
+    // Return both the legacy `invited:boolean` and the count-style
+    // `invitedCount` that the frontend reads — matches the bulk endpoint.
+    return c.json(
+      { userId: targetUserId, ok: true, invited, invitedCount: invited ? 1 : 0 },
+      201,
+    );
   });
 
   school.delete("/orgs/:orgId/admins/:userId", async (c) => {
@@ -1137,18 +1142,21 @@ export function installPhaseA(school: Hono) {
     if (error) return c.json({ error: error.message }, 500);
 
     // Hydrate emails / names from auth.users.
+    // Use snake_case keys to match the frontend OrgAdmin type
+    // ({ user_id, email, full_name }) — earlier camelCase shape
+    // made admin rows render blank and "remove admin" no-op.
     const out: any[] = [];
     for (const row of data ?? []) {
       try {
         const { data: u } = await (serviceRoleClient as any).auth.admin.getUserById(row.user_id);
         out.push({
-          userId: row.user_id,
-          email: u?.user?.email ?? null,
-          fullName: u?.user?.user_metadata?.name ?? null,
-          grantedAt: row.granted_at,
+          user_id: row.user_id,
+          email: u?.user?.email ?? "",
+          full_name: u?.user?.user_metadata?.name ?? "",
+          granted_at: row.granted_at,
         });
       } catch {
-        out.push({ userId: row.user_id, email: null, fullName: null, grantedAt: row.granted_at });
+        out.push({ user_id: row.user_id, email: "", full_name: "", granted_at: row.granted_at });
       }
     }
     return c.json({ admins: out });
