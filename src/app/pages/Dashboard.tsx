@@ -266,6 +266,26 @@ export function Dashboard() {
   const recentEvents = dedupedActivity.slice(0, activityVisible);
   const hasMoreActivity = dedupedActivity.length > activityVisible;
 
+  // Running balance per event — anchored at the child's CURRENT points
+  // and walked backwards through the (newest-first) event list. So the
+  // row says "Balance: 155 → 105" meaning the kid had 155 before this
+  // event and 105 after it. Voided events don't move the running balance
+  // (they were reversed); we still show the same number on both sides
+  // so the row is annotated but doesn't lie about the math.
+  const eventBalance = (() => {
+    const map = new Map<string, { before: number; after: number }>();
+    if (!child) return map;
+    let runningAfter = child.currentPoints ?? 0;
+    for (const e of pointEvents) {
+      const isVoided = (e as any).status === 'voided';
+      const after = runningAfter;
+      const before = isVoided ? runningAfter : runningAfter - (e.points || 0);
+      map.set(e.id, { before, after });
+      if (!isVoided) runningAfter = before;
+    }
+    return map;
+  })();
+
   // v21: Group visible activity rows by date for legibility. Today /
   // Yesterday / weekday name / full date — much easier to skim than
   // 30+ rows each carrying a full ISO timestamp.
@@ -794,6 +814,20 @@ export function Dashboard() {
                           <span> · by {(event as any).__loggedByName}</span>
                         )}
                       </p>
+                      {/* Running balance — "Balance: 155 → 105" so the
+                          parent can see the impact each event had on the
+                          ledger. Hidden on voided rows since the math
+                          there is a no-op. */}
+                      {!isVoided && eventBalance.has(event.id) && (() => {
+                        const b = eventBalance.get(event.id)!;
+                        return (
+                          <p className="text-xs text-muted-foreground">
+                            Balance: <span className="font-medium text-slate-700">{b.before}</span>
+                            <span className="mx-1">→</span>
+                            <span className="font-semibold text-slate-900">{b.after}</span>
+                          </p>
+                        );
+                      })()}
                       {event.notes && (
                         <p className="text-sm italic text-muted-foreground">{event.notes}</p>
                       )}
