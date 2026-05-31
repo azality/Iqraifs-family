@@ -1863,15 +1863,23 @@ app.post(
         let newPoints = child.currentPoints + pointsToAdd;
         const newHighest = Math.max(child.highestMilestone || 0, newPoints);
         
-        // Milestone floor protection - cannot go below highest milestone
-        const allMilestones = await kv.getByPrefix('milestone:');
-        const achievedMilestones = allMilestones
-          .filter((m: any) => m.points <= newHighest)
-          .sort((a: any, b: any) => b.points - a.points);
-        
-        const floor = achievedMilestones[0]?.points || 0;
-        if (newPoints < floor) {
-          newPoints = floor;
+        // Milestone floor protection - cannot go below highest milestone.
+        // EXCEPT for parent-applied adjustments (isAdjustment: true), which
+        // includes reward redemptions. Otherwise a kid who hit a 100-pt
+        // milestone would never be able to spend points — every redemption
+        // would silently snap back to the floor. The UI would say "redeemed"
+        // but the deduction would be reversed.
+        const skipFloor = !!eventData.isAdjustment;
+        if (!skipFloor) {
+          const allMilestones = await kv.getByPrefix('milestone:');
+          const achievedMilestones = allMilestones
+            .filter((m: any) => m.points <= newHighest)
+            .sort((a: any, b: any) => b.points - a.points);
+
+          const floor = achievedMilestones[0]?.points || 0;
+          if (newPoints < floor) {
+            newPoints = floor;
+          }
         }
         
         // Ensure points never go negative
