@@ -1863,26 +1863,15 @@ app.post(
         let newPoints = child.currentPoints + pointsToAdd;
         const newHighest = Math.max(child.highestMilestone || 0, newPoints);
         
-        // Milestone floor protection - cannot go below highest milestone.
-        // EXCEPT for parent-applied adjustments (isAdjustment: true), which
-        // includes reward redemptions. Otherwise a kid who hit a 100-pt
-        // milestone would never be able to spend points — every redemption
-        // would silently snap back to the floor. The UI would say "redeemed"
-        // but the deduction would be reversed.
-        const skipFloor = !!eventData.isAdjustment;
-        if (!skipFloor) {
-          const allMilestones = await kv.getByPrefix('milestone:');
-          const achievedMilestones = allMilestones
-            .filter((m: any) => m.points <= newHighest)
-            .sort((a: any, b: any) => b.points - a.points);
-
-          const floor = achievedMilestones[0]?.points || 0;
-          if (newPoints < floor) {
-            newPoints = floor;
-          }
-        }
-        
-        // Ensure points never go negative
+        // Milestone floor REMOVED. Earlier we tried to protect kids from
+        // ever dropping below their highest earned milestone, but that
+        // made (a) redemptions secretly no-op and (b) concerns toothless
+        // — a kid past 100 pts could never lose points for misbehavior.
+        // The `highestMilestone` field below still records the kid's
+        // best-ever total for celebration purposes; we just don't let
+        // it create a one-way ratchet on currentPoints anymore.
+        //
+        // Points still can't go below zero — that floor stays.
         if (newPoints < 0) {
           newPoints = 0;
         }
@@ -2061,17 +2050,11 @@ app.post(
       const child = await kv.get(event.childId);
       if (child) {
         const reversedPoints = child.currentPoints - event.points;
-        const newPoints = Math.max(0, reversedPoints); // Never go negative
-        
-        // Apply milestone floor
-        const allMilestones = await kv.getByPrefix('milestone:');
-        const achievedMilestones = allMilestones
-          .filter((m: any) => m.points <= child.highestMilestone)
-          .sort((a: any, b: any) => b.points - a.points);
-        
-        const floor = achievedMilestones[0]?.points || 0;
-        const finalPoints = Math.max(newPoints, floor);
-        
+        // Points still can't go negative, but milestone floor is removed
+        // (see comment on the events POST handler) — voiding an earned
+        // event should actually undo the points.
+        const finalPoints = Math.max(0, reversedPoints);
+
         await kv.set(event.childId, {
           ...child,
           currentPoints: finalPoints
@@ -5364,20 +5347,13 @@ app.post(
     if (attemptData.childId && attemptData.pointsEarned > 0) {
       const child = await kv.get(attemptData.childId);
       if (child) {
-        let newPoints = child.currentPoints + attemptData.pointsEarned;
+        const newPoints = child.currentPoints + attemptData.pointsEarned;
         const newHighest = Math.max(child.highestMilestone || 0, newPoints);
-        
-        // Milestone floor protection
-        const allMilestones = await kv.getByPrefix('milestone:');
-        const achievedMilestones = allMilestones
-          .filter((m: any) => m.points <= newHighest)
-          .sort((a: any, b: any) => b.points - a.points);
-        
-        const floor = achievedMilestones[0]?.points || 0;
-        if (newPoints < floor) {
-          newPoints = floor;
-        }
-        
+
+        // Milestone floor removed — quiz points only go up anyway,
+        // but the symmetry matters: highestMilestone is a high-water
+        // mark for celebration, not a floor on currentPoints.
+
         await kv.set(attemptData.childId, {
           ...child,
           currentPoints: newPoints,
@@ -6159,20 +6135,11 @@ app.post(
     if (convertedPoints > 0) {
       const child = await kv.get(session.childId);
       if (child) {
-        let newPoints = child.currentPoints + convertedPoints;
+        const newPoints = child.currentPoints + convertedPoints;
         const newHighest = Math.max(child.highestMilestone || 0, newPoints);
-        
-        // Milestone floor protection
-        const allMilestones = await kv.getByPrefix('milestone:');
-        const achievedMilestones = allMilestones
-          .filter((m: any) => m.points <= newHighest)
-          .sort((a: any, b: any) => b.points - a.points);
-        
-        const floor = achievedMilestones[0]?.points || 0;
-        if (newPoints < floor) {
-          newPoints = floor;
-        }
-        
+
+        // Milestone floor removed — see comment on events POST handler.
+
         await kv.set(session.childId, {
           ...child,
           currentPoints: newPoints,
