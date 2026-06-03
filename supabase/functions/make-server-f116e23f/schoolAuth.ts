@@ -157,6 +157,98 @@ export async function requireTeacherOfSection(
 }
 
 // =============================================================================
+// Permission resolution (PR E #3)
+// =============================================================================
+// The role_template_override table stores per-org deviations from the
+// hardcoded DEFAULT_PERMISSIONS map in schoolPhaseA.tsx. Most gates today
+// still check roles directly ("if class_teacher OR visiting_teacher then OK").
+// The right primitive is: "does this user have permission KEY in this org",
+// resolved through role → effective permission (override or default).
+//
+// New routes should call userCanInOrg(). Existing routes can migrate
+// incrementally — we don't refactor 50+ call sites in one PR.
+// =============================================================================
+
+export type PermissionKey =
+  | "manage_students"
+  | "mark_attendance"
+  | "edit_grades"
+  | "mark_fees_status"
+  | "create_forms"
+  | "define_curriculum"
+  | "manage_teachers"
+  | "view_all_classes";
+
+// Mirror of DEFAULT_PERMISSIONS in schoolPhaseA.tsx. Kept in sync by hand;
+// when you add a new permission, update both places. (Future cleanup: hoist
+// to a shared module and import both sides.)
+const DEFAULT_PERMS: Record<SchoolRole, Partial<Record<PermissionKey, boolean>>> = {
+  principal: {
+    manage_students: true, mark_attendance: true, edit_grades: true,
+    mark_fees_status: true, create_forms: true, define_curriculum: true,
+    manage_teachers: true, view_all_classes: true,
+  },
+  admin: {
+    manage_students: true, mark_attendance: true, edit_grades: true,
+    mark_fees_status: true, create_forms: true, define_curriculum: true,
+    manage_teachers: true, view_all_classes: true,
+  },
+  class_teacher: {
+    mark_attendance: true, edit_grades: true,
+    create_forms: true, define_curriculum: true,
+  },
+  visiting_teacher: {
+    mark_attendance: true,
+  },
+  teacher: {
+    mark_attendance: true, edit_grades: true,
+  },
+  financial_staff: {
+    mark_fees_status: true,
+  },
+  office_staff: {
+    manage_students: true, mark_attendance: true, create_forms: true,
+    manage_teachers: true, view_all_classes: true,
+  },
+};
+
+/** Effective permission for (org, role, key). Reads role_template_override
+ *  if a row exists; otherwise falls back to DEFAULT_PERMS. Returns false
+ *  when no row and no default. */
+export async function getEffectivePermission(
+  orgId: string,
+  role: SchoolRole,
+  key: PermissionKey,
+): Promise<boolean> {
+  const { data: override } = await serviceRoleClient
+    .from("role_template_override")
+    .select("allowed")
+    .eq("org_id", orgId)
+    .eq("role_template", role)
+    .eq("permission_key", key)
+    .maybeSingle();
+  if (override) return !!(override as any).allowed;
+  return DEFAULT_PERMS[role]?.[key] ?? false;
+}
+
+/** Does this user, via any role they hold in this org, have permission KEY?
+ *  Principal/admin always pass for everything (they're trust-root + power
+ *  user respectively). For others, resolves through getEffectivePermission. */
+export async function userCanInOrg(
+  userId: string,
+  orgId: string,
+  key: PermissionKey,
+): Promise<boolean> {
+  if (await isPrincipalOf(userId, orgId)) return true;
+  if (await isAdminOf(userId, orgId)) return true;
+  const roles = await getOrgRoles(userId, orgId);
+  for (const r of roles) {
+    if (await getEffectivePermission(orgId, r, key)) return true;
+  }
+  return false;
+}
+
+// =============================================================================
 // requireOrgRole — Hono middleware FACTORY
 //
 // Usage:

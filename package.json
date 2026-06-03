@@ -19,7 +19,9 @@
     "ios:kids": "npm run sync:kids && npm run open:kids",
     "full:parent": "npm run sync:parent && npm run cap:sync:parent && npm run open:parent",
     "full:kids": "npm run sync:kids && npm run cap:sync:kids && npm run open:kids",
-    "dev": "vite"
+    "dev": "vite",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@capacitor/cli": "^8.1.0",
@@ -90,7 +92,8 @@
     "@vitejs/plugin-react": "4.7.0",
     "tailwindcss": "4.1.12",
     "typescript": "^5.7.3",
-    "vite": "6.3.5"
+    "vite": "6.3.5",
+    "vitest": "^2.1.9"
   },
   "peerDependencies": {
     "react": "18.3.1",
