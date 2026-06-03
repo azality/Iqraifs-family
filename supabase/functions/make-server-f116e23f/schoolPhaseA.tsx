@@ -945,7 +945,10 @@ export function installPhaseA(school: Hono) {
       seen.add(key);
       dedup.push({ user_id: r.user_id, role_type: r.role_type });
     }
-    const out: Array<{ user_id: string; full_name: string; email: string; role_type: string }> = [];
+    // Frontend AdminTeacher type expects `role_template` (and reads it
+     // directly: t.role_template.replace(...)). Return both keys so the
+     // page doesn't crash on undefined.replace().
+    const out: Array<{ user_id: string; full_name: string; email: string; role_type: string; role_template: string }> = [];
     for (const d of dedup) {
       try {
         const { data: lookup } = await serviceRoleClient.auth.admin.getUserById(d.user_id);
@@ -955,9 +958,10 @@ export function installPhaseA(school: Hono) {
           full_name: u?.user_metadata?.name || u?.email?.split("@")[0] || "Unknown",
           email: u?.email || "",
           role_type: d.role_type,
+          role_template: d.role_type,
         });
       } catch {
-        out.push({ user_id: d.user_id, full_name: "Unknown", email: "", role_type: d.role_type });
+        out.push({ user_id: d.user_id, full_name: "Unknown", email: "", role_type: d.role_type, role_template: d.role_type });
       }
     }
     return c.json({ teachers: out });

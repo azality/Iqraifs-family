@@ -162,7 +162,7 @@ export function ManageTeachers() {
     {
       key: "role_template",
       header: "Role",
-      cell: (t) => <span className="text-xs capitalize">{t.role_template.replace("_", " ")}</span>,
+      cell: (t) => <span className="text-xs capitalize">{(t.role_template ?? (t as any).role_type ?? "").replace("_", " ")}</span>,
     },
   ];
 
