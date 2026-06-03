@@ -17,6 +17,16 @@ import {
   sectionTitleClasses,
 } from "../../components/school-ui";
 import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "../../components/ui/dialog";
+import { AlertTriangle } from "lucide-react";
+import {
+  deleteSchool,
   getOrganization,
   getSchoolMe,
   isOrgPrincipal,
@@ -55,6 +65,14 @@ export function OrgSettings() {
   const [yearSaving, setYearSaving] = useState(false);
   const [yearError, setYearError] = useState<string | null>(null);
   const [yearSavedAt, setYearSavedAt] = useState<number | null>(null);
+
+  // Delete-school state — typed-name confirmation. We compare against the
+  // CURRENT loaded org name (not the unsaved form value) so that an
+  // accidental rename-then-delete doesn't bypass the guard.
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteTyped, setDeleteTyped] = useState("");
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
@@ -239,13 +257,106 @@ export function OrgSettings() {
       <section
         className={`bg-white border border-rose-200 rounded-xl shadow-sm p-5`}
       >
-        <h3 className={`${sectionTitleClasses} text-rose-700`}>Danger zone</h3>
-        <div className="mt-4">
-          <Button variant="outline" disabled>
-            Archive school — coming soon
-          </Button>
+        <h3 className={`${sectionTitleClasses} text-rose-700 flex items-center gap-2`}>
+          <AlertTriangle className="h-4 w-4" /> Danger zone
+        </h3>
+        <div className="mt-4 space-y-2">
+          <p className="text-sm text-slate-700">
+            Permanently delete this school. All classes, students, attendance,
+            hifz, fees, and announcements will be removed.
+          </p>
+          <ul className="text-xs text-slate-600 list-disc pl-5 space-y-0.5">
+            <li>The school disappears from everyone's workspace switcher immediately.</li>
+            <li>30-day grace window — contact support during that time to restore.</li>
+            <li>After the grace window ends, the data is permanently removed.</li>
+            <li>You'll need to type the school name exactly to confirm.</li>
+          </ul>
+          <div className="pt-2">
+            <Button
+              variant="outline"
+              className="border-rose-300 text-rose-700 hover:bg-rose-50"
+              onClick={() => {
+                setDeleteOpen(true);
+                setDeleteTyped("");
+                setDeleteError(null);
+              }}
+            >
+              Delete school…
+            </Button>
+          </div>
         </div>
       </section>
+
+      {/* Delete-school confirmation dialog. Confirm button stays disabled
+          until the typed text matches org.organization.name exactly. */}
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-rose-700 flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5" />
+              Delete {org?.organization.name ?? "school"}?
+            </DialogTitle>
+            <DialogDescription className="text-slate-700">
+              This action will schedule the school for permanent deletion in 30
+              days. To confirm, type the school name exactly as shown:
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm font-mono bg-slate-100 px-3 py-2 rounded">
+              {org?.organization.name}
+            </p>
+            <Input
+              type="text"
+              autoFocus
+              placeholder="Type the school name to confirm"
+              value={deleteTyped}
+              onChange={(e) => setDeleteTyped(e.target.value)}
+              className="border-rose-300"
+            />
+            {deleteError && (
+              <p className="text-xs text-rose-700">{deleteError}</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteOpen(false)}
+              disabled={deleteSubmitting}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="bg-rose-600 hover:bg-rose-700 text-white"
+              disabled={
+                deleteSubmitting ||
+                !org ||
+                deleteTyped.trim() !== org.organization.name
+              }
+              onClick={async () => {
+                if (!org) return;
+                setDeleteSubmitting(true);
+                setDeleteError(null);
+                try {
+                  const res = await deleteSchool(orgId, deleteTyped.trim());
+                  setDeleteOpen(false);
+                  // Bounce the user out — the org no longer exists in their
+                  // workspace switcher. Show the message as a top-level alert
+                  // first so they understand what happened and can read the
+                  // grace-window date.
+                  alert(res.message);
+                  navigate("/");
+                } catch (e) {
+                  setDeleteError(e instanceof Error ? e.message : String(e));
+                } finally {
+                  setDeleteSubmitting(false);
+                }
+              }}
+            >
+              {deleteSubmitting ? "Deleting…" : "Delete school"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
