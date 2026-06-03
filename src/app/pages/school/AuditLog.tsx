@@ -25,6 +25,7 @@ const ACTION_LABELS: Record<string, string> = {
   resend_invite: "Resent invite",
   staff_self_leave: "Left school",
   delete_school: "Deleted school",
+  transfer_ownership: "Transferred ownership",
 };
 
 function relativeTime(iso: string): string {

@@ -978,6 +978,25 @@ export interface LeaveSchoolResponse {
 export const leaveSchool = (orgId: string): Promise<LeaveSchoolResponse> =>
   apiCall(`/school/orgs/${orgId}/staff/me`, { method: "DELETE" });
 
+/** Transfer principal role to another user (PR I). Caller must be the
+ *  current principal. confirmName must match the org name exactly. After
+ *  success, the caller is demoted to admin so they don't lose access. */
+export interface TransferOwnershipResponse {
+  ok: true;
+  newPrincipalUserId: string;
+  yourNewRole: "admin";
+  message: string;
+}
+
+export const transferOwnership = (
+  orgId: string,
+  body: { targetUserId: string; confirmName: string },
+): Promise<TransferOwnershipResponse> =>
+  apiCall(`/school/orgs/${orgId}/transfer-ownership`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
 /** Invite & staff-change audit entries. Append-only, principal/admin only. */
 export interface AuditEntry {
   id: string;

@@ -562,6 +562,139 @@ school.delete("/orgs/:orgId/staff/me", async (c) => {
 });
 
 // -----------------------------------------------------------------------------
+// POST /orgs/:orgId/transfer-ownership — principal hands the school over to
+// another user (typically an existing admin). High-stakes operation; we
+// require typed-name confirmation matching the school name, same guard as
+// delete-school.
+//
+// Behavior:
+//   1. Revoke caller's principal role.
+//   2. Grant principal to targetUserId. If target already has a non-revoked
+//      role in this org (e.g. they were admin) we revoke that first so the
+//      "one user, one role per org" invariant from the dedupe check holds.
+//   3. Grant the caller an admin role on the same org so they don't lose
+//      access — the NEW principal can then remove them or the old principal
+//      can self-leave via DELETE /staff/me.
+//   4. Audit log entry.
+//
+// All four DB writes happen sequentially; we do NOT wrap in an explicit
+// transaction because supabase-js doesn't expose one. The window is small
+// and each step is idempotent on retry, but a partial failure could leave
+// the school with 0 or 2 principals. Worth tightening later with a stored
+// procedure.
+// -----------------------------------------------------------------------------
+school.post("/orgs/:orgId/transfer-ownership", async (c) => {
+  const callerId = getAuthUserId(c);
+  if (!callerId) return c.json({ error: "unauthenticated", code: "UNAUTHENTICATED" }, 401);
+  const orgId = c.req.param("orgId");
+
+  if (!(await isPrincipalOf(callerId, orgId))) {
+    return c.json(
+      { error: "Only the current principal can transfer ownership.", code: "FORBIDDEN_NOT_PRINCIPAL" },
+      403,
+    );
+  }
+
+  const body = (await c.req.json().catch(() => ({}))) as { targetUserId?: string; confirmName?: string };
+  if (!body.targetUserId) {
+    return c.json({ error: "targetUserId required", code: "MISSING_TARGET" }, 400);
+  }
+  if (body.targetUserId === callerId) {
+    return c.json({ error: "Cannot transfer ownership to yourself.", code: "SAME_USER" }, 400);
+  }
+  if (!body.confirmName) {
+    return c.json({ error: "confirmName required", code: "CONFIRM_NAME_REQUIRED" }, 400);
+  }
+
+  const { data: org } = await serviceRoleClient
+    .from("organizations")
+    .select("id, name")
+    .eq("id", orgId)
+    .maybeSingle();
+  if (!org) return c.json({ error: "not found", code: "NOT_FOUND" }, 404);
+  if (body.confirmName.trim() !== (org as any).name) {
+    return c.json(
+      { error: "School name did not match. Please type the name exactly as shown.", code: "CONFIRM_NAME_MISMATCH" },
+      400,
+    );
+  }
+
+  // Confirm target actually has an account in Supabase Auth.
+  const { data: targetLookup, error: lookupErr } = await (serviceRoleClient as any)
+    .auth.admin.getUserById(body.targetUserId);
+  if (lookupErr || !targetLookup?.user) {
+    return c.json({ error: "target user not found", code: "TARGET_NOT_FOUND" }, 404);
+  }
+  const targetEmail = targetLookup.user.email ?? null;
+
+  const nowIso = new Date().toISOString();
+
+  // 1. Revoke caller's principal row.
+  const { error: revokeErr } = await serviceRoleClient
+    .from("user_roles")
+    .update({ revoked_at: nowIso })
+    .eq("user_id", callerId)
+    .eq("role_type", "principal")
+    .eq("scope_type", "organization")
+    .eq("scope_id", orgId)
+    .is("revoked_at", null);
+  if (revokeErr) return c.json({ error: revokeErr.message }, 500);
+
+  // 2a. Revoke any existing role the target already has in this org (e.g.
+  // they were an admin). Keeps the one-role-per-user invariant intact.
+  await serviceRoleClient
+    .from("user_roles")
+    .update({ revoked_at: nowIso })
+    .eq("user_id", body.targetUserId)
+    .eq("scope_type", "organization")
+    .eq("scope_id", orgId)
+    .is("revoked_at", null);
+
+  // 2b. Grant principal to target.
+  const { error: grantErr } = await serviceRoleClient.from("user_roles").insert({
+    user_id: body.targetUserId,
+    role_type: "principal",
+    scope_type: "organization",
+    scope_id: orgId,
+    granted_by: callerId,
+  });
+  if (grantErr) return c.json({ error: grantErr.message }, 500);
+
+  // 3. Demote caller to admin so they don't lose all access. Idempotent —
+  // if a revoked admin row exists, we insert a fresh one (the dedupe
+  // check we do at staff-add time would catch this, but here we're
+  // explicitly handing the demotion ourselves).
+  const { error: demoteErr } = await serviceRoleClient.from("user_roles").insert({
+    user_id: callerId,
+    role_type: "admin",
+    scope_type: "organization",
+    scope_id: orgId,
+    granted_by: body.targetUserId,
+  });
+  if (demoteErr && (demoteErr as any).code !== "23505") {
+    return c.json({ error: demoteErr.message }, 500);
+  }
+
+  // 4. Audit. New action code so the AuditLog UI can label it distinctly.
+  await logAuditWithLookup({
+    orgId,
+    actorUserId: callerId,
+    action: "transfer_ownership" as any, // extending the AuditAction union below
+    targetUserId: body.targetUserId,
+    targetEmail,
+    targetRole: "principal",
+    details: { previousPrincipal: callerId },
+  });
+
+  return c.json({
+    ok: true,
+    newPrincipalUserId: body.targetUserId,
+    yourNewRole: "admin",
+    message: `Ownership transferred to ${targetEmail ?? body.targetUserId}. You are now an admin of this school.`,
+  });
+});
+
+// -----------------------------------------------------------------------------
 // POST /admin/purge-soft-deleted-orgs — manual trigger for the daily purge.
 //
 // Calls the purge_soft_deleted_orgs() Postgres function defined in
