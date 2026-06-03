@@ -3,6 +3,8 @@ import { ChildSelector } from "../components/ChildSelector";
 import { ModeSwitcher } from "../components/ModeSwitcher";
 import { WorkspaceSwitcher } from "../components/WorkspaceSwitcher";
 import { useWorkspace } from "../contexts/WorkspaceContext";
+import { ManageToolbar } from "../components/school-ui";
+import { isOrgPrincipal } from "../../utils/schoolApi";
 import {
   Home, FileText, BarChart3, Settings, Calendar, Gift, Shield,
   Menu, X, Trophy, Sliders, Edit, LogOut, Compass,
@@ -131,6 +133,19 @@ export function RootLayout() {
   // see school chrome ever — they get the KidLayout instead, but defense
   // in depth: never show school nav when isKidMode either).
   const isSchoolWorkspace = workspace.kind === 'school' && !isKidMode;
+
+  // School ManageToolbar lives inline in this top bar (rather than in a
+  // separate row in SchoolAdminShell) so the school workspace doesn't burn
+  // a whole vertical row on chrome. Extract orgId from the URL —
+  // /school/orgs/<uuid>/... — and figure out principal status from the
+  // workspace context's `me`.
+  const schoolOrgIdMatch = isSchoolWorkspace
+    ? location.pathname.match(/\/school\/orgs\/([^/]+)/)
+    : null;
+  const schoolOrgId = schoolOrgIdMatch?.[1] ?? workspace.orgId ?? "";
+  const isSchoolPrincipal = isSchoolWorkspace
+    ? isOrgPrincipal(workspace.me ?? null, schoolOrgId)
+    : false;
 
   // Visible groups — workspace selects the base set; kid mode (family
   // workspace only) further filters items to childAccess.
@@ -317,21 +332,28 @@ export function RootLayout() {
               )}
             </Link>
 
-            {/* Center: Child selector (desktop). Hidden in school
-                workspace — children belong to the family chrome. */}
-            <div className="hidden md:block flex-1 max-w-xs">
+            {/* Center: in family workspace → Child selector. In school
+                workspace → ManageToolbar (Classes / Students / Parents /
+                Teachers / Link Codes / Roster Requests / Announcements /
+                Permissions / Settings). Lives here instead of a separate
+                row below so the school view doesn't burn a whole vertical
+                row on chrome. */}
+            <div className={
+              isSchoolWorkspace
+                ? "hidden lg:flex flex-1 min-w-0 justify-center overflow-x-auto"
+                : "hidden md:block flex-1 max-w-xs"
+            }>
               {!isSchoolWorkspace && <ChildSelector />}
+              {isSchoolWorkspace && schoolOrgId && (
+                <ManageToolbar orgId={schoolOrgId} isPrincipal={isSchoolPrincipal} />
+              )}
             </div>
 
             {/* Right: workspace switcher + mode switcher + user + logout */}
             <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
               {/* Workspace switcher renders nothing if the user has no
-                  school role, so family-only users see no extra chrome.
-                  Hidden in the school workspace because SchoolAdminShell
-                  renders its own switcher pill inline with the ManageToolbar
-                  (single combined row) — showing it here too would duplicate
-                  the control. */}
-              {!isChildLoggedIn && !isSchoolWorkspace && <WorkspaceSwitcher />}
+                  school role, so family-only users see no extra chrome. */}
+              {!isChildLoggedIn && <WorkspaceSwitcher />}
               {/* Mode (parent/kid preview) only makes sense in family
                   workspace; hide it in school workspace. */}
               {!isChildLoggedIn && !isSchoolWorkspace && (
