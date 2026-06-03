@@ -964,6 +964,121 @@ export function installPhaseA(school: Hono) {
   });
 
   // -------------------------------------------------------------------------
+  // TEACHERS SINGLE — frontend addTeacher() helper calls this. Previously
+  // missing; only the bulk endpoint existed, so the "+ Add Teacher" form
+  // 404'd with "Route not found". Mirrors the admin POST flow: looks up
+  // an existing auth user by email or creates one, grants the role row,
+  // and sends a password-reset email so the invitee can set a password.
+  // -------------------------------------------------------------------------
+  school.post("/orgs/:orgId/teachers", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await requireAdminOrPrincipal(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    if (!body?.email || !body?.fullName) {
+      return c.json({ error: "email and fullName required" }, 400);
+    }
+    const allowedTemplates: RoleTemplate[] = [
+      "class_teacher",
+      "visiting_teacher",
+      "financial_staff",
+      "office_staff",
+    ];
+    const roleTemplate: RoleTemplate = allowedTemplates.includes(body.roleTemplate)
+      ? body.roleTemplate
+      : "class_teacher";
+
+    let targetUserId: string | null = null;
+    let wasCreated = false;
+    const { data: listed } = await (serviceRoleClient as any).auth.admin.listUsers({
+      page: 1,
+      perPage: 200,
+    });
+    const existing = (listed?.users ?? []).find(
+      (u: any) => (u.email ?? "").toLowerCase() === body.email.toLowerCase(),
+    );
+    if (existing) {
+      targetUserId = existing.id;
+    } else {
+      const randomPwd = crypto.randomUUID() + crypto.randomUUID();
+      const { data: created, error } = await (serviceRoleClient as any).auth.admin.createUser({
+        email: body.email,
+        password: randomPwd,
+        email_confirm: true,
+        user_metadata: { name: body.fullName },
+      });
+      if (error || !created?.user) {
+        return c.json({ error: error?.message ?? "could not create user" }, 500);
+      }
+      targetUserId = created.user.id;
+      wasCreated = true;
+    }
+
+    // Dedupe: one user, one role per org. Reject if this user already
+    // has any non-revoked role in this org — surfaces e.g. trying to add
+    // the principal as a class_teacher, or re-adding the same teacher.
+    const { data: existingRole } = await serviceRoleClient
+      .from("user_roles")
+      .select("role_type")
+      .eq("user_id", targetUserId)
+      .eq("scope_type", "organization")
+      .eq("scope_id", orgId)
+      .is("revoked_at", null)
+      .maybeSingle();
+    if (existingRole) {
+      const existingType = (existingRole as any).role_type as string;
+      const pretty = existingType.replace(/_/g, " ");
+      return c.json(
+        {
+          error: `This user is already a ${pretty} of this school. Remove the existing role first if you want to change it.`,
+          code: "ROLE_ALREADY_EXISTS",
+          existingRole: existingType,
+        },
+        409,
+      );
+    }
+
+    // Insert the role row. role_template_override is keyed by template name,
+    // but the grant itself uses the role_type enum which only knows class_teacher
+    // / visiting_teacher / financial_staff / office_staff. Org-scoped.
+    const { error: roleErr } = await serviceRoleClient.from("user_roles").insert({
+      user_id: targetUserId,
+      role_type: roleTemplate,
+      scope_type: "organization",
+      scope_id: orgId,
+      granted_by: userId,
+    });
+    if (roleErr && (roleErr as any).code !== "23505") {
+      return c.json({ error: roleErr.message }, 500);
+    }
+
+    let invited = false;
+    if (wasCreated) {
+      const siteOrigin = Deno.env.get("SITE_URL") || "https://iqraifs.com";
+      const { error: resetErr } = await (serviceRoleClient as any).auth
+        .resetPasswordForEmail(body.email, {
+          redirectTo: `${siteOrigin}/reset-password`,
+        });
+      if (!resetErr) invited = true;
+      else console.error("[invite] teacher reset email failed:", resetErr);
+    }
+
+    // Return the row in the same shape ManageTeachers expects so it can
+    // optimistically render the new teacher into the list.
+    return c.json({
+      user_id: targetUserId,
+      email: body.email,
+      full_name: body.fullName,
+      role_type: roleTemplate,
+      invited,
+      invitedCount: invited ? 1 : 0,
+    }, 201);
+  });
+
+  // -------------------------------------------------------------------------
   // TEACHERS BULK
   // -------------------------------------------------------------------------
   school.post("/orgs/:orgId/teachers/bulk", async (c) => {
@@ -1079,6 +1194,30 @@ export function installPhaseA(school: Hono) {
       if (error || !created?.user) return c.json({ error: error?.message ?? "could not create user" }, 500);
       targetUserId = created.user.id;
       wasCreated = true;
+    }
+
+    // Dedupe: reject if this user already has any non-revoked role in
+    // this org (principal, admin, teacher, etc.). Surfaces the case
+    // where someone tries to add the principal as admin.
+    const { data: existingRole } = await serviceRoleClient
+      .from("user_roles")
+      .select("role_type")
+      .eq("user_id", targetUserId)
+      .eq("scope_type", "organization")
+      .eq("scope_id", orgId)
+      .is("revoked_at", null)
+      .maybeSingle();
+    if (existingRole) {
+      const existingType = (existingRole as any).role_type as string;
+      const pretty = existingType.replace(/_/g, " ");
+      return c.json(
+        {
+          error: `This user is already a ${pretty} of this school. They cannot also be admin.`,
+          code: "ROLE_ALREADY_EXISTS",
+          existingRole: existingType,
+        },
+        409,
+      );
     }
 
     const { error: roleErr } = await serviceRoleClient.from("user_roles").insert({
