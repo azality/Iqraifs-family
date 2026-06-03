@@ -68,7 +68,7 @@ const ROLE_COLUMNS: Array<{ key: PermissionRow["roleTemplate"]; label: string }>
   { key: "class_teacher", label: "Class Teacher" },
   { key: "visiting_teacher", label: "Visiting Teacher" },
   { key: "financial_staff", label: "Financial Staff" },
-  { key: "office_staff", label: "Office Staff" },
+  { key: "office_staff", label: "Office / Reception" },
 ];
 
 export function PermissionsEditor() {

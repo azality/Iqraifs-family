@@ -253,16 +253,47 @@ These are the **⏳ rows above** and other shortfalls found in code as of
 
 ---
 
-## 6. Open questions for product
+## 6. Product decisions (locked 2026-06-03)
 
-These need decisions before locking the doc:
+- **Q1 — Admin removal:** Only the principal can add or remove admins.
+  Admins cannot remove other admins. (No code change — already enforced.)
 
-- **Q1:** Can admins delete other admins, or only the principal? (Doc currently
-  says principal-only. Confirm.)
-- **Q2:** Should removing a teacher revoke their access to past students'
-  records, or just stop new permissions? (GDPR/PDPA implication.)
-- **Q3:** When a parent has two children at the school, do they enter two link
-  codes or does the second auto-link via shared phone/email?
-- **Q4:** Office staff scope — full admin minus fees, or much narrower?
-- **Q5:** Visiting teacher void permission — should they be able to void *their
-  own* point events within 24h, or never?
+- **Q2 — Teacher removal & data access:** Revoking a teacher's role
+  immediately cuts off their access to past student records too — not just
+  new permissions. **Already enforced** by the gate pattern: every read
+  filters `user_roles.revoked_at IS NULL`, so the moment the role is
+  revoked, all queries from that user start failing the membership check.
+  The teacher's *name* still appears on historical attendance / behavior /
+  hifz rows they recorded — that's correct for audit (we don't rewrite
+  history).
+
+- **Q3 — Parent multi-child linking:** Parent should see all their children
+  via a child-switcher in the portal. Auto-link by email IS allowed
+  **only during parent self-signup with a link code** — i.e. when the
+  parent enters a code AND their authenticated email matches the email on
+  an existing parent record in the same org, the second student is added
+  to that existing parent record (no new account).
+  **Safeguard:** when an admin/principal manually adds a parent by typing
+  an email, no automatic claim happens. The link-code flow is the only
+  path that grants access to a child's data. This prevents staff from
+  mistakenly granting one parent access to another family's records.
+
+- **Q4 — Office staff vs financial staff:** Two distinct roles, both kept:
+  - `financial_staff` → fees only (billing person).
+  - `office_staff` → front-desk receptionist. Can manage students,
+    attendance, forms, announcements. **NO fees**, **NO grades**.
+    In the UI this role is now labeled **"Office / Reception"** to make
+    the distinction clear from financial_staff.
+  - One person can hold both roles if the school is small.
+  - Non-login roles (bus driver, security guard, lunch staff) do NOT need
+    a system account — they aren't represented in `user_roles` at all.
+
+- **Q5 — Visiting teacher validity window:** Replaced "can they void?" with
+  a stricter model. When adding a visiting teacher, principal/admin
+  specifies `valid_from` and `valid_until` dates. The role row is only
+  effective inside that window — outside it, every scope check fails as
+  if the role didn't exist. Reading the dates also gives the principal
+  a clear "what's the contract" answer. Void/edit rules now fall out of
+  the validity window (a visiting teacher can void their own events
+  while their role is still valid; once `valid_until` passes, all
+  permissions are gone).

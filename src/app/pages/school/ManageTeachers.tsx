@@ -53,8 +53,17 @@ export function ManageTeachers() {
   const [admins, setAdmins] = useState<OrgAdmin[]>([]);
   const [csvOpen, setCsvOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
-  const [form, setForm] = useState<{ email: string; fullName: string; roleTemplate: RoleTemplate }>({
+  // PR F (Q5): validity dates appear when role=visiting_teacher (required)
+  // and remain editable for any role (optional everywhere else).
+  const [form, setForm] = useState<{
+    email: string;
+    fullName: string;
+    roleTemplate: RoleTemplate;
+    validFrom: string;
+    validUntil: string;
+  }>({
     email: "", fullName: "", roleTemplate: "class_teacher",
+    validFrom: "", validUntil: "",
   });
   const [adminOpen, setAdminOpen] = useState(false);
   const [adminForm, setAdminForm] = useState({ email: "", fullName: "" });
@@ -89,8 +98,24 @@ export function ManageTeachers() {
       setError("Both email and full name are required.");
       return;
     }
+    // Client-side guard for visiting_teacher dates so we don't make a
+    // round trip to the backend just to get a 400. Backend re-validates.
+    if (form.roleTemplate === "visiting_teacher" && (!form.validFrom || !form.validUntil)) {
+      setError("Visiting teachers need both start and end dates.");
+      return;
+    }
+    if (form.validFrom && form.validUntil && form.validFrom > form.validUntil) {
+      setError("Start date must be on or before end date.");
+      return;
+    }
     try {
-      const res = await addTeacher(orgId, form);
+      const res = await addTeacher(orgId, {
+        email: form.email,
+        fullName: form.fullName,
+        roleTemplate: form.roleTemplate,
+        validFrom: form.validFrom || null,
+        validUntil: form.validUntil || null,
+      });
       const invited = res.invitedCount ?? 0;
       setNotice(
         invited > 0
@@ -98,7 +123,7 @@ export function ManageTeachers() {
           : `Teacher added. No new invite email was sent — either ${form.email} already has an account (they can sign in with their existing password) OR the email address was rejected by our email provider. If they don't already have an account, use the "Resend invite" button next to their name below.`,
       );
       setError(null);
-      setForm({ email: "", fullName: "", roleTemplate: "class_teacher" });
+      setForm({ email: "", fullName: "", roleTemplate: "class_teacher", validFrom: "", validUntil: "" });
       setAddOpen(false);
       refresh();
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
@@ -329,10 +354,41 @@ export function ManageTeachers() {
                   <SelectItem value="class_teacher">Class Teacher</SelectItem>
                   <SelectItem value="visiting_teacher">Visiting Teacher</SelectItem>
                   <SelectItem value="financial_staff">Financial Staff (fees only)</SelectItem>
-                  <SelectItem value="office_staff">Office Staff (admin lite)</SelectItem>
+                  <SelectItem value="office_staff">Office / Reception (no fees, no grades)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+            {/* PR F (Q5): Validity window. REQUIRED for visiting_teacher
+                (their contract is time-bounded by definition); optional
+                everywhere else (set if you want an auto-expiring grant,
+                e.g. substitute teacher or intern). */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>
+                  Start date{form.roleTemplate === "visiting_teacher" ? "*" : " (optional)"}
+                </Label>
+                <Input
+                  type="date"
+                  value={form.validFrom}
+                  onChange={(e) => setForm({ ...form, validFrom: e.target.value })}
+                />
+              </div>
+              <div>
+                <Label>
+                  End date{form.roleTemplate === "visiting_teacher" ? "*" : " (optional)"}
+                </Label>
+                <Input
+                  type="date"
+                  value={form.validUntil}
+                  onChange={(e) => setForm({ ...form, validUntil: e.target.value })}
+                />
+              </div>
+            </div>
+            {form.roleTemplate === "visiting_teacher" && (
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                Visiting teacher access turns off automatically the day after the end date.
+              </p>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
