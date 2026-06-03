@@ -1058,12 +1058,21 @@ export function installPhaseA(school: Hono) {
     let invited = false;
     if (wasCreated) {
       const siteOrigin = Deno.env.get("SITE_URL") || "https://iqraifs.com";
-      const { error: resetErr } = await (serviceRoleClient as any).auth
-        .resetPasswordForEmail(body.email, {
-          redirectTo: `${siteOrigin}/reset-password`,
-        });
-      if (!resetErr) invited = true;
-      else console.error("[invite] teacher reset email failed:", resetErr);
+      // gotrue-js throws AuthApiError on 4xx (e.g. "email_address_invalid"
+      // for addresses that fail Supabase's validator like ddd@gmail.com).
+      // Catch it so a bad email doesn't 500 the whole request — the user
+      // and role are already created at this point; the reset email is
+      // just a convenience that the principal can resend later.
+      try {
+        const { error: resetErr } = await (serviceRoleClient as any).auth
+          .resetPasswordForEmail(body.email, {
+            redirectTo: `${siteOrigin}/reset-password`,
+          });
+        if (!resetErr) invited = true;
+        else console.error("[invite] teacher reset email failed:", resetErr);
+      } catch (e) {
+        console.error("[invite] teacher reset email threw:", e);
+      }
     }
 
     // Return the row in the same shape ManageTeachers expects so it can
@@ -1146,14 +1155,19 @@ export function installPhaseA(school: Hono) {
         if (wasCreated) {
           inserted++;
           // Trigger password-reset email so the newly-created user can log in.
-          const { error: resetErr } = await (serviceRoleClient as any).auth.resetPasswordForEmail(r.email, {
-            redirectTo: `${siteOrigin}/reset-password`,
-          });
-          if (resetErr) {
-            console.error("[invite] failed to send reset email:", resetErr);
-            // non-fatal — user was created, they just won't get the email
-          } else {
-            invitedCount++;
+          // gotrue-js throws AuthApiError on 4xx — catch so a single bad email
+          // doesn't fail the whole bulk row.
+          try {
+            const { error: resetErr } = await (serviceRoleClient as any).auth.resetPasswordForEmail(r.email, {
+              redirectTo: `${siteOrigin}/reset-password`,
+            });
+            if (resetErr) {
+              console.error("[invite] failed to send reset email:", resetErr);
+            } else {
+              invitedCount++;
+            }
+          } catch (e) {
+            console.error("[invite] reset email threw:", e);
           }
         } else {
           updated++;
@@ -1232,14 +1246,19 @@ export function installPhaseA(school: Hono) {
     let invited = false;
     if (wasCreated) {
       const siteOrigin = Deno.env.get("SITE_URL") || "https://iqraifs.com";
-      const { error: resetErr } = await (serviceRoleClient as any).auth.resetPasswordForEmail(body.email, {
-        redirectTo: `${siteOrigin}/reset-password`,
-      });
-      if (resetErr) {
-        console.error("[invite] failed to send reset email:", resetErr);
-        // non-fatal — user was created, they just won't get the email
-      } else {
-        invited = true;
+      // gotrue-js throws AuthApiError on 4xx — catch so a bad email doesn't
+      // 500 the whole request after the user/role are already created.
+      try {
+        const { error: resetErr } = await (serviceRoleClient as any).auth.resetPasswordForEmail(body.email, {
+          redirectTo: `${siteOrigin}/reset-password`,
+        });
+        if (resetErr) {
+          console.error("[invite] admin reset email failed:", resetErr);
+        } else {
+          invited = true;
+        }
+      } catch (e) {
+        console.error("[invite] admin reset email threw:", e);
       }
     }
     // Return both the legacy `invited:boolean` and the count-style
