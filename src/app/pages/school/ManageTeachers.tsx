@@ -87,8 +87,8 @@ export function ManageTeachers() {
       const invited = res.invitedCount ?? 0;
       setNotice(
         invited > 0
-          ? `1 teacher added. Password-reset email sent to ${invited} new user so they can set their password and log in.`
-          : `1 teacher added (account already existed).`,
+          ? `Teacher added. We sent ${form.email} a password-reset email — they set their password from that link, then sign in at the regular login page. The school workspace will appear in their workspace switcher automatically.`
+          : `Teacher added. They already have an account — they can sign in at the regular login page; the school workspace will appear in their workspace switcher.`,
       );
       setError(null);
       setForm({ email: "", fullName: "", roleTemplate: "class_teacher" });
@@ -107,8 +107,8 @@ export function ManageTeachers() {
       const invited = res.invitedCount ?? 0;
       setNotice(
         invited > 0
-          ? `1 admin added. Password-reset email sent to ${invited} new user so they can set their password and log in.`
-          : `1 admin added (account already existed).`,
+          ? `Admin added. We sent ${adminForm.email} a password-reset email — they set their password from that link, then sign in at the regular login page. The school workspace will appear in their workspace switcher automatically.`
+          : `Admin added. They already have an account — they can sign in at the regular login page; the school workspace will appear in their workspace switcher.`,
       );
       setError(null);
       setAdminForm({ email: "", fullName: "" });

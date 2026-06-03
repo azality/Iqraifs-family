@@ -1017,6 +1017,30 @@ export function installPhaseA(school: Hono) {
       wasCreated = true;
     }
 
+    // Dedupe: one user, one role per org. Reject if this user already
+    // has any non-revoked role in this org — surfaces e.g. trying to add
+    // the principal as a class_teacher, or re-adding the same teacher.
+    const { data: existingRole } = await serviceRoleClient
+      .from("user_roles")
+      .select("role_type")
+      .eq("user_id", targetUserId)
+      .eq("scope_type", "organization")
+      .eq("scope_id", orgId)
+      .is("revoked_at", null)
+      .maybeSingle();
+    if (existingRole) {
+      const existingType = (existingRole as any).role_type as string;
+      const pretty = existingType.replace(/_/g, " ");
+      return c.json(
+        {
+          error: `This user is already a ${pretty} of this school. Remove the existing role first if you want to change it.`,
+          code: "ROLE_ALREADY_EXISTS",
+          existingRole: existingType,
+        },
+        409,
+      );
+    }
+
     // Insert the role row. role_template_override is keyed by template name,
     // but the grant itself uses the role_type enum which only knows class_teacher
     // / visiting_teacher / financial_staff / office_staff. Org-scoped.
@@ -1170,6 +1194,30 @@ export function installPhaseA(school: Hono) {
       if (error || !created?.user) return c.json({ error: error?.message ?? "could not create user" }, 500);
       targetUserId = created.user.id;
       wasCreated = true;
+    }
+
+    // Dedupe: reject if this user already has any non-revoked role in
+    // this org (principal, admin, teacher, etc.). Surfaces the case
+    // where someone tries to add the principal as admin.
+    const { data: existingRole } = await serviceRoleClient
+      .from("user_roles")
+      .select("role_type")
+      .eq("user_id", targetUserId)
+      .eq("scope_type", "organization")
+      .eq("scope_id", orgId)
+      .is("revoked_at", null)
+      .maybeSingle();
+    if (existingRole) {
+      const existingType = (existingRole as any).role_type as string;
+      const pretty = existingType.replace(/_/g, " ");
+      return c.json(
+        {
+          error: `This user is already a ${pretty} of this school. They cannot also be admin.`,
+          code: "ROLE_ALREADY_EXISTS",
+          existingRole: existingType,
+        },
+        409,
+      );
     }
 
     const { error: roleErr } = await serviceRoleClient.from("user_roles").insert({
