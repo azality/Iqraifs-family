@@ -2322,7 +2322,7 @@ school.post("/classes/:classId/attendance", async (c) => {
   }
 
   const { data, error } = await serviceRoleClient
-    .from("attendance")
+    .from("school_attendance")
     .upsert(upserts, { onConflict: "child_id,attendance_date" })
     .select();
   if (error) return c.json({ error: error.message }, 500);
