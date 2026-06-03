@@ -332,21 +332,12 @@ export function RootLayout() {
               )}
             </Link>
 
-            {/* Center: in family workspace → Child selector. In school
-                workspace → ManageToolbar (Classes / Students / Parents /
-                Teachers / Link Codes / Roster Requests / Announcements /
-                Permissions / Settings). Lives here instead of a separate
-                row below so the school view doesn't burn a whole vertical
-                row on chrome. */}
-            <div className={
-              isSchoolWorkspace
-                ? "hidden lg:flex flex-1 min-w-0 justify-center overflow-x-auto"
-                : "hidden md:block flex-1 max-w-xs"
-            }>
+            {/* Center: child selector (family workspace only).
+                School-side ManageToolbar lives in Row 2 below — keeps
+                Row 1 readable (long org names + workspace switcher +
+                user chip already use most of the width). */}
+            <div className="hidden md:block flex-1 max-w-xs">
               {!isSchoolWorkspace && <ChildSelector />}
-              {isSchoolWorkspace && schoolOrgId && (
-                <ManageToolbar orgId={schoolOrgId} isPrincipal={isSchoolPrincipal} />
-              )}
             </div>
 
             {/* Right: workspace switcher + mode switcher + user + logout */}
@@ -417,7 +408,15 @@ export function RootLayout() {
           </div>
         </div>
 
-        {/* ============ Desktop: dropdown nav bar ============ */}
+        {/* ============ Desktop: dropdown nav bar ============
+            In SCHOOL workspace this row carries the ManageToolbar
+            (Classes / Students / Parents / Teachers / Link Codes /
+            Roster Requests / Announcements / Permissions / Settings)
+            instead of the family-style group dropdowns — the school
+            workspace only had one nav item ("School"), so the row
+            was mostly wasted space. The ManageToolbar now lives
+            here with room to breathe, and Row 1 stays clean for
+            brand + workspace switcher + user chip. */}
         <div
           ref={navRef}
           className={cn(
@@ -426,6 +425,11 @@ export function RootLayout() {
           )}
         >
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            {isSchoolWorkspace && schoolOrgId ? (
+              <div className="py-2 overflow-x-auto">
+                <ManageToolbar orgId={schoolOrgId} isPrincipal={isSchoolPrincipal} />
+              </div>
+            ) : (
             <div className="flex items-stretch gap-1 h-11">
               {visibleGroups.map((group) => {
                 const isOpen = openDropdown === group.key;
@@ -537,6 +541,7 @@ export function RootLayout() {
                 )}
               </div>
             </div>
+            )}
           </div>
         </div>
       </header>
