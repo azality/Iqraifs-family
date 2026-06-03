@@ -141,6 +141,16 @@ async function requireTeacherOfSection(
   }
   if (await hasAdminOrPrincipal(userId, orgId)) return { ok: true };
 
+  // PR C #6: office_staff can take attendance when the class teacher is
+  // absent. The role default in schoolPhaseA.tsx PERMISSIONS_DEFAULTS still
+  // has office_staff.mark_attendance=false; we don't read that map here, so
+  // changing the default doesn't help — the gate has to know. Iqra's ask is
+  // 'office can mark attendance for any class when needed', so we grant
+  // org-scoped office_staff full attendance access. Tighten later if needed.
+  if (await userHasRoleRow(userId, "office_staff", "organization", orgId)) {
+    return { ok: true };
+  }
+
   // Class teacher of this section?
   const { data: sec, error: secErr } = await serviceRoleClient
     .from("class_section")

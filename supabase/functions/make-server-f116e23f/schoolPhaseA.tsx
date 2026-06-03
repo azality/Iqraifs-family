@@ -28,6 +28,7 @@
 
 import { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
+import { logAuditWithLookup } from "./schoolAudit.ts";
 
 // ---------------------------------------------------------------------------
 // Shared row types — exported so the frontend can mirror the shape.
@@ -125,7 +126,9 @@ const DEFAULT_PERMISSIONS: Record<RoleTemplate, Record<PermissionKey, boolean>> 
   },
   office_staff: {
     manage_students: true,
-    mark_attendance: false,
+    // PR C #6: Iqra wants office staff to be able to mark attendance when
+    // the class teacher is absent. Granted org-wide; tighten if needed.
+    mark_attendance: true,
     edit_grades: false,
     mark_fees_status: false,
     create_forms: true,
@@ -1081,6 +1084,15 @@ export function installPhaseA(school: Hono) {
 
     // Return the row in the same shape ManageTeachers expects so it can
     // optimistically render the new teacher into the list.
+    await logAuditWithLookup({
+      orgId,
+      actorUserId: userId,
+      action: "invite_teacher",
+      targetUserId: targetUserId,
+      targetEmail: body.email,
+      targetRole: roleTemplate,
+      details: { invitedCount: invited ? 1 : 0 },
+    });
     return c.json({
       user_id: targetUserId,
       email: body.email,
@@ -1267,6 +1279,15 @@ export function installPhaseA(school: Hono) {
     }
     // Return both the legacy `invited:boolean` and the count-style
     // `invitedCount` that the frontend reads — matches the bulk endpoint.
+    await logAuditWithLookup({
+      orgId,
+      actorUserId: userId,
+      action: "invite_admin",
+      targetUserId: targetUserId,
+      targetEmail: body.email,
+      targetRole: "admin",
+      details: { invitedCount: invited ? 1 : 0 },
+    });
     return c.json(
       { userId: targetUserId, ok: true, invited, invitedCount: invited ? 1 : 0 },
       201,
@@ -1322,6 +1343,15 @@ export function installPhaseA(school: Hono) {
       });
       if (resetErr) {
         console.error("[invite] resend reset email failed:", resetErr);
+        await logAuditWithLookup({
+          orgId,
+          actorUserId: callerId,
+          action: "resend_invite",
+          targetUserId: targetUserId,
+          targetEmail: email,
+          targetRole: (targetRole as any).role_type,
+          details: { sent: false, reason: (resetErr as any)?.message ?? "rejected" },
+        });
         return c.json({
           ok: true,
           sent: false,
@@ -1329,9 +1359,27 @@ export function installPhaseA(school: Hono) {
           email,
         });
       }
+      await logAuditWithLookup({
+        orgId,
+        actorUserId: callerId,
+        action: "resend_invite",
+        targetUserId: targetUserId,
+        targetEmail: email,
+        targetRole: (targetRole as any).role_type,
+        details: { sent: true },
+      });
       return c.json({ ok: true, sent: true, email });
     } catch (e) {
       console.error("[invite] resend reset email threw:", e);
+      await logAuditWithLookup({
+        orgId,
+        actorUserId: callerId,
+        action: "resend_invite",
+        targetUserId: targetUserId,
+        targetEmail: email,
+        targetRole: (targetRole as any).role_type,
+        details: { sent: false, reason: e instanceof Error ? e.message : "throw" },
+      });
       return c.json({
         ok: true,
         sent: false,
@@ -1355,6 +1403,13 @@ export function installPhaseA(school: Hono) {
       .eq("scope_id", orgId)
       .is("revoked_at", null);
     if (error) return c.json({ error: error.message }, 500);
+    await logAuditWithLookup({
+      orgId,
+      actorUserId: callerId,
+      action: "remove_admin",
+      targetUserId: targetUserId,
+      targetRole: "admin",
+    });
     return c.json({ ok: true });
   });
 
