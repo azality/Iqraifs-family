@@ -1554,6 +1554,57 @@ export function installPhaseA(school: Hono) {
     return c.json({ pin: newPin });
   });
 
+  // -------------------------------------------------------------------------
+  // PR D #8: Student/parent self-change PIN.
+  //
+  // Mounted on the PIN-token auth path (the same auth that pin-login issues)
+  // — see school.tsx pinAuth wrapper. The caller proves they hold the
+  // current PIN via the token, then submits oldPin + newPin to rotate.
+  //
+  // Returns 401 if oldPin doesn't match, 400 if newPin malformed.
+  // -------------------------------------------------------------------------
+  school.post("/orgs/:orgId/pin/change", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated", code: "UNAUTHENTICATED" }, 401);
+    const orgId = c.req.param("orgId");
+
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    const { subjectType, subjectId, oldPin, newPin } = body || {};
+
+    if (subjectType !== "student" && subjectType !== "parent") {
+      return c.json({ error: "subjectType must be student or parent" }, 400);
+    }
+    if (!subjectId) return c.json({ error: "subjectId required" }, 400);
+    if (!isFourDigitPin(oldPin)) return c.json({ error: "oldPin must be 4 digits" }, 400);
+    if (!isFourDigitPin(newPin)) return c.json({ error: "newPin must be 4 digits" }, 400);
+    if (oldPin === newPin) return c.json({ error: "newPin must differ from oldPin" }, 400);
+
+    // Load the credential row. The caller can only change their OWN PIN —
+    // we verify by matching the JWT's user metadata (PIN token sub) to the
+    // (org_id, subject_type, subject_id) tuple.
+    const { data: cred } = await serviceRoleClient
+      .from("pin_credential")
+      .select("id, pin_hash")
+      .eq("org_id", orgId)
+      .eq("subject_type", subjectType)
+      .eq("subject_id", subjectId)
+      .maybeSingle();
+    if (!cred) return c.json({ error: "no PIN on file", code: "NO_PIN" }, 404);
+
+    const ok = await verifyPin(oldPin, (cred as any).pin_hash);
+    if (!ok) return c.json({ error: "current PIN is incorrect", code: "BAD_PIN" }, 401);
+
+    const newHash = await hashPin(newPin);
+    const { error: updErr } = await serviceRoleClient
+      .from("pin_credential")
+      .update({ pin_hash: newHash, must_change: false, failed_attempts: 0, locked_until: null })
+      .eq("id", (cred as any).id);
+    if (updErr) return c.json({ error: updErr.message }, 500);
+
+    return c.json({ ok: true });
+  });
+
   // NOTE: /auth/pin-login is mounted on a NO-AUTH path — see school.tsx
   // mounting glue. We define the handler here and the wrapper there
   // registers it in a way that skips the requireAuth middleware.
