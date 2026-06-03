@@ -739,6 +739,31 @@ export function installPhaseA(school: Hono) {
     try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
     const v = validParentRow(body, 0);
     if (!v.ok) return c.json({ error: v.message }, 400);
+
+    // PR F (Q3 safeguard): block silent claim attacks. If a parent row in
+    // this org already has this email, refuse the create. The admin's UI
+    // should then surface "this parent already exists, add the new student
+    // to them instead". The check is case-insensitive (ilike) so
+    // "Foo@Gmail.com" and "foo@gmail.com" collide as intended.
+    if (v.row.email) {
+      const { data: dup } = await serviceRoleClient
+        .from("parent")
+        .select("id, full_name")
+        .eq("org_id", orgId)
+        .ilike("email", v.row.email)
+        .maybeSingle();
+      if (dup) {
+        return c.json(
+          {
+            error: `A parent with this email already exists in this school (${(dup as any).full_name}). Add the new student to that existing parent record instead.`,
+            code: "PARENT_EMAIL_EXISTS",
+            existingParentId: (dup as any).id,
+          },
+          409,
+        );
+      }
+    }
+
     const { data, error } = await serviceRoleClient
       .from("parent")
       .insert({
@@ -998,6 +1023,33 @@ export function installPhaseA(school: Hono) {
       ? body.roleTemplate
       : "class_teacher";
 
+    // PR F (Q5): validity dates. Required for visiting_teacher (contracts
+    // are time-bounded by definition); optional for everything else.
+    // Format: YYYY-MM-DD strings, or null.
+    const isIsoDateOrNull = (v: unknown): v is string | null =>
+      v === null || v === undefined || (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v));
+    if (!isIsoDateOrNull(body.validFrom) || !isIsoDateOrNull(body.validUntil)) {
+      return c.json(
+        { error: "validFrom / validUntil must be YYYY-MM-DD or omitted.", code: "BAD_VALIDITY_DATES" },
+        400,
+      );
+    }
+    if (roleTemplate === "visiting_teacher" && (!body.validFrom || !body.validUntil)) {
+      return c.json(
+        {
+          error: "Visiting teachers require both validFrom and validUntil dates (their contract window).",
+          code: "VISITING_TEACHER_DATES_REQUIRED",
+        },
+        400,
+      );
+    }
+    if (body.validFrom && body.validUntil && body.validFrom > body.validUntil) {
+      return c.json(
+        { error: "validFrom must be on or before validUntil.", code: "VALIDITY_RANGE_INVALID" },
+        400,
+      );
+    }
+
     let targetUserId: string | null = null;
     let wasCreated = false;
     const { data: listed } = await (serviceRoleClient as any).auth.admin.listUsers({
@@ -1051,12 +1103,15 @@ export function installPhaseA(school: Hono) {
     // Insert the role row. role_template_override is keyed by template name,
     // but the grant itself uses the role_type enum which only knows class_teacher
     // / visiting_teacher / financial_staff / office_staff. Org-scoped.
+    // PR F (Q5): validity window stored on the role row itself.
     const { error: roleErr } = await serviceRoleClient.from("user_roles").insert({
       user_id: targetUserId,
       role_type: roleTemplate,
       scope_type: "organization",
       scope_id: orgId,
       granted_by: userId,
+      valid_from: body.validFrom ?? null,
+      valid_until: body.validUntil ?? null,
     });
     if (roleErr && (roleErr as any).code !== "23505") {
       return c.json({ error: roleErr.message }, 500);
@@ -1776,16 +1831,77 @@ export function installPhaseA(school: Hono) {
     if (row.consumed_at) return c.json({ error: "code already used" }, 410);
     if (new Date(row.expires_at).getTime() < Date.now()) return c.json({ error: "code expired" }, 410);
 
+    const studentOrgId = (row.student as any)?.org_id ?? row.org_id;
+
     const { error: updErr } = await serviceRoleClient
       .from("link_code")
       .update({ consumed_at: new Date().toISOString(), consumed_by: userId })
       .eq("id", row.id);
     if (updErr) return c.json({ error: updErr.message }, 500);
 
+    // PR F (Q3): smart multi-child linking on the school side.
+    //
+    // If this same parent (matched by authenticated EMAIL within this org)
+    // already has a `parent` row, attach the new student to that row via
+    // student_parent. This way a parent redeeming a second code for their
+    // sibling automatically gets multi-child access without an admin
+    // having to merge anything.
+    //
+    // Safeguard: matching is only by the auth-verified email from the JWT,
+    // never by a value the caller submits in the body. This is what stops
+    // an admin from accidentally granting parent A access to parent B's
+    // children by typing the wrong email in an admin form (a separate
+    // safeguard in the admin /parents POST path also blocks duplicate
+    // emails).
+    let parentId: string | null = null;
+    try {
+      const { data: lookup } = await (serviceRoleClient as any).auth.admin.getUserById(userId);
+      const callerEmail = (lookup?.user?.email ?? "").toLowerCase();
+      if (callerEmail) {
+        // Match by email in the same org.
+        const { data: existingParent } = await serviceRoleClient
+          .from("parent")
+          .select("id")
+          .eq("org_id", studentOrgId)
+          .ilike("email", callerEmail)
+          .maybeSingle();
+        if (existingParent) {
+          parentId = (existingParent as any).id;
+        } else {
+          // No parent row in this org yet → create one. Name comes from auth
+          // user_metadata or falls back to the local-part.
+          const displayName =
+            (lookup?.user?.user_metadata?.name as string | undefined) ||
+            callerEmail.split("@")[0] ||
+            "Parent";
+          const { data: created } = await serviceRoleClient
+            .from("parent")
+            .insert({ org_id: studentOrgId, full_name: displayName, email: callerEmail })
+            .select("id")
+            .single();
+          if (created) parentId = (created as any).id;
+        }
+
+        if (parentId) {
+          await serviceRoleClient
+            .from("student_parent")
+            .upsert(
+              { student_id: row.student_id, parent_id: parentId, is_primary: false },
+              { onConflict: "student_id,parent_id", ignoreDuplicates: true },
+            );
+        }
+      }
+    } catch (e) {
+      console.error("[link-codes/consume] parent auto-link failed:", e);
+      // Non-fatal: the link-code is consumed and the family-app side bind
+      // still works. The principal can manually link the parent later.
+    }
+
     return c.json({
       studentId: row.student_id,
-      orgId: (row.student as any)?.org_id ?? row.org_id,
+      orgId: studentOrgId,
       studentName: (row.student as any)?.full_name ?? null,
+      parentId, // null if email lookup failed; UI can ignore
     });
   });
 

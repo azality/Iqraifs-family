@@ -876,9 +876,18 @@ export const listAdminTeachers = async (orgId: string): Promise<AdminTeacher[]> 
  *  fields without `invitedCount`. */
 export type AddTeacherResponse = AdminTeacher & { invitedCount?: number };
 
+/** PR F (Q5): visiting_teacher REQUIRES validFrom + validUntil (the contract
+ *  window). Other roles can pass them optionally to set an automatic expiry,
+ *  e.g. for substitute teachers or interns. Format YYYY-MM-DD. */
 export const addTeacher = (
   orgId: string,
-  body: { email: string; fullName: string; roleTemplate: RoleTemplate },
+  body: {
+    email: string;
+    fullName: string;
+    roleTemplate: RoleTemplate;
+    validFrom?: string | null;
+    validUntil?: string | null;
+  },
 ): Promise<AddTeacherResponse> =>
   apiCall(`/school/orgs/${orgId}/teachers`, {
     method: "POST",

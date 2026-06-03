@@ -34,22 +34,36 @@ export type SchoolRole =
 // boolean (e.g. "principal can do X, anyone else can do Y but with a warning")
 // =============================================================================
 
+/** YYYY-MM-DD for today, used to clamp the validity window. We use UTC date
+ *  so a 24h boundary doesn't get fuzzy across timezones. Schools that need
+ *  per-org timezone precision can fix later. */
+function todayUtcDate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 export async function userHasRoleRow(
   userId: string,
   roleType: SchoolRole,
   scopeType: "organization" | "class",
   scopeId: string,
 ): Promise<boolean> {
+  // PR F (Q5): also enforce the valid_from/valid_until window. A role is
+  // active only if not revoked AND inside the window. We do the window
+  // check in SQL via .or() to keep it indexable.
+  const today = todayUtcDate();
   const { data } = await serviceRoleClient
     .from("user_roles")
-    .select("id")
+    .select("id, valid_from, valid_until")
     .eq("user_id", userId)
     .eq("role_type", roleType)
     .eq("scope_type", scopeType)
     .eq("scope_id", scopeId)
-    .is("revoked_at", null)
-    .limit(1);
-  return !!(data && data.length > 0);
+    .is("revoked_at", null);
+  if (!data || data.length === 0) return false;
+  return data.some((r: any) =>
+    (r.valid_from === null || r.valid_from <= today) &&
+    (r.valid_until === null || r.valid_until >= today),
+  );
 }
 
 export async function isPrincipalOf(userId: string, orgId: string): Promise<boolean> {
@@ -74,34 +88,44 @@ export async function hasAdminOrPrincipal(userId: string, orgId: string): Promis
  */
 export async function getOrgRoles(userId: string, orgId: string): Promise<Set<SchoolRole>> {
   const out = new Set<SchoolRole>();
+  const today = todayUtcDate();
+  const inWindow = (r: any) =>
+    (r.valid_from === null || r.valid_from === undefined || r.valid_from <= today) &&
+    (r.valid_until === null || r.valid_until === undefined || r.valid_until >= today);
 
-  // Org-scoped roles — direct match.
+  // Org-scoped roles — direct match. Filter by validity window in TS so
+  // a single SQL roundtrip serves all permission resolution.
   const { data: orgRoles } = await serviceRoleClient
     .from("user_roles")
-    .select("role_type")
+    .select("role_type, valid_from, valid_until")
     .eq("user_id", userId)
     .eq("scope_type", "organization")
     .eq("scope_id", orgId)
     .is("revoked_at", null);
-  for (const r of orgRoles ?? []) out.add((r as any).role_type as SchoolRole);
+  for (const r of orgRoles ?? []) {
+    if (inWindow(r)) out.add((r as any).role_type as SchoolRole);
+  }
 
   // Class-scoped roles — need to verify the class belongs to this org. We
   // collect the user's class-scoped role rows then check class_section.org_id.
   const { data: classRoles } = await serviceRoleClient
     .from("user_roles")
-    .select("role_type, scope_id")
+    .select("role_type, scope_id, valid_from, valid_until")
     .eq("user_id", userId)
     .eq("scope_type", "class")
     .is("revoked_at", null);
   if (classRoles && classRoles.length > 0) {
-    const ids = (classRoles as any[]).map(r => r.scope_id);
-    const { data: secs } = await serviceRoleClient
-      .from("class_section")
-      .select("id, org_id")
-      .in("id", ids);
-    const orgOf = new Map<string, string>((secs ?? []).map((s: any) => [s.id, s.org_id]));
-    for (const r of classRoles as any[]) {
-      if (orgOf.get(r.scope_id) === orgId) out.add(r.role_type as SchoolRole);
+    const validClassRoles = (classRoles as any[]).filter(inWindow);
+    const ids = validClassRoles.map(r => r.scope_id);
+    if (ids.length > 0) {
+      const { data: secs } = await serviceRoleClient
+        .from("class_section")
+        .select("id, org_id")
+        .in("id", ids);
+      const orgOf = new Map<string, string>((secs ?? []).map((s: any) => [s.id, s.org_id]));
+      for (const r of validClassRoles) {
+        if (orgOf.get(r.scope_id) === orgId) out.add(r.role_type as SchoolRole);
+      }
     }
   }
 
