@@ -30,7 +30,12 @@ import {
   getOrganization,
   getSchoolMe,
   isOrgPrincipal,
+  listAdmins,
+  listAdminTeachers,
+  transferOwnership,
   updateOrganization,
+  type OrgAdmin,
+  type AdminTeacher,
   type OrgWithCounts,
   type SchoolMeResponse,
 } from "../../../utils/schoolApi";
@@ -83,6 +88,19 @@ export function OrgSettings() {
   const [deleteTyped, setDeleteTyped] = useState("");
   const [deleteSubmitting, setDeleteSubmitting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // Transfer-ownership state. Candidates = all current admins + teachers
+  // of this org; we exclude the caller (self-transfer is blocked server-
+  // side too). Showing only existing staff keeps the principal from
+  // typing arbitrary emails and accidentally creating an account.
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [transferTargetId, setTransferTargetId] = useState<string>("");
+  const [transferTyped, setTransferTyped] = useState("");
+  const [transferSubmitting, setTransferSubmitting] = useState(false);
+  const [transferError, setTransferError] = useState<string | null>(null);
+  const [candidates, setCandidates] = useState<
+    Array<{ user_id: string; full_name: string; email: string; role: string }>
+  >([]);
 
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
@@ -375,6 +393,65 @@ export function OrgSettings() {
         </div>
       </section>
 
+      {/* Section: Transfer ownership (principal only, but this whole page
+          already gates on isOrgPrincipal so no extra check needed). */}
+      <section
+        className={`bg-white border border-amber-200 rounded-xl shadow-sm p-5`}
+      >
+        <h3 className={`${sectionTitleClasses} text-amber-700 flex items-center gap-2`}>
+          <AlertTriangle className="h-4 w-4" /> Transfer ownership
+        </h3>
+        <div className="mt-4 space-y-2">
+          <p className="text-sm text-slate-700">
+            Hand the principal role over to another staff member.
+            You'll keep access as an admin afterwards.
+          </p>
+          <ul className="text-xs text-slate-600 list-disc pl-5 space-y-0.5">
+            <li>Only existing admins or teachers can be selected as the new principal.</li>
+            <li>You'll need to type the school name to confirm.</li>
+            <li>After transfer, the new principal can remove you or you can leave the school.</li>
+          </ul>
+          <div className="pt-2">
+            <Button
+              variant="outline"
+              className="border-amber-300 text-amber-700 hover:bg-amber-50"
+              onClick={async () => {
+                setTransferOpen(true);
+                setTransferTargetId("");
+                setTransferTyped("");
+                setTransferError(null);
+                try {
+                  const [admins, teachers] = await Promise.all([
+                    listAdmins(orgId),
+                    listAdminTeachers(orgId),
+                  ]);
+                  const out: Array<{ user_id: string; full_name: string; email: string; role: string }> = [];
+                  for (const a of admins as OrgAdmin[]) {
+                    if (a.user_id === me?.userId) continue;
+                    out.push({ user_id: a.user_id, full_name: a.full_name, email: a.email, role: "admin" });
+                  }
+                  for (const t of teachers as AdminTeacher[]) {
+                    if (t.user_id === me?.userId) continue;
+                    if (out.some((x) => x.user_id === t.user_id)) continue;
+                    out.push({
+                      user_id: t.user_id,
+                      full_name: t.full_name,
+                      email: t.email,
+                      role: ((t as any).role_template ?? (t as any).role_type ?? "teacher") as string,
+                    });
+                  }
+                  setCandidates(out);
+                } catch (e) {
+                  setTransferError(e instanceof Error ? e.message : String(e));
+                }
+              }}
+            >
+              Transfer ownership…
+            </Button>
+          </div>
+        </div>
+      </section>
+
       {/* Section: Danger zone */}
       <section
         className={`bg-white border border-rose-200 rounded-xl shadow-sm p-5`}
@@ -475,6 +552,103 @@ export function OrgSettings() {
               }}
             >
               {deleteSubmitting ? "Deleting…" : "Delete school"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Transfer-ownership dialog. Confirm button stays disabled until
+          a target is picked AND typed text matches the school name. */}
+      <Dialog open={transferOpen} onOpenChange={setTransferOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-amber-700 flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5" />
+              Transfer ownership of {org?.organization.name ?? "school"}
+            </DialogTitle>
+            <DialogDescription className="text-slate-700">
+              Pick the new principal. They must already have a role in this
+              school. After transfer you'll be demoted to admin.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>New principal</Label>
+              <select
+                className="mt-1 w-full border border-slate-300 rounded-md px-3 py-2 text-sm bg-white"
+                value={transferTargetId}
+                onChange={(e) => setTransferTargetId(e.target.value)}
+              >
+                <option value="">— Select —</option>
+                {candidates.map((c) => (
+                  <option key={c.user_id} value={c.user_id}>
+                    {c.full_name} ({c.email}) — {c.role.replace(/_/g, " ")}
+                  </option>
+                ))}
+              </select>
+              {candidates.length === 0 && (
+                <p className="mt-1 text-xs text-slate-500">
+                  No eligible staff. Add an admin or teacher first.
+                </p>
+              )}
+            </div>
+
+            <div>
+              <Label>Type the school name to confirm</Label>
+              <p className="my-1 text-sm font-mono bg-slate-100 px-3 py-2 rounded">
+                {org?.organization.name}
+              </p>
+              <Input
+                type="text"
+                value={transferTyped}
+                onChange={(e) => setTransferTyped(e.target.value)}
+                className="border-amber-300"
+                placeholder="Type the school name"
+              />
+            </div>
+
+            {transferError && (
+              <p className="text-xs text-rose-700">{transferError}</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setTransferOpen(false)}
+              disabled={transferSubmitting}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="bg-amber-600 hover:bg-amber-700 text-white"
+              disabled={
+                transferSubmitting ||
+                !transferTargetId ||
+                !org ||
+                transferTyped.trim() !== org.organization.name
+              }
+              onClick={async () => {
+                if (!org || !transferTargetId) return;
+                setTransferSubmitting(true);
+                setTransferError(null);
+                try {
+                  const res = await transferOwnership(orgId, {
+                    targetUserId: transferTargetId,
+                    confirmName: transferTyped.trim(),
+                  });
+                  setTransferOpen(false);
+                  alert(res.message);
+                  // Caller's role changed (principal → admin). Reload so
+                  // the rest of the UI re-evaluates permissions.
+                  window.location.reload();
+                } catch (e) {
+                  setTransferError(e instanceof Error ? e.message : String(e));
+                } finally {
+                  setTransferSubmitting(false);
+                }
+              }}
+            >
+              {transferSubmitting ? "Transferring…" : "Transfer ownership"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -16,7 +16,8 @@ export type AuditAction =
   | "remove_teacher"
   | "resend_invite"
   | "staff_self_leave"
-  | "delete_school";
+  | "delete_school"
+  | "transfer_ownership"; // PR I
 
 export interface AuditInput {
   orgId: string;
