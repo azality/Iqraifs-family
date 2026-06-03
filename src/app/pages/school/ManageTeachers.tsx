@@ -78,7 +78,10 @@ export function ManageTeachers() {
   const principal = isOrgPrincipal(me, orgId);
 
   const submitTeacher = async () => {
-    if (!form.email || !form.fullName) return;
+    if (!form.email.trim() || !form.fullName.trim()) {
+      setError("Both email and full name are required.");
+      return;
+    }
     try {
       const res = await addTeacher(orgId, form);
       const invited = res.invitedCount ?? 0;
@@ -95,7 +98,10 @@ export function ManageTeachers() {
   };
 
   const submitAdmin = async () => {
-    if (!adminForm.email || !adminForm.fullName) return;
+    if (!adminForm.email.trim() || !adminForm.fullName.trim()) {
+      setError("Both email and full name are required.");
+      return;
+    }
     try {
       const res = await addAdmin(orgId, adminForm);
       const invited = res.invitedCount ?? 0;
