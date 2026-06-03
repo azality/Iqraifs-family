@@ -934,6 +934,37 @@ export interface ResendInviteResponse {
 export const resendInvite = (orgId: string, userId: string): Promise<ResendInviteResponse> =>
   apiCall(`/school/orgs/${orgId}/staff/${userId}/resend-invite`, { method: "POST" });
 
+/** Soft-delete the school (principal only).
+ *
+ * `confirmName` must match `organizations.name` exactly. On success the org is
+ * scheduled for hard-delete 30 days later; the workspace disappears from
+ * everyone's switcher immediately. Contact support during the grace window to
+ * restore. */
+export interface DeleteSchoolResponse {
+  ok: true;
+  deletedAt: string;
+  purgeAfter: string;
+  message: string;
+}
+
+export const deleteSchool = (orgId: string, confirmName: string): Promise<DeleteSchoolResponse> =>
+  apiCall(`/school/orgs/${orgId}`, {
+    method: "DELETE",
+    body: JSON.stringify({ confirmName }),
+  });
+
+/** Self-remove from this school. Available to any staff role EXCEPT principal
+ *  (principal must transfer ownership or delete the school instead).
+ *  Revokes role rows only; the user's account is untouched. */
+export interface LeaveSchoolResponse {
+  ok: true;
+  revokedRoles: string[];
+  message: string;
+}
+
+export const leaveSchool = (orgId: string): Promise<LeaveSchoolResponse> =>
+  apiCall(`/school/orgs/${orgId}/staff/me`, { method: "DELETE" });
+
 // ─── Admin: PIN ────────────────────────────────────────────────────────
 
 export type PinSubjectType = "student" | "parent" | "teacher";

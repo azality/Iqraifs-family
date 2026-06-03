@@ -189,7 +189,14 @@ school.get("/me", async (c) => {
 
   const [orgRows, classRows] = await Promise.all([
     orgIds.length > 0
-      ? serviceRoleClient.from("organizations").select("id, name, slug, plan").in("id", orgIds)
+      // Filter out soft-deleted orgs so they disappear from the workspace
+      // switcher during the 30-day grace window. Migration 0014 adds the
+      // deleted_at column.
+      ? serviceRoleClient
+          .from("organizations")
+          .select("id, name, slug, plan")
+          .in("id", orgIds)
+          .is("deleted_at", null)
       : Promise.resolve({ data: [], error: null }),
     classIds.length > 0
       ? serviceRoleClient
@@ -375,6 +382,150 @@ school.patch("/orgs/:orgId", async (c) => {
     .maybeSingle();
   if (error) return c.json({ error: error.message }, 500);
   return c.json(data);
+});
+
+// -----------------------------------------------------------------------------
+// DELETE /orgs/:orgId — soft-delete the school (principal-only, typed-name
+// confirmation required). 30-day grace window; hard-delete happens via a
+// background job (manual for pilot — 4 schools at most).
+//
+// Body: { confirmName: string } — must match organizations.name exactly. This
+// is the "type the project name to delete" pattern that's the standard guard
+// against accidental clicks. We compare with .trim() but otherwise case-
+// sensitively because school names contain proper nouns.
+//
+// Effect: sets deleted_at = now(), purge_after = now() + 30 days,
+// deleted_by = caller. Subsequent reads (workspace switcher, /school/me, etc.)
+// filter on deleted_at IS NULL so the org disappears from everyone's UI.
+//
+// Recovery (restore) is currently a DB-only operation — there's no /restore
+// endpoint yet. The principal contacts support during the grace window.
+// -----------------------------------------------------------------------------
+school.delete("/orgs/:orgId", async (c) => {
+  const userId = getAuthUserId(c);
+  if (!userId) return c.json({ error: "unauthenticated", code: "UNAUTHENTICATED" }, 401);
+  const orgId = c.req.param("orgId");
+
+  if (!(await isPrincipalOf(userId, orgId))) {
+    return c.json(
+      { error: "Only the principal can delete the school.", code: "FORBIDDEN_NOT_PRINCIPAL" },
+      403,
+    );
+  }
+
+  const body = (await c.req.json().catch(() => ({}))) as { confirmName?: string };
+  if (!body.confirmName || typeof body.confirmName !== "string") {
+    return c.json(
+      { error: "confirmName required.", code: "CONFIRM_NAME_REQUIRED" },
+      400,
+    );
+  }
+
+  const { data: org, error: loadErr } = await serviceRoleClient
+    .from("organizations")
+    .select("id, name, deleted_at")
+    .eq("id", orgId)
+    .maybeSingle();
+  if (loadErr) return c.json({ error: loadErr.message }, 500);
+  if (!org) return c.json({ error: "not found", code: "NOT_FOUND" }, 404);
+  if ((org as any).deleted_at) {
+    return c.json(
+      { error: "School is already scheduled for deletion.", code: "ALREADY_DELETED" },
+      409,
+    );
+  }
+
+  if (body.confirmName.trim() !== (org as any).name) {
+    return c.json(
+      {
+        error: "School name did not match. Please type the name exactly as shown.",
+        code: "CONFIRM_NAME_MISMATCH",
+      },
+      400,
+    );
+  }
+
+  const now = new Date();
+  const purgeAfter = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+  const { error: updErr } = await serviceRoleClient
+    .from("organizations")
+    .update({
+      deleted_at: now.toISOString(),
+      deleted_by: userId,
+      purge_after: purgeAfter.toISOString(),
+    })
+    .eq("id", orgId);
+  if (updErr) return c.json({ error: updErr.message }, 500);
+
+  return c.json({
+    ok: true,
+    deletedAt: now.toISOString(),
+    purgeAfter: purgeAfter.toISOString(),
+    message: `${(org as any).name} has been scheduled for deletion. It will be permanently removed after ${purgeAfter.toISOString().slice(0, 10)}. Contact support before then if you need to restore it.`,
+  });
+});
+
+// -----------------------------------------------------------------------------
+// DELETE /orgs/:orgId/staff/me — staff member self-removes from this org.
+// Revokes their role row but does NOT delete their Supabase Auth user (they
+// keep family-app access and any other workspaces). Available to any staff
+// role except principal — the principal must either transfer ownership first
+// (TODO, separate flow) or use the school-delete endpoint above.
+//
+// This is the "leave this school" button in the user's settings page.
+// -----------------------------------------------------------------------------
+school.delete("/orgs/:orgId/staff/me", async (c) => {
+  const userId = getAuthUserId(c);
+  if (!userId) return c.json({ error: "unauthenticated", code: "UNAUTHENTICATED" }, 401);
+  const orgId = c.req.param("orgId");
+
+  // Block principals — they need a transfer-ownership flow (TODO #15).
+  const { data: principalRole } = await serviceRoleClient
+    .from("user_roles")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("role_type", "principal")
+    .eq("scope_type", "organization")
+    .eq("scope_id", orgId)
+    .is("revoked_at", null)
+    .maybeSingle();
+  if (principalRole) {
+    return c.json(
+      {
+        error: "Principals cannot leave their own school. Transfer ownership first, or delete the school.",
+        code: "PRINCIPAL_CANNOT_LEAVE",
+      },
+      400,
+    );
+  }
+
+  const { data: rolesToRevoke, error: selErr } = await serviceRoleClient
+    .from("user_roles")
+    .select("id, role_type")
+    .eq("user_id", userId)
+    .eq("scope_type", "organization")
+    .eq("scope_id", orgId)
+    .is("revoked_at", null);
+  if (selErr) return c.json({ error: selErr.message }, 500);
+  if (!rolesToRevoke || rolesToRevoke.length === 0) {
+    return c.json({ error: "You are not a staff member of this school.", code: "NOT_STAFF" }, 404);
+  }
+
+  const { error: updErr } = await serviceRoleClient
+    .from("user_roles")
+    .update({ revoked_at: new Date().toISOString() })
+    .eq("user_id", userId)
+    .eq("scope_type", "organization")
+    .eq("scope_id", orgId)
+    .is("revoked_at", null);
+  if (updErr) return c.json({ error: updErr.message }, 500);
+
+  return c.json({
+    ok: true,
+    revokedRoles: (rolesToRevoke as any[]).map((r) => r.role_type),
+    message: "You have left this school. Your account is unaffected.",
+  });
 });
 
 // -----------------------------------------------------------------------------

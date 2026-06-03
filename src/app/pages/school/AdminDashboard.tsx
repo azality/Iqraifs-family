@@ -24,12 +24,14 @@ import {
   Megaphone,
   Settings as SettingsIcon,
 } from "lucide-react";
+import { Button } from "../../components/ui/button";
 import { HeroCard, KpiTile } from "../../components/school-ui";
 import {
   getRosterRequests,
   getSchoolMe,
   isOrgAdmin,
   isOrgPrincipal,
+  leaveSchool,
   listClasses,
   listStudents,
   listParents,
@@ -164,6 +166,37 @@ export function AdminDashboard() {
           );
         })}
       </div>
+
+      {/* Leave-school control. Hidden for principals — they need to either
+          transfer ownership (TODO) or delete the school via Settings.
+          Available to admins/teachers/staff: revokes their role, leaves their
+          Supabase Auth user intact (they keep family-app access). */}
+      {!principal && (
+        <section className="rounded-xl border border-slate-200 bg-white p-5">
+          <h3 className="text-sm font-semibold text-slate-700 mb-1">Leave this school</h3>
+          <p className="text-xs text-slate-600 mb-3">
+            Remove yourself from this school's staff list. Your account is
+            unaffected — you'll keep family-app access and any other school
+            workspaces. The principal can re-invite you later if needed.
+          </p>
+          <Button
+            variant="outline"
+            className="border-rose-300 text-rose-700 hover:bg-rose-50"
+            onClick={async () => {
+              if (!confirm("Leave this school? This will remove your access to all of its classes, students, and admin tools. Your account itself is unaffected.")) return;
+              try {
+                const res = await leaveSchool(orgId);
+                alert(res.message);
+                navigate("/");
+              } catch (e) {
+                alert(e instanceof Error ? e.message : String(e));
+              }
+            }}
+          >
+            Leave school
+          </Button>
+        </section>
+      )}
     </div>
   );
 }
