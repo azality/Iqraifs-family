@@ -159,6 +159,7 @@ export function OrgSettings() {
       <HeroCard
         title="School Settings"
         subtitle={org?.organization.name ?? (orgLoading ? "Loading…" : "School")}
+        ignoreBranding
       />
 
       {/* Section 1: Organization */}
@@ -314,12 +315,42 @@ export function OrgSettings() {
               onChange={(e) => setOrgForm((s) => ({ ...s, school_motto: e.target.value }))}
             />
           </div>
-          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
-            Branding (logo, theme color, motto) is saved but not yet applied
-            visually across the app — that's coming in a follow-up. Saving
-            here makes sure the principal's choice is captured during pilot
-            setup.
-          </p>
+          {/* Live preview of the hero block as it will appear on dashboards. */}
+          <div>
+            <Label className="text-xs uppercase tracking-widest text-slate-500">Preview</Label>
+            <div
+              className="mt-2 rounded-2xl border border-indigo-900/40 text-white shadow-lg p-5"
+              style={{
+                backgroundImage: orgForm.theme_color
+                  ? `linear-gradient(to bottom right, rgb(15 23 42), rgb(15 23 42), ${orgForm.theme_color})`
+                  : "linear-gradient(to bottom right, rgb(15 23 42), rgb(15 23 42), rgb(30 27 75))",
+              }}
+            >
+              <div className="flex items-start gap-3">
+                {orgForm.logo_url && (
+                  <img
+                    src={orgForm.logo_url}
+                    alt=""
+                    className="h-12 w-12 rounded-lg bg-white/10 object-contain p-1"
+                    onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+                  />
+                )}
+                <div>
+                  <h2 className="text-xl font-semibold">
+                    {orgForm.name || "School name"}
+                  </h2>
+                  {orgForm.school_motto && (
+                    <p className="mt-0.5 text-xs italic text-indigo-200/90">
+                      {orgForm.school_motto}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+            <p className="mt-2 text-xs text-slate-500">
+              Save below to apply across every school page. Branding propagates instantly to new dashboard views; existing tabs may need a refresh.
+            </p>
+          </div>
         </div>
       </section>
 
