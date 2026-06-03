@@ -34,12 +34,12 @@ export type SchoolRole =
 // boolean (e.g. "principal can do X, anyone else can do Y but with a warning")
 // =============================================================================
 
-/** YYYY-MM-DD for today, used to clamp the validity window. We use UTC date
- *  so a 24h boundary doesn't get fuzzy across timezones. Schools that need
- *  per-org timezone precision can fix later. */
-function todayUtcDate(): string {
-  return new Date().toISOString().slice(0, 10);
-}
+// Validity helpers live in roleValidity.ts (pure, no Deno-runtime deps) so
+// they're testable in isolation. Re-exported here so existing imports keep
+// working unchanged.
+export { todayUtcDate, isRoleActiveNow } from "./roleValidity.ts";
+export type { RoleRowForActiveCheck } from "./roleValidity.ts";
+import { todayUtcDate, isRoleActiveNow } from "./roleValidity.ts";
 
 export async function userHasRoleRow(
   userId: string,
@@ -60,10 +60,7 @@ export async function userHasRoleRow(
     .eq("scope_id", scopeId)
     .is("revoked_at", null);
   if (!data || data.length === 0) return false;
-  return data.some((r: any) =>
-    (r.valid_from === null || r.valid_from <= today) &&
-    (r.valid_until === null || r.valid_until >= today),
-  );
+  return data.some((r: any) => isRoleActiveNow({ revoked_at: null, valid_from: r.valid_from ?? null, valid_until: r.valid_until ?? null }, today));
 }
 
 export async function isPrincipalOf(userId: string, orgId: string): Promise<boolean> {
@@ -89,9 +86,11 @@ export async function hasAdminOrPrincipal(userId: string, orgId: string): Promis
 export async function getOrgRoles(userId: string, orgId: string): Promise<Set<SchoolRole>> {
   const out = new Set<SchoolRole>();
   const today = todayUtcDate();
-  const inWindow = (r: any) =>
-    (r.valid_from === null || r.valid_from === undefined || r.valid_from <= today) &&
-    (r.valid_until === null || r.valid_until === undefined || r.valid_until >= today);
+  const inWindow = (r: any) => isRoleActiveNow({
+    revoked_at: null, // already filtered by SQL
+    valid_from: r.valid_from ?? null,
+    valid_until: r.valid_until ?? null,
+  }, today);
 
   // Org-scoped roles — direct match. Filter by validity window in TS so
   // a single SQL roundtrip serves all permission resolution.

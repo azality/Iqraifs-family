@@ -20,8 +20,9 @@
     "full:parent": "npm run sync:parent && npm run cap:sync:parent && npm run open:parent",
     "full:kids": "npm run sync:kids && npm run cap:sync:kids && npm run open:kids",
     "dev": "vite",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "test": "vitest run && npm run test:backend",
+    "test:watch": "vitest",
+    "test:backend": "npx deno test --allow-env --no-check supabase/functions/make-server-f116e23f/schoolAuth_test.ts"
   },
   "dependencies": {
     "@capacitor/cli": "^8.1.0",
