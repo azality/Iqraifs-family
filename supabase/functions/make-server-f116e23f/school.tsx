@@ -562,6 +562,31 @@ school.delete("/orgs/:orgId/staff/me", async (c) => {
 });
 
 // -----------------------------------------------------------------------------
+// POST /admin/purge-soft-deleted-orgs — manual trigger for the daily purge.
+//
+// Calls the purge_soft_deleted_orgs() Postgres function defined in
+// migration 0017. Useful for testing the delete-school flow end-to-end
+// without waiting 30 days, and as a recovery handle if the cron stops
+// running. Gated by a shared admin token (env: ADMIN_PURGE_TOKEN) — we
+// don't want a regular principal accidentally hitting this and nuking
+// every org that's past its grace window.
+// -----------------------------------------------------------------------------
+school.post("/admin/purge-soft-deleted-orgs", async (c) => {
+  const expectedToken = Deno.env.get("ADMIN_PURGE_TOKEN");
+  if (!expectedToken) {
+    return c.json({ error: "ADMIN_PURGE_TOKEN not configured on the server.", code: "NOT_CONFIGURED" }, 503);
+  }
+  const provided = c.req.header("x-admin-token") ?? "";
+  if (provided !== expectedToken) {
+    return c.json({ error: "forbidden", code: "BAD_TOKEN" }, 403);
+  }
+
+  const { data, error } = await serviceRoleClient.rpc("purge_soft_deleted_orgs");
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json({ ok: true, purgedCount: (data as number | null) ?? 0 });
+});
+
+// -----------------------------------------------------------------------------
 // GET /orgs/:orgId/audit — principal/admin only. Returns the latest N (default
 // 200, max 500) invite/staff audit log entries in reverse chronological order.
 // -----------------------------------------------------------------------------
