@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../components/ui/select";
-import { Plus, Upload, Trash2, ShieldCheck } from "lucide-react";
+import { Plus, Upload, Trash2, ShieldCheck, Mail, AlertTriangle } from "lucide-react";
 import {
   HeroCard,
   DataTable,
@@ -37,6 +37,7 @@ import {
   listAdmins,
   addAdmin,
   removeAdmin,
+  resendInvite,
   type AdminTeacher,
   type OrgAdmin,
   type RoleTemplate,
@@ -77,6 +78,12 @@ export function ManageTeachers() {
 
   const principal = isOrgPrincipal(me, orgId);
 
+  // When invitedCount === 0 we don't actually know which case applied:
+  //   (a) user already had an account → no email needed (normal)
+  //   (b) Supabase's email validator rejected the address → email never sent
+  // The backend logs distinguish them, but the frontend can't. We surface a
+  // neutral notice for (a) and rely on the resend-invite button as the
+  // recovery path for (b). The yellow warning below explains.
   const submitTeacher = async () => {
     if (!form.email.trim() || !form.fullName.trim()) {
       setError("Both email and full name are required.");
@@ -88,13 +95,34 @@ export function ManageTeachers() {
       setNotice(
         invited > 0
           ? `Teacher added. We sent ${form.email} a password-reset email — they set their password from that link, then sign in at the regular login page. The school workspace will appear in their workspace switcher automatically.`
-          : `Teacher added. They already have an account — they can sign in at the regular login page; the school workspace will appear in their workspace switcher.`,
+          : `Teacher added. No new invite email was sent — either ${form.email} already has an account (they can sign in with their existing password) OR the email address was rejected by our email provider. If they don't already have an account, use the "Resend invite" button next to their name below.`,
       );
       setError(null);
       setForm({ email: "", fullName: "", roleTemplate: "class_teacher" });
       setAddOpen(false);
       refresh();
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+  };
+
+  /** Resend the password-reset (invite) email for an existing staff row.
+   *  Shows the precise reason if Supabase refuses (e.g. "Email address
+   *  'ddd@gmail.com' is invalid") so the principal can fix the address or
+   *  share the reset link manually. */
+  const handleResend = async (userId: string, label: string) => {
+    try {
+      const res = await resendInvite(orgId, userId);
+      if (res.sent) {
+        setNotice(`Invite email re-sent to ${res.email ?? label}.`);
+        setError(null);
+      } else {
+        setError(
+          `Could not send invite email to ${res.email ?? label}: ${res.reason ?? "unknown reason"}. ` +
+          `You can share the password-reset link manually from the Supabase dashboard, or update the email address and try again.`,
+        );
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
   };
 
   const submitAdmin = async () => {
@@ -108,7 +136,7 @@ export function ManageTeachers() {
       setNotice(
         invited > 0
           ? `Admin added. We sent ${adminForm.email} a password-reset email — they set their password from that link, then sign in at the regular login page. The school workspace will appear in their workspace switcher automatically.`
-          : `Admin added. They already have an account — they can sign in at the regular login page; the school workspace will appear in their workspace switcher.`,
+          : `Admin added. No new invite email was sent — either ${adminForm.email} already has an account (they can sign in with their existing password) OR the email address was rejected by our email provider. If they don't already have an account, use the "Resend invite" button next to their name below.`,
       );
       setError(null);
       setAdminForm({ email: "", fullName: "" });
@@ -164,6 +192,22 @@ export function ManageTeachers() {
       header: "Role",
       cell: (t) => <span className="text-xs capitalize">{(t.role_template ?? (t as any).role_type ?? "").replace("_", " ")}</span>,
     },
+    {
+      key: "actions",
+      header: "",
+      align: "right",
+      width: "w-24",
+      cell: (t) => (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => handleResend(t.user_id, t.full_name || t.email)}
+          title="Resend invite email"
+        >
+          <Mail className="h-3.5 w-3.5 text-slate-600" />
+        </Button>
+      ),
+    },
   ];
 
   const adminColumns: DataTableColumn<OrgAdmin>[] = [
@@ -173,11 +217,21 @@ export function ManageTeachers() {
       key: "actions",
       header: "",
       align: "right",
-      width: "w-16",
+      width: "w-24",
       cell: (a) => (
-        <Button variant="ghost" size="sm" onClick={() => handleRemoveAdmin(a)} title="Remove admin">
-          <Trash2 className="h-3.5 w-3.5 text-rose-600" />
-        </Button>
+        <div className="flex justify-end gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => handleResend(a.user_id, a.full_name || a.email)}
+            title="Resend invite email"
+          >
+            <Mail className="h-3.5 w-3.5 text-slate-600" />
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => handleRemoveAdmin(a)} title="Remove admin">
+            <Trash2 className="h-3.5 w-3.5 text-rose-600" />
+          </Button>
+        </div>
       ),
     },
   ];
@@ -201,6 +255,18 @@ export function ManageTeachers() {
           </div>
         }
       />
+
+      {/* Persistent help banner — invite emails sometimes silently fail
+          (Supabase rejects some addresses like ddd@gmail.com, or the email
+          lands in spam). The mail icon next to each row resends. */}
+      <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+        <AlertTriangle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+        <span>
+          If a teacher or admin says they never got the invite email, click the
+          {" "}<Mail className="inline h-3 w-3 -mt-0.5" /> icon next to their row
+          to re-send. Check spam folders too.
+        </span>
+      </div>
 
       {error && <p className="text-sm text-rose-600">{error}</p>}
       {notice && (

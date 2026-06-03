@@ -917,6 +917,23 @@ export const addAdmin = (
 export const removeAdmin = (orgId: string, userId: string): Promise<void> =>
   apiCall(`/school/orgs/${orgId}/admins/${userId}`, { method: "DELETE" });
 
+/** Resend the password-reset (invite) email to a staff member of this org.
+ *
+ * Returns { ok, sent, reason?, email? }. `sent: false` is NOT an HTTP error —
+ * Supabase's email validator may reject some addresses (e.g. test addresses
+ * like ddd@gmail.com) while still confirming the user/role exist. UI should
+ * surface the `reason` and offer the principal a way to share the reset link
+ * manually. */
+export interface ResendInviteResponse {
+  ok: true;
+  sent: boolean;
+  reason?: string;
+  email?: string;
+}
+
+export const resendInvite = (orgId: string, userId: string): Promise<ResendInviteResponse> =>
+  apiCall(`/school/orgs/${orgId}/staff/${userId}/resend-invite`, { method: "POST" });
+
 // ─── Admin: PIN ────────────────────────────────────────────────────────
 
 export type PinSubjectType = "student" | "parent" | "teacher";
