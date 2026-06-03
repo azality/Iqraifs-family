@@ -11,56 +11,12 @@
 // the context hasn't resolved yet — keeps the principal-only toolbar items
 // (Permissions, Settings) accurate.
 
-import { useContext, useEffect, useState } from "react";
-import { Outlet, useParams } from "react-router";
-import { ManageToolbar } from "../components/school-ui";
-import { WorkspaceSwitcher } from "../components/WorkspaceSwitcher";
-import { WorkspaceContext } from "../contexts/WorkspaceContext";
-import { getSchoolMe, isOrgPrincipal, type SchoolMeResponse } from "../../utils/schoolApi";
+import { Outlet } from "react-router";
 
+// Per user feedback: the ManageToolbar + WorkspaceSwitcher now live inline
+// in RootLayout's top bar (see RootLayout.tsx, "Row 1") so we don't burn a
+// whole vertical row on chrome. This shell just passes through to the
+// child route's page content.
 export function SchoolAdminShell() {
-  const { orgId = "" } = useParams();
-  const workspaceCtx = useContext(WorkspaceContext);
-  const [localMe, setLocalMe] = useState<SchoolMeResponse | null>(null);
-
-  // Use the workspace context's `me` if available; otherwise fall back to a
-  // one-shot fetch so the toolbar still gates principal-only items correctly
-  // on a hard-refresh into an admin URL.
-  useEffect(() => {
-    if (workspaceCtx?.me) return;
-    let cancelled = false;
-    getSchoolMe()
-      .then((m) => {
-        if (!cancelled) setLocalMe(m);
-      })
-      .catch(() => {
-        // Silent — toolbar will just hide principal-only items.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [workspaceCtx?.me]);
-
-  const me = workspaceCtx?.me ?? localMe;
-  const isPrincipal = isOrgPrincipal(me, orgId);
-
-  // Sticky single-row header: workspace switcher on the left, ManageToolbar
-  // on the right. Replaces the previous stacked layout (near-empty RootLayout
-  // header row + standalone toolbar row below). RootLayout suppresses its
-  // own inline WorkspaceSwitcher while we're in the school workspace
-  // (see RootLayout.tsx) so we don't render two switcher pills.
-  // On narrow screens the ManageToolbar's flex-wrap keeps things responsive.
-  return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
-        <div className="flex-shrink-0">
-          <WorkspaceSwitcher />
-        </div>
-        <div className="flex-1 min-w-0 flex justify-end">
-          <ManageToolbar orgId={orgId} isPrincipal={isPrincipal} />
-        </div>
-      </div>
-      <Outlet />
-    </div>
-  );
+  return <Outlet />;
 }
