@@ -41,6 +41,12 @@ interface OrgFormState {
   contact_email: string;
   contact_phone: string;
   address: string;
+  // PR C #5: branding + timezone editors. Stored in
+  // organizations.settings jsonb on the backend.
+  timezone: string;
+  logo_url: string;
+  theme_color: string;
+  school_motto: string;
 }
 
 export function OrgSettings() {
@@ -56,6 +62,10 @@ export function OrgSettings() {
     contact_email: "",
     contact_phone: "",
     address: "",
+    timezone: "",
+    logo_url: "",
+    theme_color: "",
+    school_motto: "",
   });
   const [orgSaving, setOrgSaving] = useState(false);
   const [orgError, setOrgError] = useState<string | null>(null);
@@ -91,6 +101,10 @@ export function OrgSettings() {
           contact_phone:
             (o.organization.settings?.contact_phone as string | undefined) ?? "",
           address: (o.organization.settings?.address as string | undefined) ?? "",
+          timezone: (o.organization.settings?.timezone as string | undefined) ?? "",
+          logo_url: (o.organization.settings?.logo_url as string | undefined) ?? "",
+          theme_color: (o.organization.settings?.theme_color as string | undefined) ?? "",
+          school_motto: (o.organization.settings?.school_motto as string | undefined) ?? "",
         });
         setAcademicYear(
           (o.organization.settings?.academic_year as string | undefined) ?? "",
@@ -114,6 +128,10 @@ export function OrgSettings() {
         contact_email: orgForm.contact_email,
         contact_phone: orgForm.contact_phone,
         address: orgForm.address,
+        timezone: orgForm.timezone,
+        logo_url: orgForm.logo_url,
+        theme_color: orgForm.theme_color,
+        school_motto: orgForm.school_motto,
       });
       setOrgSavedAt(Date.now());
     } catch (e) {
@@ -229,6 +247,79 @@ export function OrgSettings() {
               <span className="text-xs text-rose-700">{yearError}</span>
             )}
           </div>
+        </div>
+      </section>
+
+      {/* Section: Branding & locale (PR C #5).
+          Timezone defaults to Asia/Karachi for Iqra pilot but is editable.
+          Logo URL is just a string field — file upload comes later; for now
+          the principal pastes a hosted image URL. Theme color is HTML
+          color picker; applied to HeroCards (TODO: actually wire to UI). */}
+      <section className={`${cardBase} ${cardElev} p-5`}>
+        <h3 className={sectionTitleClasses}>Branding &amp; locale</h3>
+        <div className="mt-4 grid gap-4">
+          <div className="grid gap-1.5">
+            <Label htmlFor="org-timezone">Timezone</Label>
+            <Input
+              id="org-timezone"
+              type="text"
+              placeholder="Asia/Karachi"
+              value={orgForm.timezone}
+              onChange={(e) => setOrgForm((s) => ({ ...s, timezone: e.target.value }))}
+            />
+            <p className="text-xs text-slate-500">
+              IANA timezone name (e.g. Asia/Karachi, Asia/Dubai). Used for attendance dates
+              and announcement scheduling.
+            </p>
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="org-logo">Logo URL</Label>
+            <Input
+              id="org-logo"
+              type="url"
+              placeholder="https://…/logo.png"
+              value={orgForm.logo_url}
+              onChange={(e) => setOrgForm((s) => ({ ...s, logo_url: e.target.value }))}
+            />
+            <p className="text-xs text-slate-500">
+              Public URL to your school's logo. Shown on the dashboard hero card and parent portal.
+            </p>
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="org-color">Theme color</Label>
+            <div className="flex items-center gap-2">
+              <Input
+                id="org-color"
+                type="color"
+                value={orgForm.theme_color || "#0f766e"}
+                onChange={(e) => setOrgForm((s) => ({ ...s, theme_color: e.target.value }))}
+                className="h-10 w-20 cursor-pointer p-1"
+              />
+              <Input
+                type="text"
+                placeholder="#0f766e"
+                value={orgForm.theme_color}
+                onChange={(e) => setOrgForm((s) => ({ ...s, theme_color: e.target.value }))}
+                className="flex-1 font-mono text-sm"
+              />
+            </div>
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="org-motto">School motto (optional)</Label>
+            <Input
+              id="org-motto"
+              type="text"
+              placeholder="Knowledge, character, faith"
+              value={orgForm.school_motto}
+              onChange={(e) => setOrgForm((s) => ({ ...s, school_motto: e.target.value }))}
+            />
+          </div>
+          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+            Branding (logo, theme color, motto) is saved but not yet applied
+            visually across the app — that's coming in a follow-up. Saving
+            here makes sure the principal's choice is captured during pilot
+            setup.
+          </p>
         </div>
       </section>
 

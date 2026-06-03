@@ -125,6 +125,10 @@ export const updateOrganization = (
     contact_phone: string;
     address: string;
     academic_year: string;
+    timezone: string;
+    logo_url: string;
+    theme_color: string;
+    school_motto: string;
   }>,
 ): Promise<OrganizationDetail> =>
   apiCall(`/school/orgs/${orgId}`, {
@@ -964,6 +968,30 @@ export interface LeaveSchoolResponse {
 
 export const leaveSchool = (orgId: string): Promise<LeaveSchoolResponse> =>
   apiCall(`/school/orgs/${orgId}/staff/me`, { method: "DELETE" });
+
+/** Invite & staff-change audit entries. Append-only, principal/admin only. */
+export interface AuditEntry {
+  id: string;
+  org_id: string;
+  actor_user_id: string;
+  actor_email: string | null;
+  action: string;
+  target_user_id: string | null;
+  target_email: string | null;
+  target_role: string | null;
+  details: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export const listAuditLog = async (
+  orgId: string,
+  limit = 200,
+): Promise<AuditEntry[]> => {
+  const r = await apiCall<{ entries: AuditEntry[] }>(
+    `/school/orgs/${orgId}/audit?limit=${limit}`,
+  );
+  return r?.entries ?? [];
+};
 
 // ─── Admin: PIN ────────────────────────────────────────────────────────
 

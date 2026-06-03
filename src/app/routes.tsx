@@ -58,6 +58,7 @@ import { ManageTeachers } from "./pages/school/ManageTeachers";
 import { LinkCodes } from "./pages/school/LinkCodes";
 import { PermissionsEditor } from "./pages/school/PermissionsEditor";
 import { OrgSettings } from "./pages/school/OrgSettings";
+import { AuditLog } from "./pages/school/AuditLog";
 // Phase B teacher/admin surfaces (school-pilot/phase-b-ui).
 import { AttendanceRollCall } from "./pages/school/AttendanceRollCall";
 import { SectionBehaviorFeed } from "./pages/school/SectionBehaviorFeed";
@@ -440,6 +441,7 @@ export const router = createBrowserRouter([
               { path: "admin/link-codes", element: <LinkCodes /> },
               { path: "admin/permissions", element: <PermissionsEditor /> },
               { path: "admin/settings", element: <OrgSettings /> },
+              { path: "admin/audit", element: <AuditLog /> },
               { path: "admin/roster-requests", element: <RosterReviewQueue /> },
               { path: "admin/announcements", element: <AnnouncementsList /> },
               { path: "admin/announcements/new", element: <AnnouncementComposer /> },

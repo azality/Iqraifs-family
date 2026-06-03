@@ -21,6 +21,7 @@
 
 import { Hono } from "npm:hono";
 import { serviceRoleClient, requireAuth, getAuthUserId } from "./middleware.tsx";
+import { logAuditWithLookup } from "./schoolAudit.ts";
 import { installPhaseA } from "./schoolPhaseA.tsx";
 import { installPhaseB } from "./schoolPhaseB.tsx";
 import { installPhaseC } from "./schoolPhaseC.tsx";
@@ -344,7 +345,19 @@ school.patch("/orgs/:orgId", async (c) => {
   }
 
   const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-  const settingsKeys = ["contact_email", "contact_phone", "address", "academic_year"];
+  // Expanded in PR C (gap #5): timezone, branding (logo URL + theme color),
+  // school_motto. All stored in the organizations.settings jsonb so we don't
+  // need a migration. Frontend OrgSettings exposes editors for each.
+  const settingsKeys = [
+    "contact_email",
+    "contact_phone",
+    "address",
+    "academic_year",
+    "timezone",
+    "logo_url",
+    "theme_color",
+    "school_motto",
+  ];
 
   // Load current settings so we merge rather than overwrite.
   const { data: current, error: loadErr } = await serviceRoleClient
@@ -458,6 +471,16 @@ school.delete("/orgs/:orgId", async (c) => {
     .eq("id", orgId);
   if (updErr) return c.json({ error: updErr.message }, 500);
 
+  await logAuditWithLookup({
+    orgId,
+    actorUserId: userId,
+    action: "delete_school",
+    details: {
+      schoolName: (org as any).name,
+      purgeAfter: purgeAfter.toISOString(),
+    },
+  });
+
   return c.json({
     ok: true,
     deletedAt: now.toISOString(),
@@ -521,11 +544,64 @@ school.delete("/orgs/:orgId/staff/me", async (c) => {
     .is("revoked_at", null);
   if (updErr) return c.json({ error: updErr.message }, 500);
 
+  await logAuditWithLookup({
+    orgId,
+    actorUserId: userId,
+    action: "staff_self_leave",
+    targetUserId: userId,
+    details: {
+      revokedRoles: (rolesToRevoke as any[]).map((r) => r.role_type),
+    },
+  });
+
   return c.json({
     ok: true,
     revokedRoles: (rolesToRevoke as any[]).map((r) => r.role_type),
     message: "You have left this school. Your account is unaffected.",
   });
+});
+
+// -----------------------------------------------------------------------------
+// GET /orgs/:orgId/audit — principal/admin only. Returns the latest N (default
+// 200, max 500) invite/staff audit log entries in reverse chronological order.
+// -----------------------------------------------------------------------------
+school.get("/orgs/:orgId/audit", async (c) => {
+  const userId = getAuthUserId(c);
+  if (!userId) return c.json({ error: "unauthenticated" }, 401);
+  const orgId = c.req.param("orgId");
+
+  // Principal OR admin can view. Use the local isPrincipalOf + isAdminOf via
+  // user_roles direct check rather than importing schoolAuth (to keep
+  // school.tsx's import surface minimal).
+  const { data: gateRows } = await serviceRoleClient
+    .from("user_roles")
+    .select("role_type")
+    .eq("user_id", userId)
+    .eq("scope_type", "organization")
+    .eq("scope_id", orgId)
+    .is("revoked_at", null);
+  const isStaff = (gateRows ?? []).some(
+    (r: any) => r.role_type === "principal" || r.role_type === "admin",
+  );
+  if (!isStaff) {
+    return c.json(
+      { error: "Only principals and admins can view the audit log.", code: "FORBIDDEN_ROLE" },
+      403,
+    );
+  }
+
+  const limitParam = parseInt(c.req.query("limit") ?? "200", 10);
+  const limit = Math.min(Math.max(isFinite(limitParam) ? limitParam : 200, 1), 500);
+
+  const { data, error } = await serviceRoleClient
+    .from("invite_audit_log")
+    .select("*")
+    .eq("org_id", orgId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) return c.json({ error: error.message }, 500);
+
+  return c.json({ entries: data ?? [], limit });
 });
 
 // -----------------------------------------------------------------------------
