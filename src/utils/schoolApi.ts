@@ -1015,6 +1015,18 @@ export const resetPin = (
     body: JSON.stringify(body),
   });
 
+/** Student/parent self-service: change their OWN PIN.
+ *  Requires the existing PIN (anti-takeover guard). Returns 401 on mismatch.
+ *  PR D #8. */
+export const changeOwnPin = (
+  orgId: string,
+  body: { subjectType: PinSubjectType; subjectId: string; oldPin: string; newPin: string },
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/pin/change`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
 // ─── Admin: Link codes ─────────────────────────────────────────────────
 
 export interface LinkCode {

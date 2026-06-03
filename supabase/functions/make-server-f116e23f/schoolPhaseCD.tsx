@@ -47,6 +47,24 @@ async function hasAdminOrPrincipal(userId: string, orgId: string): Promise<boole
   return false;
 }
 
+/** PR D: receipt visibility — financial_staff can view/print receipts. */
+async function isFinancialStaff(userId: string, orgId: string): Promise<boolean> {
+  return userHasRoleRow(userId, "financial_staff", "organization", orgId);
+}
+
+/** PR D: receipt visibility — parent linked to this student can view/print
+ *  their own child's receipt. Uses the parent_child_link table. */
+async function isParentOfStudent(userId: string, studentId: string): Promise<boolean> {
+  const { data } = await serviceRoleClient
+    .from("parent_child_link")
+    .select("id")
+    .eq("parent_user_id", userId)
+    .eq("student_id", studentId)
+    .is("revoked_at", null)
+    .maybeSingle();
+  return !!data;
+}
+
 async function hasAnyRoleInOrg(userId: string, orgId: string): Promise<boolean> {
   const { data, error } = await serviceRoleClient
     .from("user_roles")
@@ -950,6 +968,150 @@ export function installPhaseCD(school: Hono): void {
     if (updErr) return c.json({ error: updErr.message }, 500);
     return c.json({ fee: feeToJson(upd) });
   });
+
+  // -------------------------------------------------------------------------
+  // GET /orgs/:orgId/fees/:feeId/receipt — print-ready HTML receipt
+  //
+  // Returns a self-contained styled HTML page that prints cleanly to A5/A4.
+  // The frontend opens this in a new tab; the principal/parent prints to PDF
+  // via the browser. This avoids adding a PDF library to the Deno edge
+  // runtime and gives real print quality + on-device save-to-PDF on mobile.
+  //
+  // Visibility: principal / admin / financial_staff of the org, OR the
+  // parent linked to this fee's student.
+  // -------------------------------------------------------------------------
+  school.get("/orgs/:orgId/fees/:feeId/receipt", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    const feeId = c.req.param("feeId");
+
+    const { data: fee, error: feeErr } = await serviceRoleClient
+      .from("fee_status")
+      .select("*, students:student_id(id, full_name, roll_number, class_section:class_section_id(name))")
+      .eq("id", feeId)
+      .maybeSingle();
+    if (feeErr) return c.json({ error: feeErr.message }, 500);
+    if (!fee) return c.json({ error: "fee not found" }, 404);
+    if ((fee as any).org_id !== orgId) {
+      return c.json({ error: "fee not in this org" }, 404);
+    }
+
+    // Visibility check: staff OR linked parent.
+    const allowed =
+      (await hasAdminOrPrincipal(userId, orgId)) ||
+      (await isFinancialStaff(userId, orgId)) ||
+      (await isParentOfStudent(userId, (fee as any).student_id));
+    if (!allowed) return c.json({ error: "forbidden", code: "FORBIDDEN_ROLE" }, 403);
+
+    const { data: org } = await serviceRoleClient
+      .from("organizations")
+      .select("name, settings")
+      .eq("id", orgId)
+      .maybeSingle();
+    const orgName = (org as any)?.name ?? "School";
+    const orgSettings = (org as any)?.settings ?? {};
+    const logoUrl = orgSettings.logo_url || "";
+    const motto = orgSettings.school_motto || "";
+    const address = orgSettings.address || "";
+    const contactEmail = orgSettings.contact_email || "";
+    const themeColor = orgSettings.theme_color || "#0f766e";
+
+    const student = (fee as any).students || {};
+    const sectionName = student?.class_section?.name || "—";
+    const studentName = student?.full_name || "—";
+    const rollNumber = student?.roll_number || "—";
+
+    const amountDue = Number((fee as any).amount_due ?? 0);
+    const amountPaid = Number((fee as any).amount_paid ?? 0);
+    const balance = Math.max(0, amountDue - amountPaid);
+    const paidDate = (fee as any).paid_date || (fee as any).updated_at?.slice(0, 10) || "";
+    const period = (fee as any).period || "—";
+    const status = (fee as any).status || "—";
+
+    // Escape user-controlled strings to prevent XSS in the printed receipt.
+    const esc = (s: unknown) =>
+      String(s ?? "").replace(/[&<>"']/g, (ch) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+      }[ch]!));
+
+    const html = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Receipt — ${esc(studentName)} — ${esc(period)}</title>
+<style>
+  @page { size: A4; margin: 18mm; }
+  body { font-family: -apple-system, system-ui, sans-serif; color: #0f172a; max-width: 720px; margin: 0 auto; padding: 24px; }
+  header { display: flex; align-items: center; gap: 16px; border-bottom: 3px solid ${esc(themeColor)}; padding-bottom: 16px; }
+  header img { height: 56px; max-width: 120px; object-fit: contain; }
+  header h1 { margin: 0; font-size: 22px; color: ${esc(themeColor)}; }
+  header p { margin: 4px 0 0; font-size: 12px; color: #475569; }
+  .meta { margin-top: 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; font-size: 13px; }
+  .meta div { display: flex; justify-content: space-between; border-bottom: 1px dotted #cbd5e1; padding: 4px 0; }
+  .meta dt { color: #64748b; }
+  .meta dd { margin: 0; font-weight: 600; }
+  .totals { margin-top: 24px; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; }
+  .totals .row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 14px; }
+  .totals .row.grand { border-top: 2px solid #e2e8f0; margin-top: 8px; padding-top: 12px; font-size: 16px; font-weight: 700; }
+  .stamp { margin-top: 36px; padding: 12px 16px; background: ${esc(themeColor)}; color: white; border-radius: 6px; display: inline-block; font-weight: 700; letter-spacing: 0.5px; }
+  footer { margin-top: 40px; font-size: 11px; color: #64748b; border-top: 1px solid #e2e8f0; padding-top: 10px; }
+  .print-btn { background: ${esc(themeColor)}; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-size: 14px; cursor: pointer; }
+  @media print { .no-print { display: none; } }
+</style>
+</head>
+<body>
+<header>
+  ${logoUrl ? `<img src="${esc(logoUrl)}" alt="logo" />` : ""}
+  <div>
+    <h1>${esc(orgName)}</h1>
+    ${motto ? `<p><em>${esc(motto)}</em></p>` : ""}
+    ${address ? `<p>${esc(address)}</p>` : ""}
+    ${contactEmail ? `<p>${esc(contactEmail)}</p>` : ""}
+  </div>
+</header>
+
+<h2 style="margin-top:24px;font-size:18px;">Fee Receipt</h2>
+
+<dl class="meta">
+  <div><dt>Receipt ID</dt><dd>${esc(feeId.slice(0, 8))}</dd></div>
+  <div><dt>Date</dt><dd>${esc(paidDate)}</dd></div>
+  <div><dt>Student</dt><dd>${esc(studentName)}</dd></div>
+  <div><dt>Roll #</dt><dd>${esc(rollNumber)}</dd></div>
+  <div><dt>Class</dt><dd>${esc(sectionName)}</dd></div>
+  <div><dt>Period</dt><dd>${esc(period)}</dd></div>
+</dl>
+
+<div class="totals">
+  <div class="row"><span>Amount due</span><span>${amountDue.toFixed(2)}</span></div>
+  <div class="row"><span>Amount paid</span><span>${amountPaid.toFixed(2)}</span></div>
+  <div class="row grand"><span>${balance > 0 ? "Balance remaining" : "Balance"}</span><span>${balance.toFixed(2)}</span></div>
+</div>
+
+${status === "paid" ? `<div class="stamp">PAID</div>` : ""}
+
+<div class="no-print" style="margin-top:24px;">
+  <button class="print-btn" onclick="window.print()">Print / Save as PDF</button>
+</div>
+
+<footer>
+  Generated ${new Date().toISOString().slice(0, 10)} · This receipt is computer-generated and does not require a signature.
+</footer>
+</body>
+</html>`;
+
+    return new Response(html, {
+      status: 200,
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "no-store",
+      },
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Helpers used by the receipt visibility check above.
+  // -------------------------------------------------------------------------
 
   // DELETE /school/orgs/:orgId/fees/:feeId
   school.delete("/orgs/:orgId/fees/:feeId", async (c) => {
