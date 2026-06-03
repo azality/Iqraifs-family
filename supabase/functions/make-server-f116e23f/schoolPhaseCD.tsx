@@ -14,6 +14,9 @@
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { verifyPinToken } from "./schoolPhaseA.tsx";
+// PR K: migrate fee + grade gates from hasAdminOrPrincipal to userCanInOrg
+// so financial_staff / class_teacher can act per their permission template.
+import { userCanInOrg } from "./schoolAuth.ts";
 
 // -----------------------------------------------------------------------------
 // Permission helpers (self-contained — mirrors Phase B / C / C2 pattern)
@@ -765,8 +768,12 @@ export function installPhaseCD(school: Hono): void {
       return c.json({ error: "dueDate must be YYYY-MM-DD" }, 400);
     }
 
-    if (!(await hasAdminOrPrincipal(userId, orgId))) {
-      return c.json({ error: "forbidden" }, 403);
+    // PR K: financial_staff can record payments via mark_fees_status.
+    if (!(await userCanInOrg(userId, orgId, "mark_fees_status"))) {
+      return c.json(
+        { error: "You don't have permission to record fees.", code: "FORBIDDEN_PERMISSION" },
+        403,
+      );
     }
 
     const { data: stu, error: sErr } = await serviceRoleClient
@@ -909,8 +916,12 @@ export function installPhaseCD(school: Hono): void {
     if (!existing) return c.json({ error: "fee not found" }, 404);
     if (existing.org_id !== orgId) return c.json({ error: "fee not in this org" }, 404);
 
-    if (!(await hasAdminOrPrincipal(userId, orgId))) {
-      return c.json({ error: "forbidden" }, 403);
+    // PR K: financial_staff can update fee status via mark_fees_status.
+    if (!(await userCanInOrg(userId, orgId, "mark_fees_status"))) {
+      return c.json(
+        { error: "You don't have permission to update fees.", code: "FORBIDDEN_PERMISSION" },
+        403,
+      );
     }
 
     const update: Record<string, unknown> = {};

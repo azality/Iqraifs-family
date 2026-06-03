@@ -29,6 +29,9 @@
 import { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { logAuditWithLookup } from "./schoolAudit.ts";
+// PR K: migrate student-write routes from requireAdminOrPrincipal to
+// userCanInOrg("manage_students") so office_staff can manage students.
+import { userCanInOrg } from "./schoolAuth.ts";
 
 // ---------------------------------------------------------------------------
 // Shared row types — exported so the frontend can mirror the shape.
@@ -558,7 +561,10 @@ export function installPhaseA(school: Hono) {
   school.post("/orgs/:orgId/students", async (c) => {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
-    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    // PR K: office_staff can manage students via manage_students permission.
+    if (!(await userCanInOrg(userId, orgId, "manage_students"))) {
+      return c.json({ error: "You don't have permission to add students.", code: "FORBIDDEN_PERMISSION" }, 403);
+    }
     let body: any;
     try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
     const v = validStudentRow(body, 0);
@@ -625,7 +631,10 @@ export function installPhaseA(school: Hono) {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
     const studentId = c.req.param("studentId");
-    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    // PR K: manage_students permission (office_staff included by default).
+    if (!(await userCanInOrg(userId, orgId, "manage_students"))) {
+      return c.json({ error: "You don't have permission to edit students.", code: "FORBIDDEN_PERMISSION" }, 403);
+    }
     let body: any;
     try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
     const map: Record<string, string> = {
