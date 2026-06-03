@@ -12,11 +12,17 @@
 // (Permissions, Settings) accurate.
 
 import { Outlet } from "react-router";
+import { OrgBrandingProvider } from "../contexts/OrgBrandingContext";
 
 // Per user feedback: the ManageToolbar + WorkspaceSwitcher now live inline
 // in RootLayout's top bar (see RootLayout.tsx, "Row 1") so we don't burn a
-// whole vertical row on chrome. This shell just passes through to the
-// child route's page content.
+// whole vertical row on chrome. This shell wraps in OrgBrandingProvider
+// (PR G) so every school page below gets logo/theme/motto without each one
+// having to re-fetch the org.
 export function SchoolAdminShell() {
-  return <Outlet />;
+  return (
+    <OrgBrandingProvider>
+      <Outlet />
+    </OrgBrandingProvider>
+  );
 }
