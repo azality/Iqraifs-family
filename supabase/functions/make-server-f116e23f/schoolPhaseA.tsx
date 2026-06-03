@@ -1273,6 +1273,74 @@ export function installPhaseA(school: Hono) {
     );
   });
 
+  // -------------------------------------------------------------------------
+  // RESEND INVITE — principal/admin can re-trigger the password-reset email
+  // for any non-revoked staff member of this org. Useful when the original
+  // email bounced, was filtered to spam, or Supabase's email validator
+  // initially rejected the address (see PR #72: AuthApiError catch).
+  //
+  // Returns 200 with { ok: true, sent: boolean, reason?: string }. `sent`
+  // false (with a reason) is NOT an error — the caller can surface a notice
+  // and offer to share the reset link manually.
+  // -------------------------------------------------------------------------
+  school.post("/orgs/:orgId/staff/:userId/resend-invite", async (c) => {
+    const callerId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const targetUserId = c.req.param("userId");
+    if (!(await requireAdminOrPrincipal(callerId, orgId))) {
+      return c.json({ error: "forbidden", code: "FORBIDDEN_ROLE" }, 403);
+    }
+
+    // Confirm target actually has a non-revoked role in this org. Without
+    // this check, an admin could spam reset emails to arbitrary user IDs.
+    const { data: targetRole } = await serviceRoleClient
+      .from("user_roles")
+      .select("role_type")
+      .eq("user_id", targetUserId)
+      .eq("scope_type", "organization")
+      .eq("scope_id", orgId)
+      .is("revoked_at", null)
+      .maybeSingle();
+    if (!targetRole) {
+      return c.json(
+        { error: "User is not staff of this school.", code: "NOT_STAFF" },
+        404,
+      );
+    }
+
+    // Get target's email.
+    const { data: lookup, error: lookupErr } = await (serviceRoleClient as any).auth.admin.getUserById(targetUserId);
+    if (lookupErr || !lookup?.user?.email) {
+      return c.json({ error: "User has no email on file.", code: "NO_EMAIL" }, 400);
+    }
+    const email = lookup.user.email as string;
+
+    const siteOrigin = Deno.env.get("SITE_URL") || "https://iqraifs.com";
+    try {
+      const { error: resetErr } = await (serviceRoleClient as any).auth.resetPasswordForEmail(email, {
+        redirectTo: `${siteOrigin}/reset-password`,
+      });
+      if (resetErr) {
+        console.error("[invite] resend reset email failed:", resetErr);
+        return c.json({
+          ok: true,
+          sent: false,
+          reason: (resetErr as any)?.message ?? "Email provider rejected the address.",
+          email,
+        });
+      }
+      return c.json({ ok: true, sent: true, email });
+    } catch (e) {
+      console.error("[invite] resend reset email threw:", e);
+      return c.json({
+        ok: true,
+        sent: false,
+        reason: e instanceof Error ? e.message : "Email send failed.",
+        email,
+      });
+    }
+  });
+
   school.delete("/orgs/:orgId/admins/:userId", async (c) => {
     const callerId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
