@@ -303,17 +303,27 @@ async function fetchAttendance(
   date: string;
   status: string;
 }>> {
+  // BUG FIX: the column is `attendance_date`, not `date`. Selecting/
+  // filtering by a non-existent column made PostgREST return an error and
+  // we caught it silently, so the dashboard showed 0% for everything.
+  // We alias to `date` in the response shape so callers don't need to
+  // change.
   const { data, error } = await serviceRoleClient
     .from("school_attendance")
-    .select("student_id, class_section_id, date, status")
+    .select("student_id, class_section_id, attendance_date, status")
     .eq("org_id", orgId)
-    .gte("date", fmtDate(start))
-    .lte("date", fmtDate(end));
+    .gte("attendance_date", fmtDate(start))
+    .lte("attendance_date", fmtDate(end));
   if (error) {
     console.error("[schoolDashboard.fetchAttendance] DB error:", error);
     return [];
   }
-  return (data ?? []) as any;
+  return ((data ?? []) as any[]).map((r) => ({
+    student_id: r.student_id,
+    class_section_id: r.class_section_id,
+    date: r.attendance_date,
+    status: r.status,
+  })) as any;
 }
 
 async function fetchBehavior(
@@ -330,17 +340,34 @@ async function fetchBehavior(
   created_at: string;
   created_by: string | null;
 }>> {
+  // BUG FIX: the columns are `recorded_by` (not created_by) and the
+  // relevant timestamp for "when did this happen" is `observed_at`, not
+  // `created_at`. created_at is when the row was INSERTED — useful for
+  // audit but not for "behavior events this period". The seeder
+  // sometimes back-dates observed_at, so filtering by created_at
+  // misses them.
   const { data, error } = await serviceRoleClient
     .from("behavior_note")
-    .select("id, student_id, class_section_id, kind, category, points, created_at, created_by")
+    .select("id, student_id, class_section_id, kind, category, points, observed_at, recorded_by")
     .eq("org_id", orgId)
-    .gte("created_at", start.toISOString())
-    .lte("created_at", endOfDayIso(end));
+    .gte("observed_at", start.toISOString())
+    .lte("observed_at", endOfDayIso(end));
   if (error) {
     console.error("[schoolDashboard.fetchBehavior] DB error:", error);
     return [];
   }
-  return (data ?? []) as any;
+  // Preserve the legacy shape callers expect: rename observed_at → created_at,
+  // recorded_by → created_by so we don't have to touch every consumer.
+  return ((data ?? []) as any[]).map((r) => ({
+    id: r.id,
+    student_id: r.student_id,
+    class_section_id: r.class_section_id,
+    kind: r.kind,
+    category: r.category,
+    points: r.points,
+    created_at: r.observed_at,
+    created_by: r.recorded_by,
+  })) as any;
 }
 
 function endOfDayIso(d: Date): string {

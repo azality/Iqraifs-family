@@ -156,7 +156,7 @@ export function ManageStudents() {
     {
       key: "name",
       header: "Name",
-      render: (s) => (
+      cell: (s) => (
         <div>
           <div className="font-medium text-slate-900">{s.full_name}</div>
           <div className="text-xs text-slate-500">
@@ -169,20 +169,20 @@ export function ManageStudents() {
       key: "gr",
       header: "GR#",
       className: "font-mono text-xs text-slate-600 tabular-nums",
-      render: (s) => s.gr_number,
+      cell: (s) => s.gr_number,
     },
     {
       key: "section",
       header: "Section",
       className: "text-xs text-slate-600",
-      render: (s) => sectionOptions.find((o) => o.id === s.class_section_id)?.label || "—",
+      cell: (s) => sectionOptions.find((o) => o.id === s.class_section_id)?.label || "—",
     },
     {
       key: "actions",
       header: "",
       className: "text-right",
       headerClassName: "text-right",
-      render: (s) => (
+      cell: (s) => (
         <div className="inline-flex gap-0.5" onClick={(e) => e.stopPropagation()}>
           <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => navigate(`/school/orgs/${orgId}/admin/students/${s.id}`)}>
             <Eye className="h-3.5 w-3.5" />
@@ -255,8 +255,7 @@ export function ManageStudents() {
         rows={students}
         rowKey={(s) => s.id}
         onRowClick={(s) => navigate(`/school/orgs/${orgId}/admin/students/${s.id}`)}
-        empty="No students yet."
-        hideChevron
+        emptyMessage="No students yet."
       />
 
       {/* Add/Edit dialog */}
