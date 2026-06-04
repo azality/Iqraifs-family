@@ -181,33 +181,35 @@ export function ParentLogin() {
             const familyId = families[0].id;
             await setStorage('fgs_family_id', familyId);
             console.log('✅ Cached family ID:', familyId);
-
-            // Small delay to ensure localStorage is flushed before navigation
-            await new Promise(resolve => setTimeout(resolve, 100));
-
-            toast.success('Welcome back!');
-
-            // Initialize push notifications (non-blocking)
-            if (isPushNotificationsSupported()) {
-              try {
-                console.log('📬 Initializing push notifications...');
-                await initializePushNotifications(data.user.id);
-                console.log('✅ Push notifications initialized');
-              } catch (pushError) {
-                // Non-blocking - don't prevent login if push fails
-                console.warn('⚠️ Failed to initialize push notifications:', pushError);
-              }
-            }
-
-            navigate('/');
-            return;
           } else {
-            console.warn('⚠️ No families found for user - redirecting to onboarding');
-            toast.info('Please complete family setup');
-            await new Promise(resolve => setTimeout(resolve, 100));
-            navigate('/onboarding');
-            return;
+            console.log('ℹ️ User has no family — letting the index-route gate decide where to send them (school workspace if they have one, /onboarding otherwise)');
           }
+
+          // Small delay to ensure localStorage is flushed before navigation
+          await new Promise(resolve => setTimeout(resolve, 100));
+
+          toast.success('Welcome back!');
+
+          // Initialize push notifications (non-blocking)
+          if (isPushNotificationsSupported()) {
+            try {
+              console.log('📬 Initializing push notifications...');
+              await initializePushNotifications(data.user.id);
+              console.log('✅ Push notifications initialized');
+            } catch (pushError) {
+              // Non-blocking - don't prevent login if push fails
+              console.warn('⚠️ Failed to initialize push notifications:', pushError);
+            }
+          }
+
+          // ALWAYS navigate to '/'. The ProtectedRoute gate in routes.tsx
+          // owns the school-vs-family-vs-onboarding decision — it reads
+          // signupIntent + hasSchoolAccess from WorkspaceContext and
+          // redirects accordingly. Hard-routing to /onboarding here used
+          // to trap school principals who had no family on the family
+          // setup screen forever.
+          navigate('/');
+          return;
         } else {
           const errorText = await familiesResponse.text();
           console.error('❌ Failed to fetch families:', {
