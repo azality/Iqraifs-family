@@ -36,12 +36,17 @@ export function SchoolHome() {
 
   useEffect(() => {
     if (!me) return;
-    // Auto-route principals straight to their dashboard. (Most users
-    // will have exactly one role; the no-role and teacher-only cases
-    // render an explicit landing below.)
+    // Auto-route principals straight to their dashboard. We match against
+    // me.organizations (which the backend filters to undeleted orgs only)
+    // rather than principalOrgIds(me) (raw role-table count). Otherwise a
+    // principal whose original org was soft-deleted keeps a stale role row
+    // → orgs.length === 2 → no auto-redirect → landing renders blank.
     if (isPrincipal(me)) {
-      const orgs = principalOrgIds(me);
-      if (orgs.length === 1) navigate(`/school/orgs/${orgs[0]}`, { replace: true });
+      const principalIdSet = new Set(principalOrgIds(me));
+      const activePrincipalOrgs = me.organizations.filter((o) => principalIdSet.has(o.id));
+      if (activePrincipalOrgs.length === 1) {
+        navigate(`/school/orgs/${activePrincipalOrgs[0].id}`, { replace: true });
+      }
     }
   }, [me, navigate]);
 
@@ -174,6 +179,28 @@ export function SchoolHome() {
     );
   }
 
-  // Fallback — shouldn't reach here, but harmless.
-  return null;
+  // Fallback. Single-principal-org users hit the auto-redirect above
+  // before reaching here. Anyone else who lands here is either a
+  // principal whose redirect raced the render (in which case the
+  // useEffect will fire on the next tick) or in a state we don't have
+  // an explicit branch for. Render a non-blank "loading" so it's never
+  // a silently blank page.
+  return (
+    <div className="flex items-center justify-center min-h-[40vh]">
+      <div className="text-center space-y-2">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto" />
+        <p className="text-sm text-muted-foreground">Loading workspace…</p>
+        <Button variant="link" size="sm" onClick={() => {
+          // Last-ditch: send to the first principal org we can find. Beats
+          // a stuck spinner if something downstream gets confused.
+          const firstActive = me?.organizations.find((o) =>
+            principalOrgIds(me).includes(o.id),
+          );
+          if (firstActive) navigate(`/school/orgs/${firstActive.id}`, { replace: true });
+        }}>
+          Click here if this doesn't auto-load
+        </Button>
+      </div>
+    </div>
+  );
 }
