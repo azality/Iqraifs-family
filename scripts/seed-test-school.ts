@@ -147,30 +147,39 @@ for (const r of ROLES_TO_SEED) {
 
 // Class + students
 const { data: cls } = await sb
-  .from("classes")
-  .insert({
-    organization_id: orgId,
-    name: "Grade 5",
-    grade_level: "5",
-    section: "A",
-  })
+  // Use the Phase A tables (`class`, `class_section`, `student`) — that's
+  // what every route in schoolPhaseA/B/C actually queries. Migration 0001
+  // defined a parallel `classes`/`class_section` schema requiring
+  // campus_id + academic_year_id; the seed previously wrote there by
+  // mistake (the insert returned null because of missing required FKs)
+  // and then crashed reading `.id` off null.
+  .from("class")
+  .insert({ org_id: orgId, name: "Grade 5", display_order: 5 })
   .select()
   .single();
-console.log(`  ✓ class            → ${cls?.id}`);
+if (!cls) {
+  console.error("class insert failed");
+  Deno.exit(1);
+}
+console.log(`  ✓ class            → ${cls.id}`);
 
-// class_section — class teacher assignment
+// class_section — class teacher assignment. NOTE: class_section has NO
+// org_id column; the org is reached via class.org_id.
 const ctUserId = staffSummary.find((s) => s.role === "class_teacher")!.userId;
-const { data: section } = await sb
+const { data: section, error: secErr } = await sb
   .from("class_section")
   .insert({
-    org_id: orgId,
-    class_id: cls!.id,
+    class_id: cls.id,
     name: "5-A",
     class_teacher_user_id: ctUserId,
   })
   .select()
   .single();
-console.log(`  ✓ class_section    → ${section?.id} (CT: ${ctUserId.slice(0, 8)})`);
+if (secErr || !section) {
+  console.error("class_section insert failed:", secErr);
+  Deno.exit(1);
+}
+console.log(`  ✓ class_section    → ${section.id} (CT: ${ctUserId.slice(0, 8)})`);
 
 const STUDENT_DATA = [
   { full_name: "Aamir Ali",   gr_number: "S-001" },
