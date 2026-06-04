@@ -27,3 +27,13 @@ ios-parent/App/*.xcuserdata/
 ios-kids/App/*.xcuserdata/
 # Local v15+ deploy staging - never commit, never stash
 _fgs-staging/
+
+# Claude Code session state (worktrees, transcripts, etc.)
+.claude/
+
+# Local-only working docs (not for the public repo)
+CLAUDE.md
+IQRA-AUDIT-AND-SCHOOL-PLAN.md
+
+# Supabase CLI scratch dir
+supabase/.temp/
