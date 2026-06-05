@@ -182,21 +182,24 @@ function topicToJson(r: any) {
 }
 
 function feeToJson(r: any) {
+  // FIX: shape now matches the frontend FeeStatus type (snake_case
+  // throughout). Earlier this returned camelCase (amountDue etc.) so the
+  // table columns reading f.amount_due / f.due_date all rendered "—".
   return {
     id: r.id,
-    orgId: r.org_id,
-    studentId: r.student_id,
+    org_id: r.org_id,
+    student_id: r.student_id,
     period: r.period,
-    amountDue: r.amount_due === null || r.amount_due === undefined ? null : Number(r.amount_due),
-    amountPaid: r.amount_paid === null || r.amount_paid === undefined ? null : Number(r.amount_paid),
+    amount_due: r.amount_due === null || r.amount_due === undefined ? null : Number(r.amount_due),
+    amount_paid: r.amount_paid === null || r.amount_paid === undefined ? null : Number(r.amount_paid),
     status: r.status,
-    dueDate: r.due_date,
-    paidDate: r.paid_date,
-    receiptUrl: r.receipt_url,
+    due_date: r.due_date,
+    paid_date: r.paid_date,
+    receipt_url: r.receipt_url,
     notes: r.notes,
-    recordedBy: r.recorded_by,
-    createdAt: r.created_at,
-    updatedAt: r.updated_at,
+    recorded_by: r.recorded_by,
+    created_at: r.created_at,
+    updated_at: r.updated_at,
   };
 }
 
