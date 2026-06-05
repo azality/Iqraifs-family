@@ -359,17 +359,15 @@ function Leaderboard({
                 filtered.map((row, idx) => (
                   <tr
                     key={row.sectionId}
-                    // The leaderboard is primarily an attendance + behavior
-                    // signal, so clicking a row should land on that
-                    // section's Attendance Roll Call — the page where
-                    // admins can actually act on what they came for
-                    // (mark today, see who's missing). Previously this
-                    // sent users to the global students list filtered
-                    // by section, which was confusing because it stripped
-                    // the dashboard context.
+                    // Row click → SectionOverview, the hub page for ONE
+                    // section. It shows attendance %, behavior score,
+                    // last-10-day spark, recent behavior notes, and
+                    // quick links to attendance / behavior / hifz /
+                    // students. Lets admins triage without losing
+                    // dashboard context.
                     onClick={() =>
                       navigate(
-                        `/school/orgs/${orgId}/sections/${encodeURIComponent(row.sectionId)}/attendance`,
+                        `/school/orgs/${orgId}/sections/${encodeURIComponent(row.sectionId)}`,
                       )
                     }
                     className="group cursor-pointer border-b border-slate-50 transition-colors hover:bg-indigo-50/40"
