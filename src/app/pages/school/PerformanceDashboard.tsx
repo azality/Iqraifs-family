@@ -200,13 +200,15 @@ function AlertCard({ alert }: { alert: DashboardAlert }) {
   const s = SEVERITY_STYLES[alert.severity];
 
   // Some alert actions point back to the current page (e.g. "View
-  // leaderboard" → `/school/orgs/${orgId}` which IS this page). Plain
-  // <Link> doesn't visibly do anything in that case. If the actionPath
-  // matches the current URL, scroll to the leaderboard section instead.
+  // leaderboard" → `/school/orgs/${orgId}?filter=flagged` which IS this
+  // page, just with a query string). Plain <Link> looks like it does
+  // nothing. Strip both query and trailing slash when comparing.
   const handleActionClick = (e: React.MouseEvent) => {
     if (!alert.actionPath) return;
-    const currentPath = window.location.pathname;
-    if (alert.actionPath === currentPath || alert.actionPath === currentPath.replace(/\/$/, "")) {
+    const stripQuery = (s: string) => s.split("?")[0].replace(/\/$/, "");
+    const target = stripQuery(alert.actionPath);
+    const current = stripQuery(window.location.pathname);
+    if (target === current) {
       e.preventDefault();
       const el = document.getElementById("sections-leaderboard");
       if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -357,9 +359,17 @@ function Leaderboard({
                 filtered.map((row, idx) => (
                   <tr
                     key={row.sectionId}
+                    // The leaderboard is primarily an attendance + behavior
+                    // signal, so clicking a row should land on that
+                    // section's Attendance Roll Call — the page where
+                    // admins can actually act on what they came for
+                    // (mark today, see who's missing). Previously this
+                    // sent users to the global students list filtered
+                    // by section, which was confusing because it stripped
+                    // the dashboard context.
                     onClick={() =>
                       navigate(
-                        `/school/orgs/${orgId}/admin/students?classSectionId=${encodeURIComponent(row.sectionId)}`,
+                        `/school/orgs/${orgId}/sections/${encodeURIComponent(row.sectionId)}/attendance`,
                       )
                     }
                     className="group cursor-pointer border-b border-slate-50 transition-colors hover:bg-indigo-50/40"
