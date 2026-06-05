@@ -236,50 +236,84 @@ export interface ClassDetail {
   }>;
 }
 
-// ─── Section subjects ──────────────────────────────────────────────────
-// New per-section subjects model (Math/Science/English/Quran/Urdu per
-// class_section). See migration 0018. Phase 1A of per-subject rewiring —
-// lessons / assignments / gradebook will gain subject_id in follow-up PRs.
+// ─── Subjects (Phase 1C class-level templates) ──────────────────────────
+// A subject is defined ONCE per class (Math in Grade 3), then fanned out
+// to every section of that class. Each fanned-out row holds the per-
+// section teacher assignment (Zara teaches Math in 3-A, someone else in
+// 3-B). See migrations 0018 + 0019.
 
-export interface SectionSubject {
+/** A subject template at the class level, plus its per-section assignments. */
+export interface ClassSubject {
   id: string;
   orgId: string;
-  classSectionId: string;
+  classId: string;
   name: string;
-  teacherUserId: string | null;
-  teacherName: string | null;
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
+  sections: Array<{
+    sectionSubjectId: string;
+    sectionId: string;
+    sectionName: string | null;
+    teacherUserId: string | null;
+    teacherName: string | null;
+  }>;
 }
 
+/** A subject as seen from a single section (denormalised name + teacher). */
+export interface SectionSubject {
+  id: string;
+  classSectionId: string;
+  classSubjectId: string;
+  name: string;
+  sortOrder: number;
+  teacherUserId: string | null;
+  teacherName: string | null;
+}
+
+// --- Class-level (admin/principal writes) -----------------------------------
+export const listClassSubjects = (
+  classId: string,
+): Promise<{ classId: string; subjects: ClassSubject[] }> =>
+  apiCall(`/school/classes/${classId}/subjects`);
+
+export const createClassSubject = (
+  classId: string,
+  body: { name: string; sortOrder?: number },
+): Promise<{ subject: ClassSubject }> =>
+  apiCall(`/school/classes/${classId}/subjects`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const updateClassSubject = (
+  classSubjectId: string,
+  body: { name?: string; sortOrder?: number },
+): Promise<{ subject: ClassSubject }> =>
+  apiCall(`/school/class-subjects/${classSubjectId}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+
+export const deleteClassSubject = (
+  classSubjectId: string,
+): Promise<{ ok: true }> =>
+  apiCall(`/school/class-subjects/${classSubjectId}`, { method: "DELETE" });
+
+// --- Section-level (read for all; teacher PATCH for admins) ------------------
 export const listSectionSubjects = (
   sectionId: string,
 ): Promise<{ sectionId: string; subjects: SectionSubject[] }> =>
   apiCall(`/school/sections/${sectionId}/subjects`);
 
-export const createSectionSubject = (
-  sectionId: string,
-  body: { name: string; teacherUserId?: string | null; sortOrder?: number },
-): Promise<{ subject: SectionSubject }> =>
-  apiCall(`/school/sections/${sectionId}/subjects`, {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
-
-export const updateSectionSubject = (
-  subjectId: string,
-  body: { name?: string; teacherUserId?: string | null; sortOrder?: number },
-): Promise<{ subject: SectionSubject }> =>
-  apiCall(`/school/subjects/${subjectId}`, {
+export const setSectionSubjectTeacher = (
+  sectionSubjectId: string,
+  teacherUserId: string | null,
+): Promise<{ sectionSubject: unknown }> =>
+  apiCall(`/school/section-subjects/${sectionSubjectId}`, {
     method: "PATCH",
-    body: JSON.stringify(body),
+    body: JSON.stringify({ teacherUserId }),
   });
-
-export const deleteSectionSubject = (
-  subjectId: string,
-): Promise<{ ok: true }> =>
-  apiCall(`/school/subjects/${subjectId}`, { method: "DELETE" });
 
 export const getClassDetail = (classId: string): Promise<ClassDetail> =>
   apiCall(`/school/classes/${classId}`);

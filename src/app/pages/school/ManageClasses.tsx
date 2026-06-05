@@ -5,6 +5,7 @@
 
 import { useEffect, useState } from "react";
 import { Link, Navigate, useParams } from "react-router";
+import { ClassSubjectsManager } from "./components/ClassSubjectsManager";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -198,7 +199,17 @@ export function ManageClasses() {
                 </div>
               </CardHeader>
               {open && (
-                <CardContent className="pt-0 space-y-2">
+                <CardContent className="pt-0 space-y-3">
+                  {/* Phase 1C: subjects live at the class level. Defined once
+                      per Grade; each section picks its own teacher per subject. */}
+                  <ClassSubjectsManager
+                    classId={cls.id}
+                    teachers={teachers.filter(
+                      (t) =>
+                        t.role_template === "class_teacher" ||
+                        t.role_template === "visiting_teacher",
+                    )}
+                  />
                   <h3 className={sectionTitleClasses}>Sections</h3>
                   {(cls.sections || []).map((sec) => (
                     <div key={sec.id} className="flex flex-wrap items-center gap-2 p-2 border border-slate-200 rounded-lg bg-slate-50/50">
