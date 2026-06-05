@@ -259,18 +259,40 @@ for (let i = 0; i < PARENT_NAMES.length; i++) {
 }
 console.log(`  ✓ ${parentRows.length} parents created with PINs`);
 
-// Link parents → students. First 12 parents = 1 student each.
+// Link parents → students. Mix of family compositions so the cards UI
+// has variety to demo:
+//   - 4 co-parent pairs (father + mother both linked to the same child(ren))
+//   - 4 single-parent families
+//   - 2 single-parent families with 2 kids (siblings, one parent each)
+//
+// Pairings done by index: parents[0]+parents[1] are co-parents,
+// parents[2]+parents[3] are co-parents, etc. So the relationship column
+// (father / mother) alternates correctly for the demo.
 const allStudents = Object.values(studentsByGrade).flat();
 let studentIdx = 0;
-for (let i = 0; i < 12; i++) {
+
+// 4 co-parent pairs (parents 0+1, 2+3, 4+5, 6+7) → 1 shared child each
+for (let pairStart = 0; pairStart < 8; pairStart += 2) {
+  const stu = allStudents[studentIdx++];
+  await sb.from("student_parent").insert([
+    { student_id: stu.id, parent_id: parentRows[pairStart].id, is_primary: true },
+    { student_id: stu.id, parent_id: parentRows[pairStart + 1].id, is_primary: false },
+  ]);
+  parentRows[pairStart].children.push(stu.name);
+  parentRows[pairStart + 1].children.push(stu.name);
+}
+
+// 4 single-parent families (parents 8, 9, 10, 11) → 1 child each
+for (let i = 8; i < 12; i++) {
   const stu = allStudents[studentIdx++];
   await sb.from("student_parent").insert({
     student_id: stu.id, parent_id: parentRows[i].id, is_primary: true,
   });
   parentRows[i].children.push(stu.name);
 }
-// Last 6 parents → 2 children each (siblings)
-for (let i = 12; i < 18; i++) {
+
+// 2 single-parent families with 2 kids each (parents 12, 13)
+for (let i = 12; i < 14; i++) {
   for (let j = 0; j < 2; j++) {
     if (studentIdx >= allStudents.length) break;
     const stu = allStudents[studentIdx++];
@@ -280,7 +302,23 @@ for (let i = 12; i < 18; i++) {
     parentRows[i].children.push(stu.name);
   }
 }
-console.log(`  ✓ student-parent links created (12 single, 6 multi-child)`);
+
+// 2 co-parent pairs with TWO shared kids each (parents 14+15, 16+17)
+// — both parents AND siblings, the richest case for demoing the cards.
+for (let pairStart = 14; pairStart < 18; pairStart += 2) {
+  for (let j = 0; j < 2; j++) {
+    if (studentIdx >= allStudents.length) break;
+    const stu = allStudents[studentIdx++];
+    await sb.from("student_parent").insert([
+      { student_id: stu.id, parent_id: parentRows[pairStart].id, is_primary: j === 0 },
+      { student_id: stu.id, parent_id: parentRows[pairStart + 1].id, is_primary: false },
+    ]);
+    parentRows[pairStart].children.push(stu.name);
+    parentRows[pairStart + 1].children.push(stu.name);
+  }
+}
+
+console.log(`  ✓ student-parent links created (4 couples + 4 singles + 2 single-with-2-kids + 2 couples-with-2-kids)`);
 
 // Attendance — 4 weeks (28 days) for each section, school days only (Mon-Sat).
 // Includes today (dayOffset=0) — without it the "Attendance Today" tile reads 0%.
