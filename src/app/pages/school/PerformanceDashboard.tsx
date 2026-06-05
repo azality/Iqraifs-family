@@ -216,7 +216,7 @@ function AlertCard({ alert }: { alert: DashboardAlert }) {
   };
 
   return (
-    <div className={"min-w-[260px] flex-1 rounded-xl border p-3 shadow-sm " + s.wrap}>
+    <div className={"min-w-[260px] flex-1 rounded-xl border p-4 shadow-sm " + s.wrap}>
       <div className="flex items-center gap-2">
         <Badge
           variant="outline"
