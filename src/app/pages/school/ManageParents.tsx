@@ -13,12 +13,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../../components/ui/dialog";
-import { Plus, Upload, Search, Trash2, Pencil } from "lucide-react";
+import { Plus, Upload, Search, Trash2, Pencil, Mail, Phone, GraduationCap } from "lucide-react";
 import {
   HeroCard,
-  DataTable,
   cardBase,
-  type DataTableColumn,
 } from "../../components/school-ui";
 import { Star, Users } from "lucide-react";
 import {
@@ -105,68 +103,66 @@ export function ManageParents() {
     return res;
   };
 
-  const columns: DataTableColumn<AdminParent>[] = [
-    {
-      key: "full_name",
-      header: "Name",
-      cell: (p) => (
-        <div>
-          <span className="font-medium">{p.full_name}</span>
-          {(p.children?.length ?? 0) > 1 && (
-            // Sibling-group badge — visually flags "this parent has
-            // multiple children at this school" so admins can spot
-            // families at a glance.
-            <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-700 ring-1 ring-inset ring-indigo-200">
-              <Users className="h-2.5 w-2.5" />
-              {p.children!.length} kids
-            </span>
-          )}
-        </div>
-      ),
-    },
-    { key: "relationship", header: "Relationship", cell: (p) => <span className="text-xs text-slate-500">{p.relationship || "—"}</span> },
-    { key: "phone", header: "Phone", cell: (p) => <span className="text-xs">{p.phone || "—"}</span> },
-    { key: "email", header: "Email", cell: (p) => <span className="text-xs">{p.email || "—"}</span> },
-    {
-      key: "children",
-      header: "Children",
-      cell: (p) => {
-        const kids = p.children ?? [];
-        if (kids.length === 0) return <span className="text-xs text-slate-400">— none linked</span>;
-        return (
-          <div className="flex flex-col gap-0.5">
-            {kids.map((k) => (
-              <div key={k.id} className="flex items-baseline gap-1.5 text-xs">
-                {k.isPrimary && <Star className="h-3 w-3 text-amber-500 fill-amber-400" />}
-                <span className="font-medium text-slate-700">{k.full_name}</span>
-                {k.class_section_id && sectionLabel.get(k.class_section_id) && (
-                  <span className="text-slate-500">· {sectionLabel.get(k.class_section_id)}</span>
-                )}
-              </div>
-            ))}
-          </div>
-        );
-      },
-    },
-    {
-      key: "actions",
-      header: "",
-      align: "right",
-      width: "w-24",
-      cell: (p) => (
-        <div className="inline-flex gap-1">
-          <Button variant="ghost" size="sm" onClick={() => startEdit(p)}><Pencil className="h-3.5 w-3.5" /></Button>
-          <Button variant="ghost" size="sm" onClick={() => handleDelete(p)}><Trash2 className="h-3.5 w-3.5 text-rose-600" /></Button>
-        </div>
-      ),
-    },
-  ];
+  // ─── Cluster parents into family units by shared children ─────────────
+  // Algorithm: union-find on parents. Two parents are in the same family
+  // iff they are both linked to at least one common student. Single
+  // parents form their own one-row family.
+  //
+  // Renders as one card per family in the order families appear (first
+  // appearance of a parent in the parents array). Search continues to
+  // work because it's applied server-side; the cards just regroup.
+  const families = useMemo(() => {
+    if (parents.length === 0) return [];
+    // child_id → list of parent_ids linked to that child
+    const parentsOfChild = new Map<string, string[]>();
+    for (const p of parents) {
+      for (const c of p.children ?? []) {
+        const arr = parentsOfChild.get(c.id) ?? [];
+        arr.push(p.id);
+        parentsOfChild.set(c.id, arr);
+      }
+    }
+    // Union-find
+    const parent: Record<string, string> = {};
+    for (const p of parents) parent[p.id] = p.id;
+    const find = (x: string): string => parent[x] === x ? x : (parent[x] = find(parent[x]));
+    const union = (a: string, b: string) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; };
+    for (const ids of parentsOfChild.values()) {
+      for (let i = 1; i < ids.length; i++) union(ids[0], ids[i]);
+    }
+    // Group parents by root
+    const groups = new Map<string, AdminParent[]>();
+    for (const p of parents) {
+      const r = find(p.id);
+      const arr = groups.get(r) ?? [];
+      arr.push(p);
+      groups.set(r, arr);
+    }
+    // Each group → distinct children list (some children may appear under
+    // multiple parents in the same family; dedupe by child.id)
+    return Array.from(groups.values()).map((groupParents) => {
+      const seenKids = new Set<string>();
+      const kids: NonNullable<AdminParent["children"]> = [];
+      for (const p of groupParents) {
+        for (const c of p.children ?? []) {
+          if (seenKids.has(c.id)) continue;
+          seenKids.add(c.id);
+          kids.push(c);
+        }
+      }
+      return { parents: groupParents, children: kids };
+    });
+  }, [parents]);
 
   return (
     <div className="space-y-4">
       <HeroCard
         title="Parents"
-        subtitle={`${parents.length} parent${parents.length === 1 ? "" : "s"}`}
+        subtitle={
+          families.length === parents.length
+            ? `${parents.length} parent${parents.length === 1 ? "" : "s"}`
+            : `${families.length} famil${families.length === 1 ? "y" : "ies"} · ${parents.length} parents`
+        }
         rightSlot={
           <div className="flex gap-2">
             <Link to={`/school/orgs/${orgId}/admin`}>
@@ -189,14 +185,85 @@ export function ManageParents() {
 
       {error && <p className="text-sm text-rose-600">{error}</p>}
 
-      <div className={cardBase}>
-        <DataTable<AdminParent>
-          columns={columns}
-          rows={parents}
-          rowKey={(p) => p.id}
-          emptyMessage="No parents yet."
-        />
-      </div>
+      {parents.length === 0 ? (
+        <div className={`${cardBase} p-6 text-center text-sm text-slate-500`}>
+          No parents yet.
+        </div>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {families.map((family) => {
+            const isMultiParent = family.parents.length > 1;
+            return (
+              <div
+                key={family.parents[0].id}
+                className={`${cardBase} p-4 flex flex-col gap-3`}
+              >
+                {/* Family header: parent rows stacked, primary contact
+                    sorting handled by server (already alphabetical). */}
+                <div className="flex flex-col gap-2">
+                  {family.parents.map((p) => (
+                    <div key={p.id} className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium text-slate-900 truncate">{p.full_name}</div>
+                        <div className="mt-0.5 text-xs text-slate-500 capitalize">
+                          {p.relationship || "Parent"}
+                        </div>
+                        <div className="mt-1 flex flex-col gap-0.5 text-xs text-slate-600">
+                          {p.phone && (
+                            <span className="inline-flex items-center gap-1"><Phone className="h-3 w-3" /> {p.phone}</span>
+                          )}
+                          {p.email && (
+                            <span className="inline-flex items-center gap-1 truncate"><Mail className="h-3 w-3 flex-shrink-0" /> <span className="truncate">{p.email}</span></span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-0.5">
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => startEdit(p)}>
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleDelete(p)}>
+                          <Trash2 className="h-3.5 w-3.5 text-rose-600" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                  {isMultiParent && (
+                    <div className="inline-flex w-fit items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-700 ring-1 ring-inset ring-indigo-200">
+                      Co-parents
+                    </div>
+                  )}
+                </div>
+
+                {/* Children */}
+                <div className="border-t border-slate-100 pt-3">
+                  <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">
+                    {family.children.length === 0
+                      ? "No linked children"
+                      : family.children.length === 1
+                        ? "Child"
+                        : `${family.children.length} children`}
+                  </div>
+                  {family.children.length === 0 ? (
+                    <p className="text-xs text-slate-400">— none linked</p>
+                  ) : (
+                    <ul className="flex flex-col gap-0.5">
+                      {family.children.map((k) => (
+                        <li key={k.id} className="flex items-baseline gap-1.5 text-xs">
+                          <GraduationCap className="h-3 w-3 text-indigo-500 flex-shrink-0" />
+                          <span className="font-medium text-slate-700 truncate">{k.full_name}</span>
+                          {k.class_section_id && sectionLabel.get(k.class_section_id) && (
+                            <span className="text-slate-500 flex-shrink-0">· {sectionLabel.get(k.class_section_id)}</span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
         <DialogContent>
