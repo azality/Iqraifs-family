@@ -28,6 +28,7 @@ import { installPhaseC } from "./schoolPhaseC.tsx";
 import { installPhaseC2 } from "./schoolPhaseC2.tsx";
 import { installPhaseCD } from "./schoolPhaseCD.tsx";
 import { installDashboard } from "./schoolDashboard.tsx";
+import { installSubjects } from "./schoolSubjects.tsx";
 import { installPortal } from "./schoolPortal.tsx";
 import { installAnnounce } from "./schoolAnnounce.tsx";
 import { verifyPinToken } from "./schoolPhaseA.tsx";
@@ -2998,6 +2999,12 @@ installPhaseC2(school);
 // Phase C.3 + Phase D routes (curriculum, fees, native form builder)
 // -----------------------------------------------------------------------------
 installPhaseCD(school);
+
+// -----------------------------------------------------------------------------
+// Subjects per class section (Phase 1A of per-subject rewiring; PR follow-ups
+// thread subject_id into lesson, assignment, gradebook).
+// -----------------------------------------------------------------------------
+installSubjects(school);
 
 // -----------------------------------------------------------------------------
 // Dashboard aggregate routes (school-at-a-glance, leaderboard, insights)
