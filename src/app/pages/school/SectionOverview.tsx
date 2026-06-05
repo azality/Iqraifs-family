@@ -36,7 +36,7 @@ import {
   getSchoolMe,
   getSectionsLeaderboard,
   getSectionBehaviorNotes,
-  isOrgAdmin,
+  viewerRoleForOrg,
   type BehaviorNote,
   type DashboardPeriod,
   type LeaderboardRow,
@@ -136,7 +136,14 @@ export function SectionOverview() {
   }, [notes]);
 
   if (meLoading) return null;
-  if (!isOrgAdmin(me, orgId)) return <Navigate to="/school" replace />;
+  // Any non-other school role in this org can read the section overview.
+  // Backend already enforces per-section scoping for class teachers and
+  // visiting teachers (determineScope), so the page either renders their
+  // own sections or returns empty data. Previously gated to admin/principal
+  // only, which kicked class teachers back to /school → "no role" page.
+  if (viewerRoleForOrg(me, orgId) === "other") {
+    return <Navigate to="/school" replace />;
+  }
 
   if (loading) {
     return (

@@ -83,7 +83,12 @@ export function StudentDetail() {
   }, [linkOpen, parentSearch, orgId]);
 
   if (meLoading) return null;
-  if (!isOrgAdmin(me, orgId)) return <Navigate to="/school" replace />;
+  // Any school-role user in this org can read a student profile; the
+  // admin-only write actions inside the page (delete, link parent, etc.)
+  // remain gated by isOrgAdmin checks at the individual button level.
+  // Previously the whole page redirected non-admins to /school, which
+  // blocked class teachers from seeing their own students.
+  if (!me || me.roles.length === 0) return <Navigate to="/school" replace />;
   if (error) return <p className="text-sm text-red-600">{error}</p>;
   if (!student) return null;
 
