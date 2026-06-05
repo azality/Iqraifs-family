@@ -159,7 +159,7 @@ export function StudentDetail() {
               />
             ) : (
               <div className="h-16 w-16 rounded-full bg-indigo-500/30 flex items-center justify-center text-white font-bold text-xl ring-2 ring-white/20">
-                {student.full_name.charAt(0)}
+                {(student.full_name ?? "?").charAt(0).toUpperCase() || "?"}
               </div>
             )}
             <div className="flex flex-col gap-1.5">
