@@ -189,11 +189,22 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         // family as their default and can opt into school via the
         // switcher.
         const intent = r.signupIntent ?? 'family';
+        // For school-intent users, the server's intent OVERRIDES any
+        // stored client workspace. Otherwise a school-only staff
+        // account whose localStorage got polluted with kind:family
+        // from a buggy earlier session would stay stuck in family
+        // chrome forever — explicitWorkspaceChoiceRef would read
+        // true from storage and block the auto-switch indefinitely.
+        // Dual-role users (have a family AND school access) still
+        // get the explicit-choice guard so we don't yank them out
+        // of family when they're actively using it.
+        const forceSchool =
+          hasSchool && intent === 'school' && !hasFamily;
         if (
           hasSchool &&
           intent === 'school' &&
-          !explicitWorkspaceChoiceRef.current &&
-          workspace.kind !== "school"
+          workspace.kind !== "school" &&
+          (forceSchool || !explicitWorkspaceChoiceRef.current)
         ) {
           const firstOrg = principalOrgs[0] ?? r.organizations[0];
           if (firstOrg) {
