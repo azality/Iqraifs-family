@@ -305,11 +305,23 @@ for (let dayOffset = 27; dayOffset >= 0; dayOffset--) {
     const recorder = grade === 3 ? ctZaraId : grade === 5 ? ctHinaId : principalId;
     for (const stu of studentsByGrade[grade]) {
       const status = randomChoice(STATUSES);
-      await sb.from("school_attendance").insert({
+      // BUG FIX: school_attendance requires org_id (NOT NULL). Without it
+      // every insert silently failed with {error: "..."}, and the
+      // .then(...) pattern ignored the error field. Result: seed reported
+      // "690 attendance rows" but zero were actually written. Dashboard
+      // showed 0% attendance everywhere despite the seed succeeding.
+      const ins = await sb.from("school_attendance").insert({
+        org_id: orgId,
         student_id: stu.id, class_section_id: sectionId,
         attendance_date: dateStr, status,
         recorded_by: recorder,
-      }).then(() => attendanceCount++).catch(() => {/* dedupe via unique */});
+      });
+      if (!ins.error) attendanceCount++;
+      else if (!String(ins.error.message).includes("duplicate")) {
+        // Real error worth surfacing — print to stderr so we don't
+        // claim success when nothing got written.
+        console.error("attendance insert failed:", ins.error.message);
+      }
     }
   }
 }
