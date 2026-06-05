@@ -1181,67 +1181,13 @@ school.get("/classes/:classId", async (c) => {
 });
 
 // -----------------------------------------------------------------------------
-// POST /school/classes/:classId/subjects
-// Body: { name: string, teacherUserId?: string, sortOrder?: number }
+// (Legacy POST /school/classes/:classId/subjects removed — Phase 1C handler
+// in installSubjects() now owns this route and works against the new
+// class_subject schema. The legacy handler was registered earlier in the
+// chain, so Hono's first-match-wins ordering was shadowing the new one
+// and returning 'class not found' because the legacy code queried the
+// retired `classes` plural table.)
 // -----------------------------------------------------------------------------
-school.post("/classes/:classId/subjects", async (c) => {
-  const userId = getAuthUserId(c);
-  if (!userId) return c.json({ error: "unauthenticated" }, 401);
-  const classId = c.req.param("classId");
-
-  let body: any;
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: "invalid JSON body" }, 400);
-  }
-  if (!body?.name) return c.json({ error: "name required" }, 400);
-
-  const { data: cls, error: clsErr } = await serviceRoleClient
-    .from("classes")
-    .select("organization_id")
-    .eq("id", classId)
-    .maybeSingle();
-  if (clsErr) return c.json({ error: clsErr.message }, 500);
-  if (!cls) return c.json({ error: "class not found" }, 404);
-
-  if (!(await isPrincipalOf(userId, cls.organization_id))) {
-    return c.json({ error: "forbidden" }, 403);
-  }
-
-  const { data, error } = await serviceRoleClient
-    .from("subjects")
-    .insert({
-      class_id: classId,
-      name: body.name,
-      teacher_id: body.teacherUserId ?? null,
-      sort_order: body.sortOrder ?? 0,
-    })
-    .select()
-    .single();
-  if (error) {
-    if ((error as any).code === "23505") {
-      return c.json({ error: "subject with this name already exists for the class" }, 409);
-    }
-    return c.json({ error: error.message }, 500);
-  }
-
-  // Bootstrap teacher role for the subject teacher if provided
-  if (body.teacherUserId) {
-    await serviceRoleClient
-      .from("user_roles")
-      .insert({
-        user_id: body.teacherUserId,
-        role_type: "teacher",
-        scope_type: "class",
-        scope_id: classId,
-        granted_by: userId,
-      })
-      .select(); // ignore duplicate insertion errors silently
-  }
-
-  return c.json(data, 201);
-});
 
 // =============================================================================
 // STUDENT ENROLLMENT & PARENT INVITES
