@@ -1147,6 +1147,43 @@ export function isOrgAdmin(me: SchoolMeResponse | null, orgId: string): boolean 
 
 // isOrgPrincipal is declared above (line ~566) — do not redeclare.
 
+export type SchoolViewerRole =
+  | "principal"
+  | "admin"
+  | "class_teacher"
+  | "visiting_teacher"
+  | "office_staff"
+  | "financial_staff"
+  | "other";
+
+/**
+ * Pick the single role used to drive role-aware UI (nav items, dashboard
+ * variant). Principal beats admin beats teacher beats staff. If the
+ * user has no recognised role in this org, returns "other".
+ */
+export function viewerRoleForOrg(
+  me: SchoolMeResponse | null,
+  orgId: string,
+): SchoolViewerRole {
+  if (!me) return "other";
+  if (isOrgPrincipal(me, orgId)) return "principal";
+  const orgRoles = me.roles
+    .filter((r) => r.scope_type === "organization" && r.scope_id === orgId)
+    .map((r) => r.role_type as string);
+  if (orgRoles.includes("admin")) return "admin";
+  if (orgRoles.includes("office_staff")) return "office_staff";
+  if (orgRoles.includes("financial_staff")) return "financial_staff";
+  // Section-scoped teacher rows: class_teacher OR visiting_teacher
+  const classRoles = me.roles
+    .filter((r) => r.scope_type === "class")
+    .map((r) => r.role_type as string);
+  if (classRoles.includes("class_teacher")) return "class_teacher";
+  if (classRoles.includes("visiting_teacher")) return "visiting_teacher";
+  // Org-scoped teacher (rare; treat as principal-lite)
+  if (orgRoles.includes("teacher")) return "admin";
+  return "other";
+}
+
 /**
  * True when the user has class-teacher or visiting-teacher access in this
  * org but is NOT a principal, admin, or org-scoped teacher. Used by the

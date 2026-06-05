@@ -4,7 +4,7 @@ import { ModeSwitcher } from "../components/ModeSwitcher";
 import { WorkspaceSwitcher } from "../components/WorkspaceSwitcher";
 import { useWorkspace } from "../contexts/WorkspaceContext";
 import { ManageToolbar } from "../components/school-ui";
-import { isOrgPrincipal } from "../../utils/schoolApi";
+import { viewerRoleForOrg } from "../../utils/schoolApi";
 import {
   Home, FileText, BarChart3, Settings, Calendar, Gift, Shield,
   Menu, X, Trophy, Sliders, Edit, LogOut, Compass,
@@ -124,7 +124,7 @@ export function RootLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const { viewMode, switchToParentMode, isPreviewingAsKid } = useViewMode();
-  const { workspace } = useWorkspace();
+  const { workspace, me: schoolMe } = useWorkspace();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { logout, user } = useAuth();
 
@@ -143,9 +143,9 @@ export function RootLayout() {
     ? location.pathname.match(/\/school\/orgs\/([^/]+)/)
     : null;
   const schoolOrgId = schoolOrgIdMatch?.[1] ?? workspace.orgId ?? "";
-  const isSchoolPrincipal = isSchoolWorkspace
-    ? isOrgPrincipal(workspace.me ?? null, schoolOrgId)
-    : false;
+  const schoolViewerRole = isSchoolWorkspace
+    ? viewerRoleForOrg(schoolMe, schoolOrgId)
+    : "other" as const;
 
   // Visible groups — workspace selects the base set; kid mode (family
   // workspace only) further filters items to childAccess.
@@ -286,7 +286,16 @@ export function RootLayout() {
           {/* Row 1 — brand / mode switcher / user */}
           <div className="flex items-center justify-between h-14 sm:h-16 gap-3">
             {/* Brand */}
-            <Link to={isSchoolWorkspace ? "/school" : "/"} className="flex items-center gap-2 min-w-0 group">
+            <Link
+              to={
+                isSchoolWorkspace
+                  ? schoolOrgId
+                    ? `/school/orgs/${schoolOrgId}`
+                    : "/school"
+                  : "/"
+              }
+              className="flex items-center gap-2 min-w-0 group"
+            >
               {isKidMode ? (
                 <>
                   <span className="h-9 w-9 rounded-xl bg-gradient-to-br from-[#F4C430] to-[#FFB347] flex items-center justify-center shadow-md shadow-amber-500/30">
@@ -427,7 +436,7 @@ export function RootLayout() {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             {isSchoolWorkspace && schoolOrgId ? (
               <div className="py-2 overflow-x-auto">
-                <ManageToolbar orgId={schoolOrgId} isPrincipal={isSchoolPrincipal} />
+                <ManageToolbar orgId={schoolOrgId} viewerRole={schoolViewerRole} />
               </div>
             ) : (
             <div className="flex items-stretch gap-1 h-11">
