@@ -1147,6 +1147,42 @@ export function isOrgAdmin(me: SchoolMeResponse | null, orgId: string): boolean 
 
 // isOrgPrincipal is declared above (line ~566) — do not redeclare.
 
+/**
+ * True when the user has class-teacher or visiting-teacher access in this
+ * org but is NOT a principal, admin, or org-scoped teacher. Used by the
+ * /school/orgs/:orgId index route to swap the principal-flavoured
+ * PerformanceDashboard for a teacher-scoped TeacherHome.
+ */
+export function isSectionTeacherOnly(
+  me: SchoolMeResponse | null,
+  orgId: string,
+): boolean {
+  if (!me) return false;
+  if (isOrgPrincipal(me, orgId)) return false;
+  if (isOrgAdmin(me, orgId)) return false;
+  // Org-scoped teacher = full-org view (treated like staff lead, not a
+  // single-section teacher). Keep them on the principal dashboard.
+  const hasOrgTeacher = me.roles.some(
+    (r) =>
+      r.role_type === "teacher" &&
+      r.scope_type === "organization" &&
+      r.scope_id === orgId,
+  );
+  if (hasOrgTeacher) return false;
+  // Section-scoped class_teacher / visiting_teacher rows OR the
+  // class_section.class_teacher_user_id assignment surface as scope_type
+  // "class" in /school/me. Any such row qualifies — we don't filter by
+  // org here because /me already only returns role rows for this user
+  // and the workspace orgId resolves them transitively.
+  return me.roles.some(
+    (r) =>
+      (r.role_type === "class_teacher" ||
+        r.role_type === "visiting_teacher" ||
+        r.role_type === "teacher") &&
+      r.scope_type === "class",
+  );
+}
+
 // ─── Phase B: Attendance ───────────────────────────────────────────────
 
 export type RollCallStatus = "present" | "absent" | "late" | "excused";

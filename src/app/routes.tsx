@@ -40,6 +40,7 @@ import { SchoolHome } from "./pages/school/SchoolHome";
 // The PrincipalDashboard file is kept in the tree for now (no route uses it)
 // and will be removed in a follow-up.
 import { PerformanceDashboard } from "./pages/school/PerformanceDashboard";
+import { SchoolHomeRouter } from "./pages/school/SchoolHomeRouter";
 // Internal preview for the school-ui primitives. Not linked from any nav.
 import { _DesignSystemPreview } from "./pages/school/_DesignSystemPreview";
 import { SchoolSetup } from "./pages/school/SchoolSetup";
@@ -429,7 +430,7 @@ export const router = createBrowserRouter([
             path: "school/orgs/:orgId",
             element: <RequireParentRole><SchoolAdminShell /></RequireParentRole>,
             children: [
-              { index: true, element: <PerformanceDashboard /> },
+              { index: true, element: <SchoolHomeRouter /> },
               { path: "setup", element: <SchoolSetup /> },
               { path: "behavior-catalog", element: <BehaviorCatalog /> },
               // Phase A admin
