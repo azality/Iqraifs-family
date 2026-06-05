@@ -708,6 +708,15 @@ export interface AdminParent {
   phone: string | null;
   email: string | null;
   relationship: string | null;
+  /** Children linked to this parent (from student_parent). Empty array if
+   *  none. Each entry includes the section id so the UI can show class. */
+  children?: Array<{
+    id: string;
+    full_name: string;
+    gr_number: string | null;
+    class_section_id: string | null;
+    isPrimary: boolean;
+  }>;
 }
 
 export interface StudentWithParents extends AdminStudent {

@@ -808,11 +808,34 @@ export function installPhaseA(school: Hono) {
       });
     }
 
-    let q = serviceRoleClient.from("parent").select("*").eq("org_id", orgId);
+    // Embed children via student_parent → student. This lets the
+    // Parents admin page show "John (Grade 3-A), Sara (Grade 5-A)" per
+    // parent without a second roundtrip. PostgREST nested-select syntax.
+    let q = serviceRoleClient
+      .from("parent")
+      .select(
+        "*, student_parent(is_primary, student:student_id(id, full_name, gr_number, class_section_id))",
+      )
+      .eq("org_id", orgId);
     if (search) q = q.ilike("full_name", `%${search}%`);
     const { data, error } = await q.order("full_name").limit(500);
     if (error) return c.json({ error: error.message }, 500);
-    return c.json({ parents: data ?? [] });
+
+    // Flatten the nested shape into a `children` array on each parent.
+    const parents = (data ?? []).map((p: any) => ({
+      ...p,
+      children: (p.student_parent ?? [])
+        .map((sp: any) => sp.student ? {
+          id: sp.student.id,
+          full_name: sp.student.full_name,
+          gr_number: sp.student.gr_number,
+          class_section_id: sp.student.class_section_id,
+          isPrimary: !!sp.is_primary,
+        } : null)
+        .filter(Boolean),
+      student_parent: undefined, // drop the raw embed
+    }));
+    return c.json({ parents });
   });
 
   school.patch("/orgs/:orgId/parents/:parentId", async (c) => {
