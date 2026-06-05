@@ -1,7 +1,7 @@
 // Manage parents for an org. Mirrors ManageStudents shape: searchable
 // table, single add/edit/delete, CSV bulk upload.
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, Navigate, useParams } from "react-router";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -20,14 +20,17 @@ import {
   cardBase,
   type DataTableColumn,
 } from "../../components/school-ui";
+import { Star, Users } from "lucide-react";
 import {
   getSchoolMe,
   isOrgAdmin,
+  listClasses,
   listParents,
   createParent,
   updateParent,
   deleteParent,
   bulkCreateParents,
+  type AdminClass,
   type AdminParent,
   type CreateParentBody,
   type SchoolMeResponse,
@@ -47,6 +50,16 @@ export function ManageParents() {
   const [form, setForm] = useState<CreateParentBody>(empty);
   const [csvOpen, setCsvOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // class_section_id → "Grade 5-A" label, so the Children column can show
+  // each child's class instead of a raw uuid.
+  const [classes, setClasses] = useState<AdminClass[]>([]);
+  const sectionLabel = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of classes) for (const s of c.sections ?? []) {
+      m.set(s.id, `${c.name}-${s.name}`);
+    }
+    return m;
+  }, [classes]);
 
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
@@ -57,7 +70,11 @@ export function ManageParents() {
     listParents(orgId, { search: search || undefined }).then(setParents).catch((e) => setError(e?.message || "Failed"));
   };
 
-  useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [orgId, search]);
+  useEffect(() => {
+    if (orgId) listClasses(orgId).then(setClasses).catch(() => {});
+    refresh();
+    // eslint-disable-next-line
+  }, [orgId, search]);
 
   if (meLoading) return null;
   if (!isOrgAdmin(me, orgId)) return <Navigate to="/school" replace />;
@@ -89,10 +106,48 @@ export function ManageParents() {
   };
 
   const columns: DataTableColumn<AdminParent>[] = [
-    { key: "full_name", header: "Name", cell: (p) => <span className="font-medium">{p.full_name}</span> },
+    {
+      key: "full_name",
+      header: "Name",
+      cell: (p) => (
+        <div>
+          <span className="font-medium">{p.full_name}</span>
+          {(p.children?.length ?? 0) > 1 && (
+            // Sibling-group badge — visually flags "this parent has
+            // multiple children at this school" so admins can spot
+            // families at a glance.
+            <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-700 ring-1 ring-inset ring-indigo-200">
+              <Users className="h-2.5 w-2.5" />
+              {p.children!.length} kids
+            </span>
+          )}
+        </div>
+      ),
+    },
     { key: "relationship", header: "Relationship", cell: (p) => <span className="text-xs text-slate-500">{p.relationship || "—"}</span> },
     { key: "phone", header: "Phone", cell: (p) => <span className="text-xs">{p.phone || "—"}</span> },
     { key: "email", header: "Email", cell: (p) => <span className="text-xs">{p.email || "—"}</span> },
+    {
+      key: "children",
+      header: "Children",
+      cell: (p) => {
+        const kids = p.children ?? [];
+        if (kids.length === 0) return <span className="text-xs text-slate-400">— none linked</span>;
+        return (
+          <div className="flex flex-col gap-0.5">
+            {kids.map((k) => (
+              <div key={k.id} className="flex items-baseline gap-1.5 text-xs">
+                {k.isPrimary && <Star className="h-3 w-3 text-amber-500 fill-amber-400" />}
+                <span className="font-medium text-slate-700">{k.full_name}</span>
+                {k.class_section_id && sectionLabel.get(k.class_section_id) && (
+                  <span className="text-slate-500">· {sectionLabel.get(k.class_section_id)}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        );
+      },
+    },
     {
       key: "actions",
       header: "",
