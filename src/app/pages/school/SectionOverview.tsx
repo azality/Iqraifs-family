@@ -42,6 +42,7 @@ import {
   type LeaderboardRow,
   type SchoolMeResponse,
 } from "../../../utils/schoolApi";
+import { SectionSubjectsManager } from "./components/SectionSubjectsManager";
 
 const PERIODS: ReadonlyArray<{ value: DashboardPeriod; label: string }> = [
   { value: "T", label: "T" },
@@ -141,7 +142,8 @@ export function SectionOverview() {
   // visiting teachers (determineScope), so the page either renders their
   // own sections or returns empty data. Previously gated to admin/principal
   // only, which kicked class teachers back to /school → "no role" page.
-  if (viewerRoleForOrg(me, orgId) === "other") {
+  const viewerRole = viewerRoleForOrg(me, orgId);
+  if (viewerRole === "other") {
     return <Navigate to="/school" replace />;
   }
 
@@ -388,6 +390,17 @@ export function SectionOverview() {
           </Link>
         </div>
       </div>
+
+      {/* Subjects — Phase 1B of per-subject rewiring. Principals + admins
+          can add / edit / delete; teachers see a read-only list. Future
+          PRs thread subject_id into lessons / assignments / gradebook. */}
+      <SectionSubjectsManager
+        orgId={orgId}
+        sectionId={sectionId}
+        canManage={
+          viewerRole === "principal" || viewerRole === "admin"
+        }
+      />
     </div>
   );
 }
