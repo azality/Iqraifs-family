@@ -1064,8 +1064,11 @@ export function installDashboard(school: Hono): void {
       behaviorBySection.set(b.class_section_id, cur);
     }
 
-    // Resolve teacher names — single batched auth admin lookup is awkward;
-    // we read profiles if available, otherwise null.
+    // Resolve teacher names from auth.users.user_metadata.name. The old
+    // code queried a `profiles` table that doesn't exist in our schema,
+    // so every section showed "Unassigned" even when class_teacher_user_id
+    // was set on class_section. We now do one-by-one admin lookups (small
+    // N in practice — only sections with an assigned CT, usually 1-30).
     const teacherUserIds = Array.from(
       new Set(
         skeleton.sections
@@ -1074,16 +1077,18 @@ export function installDashboard(school: Hono): void {
       ),
     );
     const teacherNames = new Map<string, string>();
-    if (teacherUserIds.length > 0) {
-      // Best-effort: try `profiles` table; if not present, leave names null.
-      const { data: profs, error: profsErr } = await serviceRoleClient
-        .from("profiles")
-        .select("id, full_name")
-        .in("id", teacherUserIds);
-      if (!profsErr && profs) {
-        for (const p of profs as Array<{ id: string; full_name: string | null }>) {
-          if (p.full_name) teacherNames.set(p.id, p.full_name);
-        }
+    for (const uid of teacherUserIds) {
+      try {
+        const { data: lookup } = await (serviceRoleClient as any)
+          .auth.admin.getUserById(uid);
+        const u = lookup?.user;
+        const name =
+          (u?.user_metadata?.name as string | undefined) ??
+          (u?.email?.split("@")[0] as string | undefined) ??
+          null;
+        if (name) teacherNames.set(uid, name);
+      } catch {
+        // Non-fatal — section just falls back to "Unassigned" in the UI.
       }
     }
 
