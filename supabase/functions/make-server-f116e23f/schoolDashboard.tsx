@@ -1208,7 +1208,7 @@ export function installDashboard(school: Hono): void {
       // FIX: column is `attendance_date`, not `date`. Alias to `date` after.
       serviceRoleClient
         .from("school_attendance")
-        .select("id, class_section_id, attendance_date, status, created_at")
+        .select("id, class_section_id, attendance_date, status, created_at, recorded_by")
         .eq("org_id", orgId)
         .gte("created_at", activityWindowStart.toISOString())
         .order("created_at", { ascending: false })
@@ -1239,6 +1239,37 @@ export function installDashboard(school: Hono): void {
       sectionLabel.set(s.id, `${s.class_name}-${s.name}`);
     }
 
+    // Build a user-id -> display name map so the Recent Activity 'Actor'
+    // column shows e.g. "Zara Mansoor" instead of being blank.
+    // Sources: school_attendance.recorded_by, behavior_note.recorded_by,
+    // roster_change_request.requested_by + decided_by.
+    const actorIds = new Set<string>();
+    for (const r of (recentAtt.data ?? []) as Array<any>) {
+      if (r.recorded_by) actorIds.add(r.recorded_by);
+    }
+    for (const r of (recentBehavior.data ?? []) as Array<any>) {
+      if (r.recorded_by) actorIds.add(r.recorded_by);
+    }
+    for (const r of (recentRoster.data ?? []) as Array<any>) {
+      if (r.requested_by) actorIds.add(r.requested_by);
+      if (r.decided_by) actorIds.add(r.decided_by);
+    }
+    const actorName = new Map<string, string>();
+    for (const uid of actorIds) {
+      try {
+        const { data: lookup } = await (serviceRoleClient as any)
+          .auth.admin.getUserById(uid);
+        const u = lookup?.user;
+        const name =
+          (u?.user_metadata?.name as string | undefined) ??
+          (u?.email?.split("@")[0] as string | undefined) ??
+          null;
+        if (name) actorName.set(uid, name);
+      } catch {
+        // Non-fatal — just leave actor blank for that row.
+      }
+    }
+
     type Activity = {
       id: string;
       at: string;
@@ -1248,7 +1279,8 @@ export function installDashboard(school: Hono): void {
     };
     const activity: Activity[] = [];
 
-    // Attendance: collapse per (section, date).
+    // Attendance: collapse per (section, date). Track who took each
+    // session so the Actor column is populated.
     const attBuckets = new Map<string, {
       sectionId: string | null;
       date: string;
@@ -1256,11 +1288,10 @@ export function installDashboard(school: Hono): void {
       total: number;
       latestAt: string;
       latestId: string;
+      recordedBy: string | null;
     }>();
     for (const r of (recentAtt.data ?? []) as Array<any>) {
       if (!inScope(r.class_section_id)) continue;
-      // FIX: SQL returns `attendance_date`, not `date`. Alias here so the
-      // loop body keeps its readable variable name.
       const rDate = r.attendance_date ?? r.date;
       const key = `${r.class_section_id ?? "none"}|${rDate}`;
       const cur = attBuckets.get(key) ?? {
@@ -1270,12 +1301,14 @@ export function installDashboard(school: Hono): void {
         total: 0,
         latestAt: r.created_at,
         latestId: r.id,
+        recordedBy: r.recorded_by ?? null,
       };
       cur.total += 1;
       if (r.status === "present" || r.status === "late") cur.present += 1;
       if (r.created_at > cur.latestAt) {
         cur.latestAt = r.created_at;
         cur.latestId = r.id;
+        cur.recordedBy = r.recorded_by ?? cur.recordedBy;
       }
       attBuckets.set(key, cur);
     }
@@ -1286,7 +1319,7 @@ export function installDashboard(school: Hono): void {
         at: b.latestAt,
         kind: "attendance",
         summary: `${label} attendance taken — ${b.present}/${b.total} present`,
-        actorName: null,
+        actorName: b.recordedBy ? actorName.get(b.recordedBy) ?? null : null,
       });
     }
 
@@ -1301,7 +1334,7 @@ export function installDashboard(school: Hono): void {
         at: n.created_at,
         kind: "behavior",
         summary: `${label}: ${kindLabel} note logged${n.category ? ` (${n.category})` : ""}`,
-        actorName: null,
+        actorName: n.recorded_by ? actorName.get(n.recorded_by) ?? null : null,
       });
     }
 
@@ -1314,7 +1347,7 @@ export function installDashboard(school: Hono): void {
           at: r.decided_at,
           kind: "roster_decision",
           summary: `Roster change ${r.kind ?? "request"} ${r.status}`,
-          actorName: null,
+          actorName: r.decided_by ? actorName.get(r.decided_by) ?? null : null,
         });
       }
       activity.push({
@@ -1322,7 +1355,7 @@ export function installDashboard(school: Hono): void {
         at: r.created_at,
         kind: "roster_request",
         summary: `Roster change requested${r.kind ? ` — ${r.kind}` : ""}`,
-        actorName: null,
+        actorName: r.requested_by ? actorName.get(r.requested_by) ?? null : null,
       });
     }
 
