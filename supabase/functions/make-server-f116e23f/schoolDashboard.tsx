@@ -1169,16 +1169,20 @@ export function installDashboard(school: Hono): void {
     const activityWindowStart = addDays(startOfDay(now), -30);
     const [recentAtt, recentBehavior, recentRoster] = await Promise.all([
       // Attendance: group later in memory by (section, date).
+      // FIX: column is `attendance_date`, not `date`. Alias to `date` after.
       serviceRoleClient
         .from("school_attendance")
-        .select("id, class_section_id, date, status, created_at")
+        .select("id, class_section_id, attendance_date, status, created_at")
         .eq("org_id", orgId)
         .gte("created_at", activityWindowStart.toISOString())
         .order("created_at", { ascending: false })
         .limit(200),
+      // FIX: column is `recorded_by`, not `created_by`. The query was
+      // failing silently with a column-not-found error and Recent Activity
+      // / Top Behaviors / Top Concerns all rendered empty.
       serviceRoleClient
         .from("behavior_note")
-        .select("id, class_section_id, kind, category, created_at, created_by")
+        .select("id, class_section_id, kind, category, created_at, recorded_by")
         .eq("org_id", orgId)
         .gte("created_at", activityWindowStart.toISOString())
         .order("created_at", { ascending: false })
@@ -1219,10 +1223,13 @@ export function installDashboard(school: Hono): void {
     }>();
     for (const r of (recentAtt.data ?? []) as Array<any>) {
       if (!inScope(r.class_section_id)) continue;
-      const key = `${r.class_section_id ?? "none"}|${r.date}`;
+      // FIX: SQL returns `attendance_date`, not `date`. Alias here so the
+      // loop body keeps its readable variable name.
+      const rDate = r.attendance_date ?? r.date;
+      const key = `${r.class_section_id ?? "none"}|${rDate}`;
       const cur = attBuckets.get(key) ?? {
         sectionId: r.class_section_id,
-        date: r.date,
+        date: rDate,
         present: 0,
         total: 0,
         latestAt: r.created_at,
