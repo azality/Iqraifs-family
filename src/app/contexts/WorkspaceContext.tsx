@@ -235,9 +235,23 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const hasSchoolAccess = !!me && me.roles.some(
-    (r) => r.role_type === "principal" || r.role_type === "teacher",
-  );
+  // Any school role grants access to the school workspace. The list
+  // mirrors the role_type enum used by user_roles + matches the
+  // SCHOOL_ROLES.md matrix. Previously this only accepted "principal"
+  // or "teacher", which meant admins, class_teachers, visiting_teachers,
+  // office_staff, and financial_staff all got routed to the family
+  // onboarding screen on first login — broken for every non-principal
+  // staff account.
+  const SCHOOL_ROLE_TYPES = new Set([
+    "principal",
+    "admin",
+    "teacher",
+    "class_teacher",
+    "visiting_teacher",
+    "office_staff",
+    "financial_staff",
+  ]);
+  const hasSchoolAccess = !!me && me.roles.some((r) => SCHOOL_ROLE_TYPES.has(r.role_type));
 
   // signupIntent comes from the backend (auth.users.app_metadata).
   // Server-controlled — clients can't fake it. Defaults to 'family' for
