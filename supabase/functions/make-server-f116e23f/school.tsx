@@ -847,7 +847,22 @@ school.get("/organizations/:orgId", async (c) => {
   if (!userId) return c.json({ error: "unauthenticated" }, 401);
   const orgId = c.req.param("orgId");
 
-  if (!(await isPrincipalOf(userId, orgId))) {
+  // Read-only org details + counts. Open to any non-revoked role in the
+  // org (principal, admin, teacher, class_teacher, visiting_teacher,
+  // office_staff, financial_staff). Previously principal-only, which
+  // caused PerformanceDashboard to throw "forbidden" for every
+  // non-principal staff member because getOrganization() set the same
+  // error state as the dashboard fetch.
+  const { data: anyRole } = await serviceRoleClient
+    .from("user_roles")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("scope_type", "organization")
+    .eq("scope_id", orgId)
+    .is("revoked_at", null)
+    .limit(1)
+    .maybeSingle();
+  if (!anyRole) {
     return c.json({ error: "forbidden" }, 403);
   }
 
