@@ -74,6 +74,49 @@ export function ManageParents() {
     // eslint-disable-next-line
   }, [orgId, search]);
 
+  // ─── Cluster parents into family units by shared children ─────────────
+  // Union-find on parents. Two parents are in the same family iff they
+  // both link to at least one common student. Single parents form their
+  // own one-row family. MUST stay above the early returns below so the
+  // hook count is constant across renders (React error #310 if not).
+  const families = useMemo(() => {
+    if (parents.length === 0) return [];
+    const parentsOfChild = new Map<string, string[]>();
+    for (const p of parents) {
+      for (const c of p.children ?? []) {
+        const arr = parentsOfChild.get(c.id) ?? [];
+        arr.push(p.id);
+        parentsOfChild.set(c.id, arr);
+      }
+    }
+    const parent: Record<string, string> = {};
+    for (const p of parents) parent[p.id] = p.id;
+    const find = (x: string): string => parent[x] === x ? x : (parent[x] = find(parent[x]));
+    const union = (a: string, b: string) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; };
+    for (const ids of parentsOfChild.values()) {
+      for (let i = 1; i < ids.length; i++) union(ids[0], ids[i]);
+    }
+    const groups = new Map<string, AdminParent[]>();
+    for (const p of parents) {
+      const r = find(p.id);
+      const arr = groups.get(r) ?? [];
+      arr.push(p);
+      groups.set(r, arr);
+    }
+    return Array.from(groups.values()).map((groupParents) => {
+      const seenKids = new Set<string>();
+      const kids: NonNullable<AdminParent["children"]> = [];
+      for (const p of groupParents) {
+        for (const c of p.children ?? []) {
+          if (seenKids.has(c.id)) continue;
+          seenKids.add(c.id);
+          kids.push(c);
+        }
+      }
+      return { parents: groupParents, children: kids };
+    });
+  }, [parents]);
+
   if (meLoading) return null;
   if (!isOrgAdmin(me, orgId)) return <Navigate to="/school" replace />;
 
@@ -102,57 +145,6 @@ export function ManageParents() {
     refresh();
     return res;
   };
-
-  // ─── Cluster parents into family units by shared children ─────────────
-  // Algorithm: union-find on parents. Two parents are in the same family
-  // iff they are both linked to at least one common student. Single
-  // parents form their own one-row family.
-  //
-  // Renders as one card per family in the order families appear (first
-  // appearance of a parent in the parents array). Search continues to
-  // work because it's applied server-side; the cards just regroup.
-  const families = useMemo(() => {
-    if (parents.length === 0) return [];
-    // child_id → list of parent_ids linked to that child
-    const parentsOfChild = new Map<string, string[]>();
-    for (const p of parents) {
-      for (const c of p.children ?? []) {
-        const arr = parentsOfChild.get(c.id) ?? [];
-        arr.push(p.id);
-        parentsOfChild.set(c.id, arr);
-      }
-    }
-    // Union-find
-    const parent: Record<string, string> = {};
-    for (const p of parents) parent[p.id] = p.id;
-    const find = (x: string): string => parent[x] === x ? x : (parent[x] = find(parent[x]));
-    const union = (a: string, b: string) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; };
-    for (const ids of parentsOfChild.values()) {
-      for (let i = 1; i < ids.length; i++) union(ids[0], ids[i]);
-    }
-    // Group parents by root
-    const groups = new Map<string, AdminParent[]>();
-    for (const p of parents) {
-      const r = find(p.id);
-      const arr = groups.get(r) ?? [];
-      arr.push(p);
-      groups.set(r, arr);
-    }
-    // Each group → distinct children list (some children may appear under
-    // multiple parents in the same family; dedupe by child.id)
-    return Array.from(groups.values()).map((groupParents) => {
-      const seenKids = new Set<string>();
-      const kids: NonNullable<AdminParent["children"]> = [];
-      for (const p of groupParents) {
-        for (const c of p.children ?? []) {
-          if (seenKids.has(c.id)) continue;
-          seenKids.add(c.id);
-          kids.push(c);
-        }
-      }
-      return { parents: groupParents, children: kids };
-    });
-  }, [parents]);
 
   return (
     <div className="space-y-4">
