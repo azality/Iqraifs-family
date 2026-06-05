@@ -727,8 +727,20 @@ export const listStudents = async (
   return r?.students ?? [];
 };
 
-export const getStudent = (orgId: string, studentId: string): Promise<StudentWithParents> =>
-  apiCall(`/school/orgs/${orgId}/students/${studentId}`);
+export const getStudent = async (
+  orgId: string,
+  studentId: string,
+): Promise<StudentWithParents> => {
+  // Backend returns { student: AdminStudent, parents: [...] } — flatten so
+  // consumers get the StudentWithParents flat shape they're typed for.
+  // Without this, student.full_name was undefined → charAt crash in
+  // StudentDetail.
+  const r = await apiCall<{
+    student: AdminStudent;
+    parents: Array<AdminParent & { is_primary: boolean }>;
+  }>(`/school/orgs/${orgId}/students/${studentId}`);
+  return { ...r.student, parents: r.parents ?? [] };
+};
 
 export interface CreateStudentBody {
   grNumber: string;

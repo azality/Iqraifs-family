@@ -181,8 +181,38 @@ const SEVERITY_STYLES: Record<DashboardAlert["severity"], { wrap: string; title:
   },
 };
 
+// Friendly labels for the machine `kind` enum the backend emits. Unknown
+// kinds fall back to title-cased version so we never expose a raw snake_case.
+const KIND_LABELS: Record<string, string> = {
+  attendance_gap: "Attendance gap",
+  roster_stale: "Roster needs review",
+  behavior_spike: "Behavior spike",
+  pending_approvals: "Pending approval",
+  fees_overdue: "Fees overdue",
+  hifz_stalled: "Hifz progress stalled",
+};
+function friendlyKind(k: string | undefined | null): string {
+  if (!k) return "";
+  return KIND_LABELS[k] ?? k.replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
 function AlertCard({ alert }: { alert: DashboardAlert }) {
   const s = SEVERITY_STYLES[alert.severity];
+
+  // Some alert actions point back to the current page (e.g. "View
+  // leaderboard" → `/school/orgs/${orgId}` which IS this page). Plain
+  // <Link> doesn't visibly do anything in that case. If the actionPath
+  // matches the current URL, scroll to the leaderboard section instead.
+  const handleActionClick = (e: React.MouseEvent) => {
+    if (!alert.actionPath) return;
+    const currentPath = window.location.pathname;
+    if (alert.actionPath === currentPath || alert.actionPath === currentPath.replace(/\/$/, "")) {
+      e.preventDefault();
+      const el = document.getElementById("sections-leaderboard");
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  };
+
   return (
     <div className={"min-w-[260px] flex-1 rounded-xl border p-3 shadow-sm " + s.wrap}>
       <div className="flex items-center gap-2">
@@ -194,7 +224,7 @@ function AlertCard({ alert }: { alert: DashboardAlert }) {
         </Badge>
         <span className={"inline-flex items-center gap-1 text-xs font-medium " + s.title}>
           <s.Icon className="h-3.5 w-3.5" />
-          {alert.kind}
+          {friendlyKind(alert.kind)}
         </span>
       </div>
       <div className={"mt-2 text-sm font-semibold " + s.title}>{alert.title}</div>
@@ -202,6 +232,7 @@ function AlertCard({ alert }: { alert: DashboardAlert }) {
       {alert.actionPath && (
         <Link
           to={alert.actionPath}
+          onClick={handleActionClick}
           className={"mt-2 inline-flex items-center gap-1 text-xs font-medium " + s.title}
         >
           {alert.actionLabel || "Open"}
@@ -272,7 +303,7 @@ function Leaderboard({
   ];
 
   return (
-    <Card>
+    <Card id="sections-leaderboard">
       <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
         <div>
           <CardTitle className="text-base">Class Sections Leaderboard</CardTitle>
