@@ -1,15 +1,23 @@
-// Shared school-admin manage toolbar.
+// Shared school manage toolbar — role-aware.
 //
-// Renders the row of navigation buttons (Classes, Students, Parents, Teachers,
-// Link Codes, Roster Requests, Permissions, Settings) that appears at the top
-// of every school-admin page. Originally lived inline inside
-// PerformanceDashboard.tsx; lifted here so SchoolAdminShell can render it
-// once across all nested admin routes (no more back-button-to-dashboard
-// friction when jumping between sections).
+// Renders the row of navigation buttons that appears at the top of every
+// school page. The items shown depend on the caller's role:
 //
-// Active state is computed from the current pathname so the user always sees
-// which section they're on. Principal-only items (Permissions, Settings) are
-// gated by the `isPrincipal` prop — caller computes it via isOrgPrincipal().
+//   principal / admin / org-scoped teacher
+//     → full toolbar (Classes / Students / Parents / Teachers / Link
+//       Codes / Roster Requests / Announcements + Permissions / Settings
+//       for principals)
+//   class_teacher / visiting_teacher
+//     → minimal toolbar (Announcements only — their dashboard already
+//       links them straight to their own sections; we don't want a row
+//       of admin-flavoured links they can't use)
+//   office_staff
+//     → Students, Parents, Roster Requests, Announcements
+//   financial_staff
+//     → Fees, Announcements
+//
+// Active state is computed from the current pathname so the user always
+// sees which section they're on.
 
 import { Link, useLocation } from "react-router";
 import { useTranslation } from "react-i18next";
@@ -23,12 +31,15 @@ import {
   ShieldCheck,
   Settings as SettingsIcon,
   Megaphone,
+  DollarSign,
 } from "lucide-react";
+import type { SchoolViewerRole } from "../../../utils/schoolApi";
 import { accentBg, accentBorder, accentText } from "./tokens";
 
 export interface ManageToolbarProps {
   orgId: string;
-  isPrincipal: boolean;
+  /** Role of the current viewer in this org. Drives which items show. */
+  viewerRole: SchoolViewerRole;
 }
 
 interface ToolbarItem {
@@ -38,43 +49,79 @@ interface ToolbarItem {
   Icon: typeof Users;
 }
 
-export function ManageToolbar({ orgId, isPrincipal }: ManageToolbarProps) {
+function itemsForRole(
+  orgId: string,
+  role: SchoolViewerRole,
+  t: (k: string) => string,
+): ToolbarItem[] {
+  const I = (
+    key: string,
+    label: string,
+    to: string,
+    Icon: typeof Users,
+  ): ToolbarItem => ({ key, label, to, Icon });
+
+  const announcements = I(
+    "announcements",
+    t("toolbar.announcements"),
+    `/school/orgs/${orgId}/admin/announcements`,
+    Megaphone,
+  );
+
+  switch (role) {
+    case "class_teacher":
+    case "visiting_teacher":
+      // Their dashboard (TeacherHome) is the primary navigation surface;
+      // toolbar stays minimal so we don't tease admin-only pages.
+      return [announcements];
+
+    case "office_staff":
+      return [
+        I("students", t("toolbar.students"), `/school/orgs/${orgId}/admin/students`, Users),
+        I("parents", t("toolbar.parents"), `/school/orgs/${orgId}/admin/parents`, Heart),
+        I("roster-requests", t("toolbar.rosterRequests"), `/school/orgs/${orgId}/admin/roster-requests`, ClipboardList),
+        announcements,
+      ];
+
+    case "financial_staff":
+      return [
+        I("fees", "Fees", `/school/orgs/${orgId}/admin/fees`, DollarSign),
+        announcements,
+      ];
+
+    case "principal":
+    case "admin": {
+      const base: ToolbarItem[] = [
+        I("classes", t("toolbar.classes"), `/school/orgs/${orgId}/admin/classes`, BookOpen),
+        I("students", t("toolbar.students"), `/school/orgs/${orgId}/admin/students`, Users),
+        I("parents", t("toolbar.parents"), `/school/orgs/${orgId}/admin/parents`, Heart),
+        I("teachers", t("toolbar.teachers"), `/school/orgs/${orgId}/admin/teachers`, UserCog),
+        I("link-codes", t("toolbar.linkCodes"), `/school/orgs/${orgId}/admin/link-codes`, KeyRound),
+        I("roster-requests", t("toolbar.rosterRequests"), `/school/orgs/${orgId}/admin/roster-requests`, ClipboardList),
+        I("fees", "Fees", `/school/orgs/${orgId}/admin/fees`, DollarSign),
+        announcements,
+      ];
+      if (role === "principal") {
+        base.push(
+          I("permissions", t("toolbar.permissions"), `/school/orgs/${orgId}/admin/permissions`, ShieldCheck),
+          I("settings", t("toolbar.settings"), `/school/orgs/${orgId}/admin/settings`, SettingsIcon),
+        );
+      }
+      return base;
+    }
+
+    case "other":
+    default:
+      return [];
+  }
+}
+
+export function ManageToolbar({ orgId, viewerRole }: ManageToolbarProps) {
   const { pathname } = useLocation();
   const { t } = useTranslation();
 
-  const items: ToolbarItem[] = [
-    { key: "classes", label: t("toolbar.classes"), to: `/school/orgs/${orgId}/admin/classes`, Icon: BookOpen },
-    { key: "students", label: t("toolbar.students"), to: `/school/orgs/${orgId}/admin/students`, Icon: Users },
-    { key: "parents", label: t("toolbar.parents"), to: `/school/orgs/${orgId}/admin/parents`, Icon: Heart },
-    { key: "teachers", label: t("toolbar.teachers"), to: `/school/orgs/${orgId}/admin/teachers`, Icon: UserCog },
-    { key: "link-codes", label: t("toolbar.linkCodes"), to: `/school/orgs/${orgId}/admin/link-codes`, Icon: KeyRound },
-    {
-      key: "roster-requests",
-      label: t("toolbar.rosterRequests"),
-      to: `/school/orgs/${orgId}/admin/roster-requests`,
-      Icon: ClipboardList,
-    },
-    {
-      key: "announcements",
-      label: t("toolbar.announcements"),
-      to: `/school/orgs/${orgId}/admin/announcements`,
-      Icon: Megaphone,
-    },
-  ];
-  if (isPrincipal) {
-    items.push({
-      key: "permissions",
-      label: t("toolbar.permissions"),
-      to: `/school/orgs/${orgId}/admin/permissions`,
-      Icon: ShieldCheck,
-    });
-    items.push({
-      key: "settings",
-      label: t("toolbar.settings"),
-      to: `/school/orgs/${orgId}/admin/settings`,
-      Icon: SettingsIcon,
-    });
-  }
+  const items = itemsForRole(orgId, viewerRole, t);
+  if (items.length === 0) return null;
 
   return (
     <div className="flex flex-wrap items-center gap-2" data-tour="manage-toolbar">
