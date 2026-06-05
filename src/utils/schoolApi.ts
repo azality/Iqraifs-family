@@ -1173,7 +1173,13 @@ export function viewerRoleForOrg(
   if (orgRoles.includes("admin")) return "admin";
   if (orgRoles.includes("office_staff")) return "office_staff";
   if (orgRoles.includes("financial_staff")) return "financial_staff";
-  // Section-scoped teacher rows: class_teacher OR visiting_teacher
+  // class_teacher / visiting_teacher may be granted with scope_type
+  // "organization" (the seed does this — they're org-scoped roles whose
+  // actual section assignments live in class_section.class_teacher_user_id
+  // and are resolved server-side by determineScope) OR scope_type "class"
+  // (older seeds / hand-granted visiting teachers). Check both.
+  if (orgRoles.includes("class_teacher")) return "class_teacher";
+  if (orgRoles.includes("visiting_teacher")) return "visiting_teacher";
   const classRoles = me.roles
     .filter((r) => r.scope_type === "class")
     .map((r) => r.role_type as string);
@@ -1206,17 +1212,12 @@ export function isSectionTeacherOnly(
       r.scope_id === orgId,
   );
   if (hasOrgTeacher) return false;
-  // Section-scoped class_teacher / visiting_teacher rows OR the
-  // class_section.class_teacher_user_id assignment surface as scope_type
-  // "class" in /school/me. Any such row qualifies — we don't filter by
-  // org here because /me already only returns role rows for this user
-  // and the workspace orgId resolves them transitively.
+  // class_teacher / visiting_teacher rows can be scope_type "organization"
+  // (seed default) or "class" (legacy). Either qualifies — the backend's
+  // determineScope() resolves the actual section assignments.
   return me.roles.some(
     (r) =>
-      (r.role_type === "class_teacher" ||
-        r.role_type === "visiting_teacher" ||
-        r.role_type === "teacher") &&
-      r.scope_type === "class",
+      r.role_type === "class_teacher" || r.role_type === "visiting_teacher",
   );
 }
 
