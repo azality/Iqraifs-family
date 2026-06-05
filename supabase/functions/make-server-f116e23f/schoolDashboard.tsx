@@ -886,6 +886,42 @@ export function installDashboard(school: Hono): void {
     alerts.sort((a, b) => sevRank[a.severity] - sevRank[b.severity]);
     const cappedAlerts = alerts.slice(0, 8);
 
+    // FEES PAID tile — % of fee_status rows for the current period that are
+    // marked paid. "Current period" here means the month-string matching
+    // today (e.g. "2026-06"). Honest fallback when no rows exist.
+    const currentFeePeriod = `${end.getUTCFullYear()}-${String(end.getUTCMonth() + 1).padStart(2, "0")}`;
+    const feesTile: { value: number | null; hint: string } = (await (async () => {
+      const { data } = await serviceRoleClient
+        .from("fee_status")
+        .select("status")
+        .eq("org_id", orgId)
+        .eq("period", currentFeePeriod);
+      if (!data || data.length === 0) {
+        return { value: null, hint: "No fee records this month" };
+      }
+      const paid = data.filter((r: any) => r.status === "paid").length;
+      const pct = Math.round((paid / data.length) * 100);
+      return { value: pct, hint: `${paid} of ${data.length} paid this month` };
+    })());
+
+    // FORMS AWAITING tile — count of published forms whose deadline hasn't
+    // passed AND have at least one student in scope who hasn't responded.
+    // Cheap approximation: count published forms minus those past deadline.
+    const formsTile: { value: number | null; hint: string } = (await (async () => {
+      const { data } = await serviceRoleClient
+        .from("form")
+        .select("id, deadline")
+        .eq("org_id", orgId)
+        .eq("status", "published");
+      if (!data) return { value: null, hint: "No forms yet" };
+      const today = fmtDate(end);
+      const open = data.filter((r: any) => !r.deadline || r.deadline >= today).length;
+      return {
+        value: open,
+        hint: open === 0 ? "No open forms" : `${open} open form${open === 1 ? "" : "s"}`,
+      };
+    })());
+
     return c.json({
       asOf: now.toISOString(),
       period,
@@ -932,14 +968,14 @@ export function installDashboard(school: Hono): void {
           value: concernsOpen,
           hint: "Concern notes logged this period",
         },
-        feesPaidPct: { value: null, hint: "Coming with Phase D" },
+        feesPaidPct: feesTile,
         hifzProgress: {
           value: hifzAvg,
           hint: hifzStudentsWithEntries === 0
             ? "no hifz entries yet"
             : "avg ayahs / student",
         },
-        formsAwaiting: { value: null, hint: "Coming with Phase D" },
+        formsAwaiting: formsTile,
       },
       health: { healthy, watch, flagged },
       alerts: cappedAlerts,
@@ -1291,7 +1327,16 @@ export function installDashboard(school: Hono): void {
     }
 
     activity.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
-    const recentActivity = activity.slice(0, 20);
+    // FIX: the frontend contract uses { occurredAt, actor } but the
+    // internal Activity type uses { at, actorName }. Renaming here so the
+    // RecentActivity table's When / Actor columns aren't blank.
+    const recentActivity = activity.slice(0, 20).map((a) => ({
+      id: a.id,
+      occurredAt: a.at,
+      kind: a.kind,
+      summary: a.summary,
+      actor: a.actorName,
+    }));
 
     return c.json({
       attendanceDistribution: dist,
