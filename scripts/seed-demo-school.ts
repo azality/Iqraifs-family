@@ -283,16 +283,24 @@ for (let i = 12; i < 18; i++) {
 console.log(`  ✓ student-parent links created (12 single, 6 multi-child)`);
 
 // Attendance — 4 weeks (28 days) for each section, school days only (Mon-Sat).
+// Includes today (dayOffset=0) — without it the "Attendance Today" tile reads 0%.
+// Only Grade 3 and Grade 5 (the sections with assigned class teachers) get
+// today's attendance, so the Attendance Gap warning still has the unassigned
+// sections to flag — keeps the demo realistic.
 const ctZaraId = staffByKey.get("ct_zara")!.userId;
 const ctHinaId = staffByKey.get("ct_hina")!.userId;
 const STATUSES = ["present", "present", "present", "present", "present", "late", "absent", "excused"];
 let attendanceCount = 0;
-for (let dayOffset = 27; dayOffset >= 1; dayOffset--) {
+for (let dayOffset = 27; dayOffset >= 0; dayOffset--) {
   const d = daysAgo(dayOffset);
   const dow = d.getDay();
   if (dow === 0) continue; // Skip Sunday
   const dateStr = isoDate(d);
   for (const grade of [1, 2, 3, 4, 5]) {
+    // On day 0 (today) only record for Grade 3 + Grade 5, so the
+    // "5 sections with no attendance in 3 days" warning still fires
+    // realistically against the other three classes.
+    if (dayOffset === 0 && grade !== 3 && grade !== 5) continue;
     const sectionId = classesByGrade.get(grade)!.sectionId;
     const recorder = grade === 3 ? ctZaraId : grade === 5 ? ctHinaId : principalId;
     for (const stu of studentsByGrade[grade]) {
@@ -402,6 +410,49 @@ for (const stu of allStudents) {
 }
 console.log(`  ✓ ${feeCount} fee status rows (current + prior month)`);
 
+// Roster change requests — 3 pending so the "Pending Approvals" tile is
+// non-zero. One add (new student joining Grade 2), one remove (student
+// withdrawing from Grade 1), one transfer-style add (Grade 4 → Grade 5).
+// Filed by Zara (Grade 3 class teacher) which mirrors a realistic flow:
+// teachers submit, admins approve.
+const rosterReqs = [
+  {
+    class_section_id: classesByGrade.get(2)!.sectionId,
+    kind: "add",
+    new_student_payload: { full_name: "Tehmina Yousaf", gr_number: "IDA-NEW-001", guardian_phone: "+92 300 1009001" },
+    reason: "New admission for spring semester. Parent has paid registration fee.",
+  },
+  {
+    class_section_id: classesByGrade.get(1)!.sectionId,
+    kind: "remove",
+    student_id: studentsByGrade[1][0].id,
+    reason: "Family relocating to Lahore. Effective end of month.",
+  },
+  {
+    class_section_id: classesByGrade.get(5)!.sectionId,
+    kind: "add",
+    new_student_payload: { full_name: "Faraz Ahmed", gr_number: "IDA-NEW-002", guardian_phone: "+92 300 1009002" },
+    reason: "Transferring from Grade 4. Hifz placement assessment passed.",
+  },
+];
+const ctZaraUserId = staffByKey.get("ct_zara")!.userId;
+let rosterCount = 0;
+for (const r of rosterReqs) {
+  const { error } = await sb.from("roster_change_request").insert({
+    org_id: orgId,
+    class_section_id: r.class_section_id,
+    kind: r.kind,
+    student_id: (r as any).student_id ?? null,
+    new_student_payload: (r as any).new_student_payload ?? null,
+    reason: r.reason,
+    status: "pending",
+    requested_by: ctZaraUserId,
+  });
+  if (!error) rosterCount++;
+  else console.error("roster request insert failed:", error);
+}
+console.log(`  ✓ ${rosterCount} pending roster change requests`);
+
 // ─── Summary ────────────────────────────────────────────────────────────
 console.log(`
 ═══════════════════════════════════════════════════════════════════════════
@@ -441,6 +492,7 @@ ${[1,2,3,4,5].map((g) =>
    - ${behaviorCount} behavior events (mix positive/concern)
    - ${hifzCount} hifz progress entries (grades 3-5)
    - ${feeCount} fee status rows (current + prior month)
+   - ${rosterCount} pending roster change requests
 
 🧹 CLEANUP
    When done: log in as principal → Settings → Danger Zone → Delete school.
