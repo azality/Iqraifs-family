@@ -152,8 +152,18 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
               role.scope_id === o.id,
           ),
         );
-        const hasSchool = principalOrgs.length > 0 ||
-          r.roles.some((role) => role.role_type === "teacher");
+        // ANY school role triggers school workspace — not just principal
+        // / teacher. Admin, class_teacher, visiting_teacher, office_staff,
+        // financial_staff all need school chrome + auto-default behaviour.
+        // Same enum as hasSchoolAccess below.
+        const SCHOOL_ROLE_TYPES_LOCAL = [
+          "principal", "admin", "teacher",
+          "class_teacher", "visiting_teacher",
+          "office_staff", "financial_staff",
+        ];
+        const hasSchool = r.roles.some((role) =>
+          SCHOOL_ROLE_TYPES_LOCAL.includes(role.role_type),
+        );
 
         // Case 1: stored workspace is "school" but user no longer has
         // any school access (revoked). Fall back to family.
