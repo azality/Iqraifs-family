@@ -48,6 +48,10 @@ export function ManageParents() {
   const [form, setForm] = useState<CreateParentBody>(empty);
   const [csvOpen, setCsvOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Filter scope — search applies only against the selected facet.
+  // "all" = parent name + student name + class. Default.
+  type SearchScope = "all" | "parent" | "student" | "class";
+  const [searchScope, setSearchScope] = useState<SearchScope>("all");
   // class_section_id → "Grade 5-A" label, so the Children column can show
   // each child's class instead of a raw uuid.
   const [classes, setClasses] = useState<AdminClass[]>([]);
@@ -63,16 +67,21 @@ export function ManageParents() {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
   }, []);
 
+  // Server-side search has been REMOVED — we now filter on the client
+  // because the search box has to work across parent name, child name,
+  // AND class. The backend would need three different params + an OR
+  // semantic; cheaper to ship to the client (parents list is bounded at
+  // 500 rows).
   const refresh = () => {
     if (!orgId) return;
-    listParents(orgId, { search: search || undefined }).then(setParents).catch((e) => setError(e?.message || "Failed"));
+    listParents(orgId, {}).then(setParents).catch((e) => setError(e?.message || "Failed"));
   };
 
   useEffect(() => {
     if (orgId) listClasses(orgId).then(setClasses).catch(() => {});
     refresh();
     // eslint-disable-next-line
-  }, [orgId, search]);
+  }, [orgId]);
 
   // ─── Cluster parents into family units by shared children ─────────────
   // Union-find on parents. Two parents are in the same family iff they
@@ -116,6 +125,44 @@ export function ManageParents() {
       return { parents: groupParents, children: kids };
     });
   }, [parents]);
+
+  // Apply the search filter to families. Scope determines which fields
+  // are matched: "all" matches across everything, the others narrow it.
+  // Case-insensitive substring match throughout.
+  const visibleFamilies = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return families;
+
+    const matchParent = (p: AdminParent) =>
+      p.full_name.toLowerCase().includes(q) ||
+      (p.phone ?? "").toLowerCase().includes(q) ||
+      (p.email ?? "").toLowerCase().includes(q);
+    const matchChild = (c: NonNullable<AdminParent["children"]>[number]) =>
+      c.full_name.toLowerCase().includes(q) ||
+      (c.gr_number ?? "").toLowerCase().includes(q);
+    const matchClass = (c: NonNullable<AdminParent["children"]>[number]) => {
+      const label = c.class_section_id ? sectionLabel.get(c.class_section_id) : null;
+      return !!label && label.toLowerCase().includes(q);
+    };
+
+    return families.filter((f) => {
+      switch (searchScope) {
+        case "parent":
+          return f.parents.some(matchParent);
+        case "student":
+          return f.children.some(matchChild);
+        case "class":
+          return f.children.some(matchClass);
+        case "all":
+        default:
+          return (
+            f.parents.some(matchParent) ||
+            f.children.some(matchChild) ||
+            f.children.some(matchClass)
+          );
+      }
+    });
+  }, [families, search, searchScope, sectionLabel]);
 
   if (meLoading) return null;
   if (!isOrgAdmin(me, orgId)) return <Navigate to="/school" replace />;
@@ -170,10 +217,57 @@ export function ManageParents() {
         }
       />
 
-      <div className="relative">
-        <Search className="absolute left-2 top-2.5 h-4 w-4 text-slate-400" />
-        <Input className="pl-8" placeholder="Search name, phone, or email…" value={search} onChange={(e) => setSearch(e.target.value)} />
+      {/* Filter scope chips + search input. Chips narrow which facet
+          (parent / student / class) the search matches against. */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+        <div className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 p-1 text-xs">
+          {([
+            { value: "all" as const,     label: "All" },
+            { value: "parent" as const,  label: "Parent name" },
+            { value: "student" as const, label: "Student name" },
+            { value: "class" as const,   label: "Class" },
+          ]).map((chip) => {
+            const active = chip.value === searchScope;
+            return (
+              <button
+                key={chip.value}
+                type="button"
+                onClick={() => setSearchScope(chip.value)}
+                className={
+                  "rounded-md px-3 py-1 font-medium transition-colors " +
+                  (active
+                    ? "bg-white text-slate-900 shadow"
+                    : "text-slate-600 hover:bg-slate-100")
+                }
+              >
+                {chip.label}
+              </button>
+            );
+          })}
+        </div>
+        <div className="relative flex-1">
+          <Search className="absolute left-2 top-2.5 h-4 w-4 text-slate-400" />
+          <Input
+            className="pl-8"
+            placeholder={
+              searchScope === "parent"  ? "Search parent name, phone, or email…"
+              : searchScope === "student" ? "Search student name or GR#…"
+              : searchScope === "class"   ? "Search class (e.g. Grade 2-A)…"
+              : "Search anything — parent, student, or class…"
+            }
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
       </div>
+
+      {/* Result count — shown only when a search is active so the user
+          knows they're seeing a filtered view, not "no parents". */}
+      {search.trim() && (
+        <p className="text-xs text-slate-500">
+          {visibleFamilies.length} of {families.length} famil{families.length === 1 ? "y" : "ies"} match
+        </p>
+      )}
 
       {error && <p className="text-sm text-rose-600">{error}</p>}
 
@@ -181,9 +275,13 @@ export function ManageParents() {
         <div className={`${cardBase} p-6 text-center text-sm text-slate-500`}>
           No parents yet.
         </div>
+      ) : visibleFamilies.length === 0 ? (
+        <div className={`${cardBase} p-6 text-center text-sm text-slate-500`}>
+          No matches. Try a different search or filter.
+        </div>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {families.map((family) => {
+          {visibleFamilies.map((family) => {
             const isMultiParent = family.parents.length > 1;
             return (
               <div
