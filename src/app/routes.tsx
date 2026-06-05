@@ -61,6 +61,7 @@ import { OrgSettings } from "./pages/school/OrgSettings";
 import { AuditLog } from "./pages/school/AuditLog";
 // Phase B teacher/admin surfaces (school-pilot/phase-b-ui).
 import { AttendanceRollCall } from "./pages/school/AttendanceRollCall";
+import { SectionOverview } from "./pages/school/SectionOverview";
 import { SectionBehaviorFeed } from "./pages/school/SectionBehaviorFeed";
 import { RosterRequestForm } from "./pages/school/RosterRequestForm";
 import { RosterReviewQueue } from "./pages/school/RosterReviewQueue";
@@ -447,6 +448,8 @@ export const router = createBrowserRouter([
               { path: "admin/announcements/new", element: <AnnouncementComposer /> },
               { path: "admin/announcements/:announcementId", element: <AnnouncementComposer /> },
               // Phase B section-scoped daily ops
+              // Section overview hub — landing page when clicking a leaderboard row.
+              { path: "sections/:sectionId", element: <SectionOverview /> },
               { path: "sections/:sectionId/attendance", element: <AttendanceRollCall /> },
               { path: "sections/:sectionId/behavior", element: <SectionBehaviorFeed /> },
               { path: "sections/:sectionId/roster/new", element: <RosterRequestForm /> },
