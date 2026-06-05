@@ -236,6 +236,51 @@ export interface ClassDetail {
   }>;
 }
 
+// ─── Section subjects ──────────────────────────────────────────────────
+// New per-section subjects model (Math/Science/English/Quran/Urdu per
+// class_section). See migration 0018. Phase 1A of per-subject rewiring —
+// lessons / assignments / gradebook will gain subject_id in follow-up PRs.
+
+export interface SectionSubject {
+  id: string;
+  orgId: string;
+  classSectionId: string;
+  name: string;
+  teacherUserId: string | null;
+  teacherName: string | null;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const listSectionSubjects = (
+  sectionId: string,
+): Promise<{ sectionId: string; subjects: SectionSubject[] }> =>
+  apiCall(`/school/sections/${sectionId}/subjects`);
+
+export const createSectionSubject = (
+  sectionId: string,
+  body: { name: string; teacherUserId?: string | null; sortOrder?: number },
+): Promise<{ subject: SectionSubject }> =>
+  apiCall(`/school/sections/${sectionId}/subjects`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const updateSectionSubject = (
+  subjectId: string,
+  body: { name?: string; teacherUserId?: string | null; sortOrder?: number },
+): Promise<{ subject: SectionSubject }> =>
+  apiCall(`/school/subjects/${subjectId}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+
+export const deleteSectionSubject = (
+  subjectId: string,
+): Promise<{ ok: true }> =>
+  apiCall(`/school/subjects/${subjectId}`, { method: "DELETE" });
+
 export const getClassDetail = (classId: string): Promise<ClassDetail> =>
   apiCall(`/school/classes/${classId}`);
 
