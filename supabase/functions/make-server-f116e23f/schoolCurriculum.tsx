@@ -126,6 +126,24 @@ async function isPrincipalOrAdmin(userId: string, orgId: string): Promise<boolea
   );
 }
 
+const RESOURCE_KINDS = new Set(["pdf", "video", "worksheet", "link", "quiz"]);
+
+function resourceToJson(r: any) {
+  return {
+    id: r.id,
+    orgId: r.org_id,
+    curriculumTopicId: r.curriculum_topic_id,
+    kind: r.kind,
+    label: r.label,
+    url: r.url,
+    description: r.description,
+    sortOrder: r.sort_order,
+    addedBy: r.added_by,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+
 function topicToJson(r: any) {
   return {
     id: r.id,
@@ -693,6 +711,199 @@ export function installCurriculum(school: Hono) {
     const { error } = await serviceRoleClient
       .from("curriculum_topic")
       .delete()
+      .eq("id", id);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ ok: true });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Topic resources (Phase 1E) — durable worksheets / videos / quizzes
+  // attached to a curriculum topic. Distinct from lesson.attachments[],
+  // which are per-day. Read access: anyone in the org. Write access:
+  // principal/admin only for now (subject-teacher writes are a follow-up).
+  // ---------------------------------------------------------------------------
+
+  // GET /school/curriculum-topics/:topicId/resources
+  school.get("/curriculum-topics/:topicId/resources", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const topicId = c.req.param("topicId");
+    const ctx = await topicOrgId(topicId);
+    if (!ctx || !ctx.orgId) return c.json({ error: "topic not found" }, 404);
+    if (!(await hasAnyOrgRole(userId, ctx.orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const { data, error } = await serviceRoleClient
+      .from("topic_resource")
+      .select("*")
+      .eq("curriculum_topic_id", topicId)
+      .is("archived_at", null)
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true });
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({
+      topicId,
+      resources: (data ?? []).map(resourceToJson),
+    });
+  });
+
+  // POST /school/curriculum-topics/:topicId/resources
+  // Body: { kind, label, url, description?, sortOrder? }
+  school.post("/curriculum-topics/:topicId/resources", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const topicId = c.req.param("topicId");
+    const ctx = await topicOrgId(topicId);
+    if (!ctx || !ctx.orgId) return c.json({ error: "topic not found" }, 404);
+    if (!(await isPrincipalOrAdmin(userId, ctx.orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+
+    let body: any;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "invalid JSON body" }, 400);
+    }
+    const kind = typeof body?.kind === "string" ? body.kind.toLowerCase() : "";
+    if (!RESOURCE_KINDS.has(kind)) {
+      return c.json(
+        { error: "kind must be one of: pdf, video, worksheet, link, quiz" },
+        400,
+      );
+    }
+    const label = typeof body?.label === "string" ? body.label.trim() : "";
+    if (label.length < 1 || label.length > 200) {
+      return c.json({ error: "label must be 1..200 characters" }, 400);
+    }
+    const url = typeof body?.url === "string" ? body.url.trim() : "";
+    if (url.length < 4 || url.length > 2048) {
+      return c.json({ error: "url must be 4..2048 characters" }, 400);
+    }
+    // Light URL sanity: must start with http(s):// or be a relative path.
+    if (!/^(https?:\/\/|\/)/i.test(url)) {
+      return c.json({ error: "url must start with http(s):// or /" }, 400);
+    }
+    const description =
+      typeof body?.description === "string" ? body.description.trim() : null;
+
+    let sortOrder: number;
+    if (typeof body?.sortOrder === "number") {
+      sortOrder = Math.trunc(body.sortOrder);
+    } else {
+      const { data: existing } = await serviceRoleClient
+        .from("topic_resource")
+        .select("sort_order")
+        .eq("curriculum_topic_id", topicId)
+        .is("archived_at", null)
+        .order("sort_order", { ascending: false })
+        .limit(1);
+      sortOrder = ((existing?.[0] as any)?.sort_order ?? -1) + 1;
+    }
+
+    const { data, error } = await serviceRoleClient
+      .from("topic_resource")
+      .insert({
+        org_id: ctx.orgId,
+        curriculum_topic_id: topicId,
+        kind,
+        label,
+        url,
+        description: description || null,
+        sort_order: sortOrder,
+        added_by: userId,
+      })
+      .select()
+      .single();
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ resource: resourceToJson(data) }, 201);
+  });
+
+  // PATCH /school/topic-resources/:id
+  school.patch("/topic-resources/:id", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const id = c.req.param("id");
+    const { data: existing } = await serviceRoleClient
+      .from("topic_resource")
+      .select("org_id")
+      .eq("id", id)
+      .maybeSingle();
+    if (!existing) return c.json({ error: "resource not found" }, 404);
+    if (!(await isPrincipalOrAdmin(userId, (existing as any).org_id))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+
+    let body: any;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "invalid JSON body" }, 400);
+    }
+    const patch: Record<string, unknown> = {};
+    if (typeof body?.kind === "string") {
+      const k = body.kind.toLowerCase();
+      if (!RESOURCE_KINDS.has(k)) {
+        return c.json({ error: "invalid kind" }, 400);
+      }
+      patch.kind = k;
+    }
+    if (typeof body?.label === "string") {
+      const v = body.label.trim();
+      if (v.length < 1 || v.length > 200) {
+        return c.json({ error: "label must be 1..200 characters" }, 400);
+      }
+      patch.label = v;
+    }
+    if (typeof body?.url === "string") {
+      const u = body.url.trim();
+      if (u.length < 4 || u.length > 2048) {
+        return c.json({ error: "url must be 4..2048 characters" }, 400);
+      }
+      if (!/^(https?:\/\/|\/)/i.test(u)) {
+        return c.json({ error: "url must start with http(s):// or /" }, 400);
+      }
+      patch.url = u;
+    }
+    if ("description" in (body ?? {})) {
+      patch.description =
+        typeof body.description === "string"
+          ? body.description.trim() || null
+          : null;
+    }
+    if (typeof body?.sortOrder === "number") {
+      patch.sort_order = Math.trunc(body.sortOrder);
+    }
+    if (Object.keys(patch).length === 0) {
+      return c.json({ error: "nothing to update" }, 400);
+    }
+    const { data, error } = await serviceRoleClient
+      .from("topic_resource")
+      .update(patch)
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ resource: resourceToJson(data) });
+  });
+
+  // DELETE /school/topic-resources/:id  (soft)
+  school.delete("/topic-resources/:id", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const id = c.req.param("id");
+    const { data: existing } = await serviceRoleClient
+      .from("topic_resource")
+      .select("org_id")
+      .eq("id", id)
+      .maybeSingle();
+    if (!existing) return c.json({ error: "resource not found" }, 404);
+    if (!(await isPrincipalOrAdmin(userId, (existing as any).org_id))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const { error } = await serviceRoleClient
+      .from("topic_resource")
+      .update({ archived_at: new Date().toISOString() })
       .eq("id", id);
     if (error) return c.json({ error: error.message }, 500);
     return c.json({ ok: true });
