@@ -22,7 +22,8 @@ import {
   getOrgBySlug,
   type PortalOrgBranding,
 } from "../../../utils/schoolPortalApi";
-import { projectId, publicAnonKey } from "../../../../utils/supabase/info.tsx";
+import { supabase } from "../../../../utils/supabase/client";
+import { setParentSession } from "../../utils/authHelpers";
 
 type Tab = "staff" | "parent" | "student";
 
@@ -90,35 +91,31 @@ export function SchoolUnifiedLogin() {
     setBusy(true);
     try {
       if (tab === "staff") {
-        // Supabase email + password. We POST to the auth endpoint
-        // directly here so the login page stays self-contained — the
-        // family auth context picks up the session on the next page.
-        const res = await fetch(
-          `https://${projectId}.supabase.co/auth/v1/token?grant_type=password`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              apikey: publicAnonKey,
-            },
-            body: JSON.stringify({ email: identifier, password: secret }),
-          },
+        // Supabase email + password — use the official client so the
+        // session lands in Supabase's own storage (which AuthContext
+        // reads via getSession). Doing the raw fetch we tried first
+        // wrote tokens to the WRONG key, so AuthContext saw no session
+        // and ProtectedRoute kicked us back to /welcome.
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: identifier,
+          password: secret,
+        });
+        if (error) throw error;
+        if (!data.user) throw new Error("Sign-in failed");
+        // Mirror ParentLogin: stamp parent-side storage so role checks
+        // downstream pass (USER_ROLE etc.) regardless of school role.
+        setParentSession(
+          data.user.id,
+          (data.user.user_metadata as any)?.name || identifier,
+          identifier,
         );
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body.error_description || body.msg || "Sign-in failed");
-        }
-        const data = await res.json();
-        // Persist tokens the same way the rest of the app expects.
-        if (typeof window !== "undefined") {
-          window.localStorage.setItem("fgs_access_token", data.access_token);
-          if (data.refresh_token) {
-            window.localStorage.setItem("fgs_refresh_token", data.refresh_token);
-          }
-        }
-        // Send them to /school — the WorkspaceContext + role gate
-        // will route to the right dashboard.
-        navigate("/school", { replace: true });
+        // Hard navigation — SchoolUnifiedLogin lives outside
+        // ProvidersLayout, so AuthContext isn't mounted here. A full
+        // reload remounts the provider tree with the fresh Supabase
+        // session and lets the workspace router send a principal to
+        // /school/orgs/:orgId automatically.
+        window.location.href = "/school";
+        return;
       } else {
         // PIN auth — backend already accepts whitespace-stripped phone
         // (PR #138) so the user can type +923001001001 or 03001001001.
