@@ -13,6 +13,8 @@ import { AlertCircle, Save } from "lucide-react";
 import { HeroCard, StatusPill, cardBase, cardElev } from "../../components/school-ui";
 import {
   getSectionGradebook,
+  listSectionSubjects,
+  type SectionSubject,
   postGradesBatch,
   type Assignment,
   type GradebookResponse,
@@ -53,13 +55,20 @@ export function SectionGradebook() {
   const [saving, setSaving] = useState(false);
   // cells[studentId][assignmentId] → state
   const [cells, setCells] = useState<Record<string, Record<string, CellState>>>({});
+  // Phase 3: subject filter chip row.
+  const [subjectFilter, setSubjectFilter] = useState<string>("");
+  const [subjects, setSubjects] = useState<SectionSubject[]>([]);
 
   const load = async () => {
     if (!orgId || !sectionId) return;
     setLoading(true);
     setError(null);
     try {
-      const resp = await getSectionGradebook(orgId, sectionId, { startDate, endDate });
+      const resp = await getSectionGradebook(orgId, sectionId, {
+        startDate,
+        endDate,
+        subjectId: subjectFilter || undefined,
+      });
       setData(resp);
       const init: Record<string, Record<string, CellState>> = {};
       for (const s of resp.students) {
@@ -84,7 +93,15 @@ export function SectionGradebook() {
   useEffect(() => {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orgId, sectionId]);
+  }, [orgId, sectionId, subjectFilter]);
+
+  // Phase 3: subjects for filter chips.
+  useEffect(() => {
+    if (!sectionId) return;
+    listSectionSubjects(sectionId)
+      .then((r) => setSubjects(r.subjects))
+      .catch(() => setSubjects([]));
+  }, [sectionId]);
 
   const setCell = (studentId: string, assignmentId: string, patch: Partial<CellState>) => {
     setCells((prev) => ({
@@ -221,6 +238,43 @@ export function SectionGradebook() {
       {error && (
         <div className="text-sm text-rose-600 flex items-center gap-1">
           <AlertCircle className="h-4 w-4" /> {error}
+        </div>
+      )}
+
+      {/* Phase 3: subject filter chips. Restricts which columns appear. */}
+      {subjects.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-xs text-slate-500 mr-1">Subject:</span>
+          <button
+            type="button"
+            onClick={() => setSubjectFilter("")}
+            className={
+              "rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 " +
+              (subjectFilter === ""
+                ? "bg-indigo-600 text-white ring-indigo-600"
+                : "bg-white text-slate-700 ring-slate-200 hover:bg-slate-50")
+            }
+          >
+            All
+          </button>
+          {subjects.map((s) => {
+            const active = subjectFilter === s.id;
+            return (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => setSubjectFilter(s.id)}
+                className={
+                  "rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 " +
+                  (active
+                    ? "bg-indigo-600 text-white ring-indigo-600"
+                    : "bg-white text-slate-700 ring-slate-200 hover:bg-slate-50")
+                }
+              >
+                {s.name}
+              </button>
+            );
+          })}
         </div>
       )}
 

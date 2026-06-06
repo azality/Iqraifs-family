@@ -22,8 +22,12 @@ import {
   getAssignment,
   patchAssignment,
   postAssignment,
+  listSectionSubjects,
+  getClassSubjectCurriculum,
   type AssignmentInput,
   type AssignmentKind,
+  type SectionSubject,
+  type ClassCurriculumTopic,
 } from "../../../utils/schoolApi";
 
 const KIND_OPTIONS: Array<{ value: AssignmentKind; label: string }> = [
@@ -61,7 +65,14 @@ export function AssignmentForm() {
     dueDate: "",
     relatedTopic: "",
     assignedDate: todayIso(),
+    sectionSubjectId: null,
+    curriculumTopicId: null,
   });
+
+  // Phase 3: subject + topic dropdowns mirror LessonForm.
+  const [subjects, setSubjects] = useState<SectionSubject[]>([]);
+  const [topics, setTopics] = useState<ClassCurriculumTopic[]>([]);
+  const [topicsLoading, setTopicsLoading] = useState(false);
 
   useEffect(() => {
     if (!editMode || !orgId || !assignmentId) return;
@@ -78,11 +89,37 @@ export function AssignmentForm() {
           dueDate: a.due_date ?? "",
           relatedTopic: a.related_topic ?? "",
           assignedDate: a.assigned_date,
+          sectionSubjectId: a.sectionSubjectId ?? null,
+          curriculumTopicId: a.curriculumTopicId ?? null,
         });
       })
       .catch((e) => setError(e?.message || "Failed to load assignment"))
       .finally(() => setLoading(false));
   }, [editMode, orgId, assignmentId]);
+
+  // Phase 3: load subjects for this section.
+  useEffect(() => {
+    const sid = resolvedSectionId || sectionId;
+    if (!sid) return;
+    listSectionSubjects(sid)
+      .then((r) => setSubjects(r.subjects))
+      .catch(() => setSubjects([]));
+  }, [resolvedSectionId, sectionId]);
+
+  // Phase 3: when a subject is picked, load its current-year curriculum.
+  useEffect(() => {
+    if (!form.sectionSubjectId) {
+      setTopics([]);
+      return;
+    }
+    const subj = subjects.find((s) => s.id === form.sectionSubjectId);
+    if (!subj) return;
+    setTopicsLoading(true);
+    getClassSubjectCurriculum(subj.classSubjectId)
+      .then((r) => setTopics(r.topics))
+      .catch(() => setTopics([]))
+      .finally(() => setTopicsLoading(false));
+  }, [form.sectionSubjectId, subjects]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -107,6 +144,9 @@ export function AssignmentForm() {
         relatedTopic: form.relatedTopic?.trim() || undefined,
         // assignedDate is accepted by the backend's optional fields; ignored if not supported.
         assignedDate: form.assignedDate || undefined,
+        // Phase 3 — subject + topic. null clears on PATCH.
+        sectionSubjectId: form.sectionSubjectId || null,
+        curriculumTopicId: form.curriculumTopicId || null,
       };
       let saved;
       if (editMode) {
@@ -166,6 +206,68 @@ export function AssignmentForm() {
               />
             </div>
 
+            {/* Phase 3 — subject + curriculum topic. Topic dropdown
+                disables until a subject is picked; clearing the subject
+                also clears the topic. */}
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <Label htmlFor="subject">Subject</Label>
+                <select
+                  id="subject"
+                  value={form.sectionSubjectId ?? ""}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      sectionSubjectId: e.target.value || null,
+                      curriculumTopicId: null,
+                    })
+                  }
+                  className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+                >
+                  <option value="">— Pick a subject —</option>
+                  {subjects.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                      {s.teacherName ? ` · ${s.teacherName}` : ""}
+                    </option>
+                  ))}
+                </select>
+                {subjects.length === 0 && (
+                  <p className="text-xs text-slate-400">
+                    No subjects defined for this section yet.
+                  </p>
+                )}
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="curriculumTopic">Curriculum topic</Label>
+                <select
+                  id="curriculumTopic"
+                  value={form.curriculumTopicId ?? ""}
+                  onChange={(e) =>
+                    setForm({ ...form, curriculumTopicId: e.target.value || null })
+                  }
+                  disabled={!form.sectionSubjectId || topicsLoading}
+                  className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 disabled:opacity-60"
+                >
+                  <option value="">
+                    {!form.sectionSubjectId
+                      ? "— Pick a subject first —"
+                      : topicsLoading
+                      ? "Loading topics…"
+                      : topics.length === 0
+                      ? "No topics in the syllabus yet"
+                      : "— Optional: pick a topic —"}
+                  </option>
+                  {topics.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.completed ? "✓ " : ""}
+                      {t.displayOrder + 1}. {t.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
             <div className="grid sm:grid-cols-2 gap-4">
               <div className="space-y-1">
                 <Label>Kind *</Label>
@@ -179,12 +281,12 @@ export function AssignmentForm() {
                 </Select>
               </div>
               <div className="space-y-1">
-                <Label htmlFor="related">Related topic</Label>
+                <Label htmlFor="related">Related topic note</Label>
                 <Input
                   id="related"
                   value={form.relatedTopic}
                   onChange={(e) => setForm({ ...form, relatedTopic: e.target.value })}
-                  placeholder="optional"
+                  placeholder="Free-text tag (optional)"
                 />
               </div>
             </div>
