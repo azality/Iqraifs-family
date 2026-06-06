@@ -870,8 +870,10 @@ export function installPhaseCD(school: Hono): void {
 
     let q = serviceRoleClient
       .from("fee_status")
+      // Pull class + section names alongside student so the table can
+      // render 'Grade 3 · 3-A' without N follow-up queries.
       .select(
-        "*, student:student_id(id, full_name, gr_number, class_section_id)",
+        "*, student:student_id(id, full_name, gr_number, class_section_id, class_section:class_section_id(name, class:class_id(name)))",
       )
       .eq("org_id", orgId)
       .order("period", { ascending: false });
@@ -896,6 +898,15 @@ export function installPhaseCD(school: Hono): void {
         student_name: r.student?.full_name ?? null,
         gr_number: r.student?.gr_number ?? null,
         section_id: r.student?.class_section_id ?? null,
+        // Phase: surface class + section names as separate display fields
+        // AND as a combined label for the existing FeeStatus.section_label
+        // field that the FeesOverview table already reads.
+        class_name: r.student?.class_section?.class?.name ?? null,
+        section_name: r.student?.class_section?.name ?? null,
+        section_label:
+          r.student?.class_section
+            ? `${r.student.class_section.class?.name ?? ""} · ${r.student.class_section.name ?? ""}`.trim()
+            : null,
       })),
     });
   });

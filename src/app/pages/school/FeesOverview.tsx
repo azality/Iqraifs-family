@@ -1,7 +1,7 @@
 // FeesOverview — admin surface listing fee statuses across the org for a period.
 
 import { useEffect, useMemo, useState } from "react";
-import { Link, Navigate, useParams } from "react-router";
+import { Link, Navigate, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -134,6 +134,7 @@ export function MarkPaidDialog({
 
 export function FeesOverview() {
   const { orgId = "" } = useParams();
+  const navigate = useNavigate();
   const [me, setMe] = useState<SchoolMeResponse | null>(null);
   const [meLoading, setMeLoading] = useState(true);
   const [period, setPeriod] = useState(currentPeriod());
@@ -202,7 +203,22 @@ export function FeesOverview() {
         </div>
       ),
     },
-    { key: "section", header: "Section", cell: (f) => <span className="text-xs text-slate-600">{f.section_label ?? "—"}</span> },
+    {
+      key: "class",
+      header: "Class",
+      width: "w-28",
+      cell: (f) => (
+        <span className="text-xs text-slate-600">{f.class_name ?? "—"}</span>
+      ),
+    },
+    {
+      key: "section",
+      header: "Section",
+      width: "w-24",
+      cell: (f) => (
+        <span className="text-xs text-slate-600">{f.section_name ?? "—"}</span>
+      ),
+    },
     { key: "period", header: "Period", width: "w-24", cell: (f) => <span className="text-xs tabular-nums">{f.period}</span> },
     { key: "status", header: "Status", width: "w-24", cell: (f) => <FeeStatusBadge status={f.status} /> },
     { key: "due", header: "Due", align: "right", width: "w-24", cell: (f) => <span className="tabular-nums">{f.amount_due ?? "—"}</span> },
@@ -307,7 +323,15 @@ export function FeesOverview() {
         </Select>
       </div>
 
-      <DataTable columns={columns} rows={fees} rowKey={(f) => f.id} emptyMessage="No fee records." />
+      <DataTable
+        columns={columns}
+        rows={fees}
+        rowKey={(f) => f.id}
+        emptyMessage="No fee records."
+        onRowClick={(f) =>
+          navigate(`/school/orgs/${orgId}/students/${f.student_id}/fees`)
+        }
+      />
 
       <MarkPaidDialog state={markPaid} onClose={() => setMarkPaid(null)} onSaved={refresh} orgId={orgId} />
     </div>

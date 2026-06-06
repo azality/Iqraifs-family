@@ -2487,7 +2487,11 @@ export interface FeeStatus {
   student_name?: string | null;
   gr_number?: string | null;
   section_id?: string | null;
+  /** Combined 'Grade X · X-A' label for compact table cells. */
   section_label?: string | null;
+  /** Separate class + section names so the table can render two columns. */
+  class_name?: string | null;
+  section_name?: string | null;
   period: string;
   amount_due: number | null;
   amount_paid: number | null;
