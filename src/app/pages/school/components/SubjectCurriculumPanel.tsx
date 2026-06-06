@@ -29,15 +29,17 @@ import {
   createClassCurriculum,
   addClassCurriculumTopic,
   bulkAddClassCurriculumTopics,
+  copyCurriculumFromYear,
   updateClassCurriculumTopic,
   deleteClassCurriculumTopic,
   reorderClassCurriculumTopics,
   type ClassCurriculum,
   type ClassCurriculumTopic,
+  type CurriculumYearSummary,
 } from "../../../../utils/schoolApi";
 import { templateForSubject } from "./curriculumTemplates";
 import { Textarea } from "../../../components/ui/textarea";
-import { Sparkles, Library } from "lucide-react";
+import { Sparkles, Library, Copy } from "lucide-react";
 
 interface Props {
   classSubjectId: string;
@@ -69,6 +71,7 @@ export function SubjectCurriculumPanel({
   const [year, setYear] = useState(currentAcademicYear());
   const [curriculum, setCurriculum] = useState<ClassCurriculum | null>(null);
   const [topics, setTopics] = useState<ClassCurriculumTopic[]>([]);
+  const [availableYears, setAvailableYears] = useState<CurriculumYearSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -95,9 +98,46 @@ export function SubjectCurriculumPanel({
       .then((r) => {
         setCurriculum(r.curriculum);
         setTopics(r.topics);
+        setAvailableYears(r.availableYears ?? []);
       })
       .catch((e) => setError(e?.message || "Could not load curriculum"))
       .finally(() => setLoading(false));
+  };
+
+  /** Best candidate prior year to copy from: most recent year (newest first
+   *  in availableYears) that's NOT the current year and has at least one
+   *  topic. Returns null if no usable source exists. */
+  const copyCandidate = useMemo<CurriculumYearSummary | null>(() => {
+    for (const y of availableYears) {
+      if (y.academicYear !== year && y.topicCount > 0) return y;
+    }
+    return null;
+  }, [availableYears, year]);
+
+  const handleCopyFromYear = async (sourceYear: string) => {
+    if (
+      !window.confirm(
+        `Copy all topics from ${sourceYear} into ${year}? Existing topics with the same name will be skipped.`,
+      )
+    )
+      return;
+    setSaving(true);
+    try {
+      const r = await copyCurriculumFromYear(classSubjectId, {
+        fromAcademicYear: sourceYear,
+        toAcademicYear: year,
+      });
+      toast.success(
+        r.skipped > 0
+          ? `Copied ${r.added} topic${r.added === 1 ? "" : "s"} · ${r.skipped} skipped as duplicates`
+          : `Copied ${r.added} topic${r.added === 1 ? "" : "s"} from ${sourceYear}`,
+      );
+      refresh();
+    } catch (e: any) {
+      toast.error(e?.message || "Could not copy curriculum");
+    } finally {
+      setSaving(false);
+    }
   };
 
   useEffect(() => {
@@ -312,6 +352,31 @@ export function SubjectCurriculumPanel({
               <span className="text-[10px] text-slate-400">
                 {curriculum.title}
               </span>
+            )}
+            {/* Quick-pick chips for other years with content. Lets the
+                admin hop between years without retyping. */}
+            {availableYears.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1">
+                {availableYears.map((y) => {
+                  const active = y.academicYear === year;
+                  return (
+                    <button
+                      key={y.academicYear}
+                      type="button"
+                      onClick={() => setYear(y.academicYear)}
+                      className={
+                        "rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 " +
+                        (active
+                          ? "bg-indigo-600 text-white ring-indigo-600"
+                          : "bg-white text-slate-700 ring-slate-200 hover:bg-slate-50")
+                      }
+                    >
+                      {y.academicYear}
+                      <span className="ml-1 opacity-70">({y.topicCount})</span>
+                    </button>
+                  );
+                })}
+              </div>
             )}
           </div>
 
@@ -557,11 +622,28 @@ export function SubjectCurriculumPanel({
                 </div>
               )}
 
-              {/* Action buttons (admins only) */}
+              {/* Action buttons (admins only). When a prior year already
+                  has a syllabus, surface "Copy from {year}" as the primary
+                  action — typical second-year workflow is to roll forward
+                  with light edits, not re-apply a generic template. */}
               {canManage && !adding && !bulkOpen && (
                 <div className="mt-2 flex flex-wrap gap-2">
+                  {copyCandidate && (
+                    <Button
+                      size="sm"
+                      onClick={() => handleCopyFromYear(copyCandidate.academicYear)}
+                      disabled={saving}
+                    >
+                      <Copy className="mr-1 h-3.5 w-3.5" />
+                      Copy from {copyCandidate.academicYear}
+                      <span className="ml-1 text-[10px] opacity-80">
+                        ({copyCandidate.topicCount})
+                      </span>
+                    </Button>
+                  )}
                   <Button
                     size="sm"
+                    variant={copyCandidate ? "outline" : "default"}
                     onClick={handleApplyTemplate}
                     disabled={saving}
                   >
