@@ -27,6 +27,8 @@ import {
   Info,
   AlertOctagon,
   ArrowUpRight,
+  ListChecks,
+  Library,
 } from "lucide-react";
 import {
   LineChart,
@@ -42,6 +44,7 @@ import { Badge } from "../../components/ui/badge";
 import {
   getDashboard,
   getInsights,
+  getOrgAcademics,
   getOrganization,
   getSchoolMe,
   getSectionsLeaderboard,
@@ -59,6 +62,7 @@ import {
   type InsightsResponse,
   type LeaderboardRow,
   type OrgWithCounts,
+  type AcademicsResponse,
   type SchoolMeResponse,
 } from "../../../utils/schoolApi";
 import { SetupChecklist, setupChecklistDismissed } from "../../components/school-ui";
@@ -617,6 +621,9 @@ export function PerformanceDashboard() {
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardRow[] | null>(null);
   const [insights, setInsights] = useState<InsightsResponse | null>(null);
+  // Phase 6a: academic aggregates (curriculum coverage, resources, hygiene,
+  // subjects at risk). Loaded in parallel with the existing dashboard fetch.
+  const [academics, setAcademics] = useState<AcademicsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [me, setMe] = useState<SchoolMeResponse | null>(null);
@@ -624,6 +631,15 @@ export function PerformanceDashboard() {
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null));
   }, []);
+
+  // Phase 6a: academics fetch. Non-blocking — if it errors, the rest of
+  // the dashboard renders fine and we just hide the new tiles/panel.
+  useEffect(() => {
+    if (!orgId) return;
+    getOrgAcademics(orgId)
+      .then(setAcademics)
+      .catch(() => setAcademics(null));
+  }, [orgId]);
 
   const tourRole = me ? pickTourForUser(me, isOrgPrincipal(me, orgId)) : null;
 
@@ -824,6 +840,30 @@ export function PerformanceDashboard() {
             <KpiTile label={t("dashboard.tiles.feesPaidPct")} tile={dashboard.tiles.feesPaidPct} Icon={DollarSign} asPercent />
             <KpiTile label={t("dashboard.tiles.hifzProgress")} tile={dashboard.tiles.hifzProgress} Icon={BookOpen} asPercent />
             <KpiTile label={t("dashboard.tiles.formsAwaiting")} tile={dashboard.tiles.formsAwaiting} Icon={FileText} />
+            {/* Phase 6a: curriculum coverage + resources tiles */}
+            {academics && (
+              <>
+                <KpiTile
+                  label="Curriculum"
+                  tile={{
+                    value: academics.curriculum.progressPct,
+                    deltaPp: null,
+                    hint: `${academics.curriculum.completedTopics}/${academics.curriculum.totalTopics} topics`,
+                  }}
+                  Icon={ListChecks}
+                  asPercent
+                />
+                <KpiTile
+                  label="Resources"
+                  tile={{
+                    value: academics.resources.totalResources,
+                    deltaPp: null,
+                    hint: `${academics.resources.byKind.worksheet} worksheets · ${academics.resources.byKind.video} videos · ${academics.resources.byKind.quiz} quizzes`,
+                  }}
+                  Icon={Library}
+                />
+              </>
+            )}
           </div>
         </div>
       )}
@@ -855,6 +895,151 @@ export function PerformanceDashboard() {
           <Leaderboard rows={leaderboard} orgId={orgId} />
         </div>
       )}
+
+      {/* Phase 6a: subjects-at-risk + top-subjects panel. Surfaces the
+          per-subject grading data only made possible by Phase 3. Hidden
+          when there's nothing yet to rank (fresh org / no graded
+          assignments yet). */}
+      {academics &&
+        (academics.subjectsAtRisk.length > 0 ||
+          academics.topSubjects.length > 0) && (
+          <div className="grid gap-4 lg:grid-cols-2">
+            {/* At risk */}
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <CardTitle className="text-base">Subjects at risk</CardTitle>
+                    <CardDescription className="text-xs">
+                      Lowest weighted averages (last 60 days, min 3 grades)
+                    </CardDescription>
+                  </div>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-medium text-rose-700 ring-1 ring-rose-200">
+                    <AlertTriangle className="h-3 w-3" />
+                    {academics.subjectsAtRisk.length}
+                  </span>
+                </div>
+              </CardHeader>
+              <CardContent className="pt-0">
+                {academics.subjectsAtRisk.length === 0 ? (
+                  <p className="py-4 text-center text-xs text-slate-500">
+                    No subjects at risk — averages all healthy.
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-slate-100">
+                    {academics.subjectsAtRisk.map((s, i) => {
+                      const tone =
+                        s.avgPct >= 60
+                          ? "text-amber-700"
+                          : "text-rose-700";
+                      return (
+                        <li key={i}>
+                          <Link
+                            to={`/school/orgs/${orgId}/sections/${s.classSectionId}/gradebook`}
+                            className="flex items-center justify-between gap-3 py-2 hover:bg-slate-50 -mx-2 px-2 rounded"
+                          >
+                            <div className="min-w-0">
+                              <div className="text-sm font-medium text-slate-900 truncate">
+                                {s.subjectName}
+                              </div>
+                              <div className="text-[10px] text-slate-500">
+                                {s.className} · {s.sectionName} · {s.gradedCount} grades
+                              </div>
+                            </div>
+                            <span className={"text-base font-semibold tabular-nums " + tone}>
+                              {s.avgPct}%
+                            </span>
+                          </Link>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Top performing */}
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <CardTitle className="text-base">Top subjects</CardTitle>
+                    <CardDescription className="text-xs">
+                      Strongest weighted averages this period
+                    </CardDescription>
+                  </div>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-200">
+                    <Sparkles className="h-3 w-3" />
+                    {academics.topSubjects.length}
+                  </span>
+                </div>
+              </CardHeader>
+              <CardContent className="pt-0">
+                {academics.topSubjects.length === 0 ? (
+                  <p className="py-4 text-center text-xs text-slate-500">
+                    Not enough graded data yet to rank top subjects.
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-slate-100">
+                    {academics.topSubjects.map((s, i) => (
+                      <li key={i}>
+                        <Link
+                          to={`/school/orgs/${orgId}/sections/${s.classSectionId}/gradebook`}
+                          className="flex items-center justify-between gap-3 py-2 hover:bg-slate-50 -mx-2 px-2 rounded"
+                        >
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium text-slate-900 truncate">
+                              {s.subjectName}
+                            </div>
+                            <div className="text-[10px] text-slate-500">
+                              {s.className} · {s.sectionName} · {s.gradedCount} grades
+                            </div>
+                          </div>
+                          <span className="text-base font-semibold tabular-nums text-emerald-700">
+                            {s.avgPct}%
+                          </span>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+      {/* Phase 6a: data-hygiene nudge. Shown only if there's something
+          to nudge about — keeps the dashboard tidy for healthy orgs. */}
+      {academics &&
+        (academics.hygiene.untaggedLessonsLast30 > 0 ||
+          academics.hygiene.untaggedAssignmentsLast30 > 0) && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <div className="flex items-start gap-2">
+              <Info className="h-4 w-4 mt-0.5 flex-shrink-0" />
+              <div>
+                <span className="font-medium">Untagged content this month — </span>
+                {academics.hygiene.untaggedLessonsLast30 > 0 && (
+                  <>
+                    {academics.hygiene.untaggedLessonsLast30} lesson
+                    {academics.hygiene.untaggedLessonsLast30 === 1 ? "" : "s"}
+                  </>
+                )}
+                {academics.hygiene.untaggedLessonsLast30 > 0 &&
+                  academics.hygiene.untaggedAssignmentsLast30 > 0 &&
+                  " · "}
+                {academics.hygiene.untaggedAssignmentsLast30 > 0 && (
+                  <>
+                    {academics.hygiene.untaggedAssignmentsLast30} assignment
+                    {academics.hygiene.untaggedAssignmentsLast30 === 1 ? "" : "s"}
+                  </>
+                )}
+                {" "}
+                without a subject. Ask teachers to pick a subject on each entry
+                so curriculum coverage stays accurate.
+              </div>
+            </div>
+          </div>
+        )}
 
       {/* Breakdown panels */}
       {insights && (
