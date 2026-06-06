@@ -858,6 +858,46 @@ export const getInsights = (
     `/school/orgs/${orgId}/insights?period=${period}`,
   );
 
+// ─── Phase 6a: academic aggregates (curriculum + resources + hygiene) ───
+
+export interface AcademicsResponse {
+  curriculum: {
+    totalTopics: number;
+    completedTopics: number;
+    progressPct: number;
+    subjectCount: number;
+  };
+  resources: {
+    totalResources: number;
+    byKind: Record<"pdf" | "video" | "worksheet" | "link" | "quiz", number>;
+  };
+  hygiene: {
+    untaggedLessonsLast30: number;
+    untaggedAssignmentsLast30: number;
+  };
+  subjectsAtRisk: Array<{
+    sectionSubjectId: string | null;
+    classSectionId: string;
+    className: string;
+    sectionName: string;
+    subjectName: string;
+    gradedCount: number;
+    avgPct: number;
+  }>;
+  topSubjects: Array<{
+    sectionSubjectId: string | null;
+    classSectionId: string;
+    className: string;
+    sectionName: string;
+    subjectName: string;
+    gradedCount: number;
+    avgPct: number;
+  }>;
+}
+
+export const getOrgAcademics = (orgId: string): Promise<AcademicsResponse> =>
+  apiCall(`/school/orgs/${orgId}/academics`);
+
 // ─── Org-scoped role helper ────────────────────────────────────────────
 
 /** True if the user has a principal role on this specific org. */

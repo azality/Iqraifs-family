@@ -30,6 +30,7 @@ import { installPhaseCD } from "./schoolPhaseCD.tsx";
 import { installDashboard } from "./schoolDashboard.tsx";
 import { installSubjects } from "./schoolSubjects.tsx";
 import { installCurriculum } from "./schoolCurriculum.tsx";
+import { installAcademics } from "./schoolAcademics.tsx";
 import { installPortal } from "./schoolPortal.tsx";
 import { installAnnounce } from "./schoolAnnounce.tsx";
 import { verifyPinToken } from "./schoolPhaseA.tsx";
@@ -2957,6 +2958,12 @@ installSubjects(school);
 // Curriculum per (class_subject, academic year) — Phase 1D.
 // -----------------------------------------------------------------------------
 installCurriculum(school);
+
+// -----------------------------------------------------------------------------
+// Academic aggregates for the principal/admin PerformanceDashboard
+// (curriculum coverage, resources tally, subjects-at-risk) — Phase 6a.
+// -----------------------------------------------------------------------------
+installAcademics(school);
 
 // -----------------------------------------------------------------------------
 // Dashboard aggregate routes (school-at-a-glance, leaderboard, insights)
