@@ -38,6 +38,7 @@ import {
   type CurriculumYearSummary,
 } from "../../../../utils/schoolApi";
 import { templateForSubject } from "./curriculumTemplates";
+import { TopicResourcesPanel } from "./TopicResourcesPanel";
 import { Textarea } from "../../../components/ui/textarea";
 import { Sparkles, Library, Copy } from "lucide-react";
 
@@ -443,10 +444,11 @@ export function SubjectCurriculumPanel({
                       <li
                         key={t.id}
                         className={
-                          "flex flex-wrap items-center gap-2 rounded border border-slate-200 px-2 py-1.5 " +
+                          "rounded border border-slate-200 px-2 py-1.5 " +
                           (t.completed ? "bg-emerald-50/40" : "bg-white")
                         }
                       >
+                        <div className="flex flex-wrap items-center gap-2">
                         <span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-100 text-[10px] font-semibold text-slate-700">
                           {idx + 1}
                         </span>
@@ -513,6 +515,14 @@ export function SubjectCurriculumPanel({
                             </button>
                           </div>
                         )}
+                        </div>
+                        {/* Phase 1E: durable worksheets / videos / quizzes
+                            tied to this topic, available all year. */}
+                        <TopicResourcesPanel
+                          topicId={t.id}
+                          topicName={t.name}
+                          canManage={canManage}
+                        />
                       </li>
                     );
                   })}

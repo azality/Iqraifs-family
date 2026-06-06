@@ -535,6 +535,73 @@ export const getSectionCurriculumProgress = (
 ): Promise<{ sectionId: string; subjects: SectionSubjectProgress[] }> =>
   apiCall(`/school/sections/${sectionId}/curriculum-progress`);
 
+// ─── Topic resources (Phase 1E) ────────────────────────────────────────
+//
+// Durable PDFs / videos / worksheets / external quizzes attached to a
+// curriculum topic. Distinct from lesson.attachments[] (which are
+// per-day). Admin/principal only for writes; any org role can read.
+//
+// Note: TopicResourceKind is also referenced inline in the Lesson interface
+// (Phase 4a) which inlined the union when this PR hadn't yet merged. Both
+// declarations now coexist — the inline union there could be replaced with
+// this type in a follow-up cleanup.
+
+export type TopicResourceKind = "pdf" | "video" | "worksheet" | "link" | "quiz";
+
+export interface TopicResource {
+  id: string;
+  orgId: string;
+  curriculumTopicId: string;
+  kind: TopicResourceKind;
+  label: string;
+  url: string;
+  description: string | null;
+  sortOrder: number;
+  addedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const listTopicResources = (
+  topicId: string,
+): Promise<{ topicId: string; resources: TopicResource[] }> =>
+  apiCall(`/school/curriculum-topics/${topicId}/resources`);
+
+export const addTopicResource = (
+  topicId: string,
+  body: {
+    kind: TopicResourceKind;
+    label: string;
+    url: string;
+    description?: string;
+    sortOrder?: number;
+  },
+): Promise<{ resource: TopicResource }> =>
+  apiCall(`/school/curriculum-topics/${topicId}/resources`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const updateTopicResource = (
+  resourceId: string,
+  body: Partial<{
+    kind: TopicResourceKind;
+    label: string;
+    url: string;
+    description: string | null;
+    sortOrder: number;
+  }>,
+): Promise<{ resource: TopicResource }> =>
+  apiCall(`/school/topic-resources/${resourceId}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+
+export const deleteTopicResource = (
+  resourceId: string,
+): Promise<{ ok: true }> =>
+  apiCall(`/school/topic-resources/${resourceId}`, { method: "DELETE" });
+
 // --- Section-level (read for all; teacher PATCH for admins) ------------------
 export const listSectionSubjects = (
   sectionId: string,
