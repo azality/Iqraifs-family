@@ -24,6 +24,7 @@ import {
   ClipboardCheck,
   GraduationCap,
   Heart,
+  ListChecks,
   MessageSquare,
   Sparkles,
   TrendingDown,
@@ -279,6 +280,24 @@ export function SectionOverview() {
           onClick={() => navigate(`/school/orgs/${orgId}/sections/${sectionId}/hifz`)}
         >
           <BookOpen className="mr-1 h-4 w-4" /> Log Hifz
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() =>
+            navigate(`/school/orgs/${orgId}/sections/${sectionId}/lessons/new`)
+          }
+        >
+          <ListChecks className="mr-1 h-4 w-4" /> Log lesson
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() =>
+            navigate(`/school/orgs/${orgId}/sections/${sectionId}/lessons`)
+          }
+        >
+          <BookOpen className="mr-1 h-4 w-4" /> View lessons
         </Button>
       </div>
 
