@@ -22,6 +22,8 @@ import {
 } from "lucide-react";
 import {
   getSectionsLeaderboard,
+  getMySectionSubjects,
+  type MySectionSubject,
   getSectionBehaviorNotes,
   type LeaderboardRow,
   type BehaviorNote,
@@ -79,8 +81,24 @@ function timeAgo(iso: string): string {
 export function TeacherHome({ orgId, me }: Props) {
   const [sections, setSections] = useState<LeaderboardRow[] | null>(null);
   const [notes, setNotes] = useState<BehaviorNote[]>([]);
+  const [mySubjects, setMySubjects] = useState<MySectionSubject[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Phase 4a: section_subjects this teacher owns, with curriculum progress.
+  useEffect(() => {
+    let cancelled = false;
+    getMySectionSubjects()
+      .then((r) => {
+        if (!cancelled) setMySubjects(r.sectionSubjects);
+      })
+      .catch(() => {
+        /* non-fatal — widget just stays empty */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!orgId) return;
@@ -303,6 +321,102 @@ export function TeacherHome({ orgId, me }: Props) {
                 </div>
               </div>
             ))}
+          </div>
+        </section>
+      )}
+
+      {/* Phase 4a: My subjects across sections, with curriculum progress.
+          Helps a teacher who teaches multiple subjects per section (or the
+          same subject across sections) see the academic-content view of
+          their workload rather than only the homeroom view above. */}
+      {mySubjects.length > 0 && (
+        <section className="space-y-3">
+          <div className="flex items-end justify-between">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
+              My subjects
+            </h2>
+            <span className="text-xs text-slate-400">
+              Curriculum progress · this academic year
+            </span>
+          </div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            {mySubjects.map((s) => {
+              const pct = s.curriculum?.progressPct ?? 0;
+              const pctTone =
+                pct >= 75
+                  ? "bg-emerald-500"
+                  : pct >= 40
+                  ? "bg-amber-500"
+                  : "bg-rose-500";
+              return (
+                <Link
+                  key={s.id}
+                  to={`/school/orgs/${s.orgId}/sections/${s.classSectionId}/assignments`}
+                  className="block rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:shadow"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-xs uppercase tracking-wider text-slate-400">
+                        {s.className ?? "Class"} ·{" "}
+                        {s.sectionName ?? "Section"}
+                      </div>
+                      <div className="mt-0.5 text-base font-semibold text-slate-900">
+                        {s.subjectName}
+                      </div>
+                    </div>
+                    {s.curriculum && (
+                      <span className="text-xs text-slate-500">
+                        {s.curriculum.academicYear}
+                      </span>
+                    )}
+                  </div>
+
+                  {s.curriculum ? (
+                    <>
+                      <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
+                        <span>
+                          {s.curriculum.topicCompleted}/{s.curriculum.topicTotal} topics
+                        </span>
+                        <span className="font-semibold text-slate-700">
+                          {pct}%
+                        </span>
+                      </div>
+                      <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+                        <div
+                          className={"h-full " + pctTone}
+                          style={{ width: `${Math.min(100, pct)}%` }}
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <p className="mt-3 text-xs text-slate-400">
+                      No curriculum defined yet — ask your admin to set up the
+                      syllabus for {s.subjectName}.
+                    </p>
+                  )}
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] font-medium text-slate-700 hover:bg-slate-50">
+                      Assignments
+                    </span>
+                    <Link
+                      to={`/school/orgs/${s.orgId}/sections/${s.classSectionId}/gradebook`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      Gradebook
+                    </Link>
+                    <Link
+                      to={`/school/orgs/${s.orgId}/sections/${s.classSectionId}/lessons`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      Lessons
+                    </Link>
+                  </div>
+                </Link>
+              );
+            })}
           </div>
         </section>
       )}

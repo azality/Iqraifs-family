@@ -176,6 +176,9 @@ function lessonToJson(r: any) {
     // and the frontend re-fetches the list — keeps these handlers small.
     subjectName: (r as any).subject_name ?? undefined,
     topicName: (r as any).topic_name ?? undefined,
+    // Phase 4a: the topic's durable resources (worksheet / video / quiz /
+    // PDF / link). Hydrated by the list endpoint; absent on single-fetch.
+    topicResources: (r as any).topic_resources ?? undefined,
     lessonDate: r.lesson_date,
     title: r.title,
     body: r.body,
@@ -353,11 +356,11 @@ export function installPhaseC(school: Hono): void {
     const subjectFilter = c.req.query("subjectId");
     let q = serviceRoleClient
       .from("lesson")
-      // Phase 2: nested select for subject + topic so the list endpoint
-      // doesn't need N follow-up round trips. PostgREST will issue one
-      // join per request.
+      // Phase 2 + Phase 4a: nested select for subject + topic + the
+      // topic's durable resources (worksheets, videos, quizzes). One join
+      // per request — beats N round-trips when the feed has 20+ lessons.
       .select(
-        "*, section_subject:section_subject_id(class_subject:class_subject_id(name)), curriculum_topic:curriculum_topic_id(name)",
+        "*, section_subject:section_subject_id(class_subject:class_subject_id(name)), curriculum_topic:curriculum_topic_id(name, topic_resource(id, kind, label, url, sort_order, archived_at))",
       )
       .eq("class_section_id", sectionId)
       .order("lesson_date", { ascending: false })
@@ -370,11 +373,25 @@ export function installPhaseC(school: Hono): void {
     const { data, error } = await q;
     if (error) return c.json({ error: error.message }, 500);
 
-    const lessons = ((data ?? []) as any[]).map((r) => ({
-      ...r,
-      subject_name: r.section_subject?.class_subject?.name ?? null,
-      topic_name: r.curriculum_topic?.name ?? null,
-    }));
+    const lessons = ((data ?? []) as any[]).map((r) => {
+      // Strip archived resources + sort by sort_order client-shape.
+      const rawResources = (r.curriculum_topic?.topic_resource ?? []) as any[];
+      const topicResources = rawResources
+        .filter((tr) => !tr.archived_at)
+        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+        .map((tr) => ({
+          id: tr.id,
+          kind: tr.kind,
+          label: tr.label,
+          url: tr.url,
+        }));
+      return {
+        ...r,
+        subject_name: r.section_subject?.class_subject?.name ?? null,
+        topic_name: r.curriculum_topic?.name ?? null,
+        topic_resources: topicResources,
+      };
+    });
     // Augment with completion_count and section_size for the teacher feed.
     const lessonIds = lessons.map((l) => l.id);
     const countMap = new Map<string, number>();
