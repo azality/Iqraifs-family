@@ -91,6 +91,7 @@ import { PinAuthProvider } from "./contexts/PinAuthContext";
 import { PortalRouteGuard } from "./components/PortalRouteGuard";
 import { PortalLayout } from "./layouts/PortalLayout";
 import { PortalLogin } from "./pages/portal/PortalLogin";
+import { SchoolUnifiedLogin } from "./pages/school/SchoolUnifiedLogin";
 import { PortalChangePin } from "./pages/portal/PortalChangePin";
 import { PortalHome } from "./pages/portal/PortalHome";
 import { StudentDashboard } from "./pages/portal/StudentDashboard";
@@ -322,6 +323,22 @@ export const router = createBrowserRouter([
       { path: "forms/:formId", element: <FormFill /> },
       { path: "announcements", element: <MyAnnouncements /> },
     ],
+  },
+  // Per-school slug login: iqraifs.com/:orgSlug (e.g. /iqra-demo).
+  // Single page with Staff / Parent / Student tabs, branded by org. Lives
+  // OUTSIDE ProvidersLayout so it has no JWT / family-context dependency.
+  // Static routes (/welcome, /login, /signup, etc.) take precedence over
+  // this param route in react-router v6, so they continue to work. The
+  // SchoolUnifiedLogin component itself rejects RESERVED_SLUGS as a
+  // defense-in-depth check.
+  {
+    path: ":orgSlug",
+    element: (
+      <PinAuthProvider>
+        <SchoolUnifiedLogin />
+      </PinAuthProvider>
+    ),
+    errorElement: <RouterErrorBoundary />,
   },
   // Public routes - accessible without auth but wrapped with ProvidersLayout for auth context
   {
