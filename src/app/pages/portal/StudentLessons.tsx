@@ -28,7 +28,10 @@ export function StudentLessons() {
   const { studentId = "" } = useParams<{ studentId: string }>();
   const { subject } = usePinAuth();
   const isStudent = subject?.subjectType === "student";
-  const [startDate, setStartDate] = useState<string>(isoDaysAgo(30));
+  // Phase 7: default to last 7 days (today + the past week's recap) so a
+  // student lands on what's actually relevant for school this week,
+  // not a month of scrollback. Presets above let them widen.
+  const [startDate, setStartDate] = useState<string>(isoDaysAgo(7));
   const [endDate, setEndDate] = useState<string>(todayIso());
   const [lessons, setLessons] = useState<Lesson[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -109,7 +112,57 @@ export function StudentLessons() {
         title="Lessons"
         subtitle="Daily sabaq and class lessons"
         rightSlot={
-          <div className="flex items-center gap-2 text-xs">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            {/* Phase 7: quick range presets so a student can jump to
+                today's class without fiddling with the date inputs. */}
+            <div className="inline-flex rounded-md ring-1 ring-white/20 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => {
+                  const t = todayIso();
+                  setStartDate(t);
+                  setEndDate(t);
+                }}
+                className={
+                  "px-2 py-1 text-[11px] " +
+                  (startDate === todayIso() && endDate === todayIso()
+                    ? "bg-white text-indigo-700 font-medium"
+                    : "bg-white/10 text-white hover:bg-white/20")
+                }
+              >
+                Today
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setStartDate(isoDaysAgo(7));
+                  setEndDate(todayIso());
+                }}
+                className={
+                  "px-2 py-1 text-[11px] border-l border-white/10 " +
+                  (startDate === isoDaysAgo(7) && endDate === todayIso()
+                    ? "bg-white text-indigo-700 font-medium"
+                    : "bg-white/10 text-white hover:bg-white/20")
+                }
+              >
+                7 days
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setStartDate(isoDaysAgo(30));
+                  setEndDate(todayIso());
+                }}
+                className={
+                  "px-2 py-1 text-[11px] border-l border-white/10 " +
+                  (startDate === isoDaysAgo(30) && endDate === todayIso()
+                    ? "bg-white text-indigo-700 font-medium"
+                    : "bg-white/10 text-white hover:bg-white/20")
+                }
+              >
+                30 days
+              </button>
+            </div>
             <input
               type="date"
               value={startDate}

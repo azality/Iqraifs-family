@@ -164,6 +164,19 @@ function isIsoDate(s: unknown): s is string {
   return typeof s === "string" && ISO_DATE_RE.test(s);
 }
 
+/** True when a student should see this lesson today (Phase 7 visibility).
+ *  Same logic as the portal-side query — keep both in sync. */
+function isLessonVisible(r: any): boolean {
+  const now = Date.now();
+  if (r.published_at) {
+    return new Date(r.published_at).getTime() <= now;
+  }
+  // No explicit publish → auto-visible on or after the lesson date.
+  if (!r.lesson_date) return false;
+  const lessonDay = new Date(r.lesson_date + "T00:00:00Z").getTime();
+  return lessonDay <= now;
+}
+
 function lessonToJson(r: any) {
   return {
     id: r.id,
@@ -186,6 +199,11 @@ function lessonToJson(r: any) {
     audioUrl: r.audio_url,
     attachments: r.attachments ?? [],
     taughtBy: r.taught_by,
+    // Phase 7 (visibility): publish state. Staff endpoints return all
+    // lessons regardless of visibility; the LessonForm + feed render a
+    // Hidden / Published / Scheduled badge based on these two fields.
+    publishedAt: r.published_at ?? null,
+    isVisibleToStudents: isLessonVisible(r),
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
@@ -286,6 +304,25 @@ export function installPhaseC(school: Hono): void {
       }
     }
 
+    // Phase 7: visibility. The form sends one of three modes:
+    //   'now'       → publish immediately (published_at = now)
+    //   'on_date'   → leave NULL; auto-visible on lesson_date
+    //   'hidden'    → set a sentinel far in the future so it stays hidden
+    //                until the teacher explicitly republishes.
+    // Default: 'now' when lessonDate <= today, 'on_date' when future.
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const lessonInFuture = body.lessonDate > todayStr;
+    let publishMode: string = body?.visibility;
+    if (!publishMode) publishMode = lessonInFuture ? "on_date" : "now";
+    let publishedAt: string | null = null;
+    if (publishMode === "now") {
+      publishedAt = new Date().toISOString();
+    } else if (publishMode === "hidden") {
+      // 100 years from now — sentinel "never" until edited.
+      publishedAt = new Date("2126-01-01T00:00:00Z").toISOString();
+    }
+    // on_date → publishedAt stays null → portal sees it once lesson_date <= today.
+
     const { data: ins, error: insErr } = await serviceRoleClient
       .from("lesson")
       .insert({
@@ -300,6 +337,7 @@ export function installPhaseC(school: Hono): void {
         audio_url: body.audioUrl ?? null,
         attachments: body.attachments ?? [],
         taught_by: userId,
+        published_at: publishedAt,
       })
       .select()
       .single();
@@ -507,6 +545,20 @@ export function installPhaseC(school: Hono): void {
         }
       }
       patch.attachments = body.attachments;
+    }
+    // Phase 7: visibility change. Same modes as POST.
+    if ("visibility" in body) {
+      const mode = body.visibility;
+      if (mode === "now") {
+        patch.published_at = new Date().toISOString();
+      } else if (mode === "on_date") {
+        patch.published_at = null;
+      } else if (mode === "hidden") {
+        patch.published_at = new Date("2126-01-01T00:00:00Z").toISOString();
+      }
+    } else if ("publishedAt" in body) {
+      // Explicit timestamp also accepted for flexibility.
+      patch.published_at = body.publishedAt;
     }
     // Phase 2: subject / topic re-tagging. null = clear.
     if ("sectionSubjectId" in body) {

@@ -453,12 +453,25 @@ export function installPortal(school: Hono): void {
     // so the parent / student portal can group lessons by subject and
     // show worksheets/videos/quizzes inline on each lesson card. Mirrors
     // the staff-side endpoint in schoolPhaseC.tsx.
+    //
+    // Phase 7 (visibility): students only see lessons that are PUBLISHED.
+    // Two conditions OR'd together:
+    //   - published_at IS NOT NULL AND published_at <= now()
+    //     (teacher explicitly published, possibly early)
+    //   - published_at IS NULL AND lesson_date <= today (UTC)
+    //     (legacy / auto-publish on the lesson date)
+    // PostgREST .or() takes a comma-separated string of conditions.
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const nowIso = new Date().toISOString();
     let q = serviceRoleClient
       .from("lesson")
       .select(
         "*, section_subject:section_subject_id(class_subject:class_subject_id(name)), curriculum_topic:curriculum_topic_id(name, topic_resource(id, kind, label, url, sort_order, archived_at))",
       )
       .eq("class_section_id", sectionId)
+      .or(
+        `and(published_at.not.is.null,published_at.lte.${nowIso}),and(published_at.is.null,lesson_date.lte.${todayIso})`,
+      )
       .order("lesson_date", { ascending: false })
       .order("created_at", { ascending: false })
       .limit(limit);

@@ -285,6 +285,14 @@ export function SectionLessonsFeed() {
                           {l.topicName}
                         </span>
                       )}
+                      {/* Phase 7: visibility badge — staff only see this. */}
+                      {l.isVisibleToStudents === false && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-800 ring-1 ring-amber-200">
+                          {l.publishedAt && new Date(l.publishedAt).getTime() > new Date("2100-01-01").getTime()
+                            ? "Hidden (draft)"
+                            : `Scheduled · ${l.lesson_date}`}
+                        </span>
+                      )}
                       <p className="text-xs text-muted-foreground">
                         Taught by {l.taught_by_name || "—"}
                       </p>

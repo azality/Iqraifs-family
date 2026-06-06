@@ -1968,9 +1968,20 @@ export interface Lesson {
   attachments: Array<{ label: string; url: string }>;
   taught_by: string | null;
   taught_by_name?: string | null;
+  /** Phase 7: explicit publish timestamp. null = auto-publish on lesson_date. */
+  publishedAt?: string | null;
+  /** Phase 7: convenience flag from staff endpoint — true when a student
+   *  would currently see this lesson. */
+  isVisibleToStudents?: boolean;
   created_at: string;
   updated_at: string;
 }
+
+/** Phase 7: how a lesson appears to students.
+ *  - 'now'     publish immediately
+ *  - 'on_date' (default for future-dated) auto-publish on lesson_date
+ *  - 'hidden'  draft / planning — invisible until edited */
+export type LessonVisibility = "now" | "on_date" | "hidden";
 
 export interface LessonInput {
   lessonDate: string; // YYYY-MM-DD
@@ -1985,6 +1996,8 @@ export interface LessonInput {
   curriculumTopicId?: string | null;
   /** Phase 2: if true on POST, marks the topic completed alongside the new lesson. */
   markTopicCompleted?: boolean;
+  /** Phase 7: visibility mode. Backend computes default if omitted. */
+  visibility?: LessonVisibility;
 }
 
 export const postLesson = (
