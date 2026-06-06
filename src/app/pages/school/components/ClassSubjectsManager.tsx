@@ -29,6 +29,7 @@ import {
   type ClassSubject,
   type AdminTeacher,
 } from "../../../../utils/schoolApi";
+import { SubjectCurriculumPanel } from "./SubjectCurriculumPanel";
 
 interface Props {
   classId: string;
@@ -325,6 +326,16 @@ export function ClassSubjectsManager({ classId, teachers }: Props) {
                     ))}
                   </div>
                 )}
+
+                {/* Phase 1D: per-(subject, academic-year) curriculum.
+                    Defined once at the class level; every section of this
+                    class inherits the same syllabus. Admin-only writes;
+                    teachers see it read-only on their dashboards. */}
+                <SubjectCurriculumPanel
+                  classSubjectId={s.id}
+                  subjectName={s.name}
+                  canManage={true}
+                />
               </div>
             );
           })}
