@@ -17,7 +17,11 @@ import {
   getLesson,
   patchLesson,
   postLesson,
+  listSectionSubjects,
+  getClassSubjectCurriculum,
   type LessonInput,
+  type SectionSubject,
+  type ClassCurriculumTopic,
 } from "../../../utils/schoolApi";
 
 function todayIso(): string {
@@ -54,6 +58,15 @@ export function LessonForm() {
     sectionId,
   );
 
+  // Phase 2: which subject this lesson belongs to, and (optional) which
+  // curriculum topic the teacher attributes it to.
+  const [sectionSubjectId, setSectionSubjectId] = useState<string>("");
+  const [curriculumTopicId, setCurriculumTopicId] = useState<string>("");
+  const [markTopicCompleted, setMarkTopicCompleted] = useState(false);
+  const [subjects, setSubjects] = useState<SectionSubject[]>([]);
+  const [topics, setTopics] = useState<ClassCurriculumTopic[]>([]);
+  const [topicsLoading, setTopicsLoading] = useState(false);
+
   useEffect(() => {
     if (!editMode || !lessonId || !orgId) return;
     setLoading(true);
@@ -66,10 +79,38 @@ export function LessonForm() {
         setLessonDate(l.lesson_date);
         setAttachments(l.attachments || []);
         setResolvedSectionId(l.class_section_id);
+        setSectionSubjectId(l.sectionSubjectId ?? "");
+        setCurriculumTopicId(l.curriculumTopicId ?? "");
       })
       .catch((e) => setError(e?.message || "Failed to load lesson"))
       .finally(() => setLoading(false));
   }, [editMode, lessonId, orgId]);
+
+  // Phase 2: load subjects available in this section.
+  useEffect(() => {
+    const sid = resolvedSectionId || sectionId;
+    if (!sid) return;
+    listSectionSubjects(sid)
+      .then((r) => setSubjects(r.subjects))
+      .catch(() => setSubjects([]));
+  }, [resolvedSectionId, sectionId]);
+
+  // Phase 2: when a subject is picked, load its curriculum topics for the
+  // current academic year (no explicit year picker on this form — teachers
+  // log "today's" lesson, so we use the latest curriculum for the subject).
+  useEffect(() => {
+    if (!sectionSubjectId) {
+      setTopics([]);
+      return;
+    }
+    const subj = subjects.find((s) => s.id === sectionSubjectId);
+    if (!subj) return;
+    setTopicsLoading(true);
+    getClassSubjectCurriculum(subj.classSubjectId)
+      .then((r) => setTopics(r.topics))
+      .catch(() => setTopics([]))
+      .finally(() => setTopicsLoading(false));
+  }, [sectionSubjectId, subjects]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -84,6 +125,10 @@ export function LessonForm() {
       videoUrl: videoUrl.trim() || undefined,
       audioUrl: audioUrl.trim() || undefined,
       attachments: attachments.filter((a) => a.label.trim() && a.url.trim()),
+      // Phase 2: subject + topic.
+      sectionSubjectId: sectionSubjectId || null,
+      curriculumTopicId: curriculumTopicId || null,
+      markTopicCompleted: !editMode && !!curriculumTopicId && markTopicCompleted,
     };
     setSubmitting(true);
     try {
@@ -151,6 +196,75 @@ export function LessonForm() {
                 placeholder="e.g. Surah Al-Baqarah, ayah 1–5"
                 required
               />
+            </div>
+
+            {/* Phase 2: subject + curriculum topic */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <Label htmlFor="subject">Subject</Label>
+                <select
+                  id="subject"
+                  value={sectionSubjectId}
+                  onChange={(e) => {
+                    setSectionSubjectId(e.target.value);
+                    setCurriculumTopicId(""); // reset topic when subject changes
+                    setMarkTopicCompleted(false);
+                  }}
+                  className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+                >
+                  <option value="">— Pick a subject —</option>
+                  {subjects.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                      {s.teacherName ? ` · ${s.teacherName}` : ""}
+                    </option>
+                  ))}
+                </select>
+                {subjects.length === 0 && (
+                  <p className="text-xs text-slate-400">
+                    No subjects defined for this section yet. Ask an admin to add
+                    some under Admin Console → Classes.
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="topic">Curriculum topic</Label>
+                <select
+                  id="topic"
+                  value={curriculumTopicId}
+                  onChange={(e) => setCurriculumTopicId(e.target.value)}
+                  disabled={!sectionSubjectId || topicsLoading}
+                  className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 disabled:opacity-60"
+                >
+                  <option value="">
+                    {!sectionSubjectId
+                      ? "— Pick a subject first —"
+                      : topicsLoading
+                      ? "Loading topics…"
+                      : topics.length === 0
+                      ? "No topics in the syllabus yet"
+                      : "— Optional: pick a topic —"}
+                  </option>
+                  {topics.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.completed ? "✓ " : ""}
+                      {t.displayOrder + 1}. {t.name}
+                    </option>
+                  ))}
+                </select>
+                {curriculumTopicId && !editMode && (
+                  <label className="mt-1 flex items-center gap-2 text-xs text-slate-600">
+                    <input
+                      type="checkbox"
+                      checked={markTopicCompleted}
+                      onChange={(e) => setMarkTopicCompleted(e.target.checked)}
+                      className="h-3.5 w-3.5 rounded border-slate-300 text-indigo-600"
+                    />
+                    Mark this topic as finished in the syllabus
+                  </label>
+                )}
+              </div>
             </div>
 
             <div className="space-y-1">

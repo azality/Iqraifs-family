@@ -169,6 +169,13 @@ function lessonToJson(r: any) {
     id: r.id,
     orgId: r.org_id,
     sectionId: r.class_section_id,
+    sectionSubjectId: r.section_subject_id ?? null,
+    curriculumTopicId: r.curriculum_topic_id ?? null,
+    // Denormalised display fields hydrated by the list endpoint (see
+    // installPhaseC's GET handler). PATCH / POST return them as undefined
+    // and the frontend re-fetches the list — keeps these handlers small.
+    subjectName: (r as any).subject_name ?? undefined,
+    topicName: (r as any).topic_name ?? undefined,
     lessonDate: r.lesson_date,
     title: r.title,
     body: r.body,
@@ -242,11 +249,47 @@ export function installPhaseC(school: Hono): void {
     const gate = await requireTeacherOfSection(userId, orgId, sectionId, section.org_id);
     if (!gate.ok) return c.json({ error: gate.error }, gate.status);
 
+    // Phase 2: optional section_subject + curriculum_topic links. If
+    // provided, validate they belong to THIS section / THIS subject — a
+    // teacher must not be able to tag a lesson with another section's
+    // subject id or a topic from a different subject's syllabus.
+    let sectionSubjectId: string | null = null;
+    let curriculumTopicId: string | null = null;
+    if (typeof body?.sectionSubjectId === "string" && body.sectionSubjectId.length > 0) {
+      const { data: ss } = await serviceRoleClient
+        .from("section_subject")
+        .select("id, class_section_id, class_subject_id")
+        .eq("id", body.sectionSubjectId)
+        .maybeSingle();
+      if (!ss || (ss as any).class_section_id !== sectionId) {
+        return c.json({ error: "sectionSubjectId does not belong to this section" }, 400);
+      }
+      sectionSubjectId = (ss as any).id;
+
+      if (typeof body?.curriculumTopicId === "string" && body.curriculumTopicId.length > 0) {
+        const { data: topic } = await serviceRoleClient
+          .from("curriculum_topic")
+          .select("id, curriculum:curriculum_id(class_subject_id)")
+          .eq("id", body.curriculumTopicId)
+          .maybeSingle();
+        const topicSubjectId = (topic as any)?.curriculum?.class_subject_id;
+        if (!topic || topicSubjectId !== (ss as any).class_subject_id) {
+          return c.json(
+            { error: "curriculumTopicId does not belong to this subject" },
+            400,
+          );
+        }
+        curriculumTopicId = (topic as any).id;
+      }
+    }
+
     const { data: ins, error: insErr } = await serviceRoleClient
       .from("lesson")
       .insert({
         org_id: orgId,
         class_section_id: sectionId,
+        section_subject_id: sectionSubjectId,
+        curriculum_topic_id: curriculumTopicId,
         lesson_date: body.lessonDate,
         title: body.title.trim(),
         body: body.body ?? null,
@@ -258,6 +301,14 @@ export function installPhaseC(school: Hono): void {
       .select()
       .single();
     if (insErr) return c.json({ error: insErr.message }, 500);
+
+    // Optional: auto-mark the topic completed if the teacher requested it.
+    if (curriculumTopicId && body?.markTopicCompleted === true) {
+      await serviceRoleClient
+        .from("curriculum_topic")
+        .update({ completed: true })
+        .eq("id", curriculumTopicId);
+    }
 
     return c.json({ lesson: lessonToJson(ins) }, 201);
   });
@@ -299,20 +350,31 @@ export function installPhaseC(school: Hono): void {
       return c.json({ error: "forbidden" }, 403);
     }
 
+    const subjectFilter = c.req.query("subjectId");
     let q = serviceRoleClient
       .from("lesson")
-      .select("*")
+      // Phase 2: nested select for subject + topic so the list endpoint
+      // doesn't need N follow-up round trips. PostgREST will issue one
+      // join per request.
+      .select(
+        "*, section_subject:section_subject_id(class_subject:class_subject_id(name)), curriculum_topic:curriculum_topic_id(name)",
+      )
       .eq("class_section_id", sectionId)
       .order("lesson_date", { ascending: false })
       .order("created_at", { ascending: false })
       .limit(limit);
     if (startDate) q = q.gte("lesson_date", startDate);
     if (endDate) q = q.lte("lesson_date", endDate);
+    if (subjectFilter) q = q.eq("section_subject_id", subjectFilter);
 
     const { data, error } = await q;
     if (error) return c.json({ error: error.message }, 500);
 
-    const lessons = (data ?? []) as any[];
+    const lessons = ((data ?? []) as any[]).map((r) => ({
+      ...r,
+      subject_name: r.section_subject?.class_subject?.name ?? null,
+      topic_name: r.curriculum_topic?.name ?? null,
+    }));
     // Augment with completion_count and section_size for the teacher feed.
     const lessonIds = lessons.map((l) => l.id);
     const countMap = new Map<string, number>();
@@ -428,6 +490,51 @@ export function installPhaseC(school: Hono): void {
         }
       }
       patch.attachments = body.attachments;
+    }
+    // Phase 2: subject / topic re-tagging. null = clear.
+    if ("sectionSubjectId" in body) {
+      if (body.sectionSubjectId === null) {
+        patch.section_subject_id = null;
+        patch.curriculum_topic_id = null; // topic can't survive without subject
+      } else if (typeof body.sectionSubjectId === "string") {
+        const { data: ss } = await serviceRoleClient
+          .from("section_subject")
+          .select("id, class_section_id")
+          .eq("id", body.sectionSubjectId)
+          .maybeSingle();
+        if (!ss || (ss as any).class_section_id !== existing.class_section_id) {
+          return c.json({ error: "sectionSubjectId does not belong to this lesson's section" }, 400);
+        }
+        patch.section_subject_id = body.sectionSubjectId;
+      }
+    }
+    if ("curriculumTopicId" in body) {
+      if (body.curriculumTopicId === null) {
+        patch.curriculum_topic_id = null;
+      } else if (typeof body.curriculumTopicId === "string") {
+        // Validate against the subject we're saving (either new value or existing).
+        const targetSubjectId =
+          (patch.section_subject_id as string | null | undefined) ??
+          existing.section_subject_id ??
+          null;
+        if (!targetSubjectId) {
+          return c.json({ error: "set a subject before tagging a topic" }, 400);
+        }
+        const { data: ss } = await serviceRoleClient
+          .from("section_subject")
+          .select("class_subject_id")
+          .eq("id", targetSubjectId)
+          .maybeSingle();
+        const { data: topic } = await serviceRoleClient
+          .from("curriculum_topic")
+          .select("id, curriculum:curriculum_id(class_subject_id)")
+          .eq("id", body.curriculumTopicId)
+          .maybeSingle();
+        if (!topic || (topic as any).curriculum?.class_subject_id !== (ss as any)?.class_subject_id) {
+          return c.json({ error: "topic does not belong to this subject" }, 400);
+        }
+        patch.curriculum_topic_id = body.curriculumTopicId;
+      }
     }
 
     if (Object.keys(patch).length === 0) {
