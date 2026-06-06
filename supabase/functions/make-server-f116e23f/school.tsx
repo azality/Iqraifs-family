@@ -32,6 +32,7 @@ import { installSubjects } from "./schoolSubjects.tsx";
 import { installCurriculum } from "./schoolCurriculum.tsx";
 import { installAcademics } from "./schoolAcademics.tsx";
 import { installOffice } from "./schoolOffice.tsx";
+import { installFinance } from "./schoolFinance.tsx";
 import { installPortal } from "./schoolPortal.tsx";
 import { installAnnounce } from "./schoolAnnounce.tsx";
 import { verifyPinToken } from "./schoolPhaseA.tsx";
@@ -2971,6 +2972,12 @@ installAcademics(school);
 // attendance gaps, pending invites) — Phase 6c.
 // -----------------------------------------------------------------------------
 installOffice(school);
+
+// -----------------------------------------------------------------------------
+// Finance-staff snapshot (collection %, overdue list, recent payments)
+// — Phase 6d.
+// -----------------------------------------------------------------------------
+installFinance(school);
 
 // -----------------------------------------------------------------------------
 // Dashboard aggregate routes (school-at-a-glance, leaderboard, insights)
