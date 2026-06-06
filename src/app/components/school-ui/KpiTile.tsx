@@ -6,7 +6,8 @@ import { TrendingDown, TrendingUp } from "lucide-react";
 import { cardBase, cardElev } from "./tokens";
 
 export interface KpiTileProps {
-  icon: ComponentType<{ className?: string }>;
+  /** Optional — when omitted, only the label renders in the header row. */
+  icon?: ComponentType<{ className?: string }>;
   label: string;
   /** null renders as muted em-dash placeholder. */
   value: string | number | null;
@@ -61,7 +62,7 @@ export function KpiTile({
   const body = (
     <>
       <div className="flex items-center gap-1.5">
-        <Icon className={iconCls} />
+        {Icon && <Icon className={iconCls} />}
         <span className={labelCls}>{label}</span>
       </div>
       <div className="flex items-baseline justify-between gap-2">
