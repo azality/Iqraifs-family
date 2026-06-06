@@ -162,27 +162,34 @@ const BEHAVIOR_KINDS = new Set(["positive", "concern"]);
 // Row → JSON shape helpers (match Phase B/C/C2 wire formats).
 // -----------------------------------------------------------------------------
 function lessonToJson(r: any) {
+  // Shape matches the shared Lesson interface in src/utils/schoolApi.ts
+  // (snake_case for the legacy columns, camelCase for fields added in
+  // Phase 2). Earlier the portal returned everything camelCase, but
+  // StudentLessons.tsx reads l.lesson_date, l.video_url, l.taught_by_name
+  // etc. — when those resolved to undefined the date column rendered
+  // 'Invalid Date' on every row.
   return {
     id: r.id,
-    orgId: r.org_id,
-    sectionId: r.class_section_id,
-    // Phase 2: subject + topic FKs.
+    org_id: r.org_id,
+    class_section_id: r.class_section_id,
+    // Phase 2: subject + topic FKs (camelCase intentional; frontend
+    // reads l.sectionSubjectId).
     sectionSubjectId: r.section_subject_id ?? null,
     curriculumTopicId: r.curriculum_topic_id ?? null,
-    // Phase 4b: hydrated display fields when nested-selected by the
-    // caller (list endpoint sets these; single-fetch leaves them null).
+    // Phase 4b: hydrated display fields.
     subjectName: (r as any).subject_name ?? null,
     topicName: (r as any).topic_name ?? null,
     topicResources: (r as any).topic_resources ?? [],
-    lessonDate: r.lesson_date,
+    lesson_date: r.lesson_date,
     title: r.title,
     body: r.body,
-    videoUrl: r.video_url,
-    audioUrl: r.audio_url,
+    video_url: r.video_url,
+    audio_url: r.audio_url,
     attachments: r.attachments ?? [],
-    taughtBy: r.taught_by,
-    createdAt: r.created_at,
-    updatedAt: r.updated_at,
+    taught_by: r.taught_by,
+    taught_by_name: (r as any).taught_by_name ?? null,
+    created_at: r.created_at,
+    updated_at: r.updated_at,
   };
 }
 function hifzToJson(r: any) {

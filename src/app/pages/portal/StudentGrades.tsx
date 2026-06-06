@@ -112,9 +112,14 @@ function SubjectGroupedGrades({ grades }: { grades: Row[] }) {
           weightTotal: 0,
         };
       g.rows.push(r);
-      if (r.score !== null && r.assignment?.max_score) {
+      // Portal grades endpoint returns maxScore (camelCase); the legacy
+      // shared Assignment type expected max_score. Read either so old +
+      // new payloads both compute correctly.
+      const maxScore =
+        (r.assignment as any)?.maxScore ?? (r.assignment as any)?.max_score;
+      if (r.score !== null && maxScore) {
         const w = Number(r.assignment.weight ?? 1);
-        const pct = r.score / Number(r.assignment.max_score);
+        const pct = r.score / Number(maxScore);
         g.weightedScore += pct * w;
         g.weightTotal += w;
       }
@@ -205,8 +210,17 @@ function SubjectGroupedGrades({ grades }: { grades: Row[] }) {
                     r.score === null ? (
                       <span className="text-slate-400">—</span>
                     ) : (
-                      <span className={scoreColor(r.score, r.assignment.max_score)}>
-                        {r.score} / {r.assignment.max_score}
+                      <span
+                        className={scoreColor(
+                          r.score,
+                          ((r.assignment as any)?.maxScore ??
+                            (r.assignment as any)?.max_score) as number,
+                        )}
+                      >
+                        {r.score} /{" "}
+                        {((r.assignment as any)?.maxScore ??
+                          (r.assignment as any)?.max_score) ??
+                          "—"}
                       </span>
                     ),
                 },

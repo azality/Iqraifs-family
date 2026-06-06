@@ -167,7 +167,10 @@ export function PortalLayout() {
         </div>
         {activeStudentId && (
           <nav
-            className="max-w-6xl mx-auto px-4 -mb-px flex items-center gap-1 overflow-x-auto"
+            // overflow-x-auto lets the menu scroll horizontally on narrow
+            // viewports. Without explicit overflow-y-hidden some browsers
+            // (Edge / iOS Safari) render a stray vertical scrollbar.
+            className="max-w-6xl mx-auto px-4 -mb-px flex items-center gap-1 overflow-x-auto overflow-y-hidden"
             data-tour="portal-nav"
           >
             {NAV.map((item) => {
