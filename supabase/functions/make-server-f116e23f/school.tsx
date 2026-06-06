@@ -391,6 +391,46 @@ school.patch("/orgs/:orgId", async (c) => {
   if (typeof body.name === "string") patch.name = body.name;
   if (settingsTouched) patch.settings = mergedSettings;
 
+  // Custom URL slug — feeds the per-school login URL (iqraifs.com/:slug).
+  // Mirror src/app/utils/reservedSlugs.ts: any change here MUST be made
+  // there too, otherwise a principal can grab a slug that would shadow a
+  // top-level route on the frontend.
+  if (typeof body.slug === "string") {
+    const slug = body.slug.trim().toLowerCase();
+    const RESERVED = new Set([
+      "welcome", "login", "signup", "parent-login", "parent-signup",
+      "parent", "kid-login", "kid-login-new", "kid", "onboarding",
+      "join-pending", "diagnostic", "school", "school-login",
+      "school-portal", "api", "auth", "admin", "settings", "logout",
+      "about", "contact", "help", "support", "terms", "privacy",
+      "legal", "static", "assets", "public", "favicon.ico",
+      "robots.txt", "sitemap.xml", "manifest.json", "sw.js",
+      "_app", "_next",
+    ]);
+    if (!/^[a-z0-9]([a-z0-9-]{1,38}[a-z0-9])?$/.test(slug) || slug.includes("--")) {
+      return c.json(
+        { error: "Slug must be 3–40 chars: lowercase letters, digits, or single dashes." },
+        400,
+      );
+    }
+    if (RESERVED.has(slug)) {
+      return c.json({ error: `'${slug}' is reserved and can't be used as a school URL.` }, 400);
+    }
+    // Uniqueness check across NON-deleted orgs. A soft-deleted org keeps
+    // its slug until the purge job runs; new orgs can claim it after.
+    const { data: clash } = await serviceRoleClient
+      .from("organizations")
+      .select("id")
+      .eq("slug", slug)
+      .is("deleted_at", null)
+      .neq("id", orgId)
+      .maybeSingle();
+    if (clash) {
+      return c.json({ error: `'${slug}' is already taken by another school.` }, 409);
+    }
+    patch.slug = slug;
+  }
+
   if (Object.keys(patch).length === 0) {
     return c.json({ error: "no allowed fields in body" }, 400);
   }

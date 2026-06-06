@@ -81,6 +81,14 @@ export function OrgSettings() {
   const [yearError, setYearError] = useState<string | null>(null);
   const [yearSavedAt, setYearSavedAt] = useState<number | null>(null);
 
+  // Custom URL slug — drives iqraifs.com/:slug as the school's unified
+  // login URL. We keep it in its own form section (separate Save) so a
+  // typo in the org name can't accidentally orphan an active slug.
+  const [slugInput, setSlugInput] = useState("");
+  const [slugSaving, setSlugSaving] = useState(false);
+  const [slugError, setSlugError] = useState<string | null>(null);
+  const [slugSavedAt, setSlugSavedAt] = useState<number | null>(null);
+
   // Delete-school state — typed-name confirmation. We compare against the
   // CURRENT loaded org name (not the unsaved form value) so that an
   // accidental rename-then-delete doesn't bypass the guard.
@@ -127,6 +135,7 @@ export function OrgSettings() {
         setAcademicYear(
           (o.organization.settings?.academic_year as string | undefined) ?? "",
         );
+        setSlugInput((o.organization as any).slug ?? "");
       })
       .catch((e) => setOrgError(e instanceof Error ? e.message : String(e)))
       .finally(() => setOrgLoading(false));
@@ -156,6 +165,23 @@ export function OrgSettings() {
       setOrgError(e instanceof Error ? e.message : String(e));
     } finally {
       setOrgSaving(false);
+    }
+  };
+
+  const handleSlugSave = async () => {
+    setSlugSaving(true);
+    setSlugError(null);
+    try {
+      await updateOrganization(orgId, { slug: slugInput.trim().toLowerCase() });
+      setSlugSavedAt(Date.now());
+      // Refresh so the read-back reflects what the server stored (server
+      // lowercases + trims). Avoids confusion if the user typed "IQRA-Demo".
+      const refreshed = await getOrganization(orgId);
+      setSlugInput((refreshed.organization as any).slug ?? "");
+    } catch (e) {
+      setSlugError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSlugSaving(false);
     }
   };
 
@@ -235,6 +261,64 @@ export function OrgSettings() {
             )}
             {orgError && (
               <span className="text-xs text-rose-700">{orgError}</span>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* Custom URL — per-school login slug. iqraifs.com/<slug> serves as
+          a single branded entry point for principal, admin, office staff,
+          parents, and students of this school. The form mirrors the
+          server-side validator (RESERVED + shape regex) so most bad
+          inputs are caught client-side without a round-trip. */}
+      <section className={`${cardBase} ${cardElev} p-5`}>
+        <h3 className={sectionTitleClasses}>Custom URL</h3>
+        <p className="mt-1 text-sm text-slate-600">
+          Set a short slug for your school. Everyone signs in at this URL.
+        </p>
+        <div className="mt-4 grid gap-4">
+          <div className="grid gap-1.5">
+            <Label htmlFor="org-slug">URL slug</Label>
+            <div className="flex items-stretch rounded-md border border-slate-300 overflow-hidden focus-within:ring-2 focus-within:ring-indigo-500">
+              <span className="px-3 py-2 bg-slate-100 text-sm text-slate-500 border-r border-slate-300">
+                iqraifs.com/
+              </span>
+              <input
+                id="org-slug"
+                type="text"
+                value={slugInput}
+                onChange={(e) =>
+                  setSlugInput(
+                    e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""),
+                  )
+                }
+                placeholder="iqra-demo"
+                maxLength={40}
+                className="flex-1 px-3 py-2 text-sm focus:outline-none"
+              />
+            </div>
+            <p className="text-xs text-slate-500">
+              3–40 chars. Lowercase letters, digits, single dashes. Cannot
+              be a reserved word (login, settings, admin, etc.).
+            </p>
+            {slugInput && (
+              <p className="text-xs text-slate-600">
+                Preview:{" "}
+                <span className="font-mono text-indigo-700">
+                  iqraifs.com/{slugInput}
+                </span>
+              </p>
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            <Button onClick={handleSlugSave} disabled={slugSaving || orgLoading || !slugInput}>
+              {slugSaving ? "Saving…" : "Save URL"}
+            </Button>
+            {slugSavedAt && !slugSaving && (
+              <span className="text-xs text-emerald-700">Saved.</span>
+            )}
+            {slugError && (
+              <span className="text-xs text-rose-700">{slugError}</span>
             )}
           </div>
         </div>

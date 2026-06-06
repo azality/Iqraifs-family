@@ -121,6 +121,7 @@ export const updateOrganization = (
   orgId: string,
   body: Partial<{
     name: string;
+    slug: string;
     contact_email: string;
     contact_phone: string;
     address: string;
