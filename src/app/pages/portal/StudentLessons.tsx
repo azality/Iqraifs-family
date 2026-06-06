@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router";
 import { toast } from "sonner";
-import { Video, Headphones, Paperclip, CheckCircle2, Circle } from "lucide-react";
+import { Video, Headphones, Paperclip, CheckCircle2, Circle, BookOpen, ListChecks } from "lucide-react";
 import { HeroCard, cardBase, cardElev } from "../../components/school-ui";
 import { usePinAuth } from "../../contexts/PinAuthContext";
 import {
@@ -36,6 +36,8 @@ export function StudentLessons() {
   // lazily; null entries are "unknown until fetched".
   const [completion, setCompletion] = useState<Record<string, string | null>>({});
   const [pending, setPending] = useState<Set<string>>(new Set());
+  // Phase 4b: subject filter chip ("" = all subjects).
+  const [subjectFilter, setSubjectFilter] = useState<string>("");
 
   const range = useMemo(() => ({ startDate, endDate, limit: 100 }), [startDate, endDate]);
 
@@ -133,6 +135,56 @@ export function StudentLessons() {
 
       {!lessons && !error && <div className="text-slate-500 text-sm">Loading…</div>}
 
+      {/* Phase 4b: subject filter chip row. Derived from the lesson set so
+          it only shows subjects the student actually has lessons for. */}
+      {lessons && lessons.length > 0 && (() => {
+        const seen = new Map<string, string>();
+        for (const l of lessons) {
+          if (l.subjectName && !seen.has(l.subjectName)) {
+            seen.set(l.subjectName, l.subjectName);
+          }
+        }
+        if (seen.size === 0) return null;
+        const subjectNames = Array.from(seen.keys()).sort();
+        return (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[10px] uppercase tracking-wider text-slate-500 mr-1">
+              Subject
+            </span>
+            <button
+              type="button"
+              onClick={() => setSubjectFilter("")}
+              className={
+                "rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 " +
+                (subjectFilter === ""
+                  ? "bg-indigo-600 text-white ring-indigo-600"
+                  : "bg-white text-slate-700 ring-slate-200 hover:bg-slate-50")
+              }
+            >
+              All
+            </button>
+            {subjectNames.map((name) => {
+              const active = subjectFilter === name;
+              return (
+                <button
+                  key={name}
+                  type="button"
+                  onClick={() => setSubjectFilter(name)}
+                  className={
+                    "rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 " +
+                    (active
+                      ? "bg-indigo-600 text-white ring-indigo-600"
+                      : "bg-white text-slate-700 ring-slate-200 hover:bg-slate-50")
+                  }
+                >
+                  {name}
+                </button>
+              );
+            })}
+          </div>
+        );
+      })()}
+
       {lessons && lessons.length === 0 && (
         <div className={`${cardBase} ${cardElev} p-6 text-sm text-slate-500 text-center`}>
           No lessons in this range.
@@ -140,7 +192,9 @@ export function StudentLessons() {
       )}
 
       <div className="space-y-3">
-        {lessons?.map((l) => {
+        {lessons
+          ?.filter((l) => !subjectFilter || l.subjectName === subjectFilter)
+          .map((l) => {
           const completedAt = completion[l.id];
           const isComplete = Boolean(completedAt);
           const isPending = pending.has(l.id);
@@ -149,6 +203,24 @@ export function StudentLessons() {
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <h3 className="font-semibold text-slate-900">{l.title}</h3>
+                {/* Phase 4b: subject + topic badges so parents see the
+                    academic context at a glance. */}
+                {(l.subjectName || l.topicName) && (
+                  <div className="mt-0.5 flex flex-wrap items-center gap-1">
+                    {l.subjectName && (
+                      <span className="inline-flex items-center gap-0.5 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 ring-1 ring-indigo-200">
+                        <BookOpen className="h-2.5 w-2.5" />
+                        {l.subjectName}
+                      </span>
+                    )}
+                    {l.topicName && (
+                      <span className="inline-flex items-center gap-0.5 rounded-full bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-700 ring-1 ring-violet-200">
+                        <ListChecks className="h-2.5 w-2.5" />
+                        {l.topicName}
+                      </span>
+                    )}
+                  </div>
+                )}
                 <p className="text-xs text-slate-500 mt-0.5">
                   {new Date(l.lesson_date).toLocaleDateString()}
                   {l.taught_by_name ? ` · by ${l.taught_by_name}` : ""}
@@ -225,6 +297,59 @@ export function StudentLessons() {
                 </a>
               ))}
             </div>
+
+            {/* Phase 4b: topic resources surface in the parent portal
+                too — same payload the staff feed gets. Kept compact for
+                the smaller portal cards. */}
+            {l.topicResources && l.topicResources.length > 0 && (
+              <div className="mt-3 pt-3 border-t border-slate-100">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+                  {l.topicName ? `${l.topicName} resources` : "Topic resources"}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {l.topicResources.map((tr) => {
+                    const tone =
+                      tr.kind === "worksheet"
+                        ? "bg-amber-50 text-amber-800 ring-amber-200"
+                        : tr.kind === "video"
+                        ? "bg-indigo-50 text-indigo-700 ring-indigo-200"
+                        : tr.kind === "quiz"
+                        ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                        : tr.kind === "pdf"
+                        ? "bg-rose-50 text-rose-700 ring-rose-200"
+                        : "bg-slate-100 text-slate-700 ring-slate-200";
+                    const kindLabel =
+                      tr.kind === "pdf"
+                        ? "PDF"
+                        : tr.kind === "video"
+                        ? "Video"
+                        : tr.kind === "worksheet"
+                        ? "Worksheet"
+                        : tr.kind === "quiz"
+                        ? "Quiz"
+                        : "Link";
+                    return (
+                      <a
+                        key={tr.id}
+                        href={tr.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className={
+                          "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 hover:underline " +
+                          tone
+                        }
+                      >
+                        <span className="font-semibold uppercase tracking-wider text-[9px]">
+                          {kindLabel}
+                        </span>
+                        <span>·</span>
+                        <span>{tr.label}</span>
+                      </a>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </article>
           );
         })}

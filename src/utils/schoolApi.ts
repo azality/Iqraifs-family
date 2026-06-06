@@ -468,6 +468,27 @@ export const getMySectionSubjects = (): Promise<{
   sectionSubjects: MySectionSubject[];
 }> => apiCall(`/school/me/section-subjects`);
 
+// --- Section curriculum progress (Phase 4b, SectionOverview) -----------------
+
+export interface SectionSubjectProgress {
+  sectionSubjectId: string;
+  classSubjectId: string;
+  name: string;
+  teacherUserId: string | null;
+  teacherName: string | null;
+  curriculum: {
+    academicYear: string;
+    topicTotal: number;
+    topicCompleted: number;
+    progressPct: number;
+  } | null;
+}
+
+export const getSectionCurriculumProgress = (
+  sectionId: string,
+): Promise<{ sectionId: string; subjects: SectionSubjectProgress[] }> =>
+  apiCall(`/school/sections/${sectionId}/curriculum-progress`);
+
 // --- Section-level (read for all; teacher PATCH for admins) ------------------
 export const listSectionSubjects = (
   sectionId: string,

@@ -11,8 +11,8 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { BookOpen, UserCog } from "lucide-react";
 import {
-  listSectionSubjects,
-  type SectionSubject,
+  getSectionCurriculumProgress,
+  type SectionSubjectProgress,
 } from "../../../../utils/schoolApi";
 
 interface Props {
@@ -25,7 +25,9 @@ interface Props {
 }
 
 export function SectionSubjectsManager({ orgId, sectionId, canManage, classId }: Props) {
-  const [subjects, setSubjects] = useState<SectionSubject[]>([]);
+  // Phase 4b: use the curriculum-progress endpoint instead of the plain
+  // subjects list so we can show the per-subject progress bar inline.
+  const [subjects, setSubjects] = useState<SectionSubjectProgress[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,7 +35,7 @@ export function SectionSubjectsManager({ orgId, sectionId, canManage, classId }:
     if (!sectionId) return;
     setLoading(true);
     setError(null);
-    listSectionSubjects(sectionId)
+    getSectionCurriculumProgress(sectionId)
       .then((r) => setSubjects(r.subjects))
       .catch((e) => setError(e?.message || "Could not load subjects"))
       .finally(() => setLoading(false));
@@ -91,24 +93,61 @@ export function SectionSubjectsManager({ orgId, sectionId, canManage, classId }:
       )}
 
       {subjects.length > 0 && (
-        <ul className="mt-3 divide-y divide-slate-100">
-          {subjects.map((s) => (
-            <li key={s.id} className="flex flex-wrap items-center gap-2 py-2">
-              <span className="text-sm font-medium text-slate-900 flex-1">
-                {s.name}
-              </span>
-              {s.teacherName ? (
-                <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-700">
-                  <UserCog className="h-2.5 w-2.5" />
-                  {s.teacherName}
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-amber-200">
-                  Unassigned
-                </span>
-              )}
-            </li>
-          ))}
+        <ul className="mt-3 space-y-2">
+          {subjects.map((s) => {
+            const pct = s.curriculum?.progressPct ?? 0;
+            const pctTone =
+              pct >= 75
+                ? "bg-emerald-500"
+                : pct >= 40
+                ? "bg-amber-500"
+                : "bg-rose-500";
+            return (
+              <li
+                key={s.sectionSubjectId}
+                className="rounded-lg border border-slate-200 bg-white p-3"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-medium text-slate-900 flex-1 min-w-0">
+                    {s.name}
+                  </span>
+                  {s.teacherName ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-700">
+                      <UserCog className="h-2.5 w-2.5" />
+                      {s.teacherName}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-amber-200">
+                      Unassigned
+                    </span>
+                  )}
+                </div>
+                {/* Phase 4b: curriculum progress per subject. Null = no
+                    syllabus defined yet for this subject. */}
+                {s.curriculum ? (
+                  <div className="mt-2">
+                    <div className="flex items-center justify-between text-[10px] text-slate-500">
+                      <span>
+                        {s.curriculum.topicCompleted}/{s.curriculum.topicTotal} topics ·{" "}
+                        {s.curriculum.academicYear}
+                      </span>
+                      <span className="font-semibold text-slate-700">{pct}%</span>
+                    </div>
+                    <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+                      <div
+                        className={"h-full " + pctTone}
+                        style={{ width: `${Math.min(100, pct)}%` }}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <p className="mt-2 text-[10px] text-slate-400">
+                    No curriculum defined yet for {s.name}.
+                  </p>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
 

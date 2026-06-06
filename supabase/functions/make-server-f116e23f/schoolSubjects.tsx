@@ -245,6 +245,102 @@ export function installSubjects(school: Hono) {
   });
 
   // ---------------------------------------------------------------------------
+  // GET /school/sections/:sectionId/curriculum-progress
+  // Returns per-subject curriculum progress for a section. Used by
+  // SectionOverview to give admins/teachers a one-glance read on how
+  // far each subject is into its syllabus this year.
+  // ---------------------------------------------------------------------------
+  school.get("/sections/:sectionId/curriculum-progress", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const sectionId = c.req.param("sectionId");
+    const orgId = await sectionOrgId(sectionId);
+    if (!orgId) return c.json({ error: "section not found" }, 404);
+    if (!(await hasAnyOrgRole(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+
+    // 1. Section's subjects (already-active rows; teacher info joined).
+    const { data: rows } = await serviceRoleClient
+      .from("section_subject")
+      .select(
+        "id, class_subject_id, teacher_user_id, " +
+          "class_subject:class_subject_id(id, name)",
+      )
+      .eq("class_section_id", sectionId)
+      .is("archived_at", null);
+    if (!rows || rows.length === 0) {
+      return c.json({ sectionId, subjects: [] });
+    }
+
+    const classSubjectIds = Array.from(
+      new Set((rows as any[]).map((r) => r.class_subject_id).filter(Boolean)),
+    );
+
+    // 2. Latest curriculum per class_subject + bulk topic counts.
+    const latestPerSubject = new Map<string, { id: string; year: string }>();
+    if (classSubjectIds.length > 0) {
+      const { data: curricula } = await serviceRoleClient
+        .from("curriculum")
+        .select("id, class_subject_id, academic_year")
+        .in("class_subject_id", classSubjectIds)
+        .order("academic_year", { ascending: false });
+      for (const c of (curricula ?? []) as any[]) {
+        if (!latestPerSubject.has(c.class_subject_id)) {
+          latestPerSubject.set(c.class_subject_id, {
+            id: c.id,
+            year: c.academic_year,
+          });
+        }
+      }
+    }
+    const curIds = Array.from(latestPerSubject.values()).map((v) => v.id);
+    const countsByCurr = new Map<string, { total: number; completed: number }>();
+    if (curIds.length > 0) {
+      const { data: topics } = await serviceRoleClient
+        .from("curriculum_topic")
+        .select("curriculum_id, completed")
+        .in("curriculum_id", curIds);
+      for (const t of (topics ?? []) as any[]) {
+        const acc = countsByCurr.get(t.curriculum_id) ?? { total: 0, completed: 0 };
+        acc.total += 1;
+        if (t.completed) acc.completed += 1;
+        countsByCurr.set(t.curriculum_id, acc);
+      }
+    }
+
+    // 3. Hydrate teacher names (batched auth lookups).
+    const teacherIds = (rows as any[])
+      .map((r) => r.teacher_user_id)
+      .filter(Boolean) as string[];
+    const teacherNames = await hydrateTeacherNames(teacherIds);
+
+    const subjects = (rows as any[]).map((r) => {
+      const latest = latestPerSubject.get(r.class_subject_id);
+      const counts = latest ? countsByCurr.get(latest.id) : undefined;
+      const total = counts?.total ?? 0;
+      const completed = counts?.completed ?? 0;
+      return {
+        sectionSubjectId: r.id,
+        classSubjectId: r.class_subject_id,
+        name: r.class_subject?.name ?? "Subject",
+        teacherUserId: r.teacher_user_id,
+        teacherName: r.teacher_user_id ? teacherNames.get(r.teacher_user_id) ?? null : null,
+        curriculum: latest
+          ? {
+              academicYear: latest.year,
+              topicTotal: total,
+              topicCompleted: completed,
+              progressPct: total > 0 ? Math.round((completed / total) * 100) : 0,
+            }
+          : null,
+      };
+    });
+
+    return c.json({ sectionId, subjects });
+  });
+
+  // ---------------------------------------------------------------------------
   // GET /school/classes/:classId/subjects
   // Returns templates + per-section teacher assignments.
   // ---------------------------------------------------------------------------
