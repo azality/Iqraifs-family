@@ -347,6 +347,60 @@ export function SectionLessonsFeed() {
                     ))}
                   </div>
                 )}
+
+                {/* Phase 4a: durable resources from the topic this lesson
+                    is tagged to (admin-managed, available all year). Lets
+                    parents click straight to the worksheet/video without
+                    the teacher re-attaching it on every daily lesson. */}
+                {l.topicResources && l.topicResources.length > 0 && (
+                  <div className="pt-2 border-t border-slate-100">
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+                      {l.topicName ? `${l.topicName} resources` : "Topic resources"}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {l.topicResources.map((tr) => {
+                        const tone =
+                          tr.kind === "worksheet"
+                            ? "bg-amber-50 text-amber-800 ring-amber-200"
+                            : tr.kind === "video"
+                            ? "bg-indigo-50 text-indigo-700 ring-indigo-200"
+                            : tr.kind === "quiz"
+                            ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                            : tr.kind === "pdf"
+                            ? "bg-rose-50 text-rose-700 ring-rose-200"
+                            : "bg-slate-100 text-slate-700 ring-slate-200";
+                        const kindLabel =
+                          tr.kind === "pdf"
+                            ? "PDF"
+                            : tr.kind === "video"
+                            ? "Video"
+                            : tr.kind === "worksheet"
+                            ? "Worksheet"
+                            : tr.kind === "quiz"
+                            ? "Quiz"
+                            : "Link";
+                        return (
+                          <a
+                            key={tr.id}
+                            href={tr.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className={
+                              "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 hover:underline " +
+                              tone
+                            }
+                          >
+                            <span className="font-semibold uppercase tracking-wider text-[9px]">
+                              {kindLabel}
+                            </span>
+                            <span>·</span>
+                            <span>{tr.label}</span>
+                          </a>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           ))}

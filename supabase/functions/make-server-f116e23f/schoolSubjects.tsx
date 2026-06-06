@@ -133,9 +133,117 @@ async function hydrateTeacherNames(ids: string[]): Promise<Map<string, string>> 
 }
 
 // -----------------------------------------------------------------------------
+// GET helper: list every section_subject row where teacher_user_id = me,
+// plus the class + section + class_subject names and curriculum progress
+// for the latest curriculum on each subject.
+//
+// Used by TeacherHome's "My Subjects" widget so a section teacher sees
+// the per-subject view of their workload: "Math · 3-A: 8/14 topics covered".
+// -----------------------------------------------------------------------------
+async function loadMySectionSubjects(userId: string): Promise<any[]> {
+  // 1. Section subjects assigned to me.
+  const { data: rows } = await serviceRoleClient
+    .from("section_subject")
+    .select(
+      "id, org_id, class_section_id, class_subject_id, " +
+        "class_subject:class_subject_id(id, name, class_id, class:class_id(name)), " +
+        "class_section:class_section_id(name)",
+    )
+    .eq("teacher_user_id", userId)
+    .is("archived_at", null);
+  if (!rows || rows.length === 0) return [];
+
+  // 2. For each class_subject, find the latest curriculum + its topic counts.
+  const classSubjectIds = Array.from(
+    new Set((rows as any[]).map((r) => r.class_subject_id).filter(Boolean)),
+  );
+  type CurStats = {
+    classSubjectId: string;
+    academicYear: string | null;
+    total: number;
+    completed: number;
+  };
+  const curByClassSubject = new Map<string, CurStats>();
+  if (classSubjectIds.length > 0) {
+    const { data: curricula } = await serviceRoleClient
+      .from("curriculum")
+      .select("id, class_subject_id, academic_year")
+      .in("class_subject_id", classSubjectIds)
+      .order("academic_year", { ascending: false });
+    // Pick the latest curriculum per class_subject_id (rows are pre-sorted
+    // newest first, so the first time we see a class_subject_id we keep it).
+    const latestPerSubject = new Map<string, { id: string; academicYear: string }>();
+    for (const c of (curricula ?? []) as any[]) {
+      if (!latestPerSubject.has(c.class_subject_id)) {
+        latestPerSubject.set(c.class_subject_id, {
+          id: c.id,
+          academicYear: c.academic_year,
+        });
+      }
+    }
+    // Bulk-fetch topic counts for those curricula in one query.
+    const curIds = Array.from(latestPerSubject.values()).map((v) => v.id);
+    if (curIds.length > 0) {
+      const { data: topics } = await serviceRoleClient
+        .from("curriculum_topic")
+        .select("curriculum_id, completed")
+        .in("curriculum_id", curIds);
+      const byCurr = new Map<string, { total: number; completed: number }>();
+      for (const t of (topics ?? []) as any[]) {
+        const acc = byCurr.get(t.curriculum_id) ?? { total: 0, completed: 0 };
+        acc.total += 1;
+        if (t.completed) acc.completed += 1;
+        byCurr.set(t.curriculum_id, acc);
+      }
+      for (const [csId, latest] of latestPerSubject.entries()) {
+        const counts = byCurr.get(latest.id) ?? { total: 0, completed: 0 };
+        curByClassSubject.set(csId, {
+          classSubjectId: csId,
+          academicYear: latest.academicYear,
+          total: counts.total,
+          completed: counts.completed,
+        });
+      }
+    }
+  }
+
+  return (rows as any[]).map((r) => {
+    const cs = curByClassSubject.get(r.class_subject_id);
+    return {
+      id: r.id,
+      orgId: r.org_id,
+      classSectionId: r.class_section_id,
+      classSubjectId: r.class_subject_id,
+      subjectName: r.class_subject?.name ?? "Subject",
+      className: r.class_subject?.class?.name ?? null,
+      sectionName: r.class_section?.name ?? null,
+      curriculum: cs
+        ? {
+            academicYear: cs.academicYear,
+            topicTotal: cs.total,
+            topicCompleted: cs.completed,
+            progressPct: cs.total > 0 ? Math.round((cs.completed / cs.total) * 100) : 0,
+          }
+        : null,
+    };
+  });
+}
+
+// -----------------------------------------------------------------------------
 // Route installation
 // -----------------------------------------------------------------------------
 export function installSubjects(school: Hono) {
+  // ---------------------------------------------------------------------------
+  // GET /school/me/section-subjects
+  // Returns the section_subjects I teach plus curriculum progress for each.
+  // ---------------------------------------------------------------------------
+  school.get("/me/section-subjects", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const subjects = await loadMySectionSubjects(userId);
+    return c.json({ sectionSubjects: subjects });
+  });
+
   // ---------------------------------------------------------------------------
   // GET /school/classes/:classId/subjects
   // Returns templates + per-section teacher assignments.

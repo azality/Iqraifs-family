@@ -443,6 +443,31 @@ export const reorderClassCurriculumTopics = (
     body: JSON.stringify({ orderedIds }),
   });
 
+// --- Teacher self: section subjects I teach (Phase 4a) ----------------------
+
+export interface MySectionSubject {
+  /** section_subject row id. */
+  id: string;
+  orgId: string;
+  classSectionId: string;
+  classSubjectId: string;
+  subjectName: string;
+  className: string | null;
+  sectionName: string | null;
+  /** Curriculum progress for the LATEST academic year on this subject.
+   *  Null when the admin hasn't set up a curriculum yet. */
+  curriculum: {
+    academicYear: string;
+    topicTotal: number;
+    topicCompleted: number;
+    progressPct: number;
+  } | null;
+}
+
+export const getMySectionSubjects = (): Promise<{
+  sectionSubjects: MySectionSubject[];
+}> => apiCall(`/school/me/section-subjects`);
+
 // --- Section-level (read for all; teacher PATCH for admins) ------------------
 export const listSectionSubjects = (
   sectionId: string,
@@ -1660,6 +1685,17 @@ export interface Lesson {
   subjectName?: string | null;
   /** Denormalised — populated by list endpoints, may be undefined on single-fetch. */
   topicName?: string | null;
+  /** Phase 4a: durable resources for this lesson's topic — worksheets,
+   *  videos, quizzes the admin attached once on the topic. Hydrated by
+   *  the list endpoint alongside the topic name; absent on single-fetch.
+   *  Type is kept loose to avoid a forward reference; the values match
+   *  TopicResource minus the org/topic/sort metadata. */
+  topicResources?: Array<{
+    id: string;
+    kind: "pdf" | "video" | "worksheet" | "link" | "quiz";
+    label: string;
+    url: string;
+  }>;
   lesson_date: string; // YYYY-MM-DD
   title: string;
   body: string | null;
