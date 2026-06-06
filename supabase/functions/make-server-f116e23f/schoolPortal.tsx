@@ -303,9 +303,10 @@ export function installPortal(school: Hono): void {
 
     const { data: org } = await serviceRoleClient
       .from("organizations")
-      .select("id, name")
+      .select("id, name, slug, settings")
       .eq("id", subject.orgId)
       .maybeSingle();
+    const orgSettings = ((org as any)?.settings ?? {}) as Record<string, unknown>;
 
     const { data: cred } = await serviceRoleClient
       .from("pin_credential")
@@ -320,6 +321,14 @@ export function installPortal(school: Hono): void {
       subjectId: subject.subjectId,
       orgId: subject.orgId,
       orgName: org?.name ?? null,
+      // Branding for the portal layout header. The login page already
+      // pulls these from /auth/org-by-slug; once the user is in we
+      // include them on /pin-me so the inner pages can drop the
+      // generic 'Student & Parent Portal' header.
+      orgSlug: (org as any)?.slug ?? null,
+      orgLogoUrl: (orgSettings.logo_url as string | undefined) ?? null,
+      orgMotto: (orgSettings.school_motto as string | undefined) ?? null,
+      orgThemeColor: (orgSettings.theme_color as string | undefined) ?? null,
       mustChange: !!cred?.must_change,
     };
 

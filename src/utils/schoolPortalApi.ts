@@ -184,6 +184,13 @@ export interface PortalMe {
   subjectId: string;
   orgId: string;
   orgName: string;
+  /** Branding fields surfaced from /pin-me so the portal header can
+   *  match what the principal configured under Settings. Optional —
+   *  older backends may omit them; layout falls back gracefully. */
+  orgSlug?: string | null;
+  orgLogoUrl?: string | null;
+  orgMotto?: string | null;
+  orgThemeColor?: string | null;
   mustChange: boolean;
   student?: PortalStudent;
   parent?: PortalParent;
@@ -196,18 +203,26 @@ export const getPortalMe = (): Promise<PortalMe> => pinApiCall("/school/pin-me")
 
 export interface DashboardActivityItem {
   id: string;
-  occurredAt: string;
+  /** Backend returns `at` (YYYY-MM-DD or ISO). */
+  at: string;
   kind: string;
   summary: string;
+}
+
+/** Backend wraps each tile in { value, hint } — captured here so the
+ *  component can render the number plus the caption underneath. */
+export interface PortalDashboardTile {
+  value: number | null;
+  hint: string | null;
 }
 
 export interface StudentDashboardResponse {
   student: PortalStudent;
   tiles: {
-    attendancePct: number | null;
-    averageGrade: number | null;
-    ayahsMemorized: number | null;
-    behaviorScore: number | null;
+    attendancePct: PortalDashboardTile;
+    averageGrade: PortalDashboardTile;
+    hifzAyahsMemorized: PortalDashboardTile;
+    behaviorScore: PortalDashboardTile;
   };
   recentActivity: DashboardActivityItem[];
 }

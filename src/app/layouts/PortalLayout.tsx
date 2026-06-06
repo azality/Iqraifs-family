@@ -107,13 +107,31 @@ export function PortalLayout() {
     <div className="min-h-screen bg-slate-50">
       <header className="sticky top-0 z-30 bg-white border-b border-slate-200">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
-          <Link to="/school-portal" className="flex flex-col min-w-0">
-            <span className="text-xs uppercase tracking-widest text-indigo-600 font-bold">
-              {subject?.orgName ?? "Portal"}
-            </span>
-            <span className="text-sm font-medium text-slate-900 truncate">
-              {t("portal.loginTitle").split("—")[1]?.trim() || "Student & Parent Portal"}
-            </span>
+          <Link to="/school-portal" className="flex items-center gap-3 min-w-0">
+            {/* Brand mark from /pin-me — admin uploads in Settings. Falls
+                back to a generic emoji circle when no logo is set so the
+                header still looks intentional. */}
+            {subject?.orgLogoUrl ? (
+              <img
+                src={subject.orgLogoUrl}
+                alt=""
+                className="h-9 w-9 rounded-lg object-cover ring-1 ring-slate-200 flex-shrink-0"
+              />
+            ) : (
+              <span className="h-9 w-9 rounded-lg bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center text-white text-sm font-semibold flex-shrink-0">
+                {(subject?.orgName ?? "P").slice(0, 2).toUpperCase()}
+              </span>
+            )}
+            <div className="flex flex-col min-w-0">
+              <span className="text-xs uppercase tracking-widest text-indigo-600 font-bold">
+                {subject?.orgName ?? "Portal"}
+              </span>
+              <span className="text-sm font-medium text-slate-900 truncate">
+                {subject?.orgMotto ||
+                  t("portal.loginTitle").split("—")[1]?.trim() ||
+                  "Student & Parent Portal"}
+              </span>
+            </div>
           </Link>
           <div className="flex items-center gap-3">
             {subject?.subjectType === "parent" && subject.students && subject.students.length > 1 && (

@@ -70,25 +70,37 @@ export function StudentDashboard() {
           <KpiTile
             icon={CalendarCheck}
             label={t("portal.tiles.attendance")}
-            value={tiles.attendancePct !== null ? `${tiles.attendancePct}%` : null}
+            value={
+              tiles.attendancePct?.value !== null && tiles.attendancePct?.value !== undefined
+                ? `${tiles.attendancePct.value}%`
+                : null
+            }
+            hint={tiles.attendancePct?.hint ?? undefined}
             variant="light"
           />
           <KpiTile
             icon={Award}
             label={t("portal.tiles.averageGrade")}
-            value={tiles.averageGrade !== null ? `${tiles.averageGrade}%` : null}
+            value={
+              tiles.averageGrade?.value !== null && tiles.averageGrade?.value !== undefined
+                ? `${tiles.averageGrade.value}%`
+                : null
+            }
+            hint={tiles.averageGrade?.hint ?? undefined}
             variant="light"
           />
           <KpiTile
             icon={BookOpen}
             label={t("portal.tiles.ayahsMemorized")}
-            value={tiles.ayahsMemorized ?? null}
+            value={tiles.hifzAyahsMemorized?.value ?? null}
+            hint={tiles.hifzAyahsMemorized?.hint ?? undefined}
             variant="light"
           />
           <KpiTile
             icon={Sparkles}
             label={t("portal.tiles.behaviorScore")}
-            value={tiles.behaviorScore ?? null}
+            value={tiles.behaviorScore?.value ?? null}
+            hint={tiles.behaviorScore?.hint ?? undefined}
             variant="light"
           />
         </div>
@@ -106,10 +118,10 @@ export function StudentDashboard() {
           emptyMessage="No recent activity."
           columns={[
             {
-              key: "occurredAt",
+              key: "at",
               header: "When",
               width: "w-32",
-              cell: (r) => <span className="text-slate-500">{relativeTime(r.occurredAt)}</span>,
+              cell: (r) => <span className="text-slate-500">{relativeTime(r.at)}</span>,
             },
             {
               key: "kind",
