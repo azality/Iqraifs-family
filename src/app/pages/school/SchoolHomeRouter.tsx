@@ -17,7 +17,7 @@
 // we add dedicated dashboards later, branch them in below.
 
 import { useEffect, useState } from "react";
-import { Navigate, useParams } from "react-router";
+import { useParams } from "react-router";
 import {
   getSchoolMe,
   viewerRoleForOrg,
@@ -26,6 +26,7 @@ import {
 import { PerformanceDashboard } from "./PerformanceDashboard";
 import { TeacherHome } from "./TeacherHome";
 import { OfficeStaffHome } from "./OfficeStaffHome";
+import { FinanceHome } from "./FinanceHome";
 
 export function SchoolHomeRouter() {
   const { orgId = "" } = useParams();
@@ -68,7 +69,7 @@ export function SchoolHomeRouter() {
   }
 
   if (role === "financial_staff") {
-    return <Navigate to={`/school/orgs/${orgId}/admin/fees`} replace />;
+    return <FinanceHome />;
   }
 
   return <PerformanceDashboard />;

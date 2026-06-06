@@ -1050,6 +1050,57 @@ export interface OfficeSnapshot {
 export const getOfficeSnapshot = (orgId: string): Promise<OfficeSnapshot> =>
   apiCall(`/school/orgs/${orgId}/office-snapshot`);
 
+// ─── Phase 6d: finance staff snapshot ──────────────────────────────────
+
+export interface FinanceSnapshot {
+  period: string;
+  collection: {
+    dueTotal: number;
+    paidTotal: number;
+    collectionPct: number;
+    paidCount: number;
+    unpaidCount: number;
+    partialCount: number;
+    waivedCount: number;
+    studentCount: number;
+  };
+  overdue: {
+    countAnyPeriod: number;
+    thisPeriodCount: number;
+    recent: Array<{
+      feeStatusId: string;
+      studentId: string;
+      studentName: string;
+      grNumber: string | null;
+      className: string | null;
+      sectionName: string | null;
+      amountDue: number;
+      amountPaid: number;
+      remaining: number;
+      dueDate: string | null;
+    }>;
+  };
+  recentPayments: Array<{
+    feeStatusId: string;
+    studentId: string;
+    studentName: string;
+    grNumber: string | null;
+    period: string;
+    amountPaid: number;
+    paidDate: string;
+  }>;
+}
+
+export const getFinanceSnapshot = (
+  orgId: string,
+  opts: { period?: string } = {},
+): Promise<FinanceSnapshot> => {
+  const q = new URLSearchParams();
+  if (opts.period) q.append("period", opts.period);
+  const qs = q.toString() ? `?${q}` : "";
+  return apiCall(`/school/orgs/${orgId}/finance-snapshot${qs}`);
+};
+
 // ─── Org-scoped role helper ────────────────────────────────────────────
 
 /** True if the user has a principal role on this specific org. */
