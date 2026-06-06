@@ -171,17 +171,52 @@ export function installCurriculum(school: Hono) {
     }
 
     const academicYear = c.req.query("academicYear");
-    let q = serviceRoleClient
+
+    // Always load the full list of curricula for this subject so the
+    // frontend can offer "copy from previous year" without a second
+    // round-trip. Per-row topic counts are cheap to attach via a join.
+    const { data: allCurricula, error: allErr } = await serviceRoleClient
       .from("curriculum")
-      .select("*")
+      .select("id, academic_year, title")
       .eq("class_subject_id", csId)
       .order("academic_year", { ascending: false });
-    if (academicYear) q = q.eq("academic_year", academicYear);
-    const { data, error } = await q;
-    if (error) return c.json({ error: error.message }, 500);
+    if (allErr) return c.json({ error: allErr.message }, 500);
 
-    const curriculum = data && data.length > 0 ? data[0] : null;
-    if (!curriculum) return c.json({ curriculum: null, topics: [] });
+    const ids = (allCurricula ?? []).map((r: any) => r.id);
+    const countByCurriculumId = new Map<string, number>();
+    if (ids.length > 0) {
+      const { data: counts } = await serviceRoleClient
+        .from("curriculum_topic")
+        .select("curriculum_id")
+        .in("curriculum_id", ids);
+      for (const r of (counts ?? []) as any[]) {
+        countByCurriculumId.set(
+          r.curriculum_id,
+          (countByCurriculumId.get(r.curriculum_id) ?? 0) + 1,
+        );
+      }
+    }
+    const availableYears = (allCurricula ?? []).map((r: any) => ({
+      academicYear: r.academic_year,
+      title: r.title,
+      topicCount: countByCurriculumId.get(r.id) ?? 0,
+    }));
+
+    // Pick the curriculum for the requested year (default: latest).
+    const curriculum = academicYear
+      ? (allCurricula ?? []).find((r: any) => r.academic_year === academicYear) ?? null
+      : (allCurricula ?? [])[0] ?? null;
+
+    if (!curriculum) {
+      return c.json({ curriculum: null, topics: [], availableYears });
+    }
+
+    // Fetch the full curriculum row + its topics.
+    const { data: fullRow } = await serviceRoleClient
+      .from("curriculum")
+      .select("*")
+      .eq("id", (curriculum as any).id)
+      .maybeSingle();
 
     const { data: topics, error: tErr } = await serviceRoleClient
       .from("curriculum_topic")
@@ -191,8 +226,134 @@ export function installCurriculum(school: Hono) {
     if (tErr) return c.json({ error: tErr.message }, 500);
 
     return c.json({
-      curriculum: curriculumToJson(curriculum),
+      curriculum: curriculumToJson(fullRow ?? curriculum),
       topics: (topics ?? []).map(topicToJson),
+      availableYears,
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // POST /school/class-subjects/:csId/curriculum/copy-from-year
+  // Body: { fromAcademicYear, toAcademicYear, title? }
+  // Clones all topics from the source year's curriculum into the target year.
+  // Creates the target curriculum if it doesn't exist. Existing topic names
+  // on the target (case-insensitive) are skipped so the call is idempotent.
+  // Copies leave completed=false so the new year starts fresh.
+  // ---------------------------------------------------------------------------
+  school.post("/class-subjects/:csId/curriculum/copy-from-year", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const csId = c.req.param("csId");
+    const ctx = await classSubjectOrgId(csId);
+    if (!ctx) return c.json({ error: "subject not found" }, 404);
+    if (!(await isPrincipalOrAdmin(userId, ctx.orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+
+    let body: any;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "invalid JSON body" }, 400);
+    }
+    const fromYear =
+      typeof body?.fromAcademicYear === "string" ? body.fromAcademicYear.trim() : "";
+    const toYear =
+      typeof body?.toAcademicYear === "string" ? body.toAcademicYear.trim() : "";
+    if (!fromYear || !toYear || fromYear === toYear) {
+      return c.json({ error: "fromAcademicYear and toAcademicYear must differ" }, 400);
+    }
+
+    // Load source curriculum + its topics.
+    const { data: source } = await serviceRoleClient
+      .from("curriculum")
+      .select("id, title, description")
+      .eq("class_subject_id", csId)
+      .eq("academic_year", fromYear)
+      .maybeSingle();
+    if (!source) {
+      return c.json({ error: "no curriculum found for fromAcademicYear" }, 404);
+    }
+    const { data: sourceTopics } = await serviceRoleClient
+      .from("curriculum_topic")
+      .select("name, description, target_date, display_order")
+      .eq("curriculum_id", (source as any).id)
+      .order("display_order", { ascending: true });
+
+    // Find-or-create the target curriculum.
+    let target: any = null;
+    {
+      const { data: existing } = await serviceRoleClient
+        .from("curriculum")
+        .select("id")
+        .eq("class_subject_id", csId)
+        .eq("academic_year", toYear)
+        .maybeSingle();
+      if (existing) {
+        target = existing;
+      } else {
+        const title =
+          typeof body?.title === "string" && body.title.trim().length > 0
+            ? body.title.trim()
+            : `${(source as any).title?.replace(fromYear, toYear) ?? `Curriculum ${toYear}`}`;
+        const { data: created, error: createErr } = await serviceRoleClient
+          .from("curriculum")
+          .insert({
+            org_id: ctx.orgId,
+            class_subject_id: csId,
+            academic_year: toYear,
+            title,
+            description: (source as any).description ?? null,
+            created_by: userId,
+          })
+          .select()
+          .single();
+        if (createErr) return c.json({ error: createErr.message }, 500);
+        target = created;
+      }
+    }
+
+    // Skip names already on the target (case-insensitive).
+    const { data: existingTopics } = await serviceRoleClient
+      .from("curriculum_topic")
+      .select("name, display_order")
+      .eq("curriculum_id", target.id);
+    const existingLower = new Set(
+      (existingTopics ?? []).map((r: any) => String(r.name).toLowerCase()),
+    );
+    const startOrder =
+      (existingTopics ?? []).reduce(
+        (m: number, r: any) => Math.max(m, r.display_order ?? 0),
+        -1,
+      ) + 1;
+
+    const rows = (sourceTopics ?? [])
+      .filter((r: any) => !existingLower.has(String(r.name).toLowerCase()))
+      .map((r: any, i: number) => ({
+        curriculum_id: target.id,
+        name: r.name,
+        description: r.description ?? null,
+        // Target dates from a prior year are meaningless in the new year —
+        // null them out so admin can set fresh dates if they want to.
+        target_date: null,
+        display_order: startOrder + i,
+        completed: false,
+      }));
+
+    let added = 0;
+    if (rows.length > 0) {
+      const { data: inserted, error } = await serviceRoleClient
+        .from("curriculum_topic")
+        .insert(rows)
+        .select();
+      if (error) return c.json({ error: error.message }, 500);
+      added = inserted?.length ?? 0;
+    }
+
+    return c.json({
+      added,
+      curriculumId: target.id,
+      skipped: (sourceTopics?.length ?? 0) - added,
     });
   });
 

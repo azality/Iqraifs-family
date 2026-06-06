@@ -325,15 +325,43 @@ export interface ClassCurriculum {
   updatedAt: string;
 }
 
+/** Lightweight descriptor for every academic year that has a curriculum
+ *  row for this subject. Returned alongside the requested year so the
+ *  frontend can offer "copy from {prior year}" without a second call. */
+export interface CurriculumYearSummary {
+  academicYear: string;
+  title: string;
+  topicCount: number;
+}
+
 export const getClassSubjectCurriculum = (
   classSubjectId: string,
   opts: { academicYear?: string } = {},
-): Promise<{ curriculum: ClassCurriculum | null; topics: ClassCurriculumTopic[] }> => {
+): Promise<{
+  curriculum: ClassCurriculum | null;
+  topics: ClassCurriculumTopic[];
+  /** All years that have a curriculum row for this subject, newest first.
+   *  Pre-rollout backends may omit this — treat as empty array if missing. */
+  availableYears?: CurriculumYearSummary[];
+}> => {
   const q = new URLSearchParams();
   if (opts.academicYear) q.append("academicYear", opts.academicYear);
   const qs = q.toString() ? `?${q}` : "";
   return apiCall(`/school/class-subjects/${classSubjectId}/curriculum${qs}`);
 };
+
+/** Copy all topics from one academic year's curriculum to another year's.
+ *  Creates the target year's curriculum row if it doesn't already exist.
+ *  Existing topic names on the target (case-insensitive) are skipped, so
+ *  re-running the copy is safe. Copies start with completed=false. */
+export const copyCurriculumFromYear = (
+  classSubjectId: string,
+  body: { fromAcademicYear: string; toAcademicYear: string; title?: string },
+): Promise<{ added: number; skipped: number; curriculumId: string }> =>
+  apiCall(`/school/class-subjects/${classSubjectId}/curriculum/copy-from-year`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 
 export const createClassCurriculum = (
   classSubjectId: string,
