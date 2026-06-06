@@ -166,6 +166,14 @@ function lessonToJson(r: any) {
     id: r.id,
     orgId: r.org_id,
     sectionId: r.class_section_id,
+    // Phase 2: subject + topic FKs.
+    sectionSubjectId: r.section_subject_id ?? null,
+    curriculumTopicId: r.curriculum_topic_id ?? null,
+    // Phase 4b: hydrated display fields when nested-selected by the
+    // caller (list endpoint sets these; single-fetch leaves them null).
+    subjectName: (r as any).subject_name ?? null,
+    topicName: (r as any).topic_name ?? null,
+    topicResources: (r as any).topic_resources ?? [],
     lessonDate: r.lesson_date,
     title: r.title,
     body: r.body,
@@ -425,9 +433,15 @@ export function installPortal(school: Hono): void {
     const sectionId = (stu as any)?.class_section_id ?? null;
     if (!sectionId) return c.json({ lessons: [] });
 
+    // Phase 4b: hydrate subject + topic + the topic's durable resources
+    // so the parent / student portal can group lessons by subject and
+    // show worksheets/videos/quizzes inline on each lesson card. Mirrors
+    // the staff-side endpoint in schoolPhaseC.tsx.
     let q = serviceRoleClient
       .from("lesson")
-      .select("*")
+      .select(
+        "*, section_subject:section_subject_id(class_subject:class_subject_id(name)), curriculum_topic:curriculum_topic_id(name, topic_resource(id, kind, label, url, sort_order, archived_at))",
+      )
       .eq("class_section_id", sectionId)
       .order("lesson_date", { ascending: false })
       .order("created_at", { ascending: false })
@@ -437,7 +451,24 @@ export function installPortal(school: Hono): void {
 
     const { data, error } = await q;
     if (error) return c.json({ error: error.message }, 500);
-    const lessons = (data ?? []) as any[];
+    const lessons = ((data ?? []) as any[]).map((r) => {
+      const rawResources = (r.curriculum_topic?.topic_resource ?? []) as any[];
+      const topic_resources = rawResources
+        .filter((tr) => !tr.archived_at)
+        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+        .map((tr) => ({
+          id: tr.id,
+          kind: tr.kind,
+          label: tr.label,
+          url: tr.url,
+        }));
+      return {
+        ...r,
+        subject_name: r.section_subject?.class_subject?.name ?? null,
+        topic_name: r.curriculum_topic?.name ?? null,
+        topic_resources,
+      };
+    });
 
     // Lookup completion flags for this student across these lessons.
     const lessonIds = lessons.map((l) => l.id);
@@ -489,10 +520,12 @@ export function installPortal(school: Hono): void {
       limit = Math.floor(n);
     }
 
+    // Phase 4b: pull subject + topic alongside so the parent portal can
+    // group grades by subject.
     const { data, error } = await serviceRoleClient
       .from("grade")
       .select(
-        "*, assignment:assignment_id(id, title, kind, max_score, weight, due_date, assigned_date, class_section_id, related_topic)",
+        "*, assignment:assignment_id(id, title, kind, max_score, weight, due_date, assigned_date, class_section_id, related_topic, section_subject_id, curriculum_topic_id, section_subject:section_subject_id(class_subject:class_subject_id(name)), curriculum_topic:curriculum_topic_id(name))",
       )
       .eq("student_id", studentId)
       .order("graded_at", { ascending: false, nullsFirst: false })
@@ -524,6 +557,11 @@ export function installPortal(school: Hono): void {
             assignedDate: r.assignment.assigned_date,
             sectionId: r.assignment.class_section_id,
             relatedTopic: r.assignment.related_topic,
+            // Phase 4b: subject + topic for parent-portal grouping.
+            sectionSubjectId: r.assignment.section_subject_id ?? null,
+            curriculumTopicId: r.assignment.curriculum_topic_id ?? null,
+            subjectName: r.assignment.section_subject?.class_subject?.name ?? null,
+            topicName: r.assignment.curriculum_topic?.name ?? null,
           }
         : null,
     }));
