@@ -31,6 +31,7 @@ import { installDashboard } from "./schoolDashboard.tsx";
 import { installSubjects } from "./schoolSubjects.tsx";
 import { installCurriculum } from "./schoolCurriculum.tsx";
 import { installAcademics } from "./schoolAcademics.tsx";
+import { installOffice } from "./schoolOffice.tsx";
 import { installPortal } from "./schoolPortal.tsx";
 import { installAnnounce } from "./schoolAnnounce.tsx";
 import { verifyPinToken } from "./schoolPhaseA.tsx";
@@ -2964,6 +2965,12 @@ installCurriculum(school);
 // (curriculum coverage, resources tally, subjects-at-risk) — Phase 6a.
 // -----------------------------------------------------------------------------
 installAcademics(school);
+
+// -----------------------------------------------------------------------------
+// Office-staff snapshot (roster requests, missing parent contacts,
+// attendance gaps, pending invites) — Phase 6c.
+// -----------------------------------------------------------------------------
+installOffice(school);
 
 // -----------------------------------------------------------------------------
 // Dashboard aggregate routes (school-at-a-glance, leaderboard, insights)

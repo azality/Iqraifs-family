@@ -25,6 +25,7 @@ import {
 } from "../../../utils/schoolApi";
 import { PerformanceDashboard } from "./PerformanceDashboard";
 import { TeacherHome } from "./TeacherHome";
+import { OfficeStaffHome } from "./OfficeStaffHome";
 
 export function SchoolHomeRouter() {
   const { orgId = "" } = useParams();
@@ -63,7 +64,7 @@ export function SchoolHomeRouter() {
   }
 
   if (role === "office_staff") {
-    return <Navigate to={`/school/orgs/${orgId}/admin/students`} replace />;
+    return <OfficeStaffHome />;
   }
 
   if (role === "financial_staff") {
