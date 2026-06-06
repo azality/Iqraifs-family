@@ -100,6 +100,37 @@ export interface PinLoginResponse {
   token: string;
 }
 
+// Public org-branding lookup so PortalLogin can swap the generic
+// "Iqra Academy" header for the actual school's name + logo + motto
+// before sign-in. Returns null when slug is empty or no match.
+export interface PortalOrgBranding {
+  id: string;
+  name: string;
+  slug: string;
+  logoUrl: string | null;
+  themeColor: string | null;
+  motto: string | null;
+}
+
+export async function getOrgBySlug(
+  slug: string,
+): Promise<PortalOrgBranding | null> {
+  const trimmed = slug.trim();
+  if (!trimmed) return null;
+  const res = await fetch(
+    `${API_BASE}/school/auth/org-by-slug?slug=${encodeURIComponent(trimmed)}`,
+    {
+      headers: {
+        apikey: publicAnonKey,
+        Authorization: `Bearer ${publicAnonKey}`,
+      },
+    },
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) return null;
+  return res.json();
+}
+
 export async function pinLogin(body: PinLoginBody): Promise<PinLoginResponse> {
   const res = await fetch(`${API_BASE}/school/auth/pin-login`, {
     method: "POST",

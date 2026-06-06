@@ -46,6 +46,9 @@ const PUBLIC_SCHOOL_PATHS = new Set<string>([
   "/auth/pin-login",
   // pin-change carries its own X-Pin-Token; the handler verifies it.
   "/auth/pin-change",
+  // Public org-branding lookup so PortalLogin can render the school's
+  // name + logo + motto before sign-in. Returns nothing sensitive.
+  "/auth/org-by-slug",
 ]);
 
 // Tail patterns that may be authenticated via X-Pin-Token (parent subject)

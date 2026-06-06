@@ -1692,6 +1692,31 @@ export function installPhaseA(school: Hono) {
     return c.json({ ok: true });
   });
 
+  // Public lookup so PortalLogin can render the school's name + logo +
+  // motto before any sign-in. Mounted on a NO-AUTH path via the
+  // PUBLIC_SCHOOL_PATHS allowlist in school.tsx. Returns nothing
+  // sensitive — name, slug, logo URL, theme color, motto only.
+  school.get("/auth/org-by-slug", async (c) => {
+    const slug = c.req.query("slug")?.trim();
+    if (!slug) return c.json({ error: "slug required" }, 400);
+    const { data } = await serviceRoleClient
+      .from("organizations")
+      .select("id, name, slug, settings")
+      .eq("slug", slug)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (!data) return c.json({ error: "organization not found" }, 404);
+    const settings = ((data as any).settings ?? {}) as Record<string, unknown>;
+    return c.json({
+      id: (data as any).id,
+      name: (data as any).name,
+      slug: (data as any).slug,
+      logoUrl: (settings.logo_url as string | undefined) ?? null,
+      themeColor: (settings.theme_color as string | undefined) ?? null,
+      motto: (settings.school_motto as string | undefined) ?? null,
+    });
+  });
+
   // NOTE: /auth/pin-login is mounted on a NO-AUTH path — see school.tsx
   // mounting glue. We define the handler here and the wrapper there
   // registers it in a way that skips the requireAuth middleware.

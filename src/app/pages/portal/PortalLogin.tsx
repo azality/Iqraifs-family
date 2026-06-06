@@ -1,13 +1,17 @@
 // PortalLogin — entry point for student & parent PIN sign-in.
 // Route: /school-login
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { GraduationCap } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { usePinAuth } from "../../contexts/PinAuthContext";
 import { LanguageDropdown } from "../../components/LanguageDropdown";
-import type { PinSubjectType } from "../../../utils/schoolPortalApi";
+import {
+  getOrgBySlug,
+  type PinSubjectType,
+  type PortalOrgBranding,
+} from "../../../utils/schoolPortalApi";
 
 function friendlyError(raw: string): string {
   const m = raw.toLowerCase();
@@ -32,6 +36,33 @@ export function PortalLogin() {
   const [pin, setPin] = useState<string>("");
   const [busy, setBusy] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  // Live org-branding lookup: as the user types the school code, we fetch
+  // (debounced) the org's name, logo, and motto so the header swaps from
+  // the generic "Iqra Academy" to the actual school. Null means either
+  // empty input or no match — we fall back to the generic title.
+  const [branding, setBranding] = useState<PortalOrgBranding | null>(null);
+
+  useEffect(() => {
+    const slug = orgIdentifier.trim();
+    if (!slug) {
+      setBranding(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      getOrgBySlug(slug)
+        .then((b) => {
+          if (!cancelled) setBranding(b);
+        })
+        .catch(() => {
+          if (!cancelled) setBranding(null);
+        });
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [orgIdentifier]);
 
   const idLabel = subjectType === "student" ? t("portal.grNumber") : t("portal.phone");
 
@@ -61,11 +92,21 @@ export function PortalLogin() {
             <LanguageDropdown />
           </div>
           <div className="flex items-center gap-3">
-            <GraduationCap className="h-8 w-8 text-indigo-300" />
-            <h1 className="text-2xl font-semibold">{t("portal.schoolName")}</h1>
+            {branding?.logoUrl ? (
+              <img
+                src={branding.logoUrl}
+                alt=""
+                className="h-9 w-9 rounded object-cover ring-1 ring-white/20"
+              />
+            ) : (
+              <GraduationCap className="h-8 w-8 text-indigo-300" />
+            )}
+            <h1 className="text-2xl font-semibold">
+              {branding?.name ?? t("portal.schoolName")}
+            </h1>
           </div>
           <p className="mt-2 text-indigo-200 text-sm max-w-xl">
-            {t("portal.loginIntro")}
+            {branding?.motto ?? t("portal.loginIntro")}
           </p>
         </div>
       </div>
