@@ -163,6 +163,14 @@ function assignmentToJson(r: any) {
     id: r.id,
     orgId: r.org_id,
     sectionId: r.class_section_id,
+    // Phase 3 — subject + topic FKs and denormalised display names. The
+    // denorm fields are populated by the list endpoint via nested select;
+    // single-row fetches set them to undefined and the frontend either
+    // refetches the list or treats undefined as "unknown".
+    sectionSubjectId: r.section_subject_id ?? null,
+    curriculumTopicId: r.curriculum_topic_id ?? null,
+    subjectName: (r as any).subject_name ?? undefined,
+    topicName: (r as any).topic_name ?? undefined,
     title: r.title,
     kind: r.kind,
     description: r.description,
@@ -239,11 +247,43 @@ export function installPhaseC2(school: Hono): void {
     const gate = await requireTeacherOfSection(userId, orgId, sectionId, section.org_id);
     if (!gate.ok) return c.json({ error: gate.error }, gate.status);
 
+    // Phase 3 — optional subject + topic. Validates that the subject
+    // belongs to THIS section and the topic belongs to THAT subject's
+    // syllabus, so a teacher can't mis-tag an assignment.
+    let sectionSubjectId: string | null = null;
+    let curriculumTopicId: string | null = null;
+    if (typeof body?.sectionSubjectId === "string" && body.sectionSubjectId.length > 0) {
+      const { data: ss } = await serviceRoleClient
+        .from("section_subject")
+        .select("id, class_section_id, class_subject_id")
+        .eq("id", body.sectionSubjectId)
+        .maybeSingle();
+      if (!ss || (ss as any).class_section_id !== sectionId) {
+        return c.json({ error: "sectionSubjectId does not belong to this section" }, 400);
+      }
+      sectionSubjectId = (ss as any).id;
+
+      if (typeof body?.curriculumTopicId === "string" && body.curriculumTopicId.length > 0) {
+        const { data: topic } = await serviceRoleClient
+          .from("curriculum_topic")
+          .select("id, curriculum:curriculum_id(class_subject_id)")
+          .eq("id", body.curriculumTopicId)
+          .maybeSingle();
+        const topicSubjectId = (topic as any)?.curriculum?.class_subject_id;
+        if (!topic || topicSubjectId !== (ss as any).class_subject_id) {
+          return c.json({ error: "curriculumTopicId does not belong to this subject" }, 400);
+        }
+        curriculumTopicId = (topic as any).id;
+      }
+    }
+
     const { data: ins, error: insErr } = await serviceRoleClient
       .from("assignment")
       .insert({
         org_id: orgId,
         class_section_id: sectionId,
+        section_subject_id: sectionSubjectId,
+        curriculum_topic_id: curriculumTopicId,
         title: body.title.trim(),
         kind: body.kind,
         description: body.description ?? null,
@@ -291,22 +331,34 @@ export function installPhaseC2(school: Hono): void {
       return c.json({ error: "forbidden" }, 403);
     }
 
+    const subjectFilter = c.req.query("subjectId");
     let q = serviceRoleClient
       .from("assignment")
-      .select("*")
+      // Phase 3: nested select so the list endpoint hydrates subject + topic
+      // names without N follow-up round-trips.
+      .select(
+        "*, section_subject:section_subject_id(class_subject:class_subject_id(name)), curriculum_topic:curriculum_topic_id(name)",
+      )
       .eq("class_section_id", sectionId)
       .order("assigned_date", { ascending: false })
       .limit(limit);
     if (startDate) q = q.gte("assigned_date", startDate);
     if (endDate) q = q.lte("assigned_date", endDate);
     if (kind) q = q.eq("kind", kind);
+    if (subjectFilter) q = q.eq("section_subject_id", subjectFilter);
 
     const { data, error } = await q;
     if (error) return c.json({ error: error.message }, 500);
 
+    const hydrated = ((data ?? []) as any[]).map((r) => ({
+      ...r,
+      subject_name: r.section_subject?.class_subject?.name ?? null,
+      topic_name: r.curriculum_topic?.name ?? null,
+    }));
+
     return c.json({
       sectionId,
-      assignments: (data ?? []).map(assignmentToJson),
+      assignments: hydrated.map(assignmentToJson),
     });
   });
 
@@ -326,7 +378,8 @@ export function installPhaseC2(school: Hono): void {
     const { data, error } = await serviceRoleClient
       .from("assignment")
       .select(
-        "*, class_section:class_section_id(id, name, class_id, class:class_id(id, name, grade_level))",
+        // Phase 3: pull subject + topic names alongside section context.
+        "*, class_section:class_section_id(id, name, class_id, class:class_id(id, name, grade_level)), section_subject:section_subject_id(class_subject:class_subject_id(name)), curriculum_topic:curriculum_topic_id(name)",
       )
       .eq("id", assignmentId)
       .maybeSingle();
@@ -337,8 +390,13 @@ export function installPhaseC2(school: Hono): void {
     }
 
     const cs = (data as any).class_section;
+    const enriched = {
+      ...(data as any),
+      subject_name: (data as any).section_subject?.class_subject?.name ?? null,
+      topic_name: (data as any).curriculum_topic?.name ?? null,
+    };
     return c.json({
-      assignment: assignmentToJson(data),
+      assignment: assignmentToJson(enriched),
       section: cs
         ? {
             id: cs.id,
@@ -415,6 +473,50 @@ export function installPhaseC2(school: Hono): void {
       update.due_date = body.dueDate;
     }
     if (body.relatedTopic !== undefined) update.related_topic = body.relatedTopic ?? null;
+    // Phase 3 — subject + topic re-tagging with cross-validation.
+    if ("sectionSubjectId" in body) {
+      if (body.sectionSubjectId === null) {
+        update.section_subject_id = null;
+        update.curriculum_topic_id = null; // can't keep topic without subject
+      } else if (typeof body.sectionSubjectId === "string") {
+        const { data: ss } = await serviceRoleClient
+          .from("section_subject")
+          .select("id, class_section_id")
+          .eq("id", body.sectionSubjectId)
+          .maybeSingle();
+        if (!ss || (ss as any).class_section_id !== existing.class_section_id) {
+          return c.json({ error: "sectionSubjectId does not belong to this assignment's section" }, 400);
+        }
+        update.section_subject_id = body.sectionSubjectId;
+      }
+    }
+    if ("curriculumTopicId" in body) {
+      if (body.curriculumTopicId === null) {
+        update.curriculum_topic_id = null;
+      } else if (typeof body.curriculumTopicId === "string") {
+        const targetSubjectId =
+          (update.section_subject_id as string | null | undefined) ??
+          existing.section_subject_id ??
+          null;
+        if (!targetSubjectId) {
+          return c.json({ error: "set a subject before tagging a topic" }, 400);
+        }
+        const { data: ss } = await serviceRoleClient
+          .from("section_subject")
+          .select("class_subject_id")
+          .eq("id", targetSubjectId)
+          .maybeSingle();
+        const { data: topic } = await serviceRoleClient
+          .from("curriculum_topic")
+          .select("id, curriculum:curriculum_id(class_subject_id)")
+          .eq("id", body.curriculumTopicId)
+          .maybeSingle();
+        if (!topic || (topic as any).curriculum?.class_subject_id !== (ss as any)?.class_subject_id) {
+          return c.json({ error: "topic does not belong to this subject" }, 400);
+        }
+        update.curriculum_topic_id = body.curriculumTopicId;
+      }
+    }
 
     if (Object.keys(update).length === 0) {
       return c.json({ error: "no updatable fields supplied" }, 400);
@@ -909,16 +1011,26 @@ export function installPhaseC2(school: Hono): void {
     const gate = await requireTeacherOfSection(userId, orgId, sectionId, section.org_id);
     if (!gate.ok) return c.json({ error: gate.error }, gate.status);
 
-    // Assignments for the section
+    // Assignments for the section. Phase 3: pull subject + topic names
+    // alongside so the gradebook can offer subject filtering.
+    const subjectFilter = c.req.query("subjectId");
     let aq = serviceRoleClient
       .from("assignment")
-      .select("*")
+      .select(
+        "*, section_subject:section_subject_id(class_subject:class_subject_id(name)), curriculum_topic:curriculum_topic_id(name)",
+      )
       .eq("class_section_id", sectionId)
       .order("assigned_date", { ascending: false });
     if (startDate) aq = aq.gte("assigned_date", startDate);
     if (endDate) aq = aq.lte("assigned_date", endDate);
-    const { data: assignments, error: aErr } = await aq;
+    if (subjectFilter) aq = aq.eq("section_subject_id", subjectFilter);
+    const { data: assignmentRows, error: aErr } = await aq;
     if (aErr) return c.json({ error: aErr.message }, 500);
+    const assignments = ((assignmentRows ?? []) as any[]).map((r) => ({
+      ...r,
+      subject_name: r.section_subject?.class_subject?.name ?? null,
+      topic_name: r.curriculum_topic?.name ?? null,
+    }));
 
     // Students in the section
     const { data: students, error: sErr } = await serviceRoleClient

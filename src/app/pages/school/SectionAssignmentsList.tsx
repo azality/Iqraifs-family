@@ -34,11 +34,14 @@ import {
   getSchoolMe,
   getSectionAssignments,
   isOrgAdmin,
+  listSectionSubjects,
   type Assignment,
   type AssignmentKind,
   type GradeEntry,
   type SchoolMeResponse,
+  type SectionSubject,
 } from "../../../utils/schoolApi";
+import { BookOpen, ListChecks } from "lucide-react";
 
 const KIND_LABELS: Record<AssignmentKind, string> = {
   quiz: "Quiz",
@@ -74,6 +77,9 @@ export function SectionAssignmentsList() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<AssignmentKind | "all">("all");
+  // Phase 3: subject filter chip row. Empty string = all subjects.
+  const [subjectFilter, setSubjectFilter] = useState<string>("");
+  const [subjects, setSubjects] = useState<SectionSubject[]>([]);
   // per-assignment grade summary cache: { graded, total, avgPct }
   const [summary, setSummary] = useState<Record<string, { graded: number; total: number; avgPct: number | null }>>({});
 
@@ -84,7 +90,10 @@ export function SectionAssignmentsList() {
   const load = () => {
     if (!orgId || !sectionId) return;
     setLoading(true);
-    getSectionAssignments(orgId, sectionId, { limit: 100 })
+    getSectionAssignments(orgId, sectionId, {
+      limit: 100,
+      subjectId: subjectFilter || undefined,
+    })
       .then((r) => setAssignments(r.assignments))
       .catch((e) => setError(e?.message || "Failed to load assignments"))
       .finally(() => setLoading(false));
@@ -93,7 +102,15 @@ export function SectionAssignmentsList() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orgId, sectionId]);
+  }, [orgId, sectionId, subjectFilter]);
+
+  // Phase 3: subjects for the filter chip row.
+  useEffect(() => {
+    if (!sectionId) return;
+    listSectionSubjects(sectionId)
+      .then((r) => setSubjects(r.subjects))
+      .catch(() => setSubjects([]));
+  }, [sectionId]);
 
   // Fetch grade summaries lazily for visible assignments.
   useEffect(() => {
@@ -158,9 +175,28 @@ export function SectionAssignmentsList() {
       key: "title",
       header: "Title",
       cell: (a) => (
-        <Link to={`/school/orgs/${orgId}/assignments/${a.id}`} className="font-medium hover:underline">
-          {a.title}
-        </Link>
+        <div className="min-w-0">
+          <Link to={`/school/orgs/${orgId}/assignments/${a.id}`} className="font-medium hover:underline">
+            {a.title}
+          </Link>
+          {/* Phase 3: subject + topic badges. Hidden when nothing tagged. */}
+          {(a.subjectName || a.topicName) && (
+            <div className="mt-0.5 flex flex-wrap items-center gap-1">
+              {a.subjectName && (
+                <span className="inline-flex items-center gap-0.5 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 ring-1 ring-indigo-200">
+                  <BookOpen className="h-2.5 w-2.5" />
+                  {a.subjectName}
+                </span>
+              )}
+              {a.topicName && (
+                <span className="inline-flex items-center gap-0.5 rounded-full bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-700 ring-1 ring-violet-200">
+                  <ListChecks className="h-2.5 w-2.5" />
+                  {a.topicName}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
       ),
     },
     { key: "kind", header: "Kind", cell: (a) => <KindChip kind={a.kind} /> },
@@ -261,6 +297,44 @@ export function SectionAssignmentsList() {
           </SelectContent>
         </Select>
       </div>
+
+      {/* Phase 3: subject filter chips. Hidden until subjects exist on
+          this section so legacy sections don't show an empty row. */}
+      {subjects.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-xs text-slate-500 mr-1">Subject:</span>
+          <button
+            type="button"
+            onClick={() => setSubjectFilter("")}
+            className={
+              "rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 " +
+              (subjectFilter === ""
+                ? "bg-indigo-600 text-white ring-indigo-600"
+                : "bg-white text-slate-700 ring-slate-200 hover:bg-slate-50")
+            }
+          >
+            All
+          </button>
+          {subjects.map((s) => {
+            const active = subjectFilter === s.id;
+            return (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => setSubjectFilter(s.id)}
+                className={
+                  "rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 " +
+                  (active
+                    ? "bg-indigo-600 text-white ring-indigo-600"
+                    : "bg-white text-slate-700 ring-slate-200 hover:bg-slate-50")
+                }
+              >
+                {s.name}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {error && (
         <div className="text-sm text-rose-600 flex items-center gap-1">

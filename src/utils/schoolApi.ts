@@ -1869,6 +1869,13 @@ export interface Assignment {
   id: string;
   org_id: string;
   class_section_id: string;
+  /** Phase 3: which subject in the section this assignment belongs to. */
+  sectionSubjectId?: string | null;
+  /** Phase 3: which curriculum topic the assignment maps to. */
+  curriculumTopicId?: string | null;
+  /** Denormalised display fields populated by list / detail endpoints. */
+  subjectName?: string | null;
+  topicName?: string | null;
   title: string;
   kind: AssignmentKind;
   description: string | null;
@@ -1891,6 +1898,10 @@ export interface AssignmentInput {
   weight?: number;
   dueDate?: string;
   relatedTopic?: string;
+  /** Phase 3: required to make subject/topic visible on the feed; null clears on PATCH. */
+  sectionSubjectId?: string | null;
+  /** Phase 3: optional curriculum topic. */
+  curriculumTopicId?: string | null;
 }
 
 export type GradeStatus = "graded" | "missing" | "excused" | "late";
@@ -1947,13 +1958,21 @@ export const postAssignment = (
 export const getSectionAssignments = (
   orgId: string,
   sectionId: string,
-  opts: { startDate?: string; endDate?: string; kind?: AssignmentKind; limit?: number } = {},
+  opts: {
+    startDate?: string;
+    endDate?: string;
+    kind?: AssignmentKind;
+    limit?: number;
+    /** Phase 3: filter to a single subject in this section. */
+    subjectId?: string;
+  } = {},
 ): Promise<{ assignments: Assignment[] }> => {
   const q = new URLSearchParams();
   if (opts.startDate) q.append("startDate", opts.startDate);
   if (opts.endDate) q.append("endDate", opts.endDate);
   if (opts.kind) q.append("kind", opts.kind);
   if (opts.limit) q.append("limit", String(opts.limit));
+  if (opts.subjectId) q.append("subjectId", opts.subjectId);
   const qs = q.toString() ? `?${q}` : "";
   return apiCall(`/school/orgs/${orgId}/sections/${sectionId}/assignments${qs}`);
 };
@@ -2031,11 +2050,12 @@ export const getStudentGradesSummary = (
 export const getSectionGradebook = (
   orgId: string,
   sectionId: string,
-  opts: { startDate?: string; endDate?: string } = {},
+  opts: { startDate?: string; endDate?: string; subjectId?: string } = {},
 ): Promise<GradebookResponse> => {
   const q = new URLSearchParams();
   if (opts.startDate) q.append("startDate", opts.startDate);
   if (opts.endDate) q.append("endDate", opts.endDate);
+  if (opts.subjectId) q.append("subjectId", opts.subjectId);
   const qs = q.toString() ? `?${q}` : "";
   return apiCall(`/school/orgs/${orgId}/sections/${sectionId}/gradebook${qs}`);
 };
