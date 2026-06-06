@@ -300,6 +300,107 @@ export const deleteClassSubject = (
 ): Promise<{ ok: true }> =>
   apiCall(`/school/class-subjects/${classSubjectId}`, { method: "DELETE" });
 
+// --- Curriculum per (class_subject, academic_year) — Phase 1D ---------------
+
+export interface ClassCurriculumTopic {
+  id: string;
+  curriculumId: string;
+  name: string;
+  description: string | null;
+  displayOrder: number;
+  targetDate: string | null;
+  completed: boolean;
+  createdAt: string;
+}
+
+export interface ClassCurriculum {
+  id: string;
+  orgId: string;
+  classSubjectId: string;
+  academicYear: string;
+  title: string;
+  description: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const getClassSubjectCurriculum = (
+  classSubjectId: string,
+  opts: { academicYear?: string } = {},
+): Promise<{ curriculum: ClassCurriculum | null; topics: ClassCurriculumTopic[] }> => {
+  const q = new URLSearchParams();
+  if (opts.academicYear) q.append("academicYear", opts.academicYear);
+  const qs = q.toString() ? `?${q}` : "";
+  return apiCall(`/school/class-subjects/${classSubjectId}/curriculum${qs}`);
+};
+
+export const createClassCurriculum = (
+  classSubjectId: string,
+  body: { academicYear: string; title?: string; description?: string },
+): Promise<{ curriculum: ClassCurriculum }> =>
+  apiCall(`/school/class-subjects/${classSubjectId}/curriculum`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const updateClassCurriculum = (
+  curriculumId: string,
+  body: Partial<{ title: string; description: string | null }>,
+): Promise<{ curriculum: ClassCurriculum }> =>
+  apiCall(`/school/class-curriculum/${curriculumId}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+
+export const deleteClassCurriculum = (
+  curriculumId: string,
+): Promise<{ ok: true }> =>
+  apiCall(`/school/class-curriculum/${curriculumId}`, { method: "DELETE" });
+
+export const addClassCurriculumTopic = (
+  curriculumId: string,
+  body: {
+    name: string;
+    description?: string;
+    targetDate?: string | null;
+    displayOrder?: number;
+  },
+): Promise<{ topic: ClassCurriculumTopic }> =>
+  apiCall(`/school/class-curriculum/${curriculumId}/topics`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const updateClassCurriculumTopic = (
+  topicId: string,
+  body: Partial<{
+    name: string;
+    description: string | null;
+    targetDate: string | null;
+    displayOrder: number;
+    completed: boolean;
+  }>,
+): Promise<{ topic: ClassCurriculumTopic }> =>
+  apiCall(`/school/curriculum-topics/${topicId}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+
+export const deleteClassCurriculumTopic = (
+  topicId: string,
+): Promise<{ ok: true }> =>
+  apiCall(`/school/curriculum-topics/${topicId}`, { method: "DELETE" });
+
+export const reorderClassCurriculumTopics = (
+  curriculumId: string,
+  orderedIds: string[],
+): Promise<{ ok: true }> =>
+  apiCall(`/school/class-curriculum/${curriculumId}/topics/reorder`, {
+    method: "POST",
+    body: JSON.stringify({ orderedIds }),
+  });
+
 // --- Section-level (read for all; teacher PATCH for admins) ------------------
 export const listSectionSubjects = (
   sectionId: string,

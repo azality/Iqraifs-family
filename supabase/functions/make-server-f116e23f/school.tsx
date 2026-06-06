@@ -29,6 +29,7 @@ import { installPhaseC2 } from "./schoolPhaseC2.tsx";
 import { installPhaseCD } from "./schoolPhaseCD.tsx";
 import { installDashboard } from "./schoolDashboard.tsx";
 import { installSubjects } from "./schoolSubjects.tsx";
+import { installCurriculum } from "./schoolCurriculum.tsx";
 import { installPortal } from "./schoolPortal.tsx";
 import { installAnnounce } from "./schoolAnnounce.tsx";
 import { verifyPinToken } from "./schoolPhaseA.tsx";
@@ -2951,6 +2952,11 @@ installPhaseCD(school);
 // thread subject_id into lesson, assignment, gradebook).
 // -----------------------------------------------------------------------------
 installSubjects(school);
+
+// -----------------------------------------------------------------------------
+// Curriculum per (class_subject, academic year) — Phase 1D.
+// -----------------------------------------------------------------------------
+installCurriculum(school);
 
 // -----------------------------------------------------------------------------
 // Dashboard aggregate routes (school-at-a-glance, leaderboard, insights)
