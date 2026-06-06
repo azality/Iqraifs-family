@@ -28,12 +28,16 @@ import {
   getClassSubjectCurriculum,
   createClassCurriculum,
   addClassCurriculumTopic,
+  bulkAddClassCurriculumTopics,
   updateClassCurriculumTopic,
   deleteClassCurriculumTopic,
   reorderClassCurriculumTopics,
   type ClassCurriculum,
   type ClassCurriculumTopic,
 } from "../../../../utils/schoolApi";
+import { templateForSubject } from "./curriculumTemplates";
+import { Textarea } from "../../../components/ui/textarea";
+import { Sparkles, Library } from "lucide-react";
 
 interface Props {
   classSubjectId: string;
@@ -69,10 +73,14 @@ export function SubjectCurriculumPanel({
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // Add-topic form
+  // Add-topic form (single)
   const [adding, setAdding] = useState(false);
   const [draftName, setDraftName] = useState("");
   const [draftTargetDate, setDraftTargetDate] = useState("");
+
+  // Bulk-add — paste many topics at once, one per line.
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkText, setBulkText] = useState("");
 
   // Inline rename
   const [editingTopicId, setEditingTopicId] = useState<string | null>(null);
@@ -163,6 +171,58 @@ export function SubjectCurriculumPanel({
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleBulkAdd = async (sourceText?: string) => {
+    const source = (sourceText ?? bulkText).trim();
+    if (!source) {
+      toast.error("Paste at least one topic per line");
+      return;
+    }
+    const names = source
+      .split(/\r?\n/)
+      .map((line) => line.replace(/^[\s\-\*\d\.\)]+/, "").trim()) // strip bullets / "1." prefixes
+      .filter((line) => line.length > 0);
+    if (names.length === 0) {
+      toast.error("No topics found in the text");
+      return;
+    }
+    setSaving(true);
+    try {
+      const c = await ensureCurriculum();
+      if (!c) return;
+      const r = await bulkAddClassCurriculumTopics(c.id, names);
+      const skipped = names.length - r.added;
+      toast.success(
+        skipped > 0
+          ? `Added ${r.added} topic${r.added === 1 ? "" : "s"} · ${skipped} skipped as duplicates`
+          : `Added ${r.added} topic${r.added === 1 ? "" : "s"}`,
+      );
+      setBulkText("");
+      setBulkOpen(false);
+      refresh();
+    } catch (e: any) {
+      toast.error(e?.message || "Could not add topics");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleApplyTemplate = async () => {
+    const tpl = templateForSubject(subjectName);
+    if (!tpl) {
+      // No matching template — open the bulk dialog with empty text so the
+      // admin can paste their own. Surfaced as a toast hint so they know
+      // why the template button didn't pre-fill anything.
+      toast("No standard template for this subject yet — paste your own list below.");
+      setBulkText("");
+      setBulkOpen(true);
+      return;
+    }
+    // Two-step: prefill the textarea so the admin can edit before saving.
+    // (Most schools want to nudge a topic name or two before committing.)
+    setBulkText(tpl.topics.join("\n"));
+    setBulkOpen(true);
   };
 
   const handleDeleteTopic = async (t: ClassCurriculumTopic) => {
@@ -435,17 +495,100 @@ export function SubjectCurriculumPanel({
                 </div>
               )}
 
-              {/* Add button (admins only) */}
-              {canManage && !adding && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setAdding(true)}
-                  className="mt-2"
-                  disabled={saving}
-                >
-                  <Plus className="mr-1 h-3.5 w-3.5" /> Add topic
-                </Button>
+              {/* Bulk-add panel — admins paste many topics at once. Auto-
+                  opened by 'Use standard template'; can also be opened
+                  manually via 'Paste many'. */}
+              {canManage && bulkOpen && (
+                <div className="mt-3 rounded-md border border-dashed border-violet-300 bg-violet-50/40 p-3">
+                  <p className="mb-2 text-xs text-slate-600">
+                    One topic per line. Numbering and bullets are stripped
+                    automatically. Duplicates against existing topics are
+                    skipped.
+                  </p>
+                  <Textarea
+                    value={bulkText}
+                    onChange={(e) => setBulkText(e.target.value)}
+                    rows={8}
+                    placeholder={
+                      "Place value\nFractions\nDecimals\nGeometry\n…"
+                    }
+                    className="text-sm font-mono"
+                    autoFocus
+                  />
+                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-[10px] text-slate-500">
+                      {
+                        bulkText
+                          .split(/\r?\n/)
+                          .map((s) => s.trim())
+                          .filter(Boolean).length
+                      }{" "}
+                      topic
+                      {bulkText
+                        .split(/\r?\n/)
+                        .map((s) => s.trim())
+                        .filter(Boolean).length === 1
+                        ? ""
+                        : "s"}{" "}
+                      ready to add
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setBulkOpen(false);
+                          setBulkText("");
+                        }}
+                        disabled={saving}
+                      >
+                        <X className="mr-1 h-3.5 w-3.5" /> Cancel
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => handleBulkAdd()}
+                        disabled={saving || !bulkText.trim()}
+                      >
+                        <Check className="mr-1 h-3.5 w-3.5" />
+                        Add all
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Action buttons (admins only) */}
+              {canManage && !adding && !bulkOpen && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    onClick={handleApplyTemplate}
+                    disabled={saving}
+                  >
+                    <Sparkles className="mr-1 h-3.5 w-3.5" />
+                    Use standard template
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setBulkText("");
+                      setBulkOpen(true);
+                    }}
+                    disabled={saving}
+                  >
+                    <Library className="mr-1 h-3.5 w-3.5" />
+                    Paste many
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setAdding(true)}
+                    disabled={saving}
+                  >
+                    <Plus className="mr-1 h-3.5 w-3.5" /> Add one
+                  </Button>
+                </div>
               )}
             </>
           )}
