@@ -63,6 +63,9 @@ export function LessonForm() {
   const [sectionSubjectId, setSectionSubjectId] = useState<string>("");
   const [curriculumTopicId, setCurriculumTopicId] = useState<string>("");
   const [markTopicCompleted, setMarkTopicCompleted] = useState(false);
+  // Phase 7 visibility: 'auto' (no override; defaults by date), 'now',
+  // 'on_date', or 'hidden'. Sent as `visibility` on submit when not auto.
+  const [visibility, setVisibility] = useState<"auto" | "now" | "on_date" | "hidden">("auto");
   const [subjects, setSubjects] = useState<SectionSubject[]>([]);
   const [topics, setTopics] = useState<ClassCurriculumTopic[]>([]);
   const [topicsLoading, setTopicsLoading] = useState(false);
@@ -81,6 +84,17 @@ export function LessonForm() {
         setResolvedSectionId(l.class_section_id);
         setSectionSubjectId(l.sectionSubjectId ?? "");
         setCurriculumTopicId(l.curriculumTopicId ?? "");
+        // Phase 7: derive current visibility from publishedAt + lesson_date.
+        if (l.publishedAt) {
+          const pub = new Date(l.publishedAt).getTime();
+          const farFuture = new Date("2100-01-01").getTime();
+          if (pub > farFuture) setVisibility("hidden");
+          else if (pub <= Date.now()) setVisibility("now");
+          else setVisibility("on_date");
+        } else {
+          // null = auto-publish on the lesson date.
+          setVisibility("on_date");
+        }
       })
       .catch((e) => setError(e?.message || "Failed to load lesson"))
       .finally(() => setLoading(false));
@@ -129,6 +143,10 @@ export function LessonForm() {
       sectionSubjectId: sectionSubjectId || null,
       curriculumTopicId: curriculumTopicId || null,
       markTopicCompleted: !editMode && !!curriculumTopicId && markTopicCompleted,
+      // Phase 7: only send visibility when the teacher made a choice.
+      // 'auto' lets the backend pick: now if lesson_date <= today, else
+      // on_date (auto-visible when the date arrives).
+      visibility: visibility === "auto" ? undefined : visibility,
     };
     setSubmitting(true);
     try {
@@ -267,16 +285,49 @@ export function LessonForm() {
               </div>
             </div>
 
-            <div className="space-y-1">
-              <Label htmlFor="date">Lesson date</Label>
-              <Input
-                id="date"
-                type="date"
-                value={lessonDate}
-                min={daysAgoIso(14)}
-                max={todayIso()}
-                onChange={(e) => setLessonDate(e.target.value)}
-              />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <Label htmlFor="date">Lesson date</Label>
+                <Input
+                  id="date"
+                  type="date"
+                  value={lessonDate}
+                  min={daysAgoIso(14)}
+                  // Phase 7: allow future dates so teachers can plan ahead.
+                  max={daysAgoIso(-60)}
+                  onChange={(e) => setLessonDate(e.target.value)}
+                />
+              </div>
+
+              {/* Phase 7: visibility selector. The default ('auto') publishes
+                  immediately for today/past, and waits until the date arrives
+                  for future-dated lessons. Teachers can override either way. */}
+              <div className="space-y-1">
+                <Label htmlFor="visibility">Visibility</Label>
+                <select
+                  id="visibility"
+                  value={visibility}
+                  onChange={(e) =>
+                    setVisibility(e.target.value as typeof visibility)
+                  }
+                  className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+                >
+                  <option value="auto">
+                    Auto · {lessonDate <= todayIso()
+                      ? "publish now"
+                      : "publish on lesson date"}
+                  </option>
+                  <option value="now">Publish to students now</option>
+                  <option value="on_date">
+                    Publish on lesson date ({lessonDate})
+                  </option>
+                  <option value="hidden">Keep hidden — draft</option>
+                </select>
+                <p className="text-[10px] text-slate-500">
+                  Students only see published lessons. You can change this
+                  any time.
+                </p>
+              </div>
             </div>
 
             <div className="space-y-1">
