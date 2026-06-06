@@ -372,6 +372,20 @@ export const addClassCurriculumTopic = (
     body: JSON.stringify(body),
   });
 
+/**
+ * Bulk-create topics from a list of names. Names that already exist
+ * (case-insensitive vs current topics on this curriculum) are silently
+ * skipped — re-applying a template is idempotent.
+ */
+export const bulkAddClassCurriculumTopics = (
+  curriculumId: string,
+  names: string[],
+): Promise<{ added: number; topics: ClassCurriculumTopic[] }> =>
+  apiCall(`/school/class-curriculum/${curriculumId}/topics/bulk`, {
+    method: "POST",
+    body: JSON.stringify({ names }),
+  });
+
 export const updateClassCurriculumTopic = (
   topicId: string,
   body: Partial<{

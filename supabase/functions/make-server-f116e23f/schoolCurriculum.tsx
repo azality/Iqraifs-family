@@ -380,6 +380,85 @@ export function installCurriculum(school: Hono) {
   });
 
   // ---------------------------------------------------------------------------
+  // POST /school/class-curriculum/:id/topics/bulk
+  // Body: { names: string[] }  — one topic per name, appended to the end in order.
+  // Empty / duplicate (vs existing) / blank names are silently skipped.
+  // Returns: { added: number, topics: ClassCurriculumTopic[] (all topics post-insert) }
+  // ---------------------------------------------------------------------------
+  school.post("/class-curriculum/:id/topics/bulk", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const curriculumId = c.req.param("id");
+    const ctx = await curriculumOrgId(curriculumId);
+    if (!ctx) return c.json({ error: "curriculum not found" }, 404);
+    if (!(await isPrincipalOrAdmin(userId, ctx.orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+
+    let body: any;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "invalid JSON body" }, 400);
+    }
+    const rawNames: unknown = body?.names;
+    if (!Array.isArray(rawNames)) {
+      return c.json({ error: "names must be an array of strings" }, 400);
+    }
+    // Normalise: trim, drop blanks, cap at 100 topics per call, cap each name length.
+    const cleaned = (rawNames as unknown[])
+      .filter((x): x is string => typeof x === "string")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0 && s.length <= 200)
+      .slice(0, 100);
+    if (cleaned.length === 0) {
+      return c.json({ added: 0, topics: [] }, 200);
+    }
+
+    // Skip names that already exist (case-insensitive) so re-applying a
+    // template is idempotent.
+    const { data: existing } = await serviceRoleClient
+      .from("curriculum_topic")
+      .select("name, display_order")
+      .eq("curriculum_id", curriculumId);
+    const existingLower = new Set(
+      (existing ?? []).map((r: any) => String(r.name).toLowerCase()),
+    );
+    const startOrder =
+      (existing ?? []).reduce(
+        (m: number, r: any) => Math.max(m, r.display_order ?? 0),
+        -1,
+      ) + 1;
+
+    const rows = cleaned
+      .filter((n) => !existingLower.has(n.toLowerCase()))
+      .map((name, i) => ({
+        curriculum_id: curriculumId,
+        name,
+        description: null as string | null,
+        target_date: null as string | null,
+        display_order: startOrder + i,
+      }));
+    if (rows.length === 0) {
+      return c.json({ added: 0, topics: [] });
+    }
+
+    const { data: inserted, error } = await serviceRoleClient
+      .from("curriculum_topic")
+      .insert(rows)
+      .select();
+    if (error) return c.json({ error: error.message }, 500);
+
+    return c.json(
+      {
+        added: inserted?.length ?? 0,
+        topics: (inserted ?? []).map(topicToJson),
+      },
+      201,
+    );
+  });
+
+  // ---------------------------------------------------------------------------
   // PATCH /school/curriculum-topics/:id
   // ---------------------------------------------------------------------------
   school.patch("/curriculum-topics/:id", async (c) => {
