@@ -12,6 +12,14 @@
 //   - ~40 behavior events (mix positive / concern)
 //   - ~60 Hifz progress entries (grades 4-5 heavier)
 //   - Fee status rows for the current month (mix paid / unpaid)
+//   - 6 subjects per grade (Math/English/Urdu/Science/Islamiat/Quran),
+//     each with: a per-section teacher (Quran → visiting teacher Sheikh,
+//     others → that grade's class teacher), a 6-8 topic curriculum for
+//     the current academic year, topic resources on the first topic of
+//     each subject (worksheet + video + quiz samples), ~3 tagged daily
+//     lessons across the past 2 weeks, 2 tagged assignments (one graded,
+//     one due in 5-10 days), and grades for the past assignment across
+//     every student in the section.
 //
 // All staff accounts share one password printed at the end. All student
 // and parent PINs are printed too. The principal is YOUR existing
@@ -503,6 +511,387 @@ for (const r of rosterReqs) {
 }
 console.log(`  ✓ ${rosterCount} pending roster change requests`);
 
+// ─── Subjects, curriculum, topic resources (Phase 5) ──────────────────
+// Each grade gets the same 6 subjects (template trimmed to 6-8 topics per
+// subject to keep seed runtime manageable). First topic of each subject
+// gets a worksheet + a video + a quiz so the demo flows show all three
+// resource kinds. Teachers are assigned to subjects mirroring real
+// schools: class teacher for most, visiting teacher (Sheikh) takes Quran.
+
+const ctZaraIdSeed = staffByKey.get("ct_zara")!.userId;
+const ctHinaIdSeed = staffByKey.get("ct_hina")!.userId;
+const vtSheikhId = staffByKey.get("vt_sheikh")!.userId;
+
+// Coarse Pakistani academic-year heuristic (April-start). Same logic as
+// the SubjectCurriculumPanel default so the demo lands on the same year
+// the year-selector picks by default.
+const seedNow = new Date();
+const seedYearStart =
+  seedNow.getUTCMonth() >= 3 ? seedNow.getUTCFullYear() : seedNow.getUTCFullYear() - 1;
+const ACADEMIC_YEAR = `${seedYearStart}-${((seedYearStart + 1) % 100)
+  .toString()
+  .padStart(2, "0")}`;
+
+interface SubjectSpec {
+  name: string;
+  /** topic names in syllabus order */
+  topics: string[];
+  /** resources to attach to the FIRST topic only (variety demo) */
+  firstTopicResources: Array<{
+    kind: "pdf" | "video" | "worksheet" | "link" | "quiz";
+    label: string;
+    url: string;
+  }>;
+}
+
+const SUBJECT_SPECS: SubjectSpec[] = [
+  {
+    name: "Math",
+    topics: [
+      "Numbers and place value",
+      "Addition and subtraction",
+      "Multiplication tables",
+      "Fractions",
+      "Decimals",
+      "Geometry — 2D shapes",
+      "Measurement",
+      "Word problems",
+    ],
+    firstTopicResources: [
+      { kind: "worksheet", label: "Place value practice", url: "https://www.k5learning.com/free-math-worksheets/fourth-grade-4/place-value/build-numbers-from-parts" },
+      { kind: "video",     label: "Place value explained", url: "https://www.youtube.com/watch?v=q3O2_jbgK_M" },
+      { kind: "quiz",      label: "End-of-topic quiz",     url: "https://forms.gle/example-math" },
+    ],
+  },
+  {
+    name: "English",
+    topics: [
+      "Nouns and pronouns",
+      "Verbs — tense basics",
+      "Adjectives and adverbs",
+      "Articles and prepositions",
+      "Reading comprehension",
+      "Creative writing",
+    ],
+    firstTopicResources: [
+      { kind: "worksheet", label: "Nouns worksheet",       url: "https://www.k5learning.com/free-grammar-worksheets" },
+      { kind: "video",     label: "Common vs proper nouns", url: "https://www.youtube.com/watch?v=NkuuZEey_bs" },
+    ],
+  },
+  {
+    name: "Urdu",
+    topics: [
+      "Huroof aur awaazein",
+      "Jumla saazi",
+      "Ism, fail, sifat",
+      "Wahid aur jama",
+      "Muhavare",
+      "Insha nigari",
+    ],
+    firstTopicResources: [
+      { kind: "pdf",       label: "Huroof chart",          url: "https://www.pakurdupoint.com/learn-urdu-alphabets.pdf" },
+      { kind: "video",     label: "Awaazein parhna",       url: "https://www.youtube.com/watch?v=wTSlmiyibUw" },
+    ],
+  },
+  {
+    name: "Science",
+    topics: [
+      "Living and non-living",
+      "Plants",
+      "Animals and habitats",
+      "Human body",
+      "States of matter",
+      "Earth and weather",
+    ],
+    firstTopicResources: [
+      { kind: "video",     label: "Living vs non-living",   url: "https://www.youtube.com/watch?v=p51FiPO2_kQ" },
+      { kind: "quiz",      label: "Quick check",            url: "https://forms.gle/example-sci" },
+    ],
+  },
+  {
+    name: "Islamiat",
+    topics: [
+      "Iman aur Aqeeda",
+      "Arkan-e-Islam",
+      "Wuzu aur Tahaarat",
+      "Salah ka tareeqa",
+      "Sirat-un-Nabi ﷺ",
+      "Akhlaq",
+    ],
+    firstTopicResources: [
+      { kind: "pdf",       label: "Iman aur Aqeeda notes",  url: "https://example.com/islamiat-iman.pdf" },
+    ],
+  },
+  {
+    name: "Quran",
+    topics: [
+      "Qaida — huroof and harakat",
+      "Madd letters and rules",
+      "Tanween and sukoon",
+      "Surah Al-Fatihah",
+      "Last 10 surahs of Juz Amma",
+      "Tajweed — Idgham and Ikhfa",
+    ],
+    firstTopicResources: [
+      { kind: "video",     label: "Qaida — huroof",         url: "https://www.youtube.com/watch?v=8yTttBJlT9Q" },
+      { kind: "worksheet", label: "Harakat practice",       url: "https://example.com/qaida-harakat.pdf" },
+    ],
+  },
+];
+
+// Build, per grade, the section_subject rows + curriculum + topics + resources
+// + a handful of tagged lessons + tagged assignments + grades.
+interface SeededSubject {
+  classSubjectId: string;
+  sectionSubjectId: string;
+  subjectName: string;
+  grade: number;
+  sectionId: string;
+  teacherUserId: string;
+  topicIds: string[];
+}
+
+const seededSubjects: SeededSubject[] = [];
+let cs_count = 0;
+let ss_count = 0;
+let cur_count = 0;
+let topic_count = 0;
+let resource_count = 0;
+
+for (const grade of [1, 2, 3, 4, 5]) {
+  const classRow = classesByGrade.get(grade)!;
+  for (const spec of SUBJECT_SPECS) {
+    // class_subject (the template at the class level)
+    const { data: cs, error: csErr } = await sb
+      .from("class_subject")
+      .insert({
+        org_id: orgId,
+        class_id: classRow.classId,
+        name: spec.name,
+        sort_order: SUBJECT_SPECS.findIndex((x) => x.name === spec.name),
+        created_by: principalId,
+      })
+      .select()
+      .single();
+    if (csErr) {
+      console.error(`class_subject insert failed (${spec.name} grade ${grade}):`, csErr.message);
+      continue;
+    }
+    cs_count++;
+
+    // teacher_user_id per subject:
+    //   Quran → Sheikh (visiting teacher) for every grade
+    //   Everything else → that grade's class teacher (Zara/Hina) when set,
+    //   else Zara as default so all subjects render with a teacher in the demo.
+    const teacherUserId =
+      spec.name === "Quran"
+        ? vtSheikhId
+        : grade === 5
+        ? ctHinaIdSeed
+        : grade === 3
+        ? ctZaraIdSeed
+        : ctZaraIdSeed; // grades 1,2,4 — use Zara as a stand-in subject teacher
+
+    // section_subject (per-section teacher assignment)
+    const { data: ss, error: ssErr } = await sb
+      .from("section_subject")
+      .insert({
+        org_id: orgId,
+        class_section_id: classRow.sectionId,
+        class_subject_id: cs!.id,
+        name: spec.name, // legacy denorm column
+        teacher_user_id: teacherUserId,
+        sort_order: SUBJECT_SPECS.findIndex((x) => x.name === spec.name),
+        created_by: principalId,
+      })
+      .select()
+      .single();
+    if (ssErr) {
+      console.error(`section_subject insert failed (${spec.name} grade ${grade}):`, ssErr.message);
+      continue;
+    }
+    ss_count++;
+
+    // curriculum row for current academic year
+    const { data: cur, error: curErr } = await sb
+      .from("curriculum")
+      .insert({
+        org_id: orgId,
+        class_subject_id: cs!.id,
+        academic_year: ACADEMIC_YEAR,
+        title: `${spec.name} · ${ACADEMIC_YEAR}`,
+        description: null,
+        created_by: principalId,
+      })
+      .select()
+      .single();
+    if (curErr) {
+      console.error(`curriculum insert failed (${spec.name} grade ${grade}):`, curErr.message);
+      continue;
+    }
+    cur_count++;
+
+    // curriculum_topic rows. Mark first 2 topics completed for Math/English
+    // so progress bars are non-zero in the demo.
+    const topicIds: string[] = [];
+    for (let ti = 0; ti < spec.topics.length; ti++) {
+      const completed =
+        (spec.name === "Math" || spec.name === "English") && ti < 2;
+      const { data: t, error: tErr } = await sb
+        .from("curriculum_topic")
+        .insert({
+          curriculum_id: cur!.id,
+          name: spec.topics[ti],
+          description: null,
+          display_order: ti,
+          target_date: null,
+          completed,
+        })
+        .select()
+        .single();
+      if (tErr) {
+        console.error(`topic insert failed:`, tErr.message);
+        continue;
+      }
+      topicIds.push(t!.id);
+      topic_count++;
+    }
+
+    // topic_resource rows for first topic only (showcases all kinds).
+    if (topicIds.length > 0) {
+      for (let ri = 0; ri < spec.firstTopicResources.length; ri++) {
+        const r = spec.firstTopicResources[ri];
+        const { error: rErr } = await sb.from("topic_resource").insert({
+          org_id: orgId,
+          curriculum_topic_id: topicIds[0],
+          kind: r.kind,
+          label: r.label,
+          url: r.url,
+          description: null,
+          sort_order: ri,
+          added_by: principalId,
+        });
+        if (!rErr) resource_count++;
+        else console.error(`topic_resource insert failed:`, rErr.message);
+      }
+    }
+
+    seededSubjects.push({
+      classSubjectId: cs!.id,
+      sectionSubjectId: ss!.id,
+      subjectName: spec.name,
+      grade,
+      sectionId: classRow.sectionId,
+      teacherUserId,
+      topicIds,
+    });
+  }
+}
+console.log(`  ✓ ${cs_count} class_subjects, ${ss_count} section_subjects (per-section teacher), ${cur_count} curricula, ${topic_count} topics, ${resource_count} topic resources`);
+
+// ─── Tagged lessons + assignments + grades (Phase 5) ──────────────────
+// Per section_subject we generate ~3 lessons (last 2 weeks) and 2
+// assignments (one in past, one due soon), each tagged to a topic. Grades
+// for the past assignment so the parent portal subject groups have real
+// numbers to show.
+
+const KINDS = ["quiz", "test", "homework", "project"] as const;
+let lesson_count = 0;
+let assignment_count = 0;
+let grade_count = 0;
+
+for (const sub of seededSubjects) {
+  // Skip subjects with no topics — we want every lesson/assignment tagged.
+  if (sub.topicIds.length === 0) continue;
+
+  // 3 lessons across last 14 days, tagged to topics in rotation.
+  for (let lIdx = 0; lIdx < 3; lIdx++) {
+    const topicId = sub.topicIds[lIdx % sub.topicIds.length];
+    const lessonDate = isoDate(daysAgo(randomInt(1, 14)));
+    const { error: lErr } = await sb.from("lesson").insert({
+      org_id: orgId,
+      class_section_id: sub.sectionId,
+      section_subject_id: sub.sectionSubjectId,
+      curriculum_topic_id: topicId,
+      lesson_date: lessonDate,
+      title: `${sub.subjectName}: lesson ${lIdx + 1}`,
+      body: `Today's class covered the topic in depth with practice problems.`,
+      video_url: null,
+      audio_url: null,
+      attachments: [],
+      taught_by: sub.teacherUserId,
+    });
+    if (!lErr) lesson_count++;
+    else console.error(`lesson insert failed:`, lErr.message);
+  }
+
+  // 2 assignments: one in the past (graded), one due soon.
+  const pastKind = randomChoice([...KINDS]);
+  const pastDue = daysAgo(randomInt(3, 10));
+  const { data: a1, error: a1Err } = await sb
+    .from("assignment")
+    .insert({
+      org_id: orgId,
+      class_section_id: sub.sectionId,
+      section_subject_id: sub.sectionSubjectId,
+      curriculum_topic_id: sub.topicIds[0],
+      title: `${sub.subjectName} ${pastKind}`,
+      kind: pastKind,
+      description: null,
+      max_score: 20,
+      weight: 1.0,
+      assigned_date: isoDate(daysAgo(14)),
+      due_date: isoDate(pastDue),
+      related_topic: null,
+      created_by: sub.teacherUserId,
+    })
+    .select()
+    .single();
+  if (!a1Err && a1) {
+    assignment_count++;
+    // Grade every student in this section on the past assignment.
+    for (const stu of studentsByGrade[sub.grade]) {
+      // Pakistani-style: average ~70-80%, with variance.
+      const score = randomInt(10, 19);
+      const { error: gErr } = await sb.from("grade").insert({
+        org_id: orgId,
+        assignment_id: a1.id,
+        student_id: stu.id,
+        score,
+        status: "graded",
+        feedback: score >= 16 ? "Well done." : score >= 12 ? "Good effort." : "Needs revision.",
+        graded_by: sub.teacherUserId,
+        graded_at: daysAgo(randomInt(1, 5)).toISOString(),
+      });
+      if (!gErr) grade_count++;
+    }
+  } else if (a1Err) {
+    console.error(`assignment insert failed:`, a1Err.message);
+  }
+
+  // Future assignment (ungraded; due in 5-10 days)
+  const futureKind = randomChoice([...KINDS]);
+  const futureTopic = sub.topicIds[1 % sub.topicIds.length];
+  const { error: a2Err } = await sb.from("assignment").insert({
+    org_id: orgId,
+    class_section_id: sub.sectionId,
+    section_subject_id: sub.sectionSubjectId,
+    curriculum_topic_id: futureTopic,
+    title: `${sub.subjectName} ${futureKind} — upcoming`,
+    kind: futureKind,
+    description: null,
+    max_score: 25,
+    weight: 1.0,
+    assigned_date: isoDate(daysAgo(2)),
+    due_date: isoDate(daysAgo(-randomInt(5, 10))),
+    related_topic: null,
+    created_by: sub.teacherUserId,
+  });
+  if (!a2Err) assignment_count++;
+  else console.error(`assignment (future) insert failed:`, a2Err.message);
+}
+console.log(`  ✓ ${lesson_count} tagged lessons, ${assignment_count} tagged assignments, ${grade_count} grades`);
+
 // ─── Summary ────────────────────────────────────────────────────────────
 console.log(`
 ═══════════════════════════════════════════════════════════════════════════
@@ -543,6 +932,12 @@ ${[1,2,3,4,5].map((g) =>
    - ${hifzCount} hifz progress entries (grades 3-5)
    - ${feeCount} fee status rows (current + prior month)
    - ${rosterCount} pending roster change requests
+   - ${cs_count} class subjects (Math/English/Urdu/Science/Islamiat/Quran per grade)
+   - ${ss_count} per-section teacher assignments (Quran → Sheikh, others → class teacher)
+   - ${cur_count} curricula for ${ACADEMIC_YEAR} with ${topic_count} topics
+   - ${resource_count} topic resources (worksheet / video / quiz / PDF samples)
+   - ${lesson_count} tagged lessons + ${assignment_count} tagged assignments
+   - ${grade_count} grades across past assignments (avg ~70-80%)
 
 🧹 CLEANUP
    When done: log in as principal → Settings → Danger Zone → Delete school.
