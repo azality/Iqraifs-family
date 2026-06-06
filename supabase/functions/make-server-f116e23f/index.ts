@@ -160,7 +160,7 @@ app.use("/*", async (c, next) => {
       headers: {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization, authorization, x-client-info, apikey, X-Supabase-Auth, x-supabase-auth",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization, authorization, x-client-info, apikey, X-Supabase-Auth, x-supabase-auth, X-Pin-Token, x-pin-token",
         "Access-Control-Max-Age": "600",
         "Access-Control-Expose-Headers": "Content-Length, Content-Type",
         "Vary": "Origin"
@@ -174,7 +174,7 @@ app.use("/*", async (c, next) => {
   // Then add CORS headers to the response
   c.res.headers.set("Access-Control-Allow-Origin", "*");
   c.res.headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
-  c.res.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, authorization, x-client-info, apikey, X-Supabase-Auth, x-supabase-auth");
+  c.res.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, authorization, x-client-info, apikey, X-Supabase-Auth, x-supabase-auth, X-Pin-Token, x-pin-token");
   c.res.headers.set("Access-Control-Expose-Headers", "Content-Length, Content-Type");
   c.res.headers.set("Vary", "Origin");
 });

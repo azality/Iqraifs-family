@@ -1732,12 +1732,43 @@ export function installPhaseA(school: Hono) {
       .from("organizations").select("id").eq("slug", orgIdentifier).maybeSingle();
     if (!org) return c.json({ error: "organization not found" }, 404);
 
-    const { data: cred } = await serviceRoleClient
-      .from("pin_credential")
-      .select("*")
-      .eq("org_id", org.id)
-      .eq("login_identifier", loginIdentifier)
-      .maybeSingle();
+    // Try the identifier exactly as supplied first; fall back to a
+    // whitespace-stripped variant. Parent phones in the demo seed were
+    // stored as '+92 300 1001001' but most users type '+923001001001'
+    // — we want both to work. Student GR numbers (IDA-001) have no
+    // spaces so the first lookup wins for them.
+    const identifierCandidates = [loginIdentifier];
+    const stripped = String(loginIdentifier).replace(/\s+/g, "");
+    if (stripped !== loginIdentifier) identifierCandidates.push(stripped);
+
+    let cred: any = null;
+    for (const candidate of identifierCandidates) {
+      const { data } = await serviceRoleClient
+        .from("pin_credential")
+        .select("*")
+        .eq("org_id", org.id)
+        .eq("login_identifier", candidate)
+        .maybeSingle();
+      if (data) {
+        cred = data;
+        break;
+      }
+    }
+    // Final fallback: scan org-scoped credentials and match by
+    // normalised identifier (strip all whitespace on both sides).
+    // Slow but only fires when the exact-match path fails — fine for
+    // demo orgs with < 100 credentials.
+    if (!cred) {
+      const { data: all } = await serviceRoleClient
+        .from("pin_credential")
+        .select("*")
+        .eq("org_id", org.id);
+      const wanted = stripped;
+      cred =
+        (all ?? []).find(
+          (r: any) => String(r.login_identifier).replace(/\s+/g, "") === wanted,
+        ) ?? null;
+    }
     if (!cred) return c.json({ error: "invalid credentials" }, 401);
 
     if (cred.locked_until && new Date(cred.locked_until).getTime() > Date.now()) {
