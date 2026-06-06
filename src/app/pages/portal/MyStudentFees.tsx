@@ -95,13 +95,21 @@ export function MyStudentFees() {
       key: "due",
       header: "Amount due",
       align: "right",
-      cell: (f) => <span className="tabular-nums">{f.amount_due ?? "—"}</span>,
+      cell: (f) => (
+        <span className="tabular-nums">
+          {f.amount_due != null ? `Rs. ${Number(f.amount_due).toLocaleString("en-PK")}` : "—"}
+        </span>
+      ),
     },
     {
       key: "paid",
       header: "Amount paid",
       align: "right",
-      cell: (f) => <span className="tabular-nums">{f.amount_paid ?? "—"}</span>,
+      cell: (f) => (
+        <span className="tabular-nums">
+          {f.amount_paid != null ? `Rs. ${Number(f.amount_paid).toLocaleString("en-PK")}` : "—"}
+        </span>
+      ),
     },
     {
       key: "dueDate",
@@ -163,15 +171,15 @@ export function MyStudentFees() {
           variant="light"
           label="Total due"
           icon={Wallet}
-          value={summary.totalDue}
-          hint="amount"
+          value={`Rs. ${summary.totalDue.toLocaleString("en-PK")}`}
+          hint="across all periods"
         />
         <KpiTile
           variant="light"
           label="Total paid"
           icon={Clock}
-          value={summary.totalPaid}
-          hint="amount"
+          value={`Rs. ${summary.totalPaid.toLocaleString("en-PK")}`}
+          hint="across all periods"
         />
       </div>
 
