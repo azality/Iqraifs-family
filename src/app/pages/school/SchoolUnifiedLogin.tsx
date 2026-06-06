@@ -109,6 +109,14 @@ export function SchoolUnifiedLogin() {
           (data.user.user_metadata as any)?.name || identifier,
           identifier,
         );
+        // CRITICAL persistence race: signInWithPassword resolves as soon
+        // as the token comes back from Supabase, but the JS client writes
+        // the session to localStorage asynchronously. If we hard-reload
+        // immediately, the next page's INITIAL_SESSION event fires with
+        // no session → AuthContext clears in-memory auth → ProtectedRoute
+        // sends the user to /welcome. ParentLogin solves the same race
+        // with a 500ms wait; we use 600 to be safe across slower devices.
+        await new Promise((r) => setTimeout(r, 600));
         // Hard navigation — SchoolUnifiedLogin lives outside
         // ProvidersLayout, so AuthContext isn't mounted here. A full
         // reload remounts the provider tree with the fresh Supabase
