@@ -898,6 +898,45 @@ export interface AcademicsResponse {
 export const getOrgAcademics = (orgId: string): Promise<AcademicsResponse> =>
   apiCall(`/school/orgs/${orgId}/academics`);
 
+// ─── Phase 6c: office staff snapshot ───────────────────────────────────
+
+export interface OfficeSnapshot {
+  rosterRequests: {
+    pendingCount: number;
+    recent: Array<{
+      id: string;
+      kind: string;
+      reason: string | null;
+      createdAt: string;
+      className: string | null;
+      sectionName: string | null;
+    }>;
+  };
+  missingParents: {
+    count: number;
+    recent: Array<{
+      studentId: string;
+      fullName: string;
+      grNumber: string | null;
+      className: string | null;
+      sectionName: string | null;
+    }>;
+  };
+  attendanceGaps: {
+    count: number;
+    recent: Array<{
+      sectionId: string;
+      className: string | null;
+      sectionName: string;
+    }>;
+  };
+  pendingInvitesCount: number;
+  studentCount: number;
+}
+
+export const getOfficeSnapshot = (orgId: string): Promise<OfficeSnapshot> =>
+  apiCall(`/school/orgs/${orgId}/office-snapshot`);
+
 // ─── Org-scoped role helper ────────────────────────────────────────────
 
 /** True if the user has a principal role on this specific org. */
