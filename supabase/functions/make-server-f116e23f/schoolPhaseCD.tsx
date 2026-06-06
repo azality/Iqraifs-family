@@ -889,9 +889,13 @@ export function installPhaseCD(school: Hono): void {
     return c.json({
       fees: rows.map((r: any) => ({
         ...feeToJson(r),
-        studentName: r.student?.full_name ?? null,
-        grNumber: r.student?.gr_number ?? null,
-        sectionId: r.student?.class_section_id ?? null,
+        // Hydrated display fields. Snake_case to match the rest of the
+        // FeeStatus payload + the frontend type — was previously camelCase
+        // and the table on FeesOverview showed UUIDs because student_name
+        // resolved undefined.
+        student_name: r.student?.full_name ?? null,
+        gr_number: r.student?.gr_number ?? null,
+        section_id: r.student?.class_section_id ?? null,
       })),
     });
   });
