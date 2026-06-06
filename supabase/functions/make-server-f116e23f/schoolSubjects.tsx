@@ -245,6 +245,244 @@ export function installSubjects(school: Hono) {
   });
 
   // ---------------------------------------------------------------------------
+  // GET /school/me/teacher-snapshot
+  // Phase 6b: TeacherHome polish data. Computes:
+  //   - topicsDueSoon: not-yet-completed topics whose target_date is in
+  //     the next 14 days, scoped to the latest curriculum for each
+  //     subject the caller teaches
+  //   - untaggedLessons: lessons I (taught_by) authored in the last 30
+  //     days that have no section_subject_id set
+  //   - assignmentsToGrade: assignments I created where due_date is
+  //     past and at least one student in the section has no graded row
+  //   - recentGradesGiven: last 10 grade rows I (graded_by) authored
+  //
+  // All scoped to the caller. Used by TeacherHome — class teachers and
+  // visiting teachers benefit equally.
+  // ---------------------------------------------------------------------------
+  school.get("/me/teacher-snapshot", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+
+    // First: which section_subjects does this user teach? Reuses the
+    // helper from the section-subjects endpoint.
+    const mySubjects = await loadMySectionSubjects(userId);
+
+    // ────────────────────────────────────────────────────────────────────
+    // Topics due soon: walk each subject I teach, find its latest
+    // curriculum, fetch not-completed topics whose target_date is within
+    // the next 14 days. Capped at 8 rows for the widget.
+    // ────────────────────────────────────────────────────────────────────
+    const now = new Date();
+    const horizon = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+    const horizonIso = horizon.toISOString().slice(0, 10);
+    const nowIso = now.toISOString().slice(0, 10);
+
+    const classSubjectIds = Array.from(
+      new Set(mySubjects.map((s: any) => s.classSubjectId).filter(Boolean)),
+    );
+    const topicsDueSoon: Array<{
+      topicId: string;
+      topicName: string;
+      classSubjectId: string;
+      subjectName: string;
+      className: string | null;
+      sectionId: string;
+      targetDate: string;
+    }> = [];
+    if (classSubjectIds.length > 0) {
+      // Find latest curriculum per class_subject (one query, dedupe
+      // newest-first the same way we do elsewhere).
+      const { data: curricula } = await serviceRoleClient
+        .from("curriculum")
+        .select("id, class_subject_id, academic_year")
+        .in("class_subject_id", classSubjectIds)
+        .order("academic_year", { ascending: false });
+      const latestByClassSubject = new Map<string, string>();
+      for (const c of (curricula ?? []) as any[]) {
+        if (!latestByClassSubject.has(c.class_subject_id)) {
+          latestByClassSubject.set(c.class_subject_id, c.id);
+        }
+      }
+      const curIds = Array.from(latestByClassSubject.values());
+      if (curIds.length > 0) {
+        const { data: topics } = await serviceRoleClient
+          .from("curriculum_topic")
+          .select("id, name, target_date, completed, curriculum_id")
+          .in("curriculum_id", curIds)
+          .eq("completed", false)
+          .not("target_date", "is", null)
+          .gte("target_date", nowIso)
+          .lte("target_date", horizonIso)
+          .order("target_date", { ascending: true })
+          .limit(8);
+        for (const t of (topics ?? []) as any[]) {
+          // Reverse lookup: which class_subject is this curriculum for?
+          let classSubjectId = "";
+          for (const [csId, cid] of latestByClassSubject.entries()) {
+            if (cid === t.curriculum_id) {
+              classSubjectId = csId;
+              break;
+            }
+          }
+          // Find the section_subject row(s) for this class_subject so we
+          // can link straight to the curriculum panel. Use the first one
+          // — multiple sections of the same grade share the curriculum,
+          // and the user will land in the right curriculum either way.
+          const subject = mySubjects.find(
+            (s: any) => s.classSubjectId === classSubjectId,
+          ) as any;
+          topicsDueSoon.push({
+            topicId: t.id,
+            topicName: t.name,
+            classSubjectId,
+            subjectName: subject?.subjectName ?? "Subject",
+            className: subject?.className ?? null,
+            sectionId: subject?.classSectionId ?? "",
+            targetDate: t.target_date,
+          });
+        }
+      }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // Untagged lessons: lessons authored by me in the last 30 days that
+    // have no section_subject_id.
+    // ────────────────────────────────────────────────────────────────────
+    const cutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const cutoffIso = cutoff.toISOString().slice(0, 10);
+    const { data: untaggedRows, count: untaggedCount } = await serviceRoleClient
+      .from("lesson")
+      .select(
+        "id, title, lesson_date, class_section_id, class_section:class_section_id(name, class:class_id(name))",
+        { count: "exact" },
+      )
+      .eq("taught_by", userId)
+      .gte("lesson_date", cutoffIso)
+      .is("section_subject_id", null)
+      .order("lesson_date", { ascending: false })
+      .limit(5);
+    const untaggedLessons = (untaggedRows ?? []).map((r: any) => ({
+      lessonId: r.id,
+      title: r.title,
+      lessonDate: r.lesson_date,
+      classSectionId: r.class_section_id,
+      sectionName: r.class_section?.name ?? null,
+      className: r.class_section?.class?.name ?? null,
+    }));
+
+    // ────────────────────────────────────────────────────────────────────
+    // Assignments to grade: assignments I created where due_date is
+    // past and at least one enrolled student doesn't have a grade row.
+    //
+    // Implementation: for each "past due" assignment I created, count
+    // (a) graded rows for that assignment, (b) section roster size.
+    // If graded < roster, surface the gap.
+    // ────────────────────────────────────────────────────────────────────
+    const todayIso = now.toISOString().slice(0, 10);
+    const { data: myAssignments } = await serviceRoleClient
+      .from("assignment")
+      .select(
+        "id, title, due_date, class_section_id, max_score, section_subject:section_subject_id(class_subject:class_subject_id(name))",
+      )
+      .eq("created_by", userId)
+      .not("due_date", "is", null)
+      .lte("due_date", todayIso)
+      .order("due_date", { ascending: false })
+      .limit(30);
+
+    const assignmentsToGrade: Array<{
+      assignmentId: string;
+      title: string;
+      subjectName: string | null;
+      classSectionId: string;
+      dueDate: string;
+      maxScore: number;
+      missingCount: number;
+      rosterSize: number;
+    }> = [];
+    if (myAssignments && myAssignments.length > 0) {
+      const aIds = myAssignments.map((r: any) => r.id);
+      const sectionIds = Array.from(
+        new Set(myAssignments.map((r: any) => r.class_section_id)),
+      );
+      // Bulk-fetch graded counts per assignment.
+      const gradedByAssignment = new Map<string, number>();
+      const { data: grades } = await serviceRoleClient
+        .from("grade")
+        .select("assignment_id")
+        .in("assignment_id", aIds);
+      for (const g of (grades ?? []) as any[]) {
+        gradedByAssignment.set(
+          g.assignment_id,
+          (gradedByAssignment.get(g.assignment_id) ?? 0) + 1,
+        );
+      }
+      // Bulk-fetch roster sizes per section.
+      const rosterBySection = new Map<string, number>();
+      const { data: students } = await serviceRoleClient
+        .from("student")
+        .select("class_section_id")
+        .in("class_section_id", sectionIds);
+      for (const s of (students ?? []) as any[]) {
+        rosterBySection.set(
+          s.class_section_id,
+          (rosterBySection.get(s.class_section_id) ?? 0) + 1,
+        );
+      }
+      for (const a of myAssignments as any[]) {
+        const roster = rosterBySection.get(a.class_section_id) ?? 0;
+        const graded = gradedByAssignment.get(a.id) ?? 0;
+        const missing = roster - graded;
+        if (missing > 0) {
+          assignmentsToGrade.push({
+            assignmentId: a.id,
+            title: a.title,
+            subjectName: a.section_subject?.class_subject?.name ?? null,
+            classSectionId: a.class_section_id,
+            dueDate: a.due_date,
+            maxScore: Number(a.max_score),
+            missingCount: missing,
+            rosterSize: roster,
+          });
+        }
+        if (assignmentsToGrade.length >= 5) break;
+      }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // Recent grades I gave: last 10 grade rows authored by me, with
+    // student + assignment context for the feed.
+    // ────────────────────────────────────────────────────────────────────
+    const { data: recentGradeRows } = await serviceRoleClient
+      .from("grade")
+      .select(
+        "id, score, status, graded_at, assignment:assignment_id(title, max_score, section_subject:section_subject_id(class_subject:class_subject_id(name))), student:student_id(full_name)",
+      )
+      .eq("graded_by", userId)
+      .not("graded_at", "is", null)
+      .order("graded_at", { ascending: false })
+      .limit(8);
+    const recentGradesGiven = (recentGradeRows ?? []).map((r: any) => ({
+      gradeId: r.id,
+      studentName: r.student?.full_name ?? "Student",
+      assignmentTitle: r.assignment?.title ?? "Assignment",
+      subjectName: r.assignment?.section_subject?.class_subject?.name ?? null,
+      score: r.score == null ? null : Number(r.score),
+      maxScore: r.assignment?.max_score == null ? null : Number(r.assignment.max_score),
+      status: r.status,
+      gradedAt: r.graded_at,
+    }));
+
+    return c.json({
+      topicsDueSoon,
+      untaggedLessons,
+      untaggedLessonsCount: untaggedCount ?? untaggedLessons.length,
+      assignmentsToGrade,
+      recentGradesGiven,
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // GET /school/sections/:sectionId/curriculum-progress
   // Returns per-subject curriculum progress for a section. Used by
   // SectionOverview to give admins/teachers a one-glance read on how

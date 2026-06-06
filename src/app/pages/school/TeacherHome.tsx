@@ -19,11 +19,14 @@ import {
   Users,
   ChevronRight,
   Eye,
+  ListChecks,
 } from "lucide-react";
 import {
   getSectionsLeaderboard,
   getMySectionSubjects,
+  getMyTeacherSnapshot,
   type MySectionSubject,
+  type TeacherSnapshot,
   getSectionBehaviorNotes,
   type LeaderboardRow,
   type BehaviorNote,
@@ -82,6 +85,7 @@ export function TeacherHome({ orgId, me }: Props) {
   const [sections, setSections] = useState<LeaderboardRow[] | null>(null);
   const [notes, setNotes] = useState<BehaviorNote[]>([]);
   const [mySubjects, setMySubjects] = useState<MySectionSubject[]>([]);
+  const [snapshot, setSnapshot] = useState<TeacherSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -94,6 +98,22 @@ export function TeacherHome({ orgId, me }: Props) {
       })
       .catch(() => {
         /* non-fatal — widget just stays empty */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Phase 6b: teacher-snapshot (topics due, untagged, grades to enter,
+  // recent grades). Non-blocking — widgets hide if the call errors.
+  useEffect(() => {
+    let cancelled = false;
+    getMyTeacherSnapshot()
+      .then((r) => {
+        if (!cancelled) setSnapshot(r);
+      })
+      .catch(() => {
+        /* non-fatal */
       });
     return () => {
       cancelled = true;
@@ -420,6 +440,207 @@ export function TeacherHome({ orgId, me }: Props) {
           </div>
         </section>
       )}
+
+      {/* Phase 6b: focused-work widgets — topics due soon, assignments
+          waiting on grades, untagged lessons nudge, recent grades I gave.
+          Hidden when the snapshot has nothing to surface, so a brand-new
+          teacher account doesn't see four empty cards. */}
+      {snapshot &&
+        (snapshot.topicsDueSoon.length > 0 ||
+          snapshot.assignmentsToGrade.length > 0 ||
+          snapshot.untaggedLessonsCount > 0 ||
+          snapshot.recentGradesGiven.length > 0) && (
+          <section className="space-y-3">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
+              Focus this week
+            </h2>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              {/* Topics due soon */}
+              {snapshot.topicsDueSoon.length > 0 && (
+                <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-sm font-semibold text-slate-900">
+                      Topics due soon
+                    </h3>
+                    <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-700 ring-1 ring-violet-200">
+                      <ListChecks className="h-2.5 w-2.5" />
+                      {snapshot.topicsDueSoon.length}
+                    </span>
+                  </div>
+                  <ul className="divide-y divide-slate-100">
+                    {snapshot.topicsDueSoon.slice(0, 5).map((t) => {
+                      const due = new Date(t.targetDate);
+                      const days = Math.max(
+                        0,
+                        Math.round(
+                          (due.getTime() - Date.now()) /
+                            (24 * 60 * 60 * 1000),
+                        ),
+                      );
+                      const tone =
+                        days <= 3
+                          ? "text-rose-700"
+                          : days <= 7
+                          ? "text-amber-700"
+                          : "text-slate-700";
+                      return (
+                        <li key={t.topicId} className="py-2">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="text-xs font-medium text-slate-900 truncate">
+                                {t.topicName}
+                              </div>
+                              <div className="text-[10px] text-slate-500">
+                                {t.subjectName}
+                                {t.className ? ` · ${t.className}` : ""}
+                              </div>
+                            </div>
+                            <span className={"text-[10px] font-semibold whitespace-nowrap " + tone}>
+                              {days === 0
+                                ? "today"
+                                : days === 1
+                                ? "tomorrow"
+                                : `${days}d`}
+                            </span>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
+
+              {/* Assignments to grade */}
+              {snapshot.assignmentsToGrade.length > 0 && (
+                <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-sm font-semibold text-slate-900">
+                      Grades to enter
+                    </h3>
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-800 ring-1 ring-amber-200">
+                      <AlertTriangle className="h-2.5 w-2.5" />
+                      {snapshot.assignmentsToGrade.length}
+                    </span>
+                  </div>
+                  <ul className="divide-y divide-slate-100">
+                    {snapshot.assignmentsToGrade.map((a) => (
+                      <li key={a.assignmentId} className="py-2">
+                        <Link
+                          to={`/school/orgs/${orgId}/sections/${a.classSectionId}/gradebook`}
+                          className="block hover:bg-slate-50 -mx-2 px-2 rounded"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="text-xs font-medium text-slate-900 truncate">
+                                {a.title}
+                              </div>
+                              <div className="text-[10px] text-slate-500">
+                                {a.subjectName ?? "General"} · due{" "}
+                                {new Date(a.dueDate).toLocaleDateString()}
+                              </div>
+                            </div>
+                            <span className="text-[10px] font-semibold text-amber-700 whitespace-nowrap">
+                              {a.missingCount}/{a.rosterSize} ungraded
+                            </span>
+                          </div>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Untagged lessons nudge */}
+              {snapshot.untaggedLessonsCount > 0 && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4 shadow-sm md:col-span-2">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="h-4 w-4 text-amber-700 mt-0.5 flex-shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium text-amber-900">
+                        {snapshot.untaggedLessonsCount} of your lessons (last 30
+                        days) have no subject tag
+                      </div>
+                      <p className="text-[11px] text-amber-800 mt-0.5">
+                        Tag them to subjects so curriculum progress updates and
+                        parents see the academic context.
+                      </p>
+                      {snapshot.untaggedLessons.length > 0 && (
+                        <ul className="mt-2 space-y-1">
+                          {snapshot.untaggedLessons.slice(0, 3).map((l) => (
+                            <li key={l.lessonId}>
+                              <Link
+                                to={`/school/orgs/${orgId}/lessons/${l.lessonId}/edit`}
+                                className="text-[11px] text-amber-900 hover:underline"
+                              >
+                                {new Date(l.lessonDate).toLocaleDateString()} ·{" "}
+                                {l.title}
+                                {l.sectionName
+                                  ? ` (${l.className ?? ""} ${l.sectionName})`
+                                  : ""}
+                              </Link>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Recent grades I gave */}
+              {snapshot.recentGradesGiven.length > 0 && (
+                <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm md:col-span-2">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-sm font-semibold text-slate-900">
+                      Recent grades you entered
+                    </h3>
+                    <span className="text-[10px] text-slate-500">
+                      Latest {snapshot.recentGradesGiven.length}
+                    </span>
+                  </div>
+                  <ul className="divide-y divide-slate-100">
+                    {snapshot.recentGradesGiven.map((g) => {
+                      const pct =
+                        g.score != null && g.maxScore && g.maxScore > 0
+                          ? Math.round((g.score / g.maxScore) * 100)
+                          : null;
+                      const tone =
+                        pct == null
+                          ? "text-slate-500"
+                          : pct >= 80
+                          ? "text-emerald-700"
+                          : pct >= 60
+                          ? "text-amber-700"
+                          : "text-rose-700";
+                      return (
+                        <li key={g.gradeId} className="py-2">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="text-xs font-medium text-slate-900 truncate">
+                                {g.studentName}
+                              </div>
+                              <div className="text-[10px] text-slate-500 truncate">
+                                {g.subjectName ? `${g.subjectName} · ` : ""}
+                                {g.assignmentTitle}
+                              </div>
+                            </div>
+                            <span className={"text-xs font-semibold tabular-nums " + tone}>
+                              {g.score == null
+                                ? g.status
+                                : g.maxScore
+                                ? `${g.score}/${g.maxScore}`
+                                : g.score}
+                            </span>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
 
       {/* Sections needing attention */}
       {sectionsToWatch.length > 0 && (

@@ -468,6 +468,52 @@ export const getMySectionSubjects = (): Promise<{
   sectionSubjects: MySectionSubject[];
 }> => apiCall(`/school/me/section-subjects`);
 
+// --- Teacher snapshot (Phase 6b) ----------------------------------------
+
+export interface TeacherSnapshot {
+  topicsDueSoon: Array<{
+    topicId: string;
+    topicName: string;
+    classSubjectId: string;
+    subjectName: string;
+    className: string | null;
+    sectionId: string;
+    targetDate: string;
+  }>;
+  untaggedLessons: Array<{
+    lessonId: string;
+    title: string;
+    lessonDate: string;
+    classSectionId: string;
+    sectionName: string | null;
+    className: string | null;
+  }>;
+  untaggedLessonsCount: number;
+  assignmentsToGrade: Array<{
+    assignmentId: string;
+    title: string;
+    subjectName: string | null;
+    classSectionId: string;
+    dueDate: string;
+    maxScore: number;
+    missingCount: number;
+    rosterSize: number;
+  }>;
+  recentGradesGiven: Array<{
+    gradeId: string;
+    studentName: string;
+    assignmentTitle: string;
+    subjectName: string | null;
+    score: number | null;
+    maxScore: number | null;
+    status: string;
+    gradedAt: string;
+  }>;
+}
+
+export const getMyTeacherSnapshot = (): Promise<TeacherSnapshot> =>
+  apiCall(`/school/me/teacher-snapshot`);
+
 // --- Section curriculum progress (Phase 4b, SectionOverview) -----------------
 
 export interface SectionSubjectProgress {
