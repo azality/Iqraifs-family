@@ -23,10 +23,13 @@ import {
   getSchoolMe,
   isOrgAdmin,
   getSectionLessons,
+  listSectionSubjects,
   deleteLesson,
   type Lesson,
   type SchoolMeResponse,
+  type SectionSubject,
 } from "../../../utils/schoolApi";
+import { BookOpen, ListChecks } from "lucide-react";
 
 function daysAgoIso(n: number): string {
   const d = new Date();
@@ -96,6 +99,9 @@ export function SectionLessonsFeed() {
   const [endDate, setEndDate] = useState(todayIso());
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // Phase 2: subject filter chips. Empty string = "All subjects".
+  const [subjectFilter, setSubjectFilter] = useState<string>("");
+  const [subjects, setSubjects] = useState<SectionSubject[]>([]);
 
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
@@ -104,7 +110,12 @@ export function SectionLessonsFeed() {
   const refresh = () => {
     if (!orgId || !sectionId) return;
     setLoading(true);
-    getSectionLessons(orgId, sectionId, { startDate, endDate, limit: 50 })
+    getSectionLessons(orgId, sectionId, {
+      startDate,
+      endDate,
+      limit: 50,
+      subjectId: subjectFilter || undefined,
+    })
       .then((r) => setLessons(r.lessons))
       .catch((e) => setError(e?.message || "Failed to load lessons"))
       .finally(() => setLoading(false));
@@ -113,7 +124,15 @@ export function SectionLessonsFeed() {
   useEffect(() => {
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orgId, sectionId, startDate, endDate]);
+  }, [orgId, sectionId, startDate, endDate, subjectFilter]);
+
+  // Phase 2: subjects for the filter chip row.
+  useEffect(() => {
+    if (!sectionId) return;
+    listSectionSubjects(sectionId)
+      .then((r) => setSubjects(r.subjects))
+      .catch(() => setSubjects([]));
+  }, [sectionId]);
 
   const grouped = useMemo(() => {
     const map = new Map<string, Lesson[]>();
@@ -186,6 +205,46 @@ export function SectionLessonsFeed() {
         }
       />
 
+      {/* Phase 2: subject filter chips. Hidden when no subjects exist
+          (legacy sections without subjects defined yet). */}
+      {subjects.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[10px] uppercase tracking-wider text-slate-500 mr-1">
+            Subject
+          </span>
+          <button
+            type="button"
+            onClick={() => setSubjectFilter("")}
+            className={
+              "rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 " +
+              (subjectFilter === ""
+                ? "bg-indigo-600 text-white ring-indigo-600"
+                : "bg-white text-slate-700 ring-slate-200 hover:bg-slate-50")
+            }
+          >
+            All
+          </button>
+          {subjects.map((s) => {
+            const active = subjectFilter === s.id;
+            return (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => setSubjectFilter(s.id)}
+                className={
+                  "rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 " +
+                  (active
+                    ? "bg-indigo-600 text-white ring-indigo-600"
+                    : "bg-white text-slate-700 ring-slate-200 hover:bg-slate-50")
+                }
+              >
+                {s.name}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {error && <p className="text-sm text-rose-600">{error}</p>}
 
       {loading && <p className="text-sm text-slate-500">Loading…</p>}
@@ -212,9 +271,24 @@ export function SectionLessonsFeed() {
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1">
                     <h3 className="font-semibold">{l.title}</h3>
-                    <p className="text-xs text-muted-foreground">
-                      Taught by {l.taught_by_name || "—"}
-                    </p>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                      {/* Phase 2: subject + topic badges */}
+                      {l.subjectName && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-700 ring-1 ring-indigo-200">
+                          <BookOpen className="h-2.5 w-2.5" />
+                          {l.subjectName}
+                        </span>
+                      )}
+                      {l.topicName && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-700 ring-1 ring-violet-200">
+                          <ListChecks className="h-2.5 w-2.5" />
+                          {l.topicName}
+                        </span>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        Taught by {l.taught_by_name || "—"}
+                      </p>
+                    </div>
                   </div>
                   {canEdit(l) && (
                     <div className="flex gap-1">

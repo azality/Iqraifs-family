@@ -1610,6 +1610,14 @@ export interface Lesson {
   id: string;
   org_id: string;
   class_section_id: string;
+  /** Phase 2: which subject in the section this lesson belongs to. */
+  sectionSubjectId: string | null;
+  /** Phase 2: which curriculum topic the teacher attributed the lesson to. */
+  curriculumTopicId: string | null;
+  /** Denormalised — populated by list endpoints, may be undefined on single-fetch. */
+  subjectName?: string | null;
+  /** Denormalised — populated by list endpoints, may be undefined on single-fetch. */
+  topicName?: string | null;
   lesson_date: string; // YYYY-MM-DD
   title: string;
   body: string | null;
@@ -1629,6 +1637,12 @@ export interface LessonInput {
   videoUrl?: string;
   audioUrl?: string;
   attachments?: Array<{ label: string; url: string }>;
+  /** Phase 2: required for new lessons; null clears on PATCH. */
+  sectionSubjectId?: string | null;
+  /** Phase 2: optional curriculum topic. */
+  curriculumTopicId?: string | null;
+  /** Phase 2: if true on POST, marks the topic completed alongside the new lesson. */
+  markTopicCompleted?: boolean;
 }
 
 export const postLesson = (
@@ -1670,12 +1684,13 @@ export const patchRosterRequest = (
 export const getSectionLessons = (
   orgId: string,
   sectionId: string,
-  opts: { startDate?: string; endDate?: string; limit?: number } = {},
+  opts: { startDate?: string; endDate?: string; limit?: number; subjectId?: string } = {},
 ): Promise<{ lessons: Lesson[] }> => {
   const q = new URLSearchParams();
   if (opts.startDate) q.append("startDate", opts.startDate);
   if (opts.endDate) q.append("endDate", opts.endDate);
   if (opts.limit) q.append("limit", String(opts.limit));
+  if (opts.subjectId) q.append("subjectId", opts.subjectId);
   const qs = q.toString() ? `?${q}` : "";
   return apiCall(`/school/orgs/${orgId}/sections/${sectionId}/lessons${qs}`);
 };
