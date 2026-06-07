@@ -202,7 +202,21 @@ function hifzToJson(r: any) {
     ayahTo: r.ayah_to,
     kind: r.kind,
     quality: r.quality,
+    // Legacy `notes` is preserved for parent display because rows
+    // written before the full-module split lived there. New writes go
+    // to teacher_remarks (teacher-only, NOT returned) and
+    // parent_comments (parent-visible). UI prefers parentComments and
+    // falls back to notes when null.
     notes: r.notes,
+    parentComments: r.parent_comments ?? null,
+    parentAction: r.parent_action ?? null,
+    tajweedNotes: r.tajweed_notes ?? null,
+    fluencyNotes: r.fluency_notes ?? null,
+    juzNumber: r.juz_number ?? null,
+    pageNumber: r.page_number ?? null,
+    mistakesCount: r.mistakes_count ?? null,
+    dailyTarget: r.daily_target ?? null,
+    nextTarget: r.next_target ?? null,
     recordedBy: r.recorded_by,
     recordedAt: r.recorded_at,
     createdAt: r.created_at,
@@ -699,9 +713,59 @@ export function installPortal(school: Hono): void {
     const { ayahsMemorized, surahsCompleted } = computeMemorizedTotals(rows);
     const lastEntry = rows.length > 0 ? rows[0].recorded_at : null;
 
+    // Parent-friendly "today" snapshot. The card on the portal home
+    // surface reads this — much higher signal than the raw log table.
+    // Pull the latest sabaq, sabqi/manzil (revision), and any parent
+    // action so the family knows what to do tonight at one glance.
+    const entries = (data ?? []) as any[];
+    const todaySabaq = entries.find((e) => e.kind === "sabaq") ?? null;
+    const todayRevision =
+      entries.find((e) => e.kind === "sabqi" || e.kind === "manzil") ?? null;
+    const latestEntry = entries[0] ?? null;
+    const today = latestEntry
+      ? {
+          // Most recent entry, regardless of kind — drives the
+          // "last logged" header.
+          recordedAt: latestEntry.recorded_at,
+          // What the teacher worked on today (sabaq = new lesson).
+          sabaq: todaySabaq
+            ? {
+                surahNumber: todaySabaq.surah_number,
+                ayahFrom: todaySabaq.ayah_from,
+                ayahTo: todaySabaq.ayah_to,
+                quality: todaySabaq.quality,
+              }
+            : null,
+          // Either sabqi (recent revision) or manzil (older revision).
+          revision: todayRevision
+            ? {
+                kind: todayRevision.kind,
+                surahNumber: todayRevision.surah_number,
+                ayahFrom: todayRevision.ayah_from,
+                ayahTo: todayRevision.ayah_to,
+                quality: todayRevision.quality,
+              }
+            : null,
+          // Pulled from whichever row carries the latest parent-facing
+          // guidance. Prefer the explicit parent_action / parent_comments
+          // fields; fall back to legacy `notes` so existing rows still
+          // give the parent something useful.
+          teacherNote:
+            latestEntry.tajweed_notes ||
+            latestEntry.fluency_notes ||
+            latestEntry.parent_comments ||
+            latestEntry.notes ||
+            null,
+          parentAction: latestEntry.parent_action ?? null,
+          nextTarget: latestEntry.next_target ?? null,
+          mistakesCount: latestEntry.mistakes_count ?? null,
+        }
+      : null;
+
     return c.json({
-      entries: (data ?? []).map(hifzToJson),
+      entries: entries.map(hifzToJson),
       summary: { ayahsMemorized, surahsCompleted, lastEntry },
+      today,
     });
   });
 
