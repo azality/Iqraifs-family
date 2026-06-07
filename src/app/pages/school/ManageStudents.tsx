@@ -37,6 +37,7 @@ import {
   type AdminClass,
   type AdminStudent,
   type CreateStudentBody,
+  type GuardianInput,
   type SchoolMeResponse,
 } from "../../../utils/schoolApi";
 import { CsvUploadDialog } from "./components/CsvUploadDialog";
@@ -55,6 +56,34 @@ const emptyForm: CreateStudentBody = {
   program: "",
 };
 
+// Blank guardian slot. We pre-fill the parentRole on the well-known
+// slots (father / mother) so dedup behavior is consistent and the
+// stored relationship column gets the right value without the admin
+// having to retype it.
+function emptyGuardian(role: GuardianInput["parentRole"] = "guardian"): GuardianInput {
+  return {
+    parentRole: role,
+    fullName: "",
+    title: role === "father" ? "Mr." : role === "mother" ? "Mrs." : "",
+    nic: "",
+    homeAddress: "",
+    homePhone: "",
+    cellPhone: "",
+    email: "",
+    occupation: "",
+    employer: "",
+    employerAddress: "",
+    businessPhone: "",
+    // Default flags follow common reality: father is primary contact +
+    // fee payer; mother is emergency contact. Admin can override.
+    isPrimaryContact: role === "father",
+    isEmergencyContact: role === "mother",
+    isFeePayer: role === "father",
+    isPickupAuthorized: role === "father" || role === "mother",
+    portalAccessPhone: "",
+  };
+}
+
 export function ManageStudents() {
   const { orgId = "" } = useParams();
   const navigate = useNavigate();
@@ -67,20 +96,27 @@ export function ManageStudents() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<AdminStudent | null>(null);
   const [form, setForm] = useState<CreateStudentBody>(emptyForm);
-  // Inline parent block — separate state so we can include or omit it
-  // based on whether the admin chose to add a parent. Only shown when
-  // creating (not editing) — editing parents is done from the existing
-  // ManageParents / StudentDetail flow.
-  const [addParentOpen, setAddParentOpen] = useState(false);
-  const [parentForm, setParentForm] = useState({
-    fullName: "",
-    phone: "",
-    email: "",
-    relationship: "",
-  });
-  const resetParentForm = () => {
-    setAddParentOpen(false);
-    setParentForm({ fullName: "", phone: "", email: "", relationship: "" });
+  // Guardian state (PR feat/student-parent-onboarding-redesign) — mirrors
+  // the Father / Mother / Guardian columns of the IFS admission form.
+  // Father + Mother slots are always rendered; the Other Guardian slot
+  // is opt-in for step-parents, grandparents, or sponsors.
+  const [father, setFather] = useState<GuardianInput>(emptyGuardian("father"));
+  const [mother, setMother] = useState<GuardianInput>(emptyGuardian("mother"));
+  const [otherGuardianOpen, setOtherGuardianOpen] = useState(false);
+  const [otherGuardian, setOtherGuardian] = useState<GuardianInput>(
+    emptyGuardian("guardian"),
+  );
+  // Admission-form detail toggle: religion / nationality / medical /
+  // last school / etc. Hidden by default to keep the dialog short for
+  // mid-year transfers where the office only has the basics. The IFS
+  // paper form covers these — toggling shows the full set 1:1.
+  const [admissionDetailsOpen, setAdmissionDetailsOpen] = useState(false);
+  const resetGuardianForms = () => {
+    setFather(emptyGuardian("father"));
+    setMother(emptyGuardian("mother"));
+    setOtherGuardian(emptyGuardian("guardian"));
+    setOtherGuardianOpen(false);
+    setAdmissionDetailsOpen(false);
   };
   const [csvOpen, setCsvOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -121,10 +157,7 @@ export function ManageStudents() {
   const startCreate = () => {
     setEditing(null);
     setForm(emptyForm);
-    // Reset parent fields but show the section by default — adding a
-    // student without their parent is the exception, not the norm.
-    setParentForm({ fullName: "", phone: "", email: "", relationship: "" });
-    setAddParentOpen(true);
+    resetGuardianForms();
     setNotice(null);
     setError(null);
     setFormOpen(true);
@@ -147,34 +180,40 @@ export function ManageStudents() {
 
   const submitForm = async () => {
     if (!form.grNumber || !form.fullName) return;
-    // If the parent section is open and has data, include it. Backend
-    // will dedupe by email then phone before inserting, so re-typing an
-    // existing parent for a sibling won't create a duplicate row.
-    const parentPayload =
-      !editing && addParentOpen && parentForm.fullName.trim()
-        ? {
-            fullName: parentForm.fullName.trim(),
-            phone: parentForm.phone.trim() || undefined,
-            email: parentForm.email.trim() || undefined,
-            relationship: parentForm.relationship.trim() || undefined,
-          }
-        : undefined;
+    // Build the structured guardians[] array — only include slots with
+    // a fullName. Backend dedupes by NIC → email → phone so a sibling
+    // submission with the same father reuses the existing parent row.
+    const guardians: GuardianInput[] = [];
+    if (!editing) {
+      if ((father.fullName || "").trim()) guardians.push(father);
+      if ((mother.fullName || "").trim()) guardians.push(mother);
+      if (otherGuardianOpen && (otherGuardian.fullName || "").trim()) {
+        guardians.push(otherGuardian);
+      }
+    }
     try {
       if (editing) {
         await updateStudent(orgId, editing.id, form);
       } else {
-        const res = await adminCreateStudent(orgId, { ...form, parent: parentPayload });
-        // Surface backend warning (e.g. "parent_create_failed:…") so the
-        // admin knows the student saved but the parent step didn't —
-        // they can retry on the parents page without losing the student.
-        if ((res as any)?.warning) {
-          setNotice(`Student saved but ${(res as any).warning}.`);
-        } else if (parentPayload) {
-          setNotice(`Student saved and linked to ${parentPayload.fullName}.`);
+        const res = await adminCreateStudent(orgId, {
+          ...form,
+          guardians: guardians.length > 0 ? guardians : undefined,
+        });
+        // Surface backend warning(s) — guardian step can fail
+        // independently of the student insert, e.g. NIC clash. We
+        // intentionally don't block the success path on that.
+        const warns = (res as any)?.warnings as string[] | undefined;
+        const linked = (res as any)?.guardiansLinked as number | undefined;
+        if (warns && warns.length > 0) {
+          setNotice(`Student saved. Note: ${warns.join("; ")}`);
+        } else if (linked && linked > 0) {
+          setNotice(`Student saved + ${linked} guardian${linked === 1 ? "" : "s"} linked.`);
+        } else if (guardians.length === 0) {
+          setNotice("Student saved as 'Guardians pending' — add parents from the detail page.");
         }
       }
       setFormOpen(false);
-      resetParentForm();
+      resetGuardianForms();
       refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -209,14 +248,36 @@ export function ManageStudents() {
     {
       key: "name",
       header: "Name",
-      cell: (s) => (
-        <div>
-          <div className="font-medium text-slate-900">{s.full_name}</div>
-          <div className="text-xs text-slate-500">
-            {s.guardian_phone || s.guardian_email || "—"}
+      cell: (s) => {
+        // Surface the admission-completeness flag right on the list so
+        // the office can spot pending records without drilling into
+        // each one. Anything other than 'complete' renders a pill in
+        // amber. Records created the legacy way come back from the
+        // backend with the column missing → treat as complete.
+        const status = (s as any).completeness_status as string | undefined;
+        const pending = status && status !== "complete";
+        return (
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-medium text-slate-900">{s.full_name}</span>
+              {pending && (
+                <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-800 text-[10px] font-medium px-1.5 py-0.5">
+                  {status === "guardians_pending"
+                    ? "Guardians pending"
+                    : status === "documents_pending"
+                    ? "Documents pending"
+                    : status === "fees_pending"
+                    ? "Fees pending"
+                    : "Pending"}
+                </span>
+              )}
+            </div>
+            <div className="text-xs text-slate-500">
+              {s.guardian_phone || s.guardian_email || "—"}
+            </div>
           </div>
-        </div>
-      ),
+        );
+      },
     },
     {
       key: "gr",
@@ -364,99 +425,223 @@ export function ManageStudents() {
             </div>
           </div>
 
-          {/* Inline parent block — shown expanded on create so the admin
-              sees it as part of the same form. The student↔parent link
-              is the core of how parents reach this kid in the portal, so
-              hiding it behind a toggle was the wrong default.
-              Admins who genuinely have no parent info (rare) can collapse
-              via the "Skip for now" link; on submit we omit the parent
-              payload entirely. */}
+          {/* Family Information — modeled directly on the IFS admission
+              form's two-column Family Information table. Father + Mother
+              shown by default; Other Guardian opt-in for step-parents,
+              grandparents, or sponsored students. Each block holds the
+              full per-parent attribute set (NIC, occupation, etc.) plus
+              per-link role flag checkboxes. */}
           {!editing && (
-            <div className="mt-4 rounded-lg border border-indigo-100 bg-indigo-50/30 p-4">
-              <div className="flex items-baseline justify-between gap-2 mb-3">
-                <div>
-                  <div className="text-sm font-semibold text-slate-900">
-                    Primary parent
-                  </div>
-                  <div className="text-xs text-slate-600">
-                    The parent we link to this student — they'll see the kid in their portal.
-                  </div>
-                </div>
-                {addParentOpen ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAddParentOpen(false);
-                      setParentForm({ fullName: "", phone: "", email: "", relationship: "" });
-                    }}
-                    className="text-xs text-slate-500 hover:text-slate-700 underline"
-                  >
-                    Skip for now
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setAddParentOpen(true)}
-                    className="text-xs text-indigo-700 hover:underline font-medium"
-                  >
-                    + Add parent
-                  </button>
-                )}
-              </div>
-              {addParentOpen ? (
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="sm:col-span-2">
-                    <Label>Parent full name</Label>
+            <div className="mt-4 space-y-3">
+              <GuardianBlock
+                value={father}
+                onChange={setFather}
+                title="Father"
+                tone="indigo"
+              />
+              <GuardianBlock
+                value={mother}
+                onChange={setMother}
+                title="Mother"
+                tone="rose"
+              />
+              {otherGuardianOpen ? (
+                <GuardianBlock
+                  value={otherGuardian}
+                  onChange={setOtherGuardian}
+                  title="Other guardian"
+                  tone="slate"
+                  allowRoleChange
+                  onRemove={() => {
+                    setOtherGuardianOpen(false);
+                    setOtherGuardian(emptyGuardian("guardian"));
+                  }}
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setOtherGuardianOpen(true)}
+                  className="w-full rounded-lg border border-dashed border-slate-300 px-3 py-2 text-xs font-medium text-slate-600 hover:border-slate-400 hover:text-slate-800"
+                >
+                  + Add another guardian (step-parent, grandparent, sponsor…)
+                </button>
+              )}
+
+              <p className="text-[11px] text-slate-500 italic">
+                Leave a block empty if not applicable. We dedupe by NIC,
+                email, then phone — siblings sharing parents won't create
+                duplicate records. If no guardian is filled in, the
+                student is saved with status <strong>Guardians pending</strong>.
+              </p>
+
+              {/* Full IFS admission form fields — religion, nationality,
+                  language, last school, medical, etc. Hidden behind a
+                  toggle so a mid-year transfer entry doesn't need them. */}
+              <button
+                type="button"
+                onClick={() => setAdmissionDetailsOpen((v) => !v)}
+                className="w-full text-left text-xs font-medium text-indigo-700 hover:underline"
+              >
+                {admissionDetailsOpen ? "− Hide" : "+ Show"} full admission form details
+              </button>
+              {admissionDetailsOpen && (
+                <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-3 grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <Label>Registration No.</Label>
                     <Input
-                      value={parentForm.fullName}
-                      onChange={(e) => setParentForm({ ...parentForm, fullName: e.target.value })}
-                      placeholder="e.g. Imran Khan"
+                      value={form.registrationNo ?? ""}
+                      onChange={(e) => setForm({ ...form, registrationNo: e.target.value })}
                     />
                   </div>
                   <div>
-                    <Label>Phone</Label>
+                    <Label>Applying for grade/class</Label>
                     <Input
-                      value={parentForm.phone}
-                      onChange={(e) => setParentForm({ ...parentForm, phone: e.target.value })}
-                      placeholder="+92 300 1234567"
+                      value={form.applyingForGrade ?? ""}
+                      onChange={(e) => setForm({ ...form, applyingForGrade: e.target.value })}
+                      placeholder="e.g. Grade 3"
                     />
                   </div>
                   <div>
-                    <Label>Email</Label>
+                    <Label>Academic term</Label>
                     <Input
-                      type="email"
-                      value={parentForm.email}
-                      onChange={(e) => setParentForm({ ...parentForm, email: e.target.value })}
-                      placeholder="parent@example.com"
+                      value={form.academicTerm ?? ""}
+                      onChange={(e) => setForm({ ...form, academicTerm: e.target.value })}
+                      placeholder="2026-2027"
+                    />
+                  </div>
+                  <div>
+                    <Label>Religion</Label>
+                    <Input
+                      value={form.religion ?? ""}
+                      onChange={(e) => setForm({ ...form, religion: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label>Nationality</Label>
+                    <Input
+                      value={form.nationality ?? ""}
+                      onChange={(e) => setForm({ ...form, nationality: e.target.value })}
+                      placeholder="Pakistani"
+                    />
+                  </div>
+                  <div>
+                    <Label>Language at home</Label>
+                    <Input
+                      value={form.homeLanguage ?? ""}
+                      onChange={(e) => setForm({ ...form, homeLanguage: e.target.value })}
+                      placeholder="Urdu / Punjabi / Sindhi…"
+                    />
+                  </div>
+                  <div>
+                    <Label>Last school attended</Label>
+                    <Input
+                      value={form.lastSchool ?? ""}
+                      onChange={(e) => setForm({ ...form, lastSchool: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label>Class presently studying</Label>
+                    <Input
+                      value={form.lastClassStudying ?? ""}
+                      onChange={(e) => setForm({ ...form, lastClassStudying: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label>Class completed</Label>
+                    <Input
+                      value={form.lastClassCompleted ?? ""}
+                      onChange={(e) => setForm({ ...form, lastClassCompleted: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label>Blood group</Label>
+                    <Input
+                      value={form.bloodGroup ?? ""}
+                      onChange={(e) => setForm({ ...form, bloodGroup: e.target.value })}
+                      placeholder="A+ / O- / …"
                     />
                   </div>
                   <div className="sm:col-span-2">
-                    <Label>Relationship</Label>
+                    <Label>Medical conditions</Label>
+                    <Input
+                      value={form.medicalConditions ?? ""}
+                      onChange={(e) => setForm({ ...form, medicalConditions: e.target.value })}
+                      placeholder="Allergies, ongoing treatment, etc."
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <Label>Psychological / behavioral notes</Label>
+                    <Input
+                      value={form.psychologicalConditions ?? ""}
+                      onChange={(e) => setForm({ ...form, psychologicalConditions: e.target.value })}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <Label>Ever suspended / expelled? Details</Label>
+                    <Input
+                      value={form.suspensionDetails ?? ""}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          wasSuspended: !!e.target.value,
+                          suspensionDetails: e.target.value,
+                        })
+                      }
+                      placeholder="Leave empty if no"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <Label>Reasons for applying</Label>
+                    <Input
+                      value={form.reasonsForApplying ?? ""}
+                      onChange={(e) => setForm({ ...form, reasonsForApplying: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label>How did you hear about us?</Label>
                     <Select
-                      value={parentForm.relationship || "__none__"}
+                      value={form.referralSource || "__none__"}
                       onValueChange={(v) =>
-                        setParentForm({ ...parentForm, relationship: v === "__none__" ? "" : v })
+                        setForm({ ...form, referralSource: v === "__none__" ? "" : v })
                       }
                     >
                       <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="__none__">—</SelectItem>
-                        <SelectItem value="father">Father</SelectItem>
-                        <SelectItem value="mother">Mother</SelectItem>
-                        <SelectItem value="guardian">Guardian</SelectItem>
-                        <SelectItem value="grandparent">Grandparent</SelectItem>
+                        <SelectItem value="ifs_parent">IFS Parent</SelectItem>
+                        <SelectItem value="handbill">Handbill</SelectItem>
+                        <SelectItem value="banner">Banner</SelectItem>
+                        <SelectItem value="website">Website</SelectItem>
+                        <SelectItem value="news_paper">News Paper</SelectItem>
+                        <SelectItem value="school_board">School Board</SelectItem>
+                        <SelectItem value="poster">Poster</SelectItem>
                         <SelectItem value="other">Other</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
-                  <p className="sm:col-span-2 text-xs text-slate-600">
-                    Already exists in this school? We'll match on email or phone and link to that record — siblings won't create duplicates.
-                  </p>
+                  <div>
+                    <Label>Avail transport?</Label>
+                    <Select
+                      value={form.availTransport ? "yes" : "no"}
+                      onValueChange={(v) => setForm({ ...form, availTransport: v === "yes" })}
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="no">No</SelectItem>
+                        <SelectItem value="yes">Yes</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <Label>Student Gmail account</Label>
+                    <Input
+                      type="email"
+                      value={form.studentGmail ?? ""}
+                      onChange={(e) => setForm({ ...form, studentGmail: e.target.value })}
+                      placeholder="Office-use; for the kid's school login if you provision one"
+                    />
+                  </div>
                 </div>
-              ) : (
-                <p className="text-xs text-slate-500 italic">
-                  No parent will be linked. You can add one later from the parents page.
-                </p>
               )}
             </div>
           )}
@@ -513,6 +698,232 @@ export function ManageStudents() {
           }}
         />
       )}
+    </div>
+  );
+}
+
+// =============================================================================
+// GuardianBlock — one Family Information column from the IFS form.
+//
+// Renders ALL the per-person attributes (title, NIC, addresses, phones,
+// occupation, employer) plus per-link role-flag checkboxes (primary
+// contact, fee payer, pickup auth, etc.). Kept inline rather than
+// extracted to a separate file because it's only used by the Add
+// Student dialog — moving it out would pull more state plumbing than
+// it saves in lines.
+// =============================================================================
+interface GuardianBlockProps {
+  value: GuardianInput;
+  onChange: (g: GuardianInput) => void;
+  title: string;
+  tone: "indigo" | "rose" | "slate";
+  /** Only the "Other guardian" slot lets the admin change the role.
+   *  Father / Mother stay fixed so the role-aware defaults (mother =
+   *  emergency contact, father = primary, etc.) hold. */
+  allowRoleChange?: boolean;
+  onRemove?: () => void;
+}
+
+function GuardianBlock({
+  value,
+  onChange,
+  title,
+  tone,
+  allowRoleChange,
+  onRemove,
+}: GuardianBlockProps) {
+  const palette = {
+    indigo: "border-indigo-200 bg-indigo-50/40",
+    rose: "border-rose-200 bg-rose-50/40",
+    slate: "border-slate-200 bg-slate-50/40",
+  }[tone];
+  const headerColor = {
+    indigo: "text-indigo-900",
+    rose: "text-rose-900",
+    slate: "text-slate-900",
+  }[tone];
+  // Centralized setter — saves the .value mutation boilerplate in every
+  // input handler below.
+  const set = (patch: Partial<GuardianInput>) => onChange({ ...value, ...patch });
+
+  return (
+    <div className={`rounded-lg border ${palette} p-3 space-y-2`}>
+      <div className="flex items-center justify-between gap-2">
+        <div className={`text-sm font-semibold ${headerColor}`}>{title}</div>
+        {onRemove && (
+          <button
+            type="button"
+            onClick={onRemove}
+            className="text-[11px] text-slate-500 hover:underline"
+          >
+            Remove
+          </button>
+        )}
+      </div>
+
+      {/* Name + title + role on one row to keep the block compact */}
+      <div className="grid gap-2 sm:grid-cols-12">
+        <div className="sm:col-span-2">
+          <Label className="text-[11px]">Title</Label>
+          <Select
+            value={value.title || "__none__"}
+            onValueChange={(v) => set({ title: v === "__none__" ? "" : (v as any) })}
+          >
+            <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="—" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">—</SelectItem>
+              <SelectItem value="Mr.">Mr.</SelectItem>
+              <SelectItem value="Mrs.">Mrs.</SelectItem>
+              <SelectItem value="Ms.">Ms.</SelectItem>
+              <SelectItem value="Dr.">Dr.</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className={allowRoleChange ? "sm:col-span-7" : "sm:col-span-10"}>
+          <Label className="text-[11px]">Full name</Label>
+          <Input
+            value={value.fullName ?? ""}
+            onChange={(e) => set({ fullName: e.target.value })}
+            className="h-8 text-xs"
+            placeholder="Full name as on NIC"
+          />
+        </div>
+        {allowRoleChange && (
+          <div className="sm:col-span-3">
+            <Label className="text-[11px]">Relationship</Label>
+            <Select
+              value={value.parentRole || "guardian"}
+              onValueChange={(v) => set({ parentRole: v as any })}
+            >
+              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="guardian">Guardian</SelectItem>
+                <SelectItem value="step_father">Step-father</SelectItem>
+                <SelectItem value="step_mother">Step-mother</SelectItem>
+                <SelectItem value="grandparent">Grandparent</SelectItem>
+                <SelectItem value="sibling">Sibling</SelectItem>
+                <SelectItem value="sponsor">Sponsor</SelectItem>
+                <SelectItem value="other">Other</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-2">
+        <div>
+          <Label className="text-[11px]">CNIC number</Label>
+          <Input
+            value={value.nic ?? ""}
+            onChange={(e) => set({ nic: e.target.value })}
+            className="h-8 text-xs"
+            placeholder="42101-1234567-1"
+          />
+        </div>
+        <div>
+          <Label className="text-[11px]">Cell phone</Label>
+          <Input
+            value={value.cellPhone ?? ""}
+            onChange={(e) => set({ cellPhone: e.target.value })}
+            className="h-8 text-xs"
+            placeholder="+92 300 1234567"
+          />
+        </div>
+        <div>
+          <Label className="text-[11px]">Home phone</Label>
+          <Input
+            value={value.homePhone ?? ""}
+            onChange={(e) => set({ homePhone: e.target.value })}
+            className="h-8 text-xs"
+          />
+        </div>
+        <div>
+          <Label className="text-[11px]">Email</Label>
+          <Input
+            type="email"
+            value={value.email ?? ""}
+            onChange={(e) => set({ email: e.target.value })}
+            className="h-8 text-xs"
+          />
+        </div>
+        <div className="sm:col-span-2">
+          <Label className="text-[11px]">Home address</Label>
+          <Input
+            value={value.homeAddress ?? ""}
+            onChange={(e) => set({ homeAddress: e.target.value })}
+            className="h-8 text-xs"
+          />
+        </div>
+        <div>
+          <Label className="text-[11px]">Occupation</Label>
+          <Input
+            value={value.occupation ?? ""}
+            onChange={(e) => set({ occupation: e.target.value })}
+            className="h-8 text-xs"
+          />
+        </div>
+        <div>
+          <Label className="text-[11px]">Employer</Label>
+          <Input
+            value={value.employer ?? ""}
+            onChange={(e) => set({ employer: e.target.value })}
+            className="h-8 text-xs"
+          />
+        </div>
+        <div>
+          <Label className="text-[11px]">Employer address</Label>
+          <Input
+            value={value.employerAddress ?? ""}
+            onChange={(e) => set({ employerAddress: e.target.value })}
+            className="h-8 text-xs"
+          />
+        </div>
+        <div>
+          <Label className="text-[11px]">Business phone</Label>
+          <Input
+            value={value.businessPhone ?? ""}
+            onChange={(e) => set({ businessPhone: e.target.value })}
+            className="h-8 text-xs"
+          />
+        </div>
+      </div>
+
+      {/* Per-link role flags — what THIS guardian does for THIS student.
+          Different from the parent's identity (a father can be the fee
+          payer for kid A and not for kid B). */}
+      <div className="rounded-md bg-white/60 p-2 border border-slate-200">
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-600 mb-1.5">
+          Role for this student
+        </div>
+        <div className="grid grid-cols-2 gap-1 text-xs">
+          {(
+            [
+              ["isPrimaryContact", "Primary contact"],
+              ["isEmergencyContact", "Emergency contact"],
+              ["isFeePayer", "Fee responsible"],
+              ["isPickupAuthorized", "Pickup authorized"],
+            ] as const
+          ).map(([key, label]) => (
+            <label key={key} className="flex items-center gap-1.5">
+              <input
+                type="checkbox"
+                checked={!!value[key]}
+                onChange={(e) => set({ [key]: e.target.checked } as Partial<GuardianInput>)}
+              />
+              {label}
+            </label>
+          ))}
+        </div>
+        <div className="mt-2">
+          <Label className="text-[11px]">Parent portal sign-in phone (optional)</Label>
+          <Input
+            value={value.portalAccessPhone ?? ""}
+            onChange={(e) => set({ portalAccessPhone: e.target.value })}
+            className="h-8 text-xs"
+            placeholder="Defaults to cell phone above"
+          />
+        </div>
+      </div>
     </div>
   );
 }
