@@ -194,7 +194,13 @@ export function AssignmentDetail() {
           [
             assignment.assigned_date && `Assigned ${assignment.assigned_date}`,
             assignment.due_date && `Due ${assignment.due_date}`,
-            `Weight ${assignment.weight}`,
+            // Surface the friendly preset names where they match, fall
+            // back to "Weight 1.5×" for custom values. Keeps the detail
+            // page consistent with the new composer vocabulary.
+            assignment.weight === 1 ? "Small (counts 1×)"
+              : assignment.weight === 2 ? "Medium (counts 2×)"
+              : assignment.weight === 3 ? "Big (counts 3×)"
+              : `Counts ${assignment.weight}×`,
             assignment.related_topic && `Topic: ${assignment.related_topic}`,
           ]
             .filter(Boolean)
