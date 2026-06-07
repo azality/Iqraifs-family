@@ -1311,6 +1311,56 @@ export interface InlineParentInput {
   relationship?: string;
 }
 
+/** Per-guardian payload for the redesigned Add Student flow. Mirrors
+ *  the IFS admission form's Family Information table (father / mother /
+ *  guardian as columns). Each guardian becomes a (parent row,
+ *  student_parent link) pair. Per-link role flags live on the link so
+ *  the same person can have different roles across siblings. */
+export interface GuardianInput {
+  parentRole?:
+    | "father" | "mother" | "guardian"
+    | "step_father" | "step_mother"
+    | "grandparent" | "sibling" | "sponsor" | "other";
+  fullName: string;
+  title?: "Mr." | "Mrs." | "Ms." | "Dr." | "";
+  nic?: string;
+  homeAddress?: string;
+  homePhone?: string;
+  cellPhone?: string;
+  email?: string;
+  occupation?: string;
+  employer?: string;
+  employerAddress?: string;
+  businessPhone?: string;
+  isPrimaryContact?: boolean;
+  isEmergencyContact?: boolean;
+  isFeePayer?: boolean;
+  isPickupAuthorized?: boolean;
+  portalAccessPhone?: string;
+}
+
+export interface SiblingInput {
+  name: string;
+  age?: number;
+  gender?: "male" | "female" | "";
+  currentSchool?: string;
+  grade?: string;
+}
+
+export interface AdmissionChecklistInput {
+  reportCardReceived?: boolean;
+  photosReceived?: boolean;
+  fatherIdReceived?: boolean;
+  birthCertReceived?: boolean;
+  declarationSignedByName?: string;
+}
+
+export type StudentCompletenessStatus =
+  | "complete"
+  | "guardians_pending"
+  | "documents_pending"
+  | "fees_pending";
+
 export interface CreateStudentBody {
   grNumber: string;
   fullName: string;
@@ -1323,8 +1373,39 @@ export interface CreateStudentBody {
   /** 'hifz' | 'conventional' — gates program-targeted announcements and
    *  surfaces in the section dashboards. */
   program?: "hifz" | "conventional" | "";
-  /** Optional — create + auto-link a primary parent in one shot. */
+  // IFS admission-form fields (PR feat/student-parent-onboarding-redesign).
+  registrationNo?: string;
+  applyingForGrade?: string;
+  academicTerm?: string;
+  religion?: string;
+  nationality?: string;
+  homeLanguage?: string;
+  lastSchool?: string;
+  lastClassStudying?: string;
+  lastClassCompleted?: string;
+  wasSuspended?: boolean;
+  suspensionDetails?: string;
+  medicalConditions?: string;
+  psychologicalConditions?: string;
+  bloodGroup?: string;
+  referralSource?: string;
+  reasonsForApplying?: string;
+  availTransport?: boolean;
+  studentGmail?: string;
+  feeSubmittedTotal?: number;
+  receiptNo?: string;
+  admissionDate?: string;
+  completenessStatus?: StudentCompletenessStatus;
+  /** Legacy single-parent shape — still accepted by the backend. New
+   *  flows should use `guardians[]` instead. */
   parent?: InlineParentInput;
+  /** Preferred new shape: zero, one, or many guardians attached to the
+   *  student. Each becomes a parent row + a student_parent link with
+   *  per-kid role flags. Same person across siblings = single parent
+   *  row reused. */
+  guardians?: GuardianInput[];
+  siblings?: SiblingInput[];
+  checklist?: AdmissionChecklistInput;
 }
 
 export const adminCreateStudent = (

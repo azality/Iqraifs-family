@@ -49,6 +49,73 @@ export interface StudentRow {
    *  announcements and section dashboards. CHECK constraint at the DB
    *  level enforces the enum so we just pass through. */
   program?: string;
+  // PR feat/student-parent-onboarding-redesign — mirror the IFS
+  // admission form. All optional; backend stores what's provided.
+  registrationNo?: string;
+  applyingForGrade?: string;
+  academicTerm?: string;
+  religion?: string;
+  nationality?: string;
+  homeLanguage?: string;
+  lastSchool?: string;
+  lastClassStudying?: string;
+  lastClassCompleted?: string;
+  wasSuspended?: boolean;
+  suspensionDetails?: string;
+  medicalConditions?: string;
+  psychologicalConditions?: string;
+  bloodGroup?: string;
+  referralSource?: string;
+  reasonsForApplying?: string;
+  availTransport?: boolean;
+  studentGmail?: string;
+  feeSubmittedTotal?: number;
+  receiptNo?: string;
+  admissionDate?: string;
+  completenessStatus?: string;
+}
+
+/** Per-guardian payload used by the redesigned Add Student flow.
+ *  Each one becomes (parent row, student_parent link). The link holds
+ *  the per-kid role: even if Imran Khan is the same person across two
+ *  kids, his role / fee-payer status can differ per kid. */
+export interface GuardianInput {
+  parentRole?: string;
+  fullName?: string;
+  title?: string;
+  nic?: string;
+  homeAddress?: string;
+  homePhone?: string;
+  cellPhone?: string;
+  phone?: string;              // back-compat alias for cellPhone
+  email?: string;
+  occupation?: string;
+  employer?: string;
+  employerAddress?: string;
+  businessPhone?: string;
+  isPrimaryContact?: boolean;
+  isEmergencyContact?: boolean;
+  isFeePayer?: boolean;
+  isPickupAuthorized?: boolean;
+  portalAccessPhone?: string;
+}
+
+/** Captured siblings under 16 (PDF "Sibling Information" section). */
+export interface SiblingInput {
+  name: string;
+  age?: number;
+  gender?: string;
+  currentSchool?: string;
+  grade?: string;
+}
+
+/** Admission checklist (PDF "Application Checklist" section). */
+export interface AdmissionChecklistInput {
+  reportCardReceived?: boolean;
+  photosReceived?: boolean;
+  fatherIdReceived?: boolean;
+  birthCertReceived?: boolean;
+  declarationSignedByName?: string;
 }
 
 export interface ParentRow {
@@ -358,8 +425,74 @@ function validStudentRow(r: any, i: number): { ok: true; row: StudentRow } | { o
         typeof r.program === "string" && (r.program === "hifz" || r.program === "conventional")
           ? r.program
           : undefined,
+      // Admission-form fields. All pass through unmodified; storage
+      // layer accepts undefined → null.
+      registrationNo: r.registrationNo || undefined,
+      applyingForGrade: r.applyingForGrade || undefined,
+      academicTerm: r.academicTerm || undefined,
+      religion: r.religion || undefined,
+      nationality: r.nationality || undefined,
+      homeLanguage: r.homeLanguage || undefined,
+      lastSchool: r.lastSchool || undefined,
+      lastClassStudying: r.lastClassStudying || undefined,
+      lastClassCompleted: r.lastClassCompleted || undefined,
+      wasSuspended: r.wasSuspended === true,
+      suspensionDetails: r.suspensionDetails || undefined,
+      medicalConditions: r.medicalConditions || undefined,
+      psychologicalConditions: r.psychologicalConditions || undefined,
+      bloodGroup: r.bloodGroup || undefined,
+      referralSource: r.referralSource || undefined,
+      reasonsForApplying: r.reasonsForApplying || undefined,
+      availTransport: r.availTransport === true,
+      studentGmail: r.studentGmail || undefined,
+      feeSubmittedTotal: typeof r.feeSubmittedTotal === "number" ? r.feeSubmittedTotal : undefined,
+      receiptNo: r.receiptNo || undefined,
+      admissionDate: r.admissionDate || undefined,
+      completenessStatus: r.completenessStatus || undefined,
     },
   };
+}
+
+/** Map the StudentRow shape to the DB column names — covers core +
+ *  admission-redesign fields. Centralized so POST / PATCH / bulk all
+ *  stay in lockstep. Returns ONLY fields the row actually set; pairs
+ *  well with PATCH partial-updates. */
+function studentRowToColumns(row: StudentRow, orgId: string): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    org_id: orgId,
+    gr_number: row.grNumber,
+    full_name: row.fullName,
+    class_section_id: row.classSectionId ?? null,
+    photo_url: row.photoUrl ?? null,
+    date_of_birth: row.dateOfBirth ?? null,
+    gender: row.gender ?? null,
+    guardian_phone: row.guardianPhone ?? null,
+    guardian_email: row.guardianEmail ?? null,
+    program: row.program ?? null,
+    registration_no: row.registrationNo ?? null,
+    applying_for_grade: row.applyingForGrade ?? null,
+    academic_term: row.academicTerm ?? null,
+    religion: row.religion ?? null,
+    nationality: row.nationality ?? null,
+    home_language: row.homeLanguage ?? null,
+    last_school: row.lastSchool ?? null,
+    last_class_studying: row.lastClassStudying ?? null,
+    last_class_completed: row.lastClassCompleted ?? null,
+    was_suspended: row.wasSuspended ?? false,
+    suspension_details: row.suspensionDetails ?? null,
+    medical_conditions: row.medicalConditions ?? null,
+    psychological_conditions: row.psychologicalConditions ?? null,
+    blood_group: row.bloodGroup ?? null,
+    referral_source: row.referralSource ?? null,
+    reasons_for_applying: row.reasonsForApplying ?? null,
+    avail_transport: row.availTransport ?? false,
+    student_gmail: row.studentGmail ?? null,
+    fee_submitted_total: row.feeSubmittedTotal ?? null,
+    receipt_no: row.receiptNo ?? null,
+    admission_date: row.admissionDate ?? null,
+  };
+  if (row.completenessStatus) out.completeness_status = row.completenessStatus;
+  return out;
 }
 
 function validParentRow(r: any, i: number): { ok: true; row: ParentRow } | { ok: false; message: string; rowIndex: number } {
@@ -665,6 +798,154 @@ export function installPhaseA(school: Hono) {
   }
 
   // -------------------------------------------------------------------------
+  // attachGuardian — richer cousin of attachInlineParent. Used by the
+  // redesigned Add Student flow. Handles per-link role flags, the full
+  // PDF-form parent attribute set, and arbitrary `parent_role` values.
+  // Dedup logic still applies — NIC > email > phone — so siblings under
+  // the same father don't create duplicate parent rows.
+  // -------------------------------------------------------------------------
+  async function attachGuardian(
+    orgId: string,
+    studentId: string,
+    g: GuardianInput,
+  ): Promise<{ ok: true; parentId: string; reused: boolean } | { ok: false; message: string }> {
+    const fullName = (g.fullName ?? "").trim();
+    const nic = (g.nic ?? "").trim();
+    const email = (g.email ?? "").trim();
+    const cellPhone = (g.cellPhone ?? g.phone ?? "").trim();
+    const homePhone = (g.homePhone ?? "").trim();
+    if (!fullName) return { ok: false, message: "guardian.fullName required" };
+
+    let parentId: string | null = null;
+    let reused = false;
+
+    // 1. NIC dedup — strongest. CNIC numbers are unique per person.
+    if (nic) {
+      const nicDigits = nic.replace(/\D/g, "");
+      if (nicDigits.length >= 7) {
+        const { data: candidates } = await serviceRoleClient
+          .from("parent")
+          .select("id, nic")
+          .eq("org_id", orgId)
+          .not("nic", "is", null)
+          .limit(500);
+        const hit = (candidates ?? []).find(
+          (p: any) => (p.nic ?? "").replace(/\D/g, "") === nicDigits,
+        );
+        if (hit) { parentId = (hit as any).id; reused = true; }
+      }
+    }
+    // 2. email
+    if (!parentId && email) {
+      const { data: byEmail } = await serviceRoleClient
+        .from("parent")
+        .select("id")
+        .eq("org_id", orgId)
+        .ilike("email", email)
+        .maybeSingle();
+      if (byEmail) { parentId = (byEmail as any).id; reused = true; }
+    }
+    // 3. phone — check both cell_phone and the legacy phone column +
+    //    home_phone. Same-digits comparison so spacing variants
+    //    collapse.
+    if (!parentId && (cellPhone || homePhone)) {
+      const want = (cellPhone || homePhone).replace(/\D/g, "");
+      if (want.length >= 7) {
+        const { data: candidates } = await serviceRoleClient
+          .from("parent")
+          .select("id, phone, cell_phone, home_phone")
+          .eq("org_id", orgId)
+          .limit(500);
+        const hit = (candidates ?? []).find((p: any) => {
+          for (const k of ["cell_phone", "phone", "home_phone"]) {
+            if ((p[k] ?? "").replace(/\D/g, "") === want) return true;
+          }
+          return false;
+        });
+        if (hit) { parentId = (hit as any).id; reused = true; }
+      }
+    }
+
+    const role = (g.parentRole ?? "").trim() || null;
+    // Insert OR update parent attributes if we matched an existing
+    // record. Updating fills in fields that were blank before — handy
+    // when the same parent had a stub row from a sibling and the
+    // new admission provides their NIC / employer for the first time.
+    if (!parentId) {
+      const { data: created, error: insErr } = await serviceRoleClient
+        .from("parent")
+        .insert({
+          org_id: orgId,
+          full_name: fullName,
+          title: (g.title ?? "").trim() || null,
+          nic: nic || null,
+          home_address: (g.homeAddress ?? "").trim() || null,
+          home_phone: homePhone || null,
+          cell_phone: cellPhone || null,
+          phone: cellPhone || null,    // back-compat
+          email: email || null,
+          relationship: role,          // mirror role into the legacy
+                                       // single-relationship column so
+                                       // older queries still find it.
+          occupation: (g.occupation ?? "").trim() || null,
+          employer: (g.employer ?? "").trim() || null,
+          employer_address: (g.employerAddress ?? "").trim() || null,
+          business_phone: (g.businessPhone ?? "").trim() || null,
+        })
+        .select("id")
+        .single();
+      if (insErr) return { ok: false, message: `parent_create_failed: ${insErr.message}` };
+      parentId = (created as any).id;
+    } else {
+      // Fill in blanks on the existing record. Coalesce on the server
+      // would be cleaner but JS-side merge is fine at pilot scale.
+      const { data: current } = await serviceRoleClient
+        .from("parent").select("*").eq("id", parentId).maybeSingle();
+      const patch: Record<string, unknown> = {};
+      const setIfEmpty = (col: string, val: string) => {
+        if (val && !((current as any)?.[col])) patch[col] = val;
+      };
+      setIfEmpty("title", (g.title ?? "").trim());
+      setIfEmpty("nic", nic);
+      setIfEmpty("home_address", (g.homeAddress ?? "").trim());
+      setIfEmpty("home_phone", homePhone);
+      setIfEmpty("cell_phone", cellPhone);
+      setIfEmpty("phone", cellPhone);
+      setIfEmpty("email", email);
+      setIfEmpty("occupation", (g.occupation ?? "").trim());
+      setIfEmpty("employer", (g.employer ?? "").trim());
+      setIfEmpty("employer_address", (g.employerAddress ?? "").trim());
+      setIfEmpty("business_phone", (g.businessPhone ?? "").trim());
+      if (Object.keys(patch).length > 0) {
+        await serviceRoleClient.from("parent").update(patch).eq("id", parentId);
+      }
+    }
+
+    // Link with role flags. is_primary on the link historically meant
+    // "first contact" — keep it tied to is_primary_contact for back-
+    // compat with any older code that reads the bool directly.
+    const { error: linkErr } = await serviceRoleClient
+      .from("student_parent")
+      .upsert(
+        {
+          student_id: studentId,
+          parent_id: parentId,
+          is_primary: g.isPrimaryContact === true,
+          parent_role: role,
+          is_primary_contact: g.isPrimaryContact === true,
+          is_emergency_contact: g.isEmergencyContact === true,
+          is_fee_payer: g.isFeePayer === true,
+          is_pickup_authorized: g.isPickupAuthorized === true,
+          portal_access_phone:
+            (g.portalAccessPhone ?? "").trim() || cellPhone || null,
+        },
+        { onConflict: "student_id,parent_id", ignoreDuplicates: false },
+      );
+    if (linkErr) return { ok: false, message: `link_failed: ${linkErr.message}` };
+    return { ok: true, parentId: parentId!, reused };
+  }
+
+  // -------------------------------------------------------------------------
   // STUDENTS
   // -------------------------------------------------------------------------
   school.post("/orgs/:orgId/students", async (c) => {
@@ -681,18 +962,7 @@ export function installPhaseA(school: Hono) {
 
     const { data, error } = await serviceRoleClient
       .from("student")
-      .insert({
-        org_id: orgId,
-        gr_number: v.row.grNumber,
-        full_name: v.row.fullName,
-        class_section_id: v.row.classSectionId ?? null,
-        photo_url: v.row.photoUrl ?? null,
-        date_of_birth: v.row.dateOfBirth ?? null,
-        gender: v.row.gender ?? null,
-        guardian_phone: v.row.guardianPhone ?? null,
-        guardian_email: v.row.guardianEmail ?? null,
-        program: v.row.program ?? null,
-      })
+      .insert(studentRowToColumns(v.row, orgId))
       .select()
       .single();
     if (error) {
@@ -702,22 +972,111 @@ export function installPhaseA(school: Hono) {
       return c.json({ error: error.message }, 500);
     }
 
-    // Inline-parent attach. We INTENTIONALLY do not roll back the student
-    // if the parent step fails — Supabase JS has no transactions and a
-    // half-created student is recoverable from the UI (admin can retry
-    // the parent attach via student detail or parents list). Failure
-    // surfaces as a `warning` on the 201 so the UI can flag it.
-    const inlineParent: InlineParentRow | undefined = body?.parent && typeof body.parent === "object"
-      ? body.parent
-      : undefined;
-    let warning: string | null = null;
+    // Inline guardians/parents — three accepted shapes:
+    //   * body.guardians: GuardianInput[]   (preferred, new admission flow)
+    //   * body.parent:    InlineParentRow   (legacy single-parent)
+    //   * neither                            (record stays guardians_pending)
+    //
+    // We INTENTIONALLY don't roll back the student row on partial
+    // failures — Supabase JS has no transactions; a half-created
+    // record is recoverable from the UI. Each failure surfaces as a
+    // `warning` (single) or `warnings[]` (array) entry on the 201.
+    const studentId = (data as any).id;
+    const warnings: string[] = [];
     let linkedParentId: string | null = null;
-    if (inlineParent && (inlineParent.fullName ?? "").trim()) {
-      const r = await attachInlineParent(orgId, (data as any).id, inlineParent);
-      if (r.ok) linkedParentId = r.parentId;
-      else warning = r.message;
+    let linkedCount = 0;
+
+    if (Array.isArray(body?.guardians) && body.guardians.length > 0) {
+      for (let i = 0; i < body.guardians.length; i++) {
+        const g = body.guardians[i] as GuardianInput;
+        if (!g || !(g.fullName ?? "").trim()) continue;
+        const r = await attachGuardian(orgId, studentId, g);
+        if (r.ok) {
+          if (!linkedParentId) linkedParentId = r.parentId;
+          linkedCount++;
+        } else {
+          warnings.push(`guardian[${i}]: ${r.message}`);
+        }
+      }
+    } else {
+      const inlineParent: InlineParentRow | undefined =
+        body?.parent && typeof body.parent === "object" ? body.parent : undefined;
+      if (inlineParent && (inlineParent.fullName ?? "").trim()) {
+        const r = await attachInlineParent(orgId, studentId, inlineParent);
+        if (r.ok) {
+          linkedParentId = r.parentId;
+          linkedCount = 1;
+        } else {
+          warnings.push(r.message);
+        }
+      }
     }
-    return c.json({ ...(data as any), linkedParentId, warning }, 201);
+
+    // Optional siblings array — straight insert per row, no dedup.
+    if (Array.isArray(body?.siblings)) {
+      const sibRows = (body.siblings as SiblingInput[])
+        .filter((s) => s && typeof s.name === "string" && s.name.trim().length > 0)
+        .map((s) => ({
+          student_id: studentId,
+          name: s.name.trim(),
+          age: typeof s.age === "number" ? s.age : null,
+          gender: s.gender ?? null,
+          current_school: s.currentSchool ?? null,
+          grade: s.grade ?? null,
+        }));
+      if (sibRows.length > 0) {
+        const { error: sibErr } = await serviceRoleClient
+          .from("student_sibling").insert(sibRows);
+        if (sibErr) warnings.push(`siblings: ${sibErr.message}`);
+      }
+    }
+
+    // Optional checklist — single row, upsert keyed by student_id.
+    if (body?.checklist && typeof body.checklist === "object") {
+      const ck = body.checklist as AdmissionChecklistInput;
+      const { error: ckErr } = await serviceRoleClient
+        .from("student_admission_checklist")
+        .upsert(
+          {
+            student_id: studentId,
+            report_card_received: ck.reportCardReceived === true,
+            photos_received: ck.photosReceived === true,
+            father_id_received: ck.fatherIdReceived === true,
+            birth_cert_received: ck.birthCertReceived === true,
+            declaration_signed_at:
+              ck.declarationSignedByName ? new Date().toISOString() : null,
+            declaration_signed_by_name: ck.declarationSignedByName ?? null,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "student_id" },
+        );
+      if (ckErr) warnings.push(`checklist: ${ckErr.message}`);
+    }
+
+    // If the caller didn't pass a completenessStatus and no guardians
+    // landed, default the record to guardians_pending so the worklist
+    // surfaces it. Otherwise default to 'complete'. This mirrors the
+    // paper-form workflow where a child can be enrolled with documents
+    // pending and the office chases the rest.
+    if (!v.row.completenessStatus) {
+      const target = linkedCount === 0 ? "guardians_pending" : "complete";
+      await serviceRoleClient
+        .from("student")
+        .update({ completeness_status: target })
+        .eq("id", studentId);
+      (data as any).completeness_status = target;
+    }
+
+    return c.json(
+      {
+        ...(data as any),
+        linkedParentId,
+        guardiansLinked: linkedCount,
+        warning: warnings[0] ?? null,
+        warnings,
+      },
+      201,
+    );
   });
 
   school.get("/orgs/:orgId/students", async (c) => {
@@ -773,6 +1132,29 @@ export function installPhaseA(school: Hono) {
       guardianPhone: "guardian_phone",
       guardianEmail: "guardian_email",
       program: "program",
+      // Admission-form fields (PR feat/student-parent-onboarding-redesign).
+      registrationNo: "registration_no",
+      applyingForGrade: "applying_for_grade",
+      academicTerm: "academic_term",
+      religion: "religion",
+      nationality: "nationality",
+      homeLanguage: "home_language",
+      lastSchool: "last_school",
+      lastClassStudying: "last_class_studying",
+      lastClassCompleted: "last_class_completed",
+      wasSuspended: "was_suspended",
+      suspensionDetails: "suspension_details",
+      medicalConditions: "medical_conditions",
+      psychologicalConditions: "psychological_conditions",
+      bloodGroup: "blood_group",
+      referralSource: "referral_source",
+      reasonsForApplying: "reasons_for_applying",
+      availTransport: "avail_transport",
+      studentGmail: "student_gmail",
+      feeSubmittedTotal: "fee_submitted_total",
+      receiptNo: "receipt_no",
+      admissionDate: "admission_date",
+      completenessStatus: "completeness_status",
     };
     const patch: Record<string, unknown> = {};
     for (const [k, col] of Object.entries(map)) {
@@ -824,18 +1206,7 @@ export function installPhaseA(school: Hono) {
 
     if (validRows.length === 0) return c.json({ inserted: 0, errors });
 
-    const payload = validRows.map(({ row }) => ({
-      org_id: orgId,
-      gr_number: row.grNumber,
-      full_name: row.fullName,
-      class_section_id: row.classSectionId ?? null,
-      photo_url: row.photoUrl ?? null,
-      date_of_birth: row.dateOfBirth ?? null,
-      gender: row.gender ?? null,
-      guardian_phone: row.guardianPhone ?? null,
-      guardian_email: row.guardianEmail ?? null,
-      program: row.program ?? null,
-    }));
+    const payload = validRows.map(({ row }) => studentRowToColumns(row, orgId));
 
     // First pass: insert students. We keep a parallel array of original
     // CSV rows so the second pass (inline-parent attach) can look up
@@ -851,18 +1222,7 @@ export function installPhaseA(school: Hono) {
         const { idx, row } = validRows[i];
         const { data: oneData, error: rowErr } = await serviceRoleClient
           .from("student")
-          .insert({
-            org_id: orgId,
-            gr_number: row.grNumber,
-            full_name: row.fullName,
-            class_section_id: row.classSectionId ?? null,
-            photo_url: row.photoUrl ?? null,
-            date_of_birth: row.dateOfBirth ?? null,
-            gender: row.gender ?? null,
-            guardian_phone: row.guardianPhone ?? null,
-            guardian_email: row.guardianEmail ?? null,
-      program: row.program ?? null,
-          })
+          .insert(studentRowToColumns(row, orgId))
           .select("id, gr_number")
           .single();
         if (rowErr) {
