@@ -141,7 +141,52 @@ function resourceToJson(r: any) {
     addedBy: r.added_by,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
+    // File-upload fields (PR #150). Null/undefined for legacy link rows
+    // so the UI can treat their absence as "this is an external link
+    // resource" — no extra branch needed.
+    storagePath: r.storage_path ?? null,
+    mimeType: r.mime_type ?? null,
+    byteSize: r.byte_size ?? null,
   };
+}
+
+// File-upload constants for topic_resource. Tweaking these is a config
+// change, not a schema change.
+const TOPIC_RESOURCE_BUCKET = "curriculum-resources";
+const TOPIC_RESOURCE_MAX_BYTES = 50 * 1024 * 1024; // 50 MB
+const TOPIC_RESOURCE_ALLOWED_MIMES = new Set([
+  "application/pdf",
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+  "video/mp4",
+  "video/quicktime",
+  "video/webm",
+  "audio/mpeg",
+  "audio/mp4",
+  "audio/wav",
+  // Office: pptx/docx/xlsx
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  // Legacy office
+  "application/msword",
+  "application/vnd.ms-excel",
+  "application/vnd.ms-powerpoint",
+  // Plain text + zip (common for problem sets)
+  "text/plain",
+  "application/zip",
+]);
+// Storage path shape: <orgId>/<topicId>/<crypto.randomUUID()>_<safeName>
+// Org-scoped at the top so a future per-org bucket cleanup job can run a
+// prefix list. Topic-scoped second so deleting a topic + its resources
+// can list+delete by prefix.
+function safeFileName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9.\-_]+/g, "_")
+    .slice(0, 80);
 }
 
 function topicToJson(r: any) {
@@ -776,13 +821,67 @@ export function installCurriculum(school: Hono) {
     if (label.length < 1 || label.length > 200) {
       return c.json({ error: "label must be 1..200 characters" }, 400);
     }
-    const url = typeof body?.url === "string" ? body.url.trim() : "";
-    if (url.length < 4 || url.length > 2048) {
-      return c.json({ error: "url must be 4..2048 characters" }, 400);
-    }
-    // Light URL sanity: must start with http(s):// or be a relative path.
-    if (!/^(https?:\/\/|\/)/i.test(url)) {
-      return c.json({ error: "url must start with http(s):// or /" }, 400);
+    // File-resource branch: client already uploaded via the signed-upload
+    // URL we minted in /resources/upload-url, and now wants to record
+    // the metadata. The `url` field in the DB stays — we store the
+    // bucket-relative path there too so legacy clients reading
+    // resource.url don't break; downloads always go through the signed-
+    // URL endpoint which re-checks org membership.
+    const isFile =
+      typeof body?.storagePath === "string" && body.storagePath.trim().length > 0;
+    let storagePath: string | null = null;
+    let mimeType: string | null = null;
+    let byteSize: number | null = null;
+    let url: string;
+    if (isFile) {
+      storagePath = String(body.storagePath).trim();
+      // Defense-in-depth: re-check the storage object actually exists
+      // and matches the expected size. Without this, a malicious client
+      // could POST a path they never uploaded to and we'd record a
+      // dangling row.
+      const { data: head, error: headErr } = await (serviceRoleClient as any).storage
+        .from(TOPIC_RESOURCE_BUCKET)
+        .list(storagePath.split("/").slice(0, -1).join("/"), {
+          search: storagePath.split("/").pop() || "",
+          limit: 1,
+        });
+      if (headErr) return c.json({ error: `storage list failed: ${headErr.message}` }, 500);
+      const obj = (head ?? [])[0];
+      if (!obj) {
+        return c.json(
+          { error: "uploaded file not found at storagePath — upload may have failed" },
+          400,
+        );
+      }
+      const actualSize = (obj as any)?.metadata?.size ?? 0;
+      if (actualSize > TOPIC_RESOURCE_MAX_BYTES) {
+        // Clean up the over-size upload so we don't leak bucket space.
+        await (serviceRoleClient as any).storage
+          .from(TOPIC_RESOURCE_BUCKET)
+          .remove([storagePath]);
+        return c.json(
+          { error: `file is ${(actualSize / 1024 / 1024).toFixed(1)} MB; limit is 50 MB` },
+          413,
+        );
+      }
+      mimeType =
+        typeof body?.mimeType === "string"
+          ? body.mimeType
+          : ((obj as any)?.metadata?.mimetype ?? null);
+      byteSize = actualSize;
+      // Record the storage path as the `url` so older clients can keep
+      // reading resource.url unaware of files. New clients prefer
+      // storagePath + the signed-URL endpoint.
+      url = storagePath;
+    } else {
+      url = typeof body?.url === "string" ? body.url.trim() : "";
+      if (url.length < 4 || url.length > 2048) {
+        return c.json({ error: "url must be 4..2048 characters" }, 400);
+      }
+      // Light URL sanity: must start with http(s):// or be a relative path.
+      if (!/^(https?:\/\/|\/)/i.test(url)) {
+        return c.json({ error: "url must start with http(s):// or /" }, 400);
+      }
     }
     const description =
       typeof body?.description === "string" ? body.description.trim() : null;
@@ -812,11 +911,101 @@ export function installCurriculum(school: Hono) {
         description: description || null,
         sort_order: sortOrder,
         added_by: userId,
+        storage_path: storagePath,
+        mime_type: mimeType,
+        byte_size: byteSize,
       })
       .select()
       .single();
     if (error) return c.json({ error: error.message }, 500);
     return c.json({ resource: resourceToJson(data) }, 201);
+  });
+
+  // ---------------------------------------------------------------------------
+  // POST /school/curriculum-topics/:topicId/resources/upload-url
+  //
+  // Mint a signed upload URL for a single file. Client PUTs the file
+  // directly to Supabase Storage with this URL, then POSTs the metadata
+  // back to /resources to record the row. Two-step flow keeps large
+  // files OFF the edge function (which has tight memory + duration
+  // limits) while still letting us enforce mime/size on record.
+  // Body: { fileName: string, mimeType: string }
+  // ---------------------------------------------------------------------------
+  school.post("/curriculum-topics/:topicId/resources/upload-url", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const topicId = c.req.param("topicId");
+    const ctx = await topicOrgId(topicId);
+    if (!ctx || !ctx.orgId) return c.json({ error: "topic not found" }, 404);
+    if (!(await isPrincipalOrAdmin(userId, ctx.orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    const fileName = typeof body?.fileName === "string" ? body.fileName.trim() : "";
+    if (!fileName || fileName.length > 200) {
+      return c.json({ error: "fileName required (1..200 chars)" }, 400);
+    }
+    const mimeType = typeof body?.mimeType === "string" ? body.mimeType : "";
+    if (!TOPIC_RESOURCE_ALLOWED_MIMES.has(mimeType)) {
+      return c.json(
+        {
+          error: `file type ${mimeType || "(unknown)"} isn't allowed. Allowed: PDF, image, video, audio, Office docs, plain text, zip.`,
+        },
+        400,
+      );
+    }
+
+    const path = `${ctx.orgId}/${topicId}/${crypto.randomUUID()}_${safeFileName(fileName)}`;
+    const { data, error } = await (serviceRoleClient as any).storage
+      .from(TOPIC_RESOURCE_BUCKET)
+      .createSignedUploadUrl(path);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({
+      uploadUrl: data.signedUrl,
+      token: data.token,
+      storagePath: path,
+      maxBytes: TOPIC_RESOURCE_MAX_BYTES,
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // GET /school/topic-resources/:id/signed-url
+  //
+  // Mint a short-lived signed URL so the user can download/view a file
+  // resource. Re-checks org membership on every call so a leaked URL
+  // doesn't outlive a revoked role.
+  // ---------------------------------------------------------------------------
+  school.get("/topic-resources/:id/signed-url", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const id = c.req.param("id");
+    const { data: existing } = await serviceRoleClient
+      .from("topic_resource")
+      .select("org_id, storage_path, label, mime_type")
+      .eq("id", id)
+      .maybeSingle();
+    if (!existing) return c.json({ error: "resource not found" }, 404);
+    if (!(await hasAnyOrgRole(userId, (existing as any).org_id))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const path = (existing as any).storage_path as string | null;
+    if (!path) return c.json({ error: "this resource is an external link, not a file" }, 400);
+    const { data, error } = await (serviceRoleClient as any).storage
+      .from(TOPIC_RESOURCE_BUCKET)
+      .createSignedUrl(path, 60 * 5, {
+        // download=label triggers Content-Disposition: attachment with
+        // the user-friendly name so they don't see the UUID-prefixed
+        // storage path. Browsers still inline-render images/PDFs.
+        download: (existing as any).label ?? undefined,
+      });
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({
+      url: data.signedUrl,
+      expiresInSeconds: 300,
+      mimeType: (existing as any).mime_type ?? null,
+    });
   });
 
   // PATCH /school/topic-resources/:id
@@ -894,7 +1083,7 @@ export function installCurriculum(school: Hono) {
     const id = c.req.param("id");
     const { data: existing } = await serviceRoleClient
       .from("topic_resource")
-      .select("org_id")
+      .select("org_id, storage_path")
       .eq("id", id)
       .maybeSingle();
     if (!existing) return c.json({ error: "resource not found" }, 404);
@@ -906,6 +1095,19 @@ export function installCurriculum(school: Hono) {
       .update({ archived_at: new Date().toISOString() })
       .eq("id", id);
     if (error) return c.json({ error: error.message }, 500);
+    // For file resources, also remove the storage object. Soft-delete on
+    // the row stays for audit, but holding the bytes serves no purpose —
+    // the row's signed-URL endpoint refuses archived resources anyway.
+    // We swallow storage errors so a transient bucket failure doesn't
+    // bubble back as a delete failure.
+    const path = (existing as any).storage_path as string | null;
+    if (path) {
+      try {
+        await (serviceRoleClient as any).storage
+          .from(TOPIC_RESOURCE_BUCKET)
+          .remove([path]);
+      } catch { /* best-effort */ }
+    }
     return c.json({ ok: true });
   });
 

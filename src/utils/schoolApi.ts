@@ -561,6 +561,12 @@ export interface TopicResource {
   addedBy: string | null;
   createdAt: string;
   updatedAt: string;
+  // File-upload metadata. Null when the resource is an external link.
+  // UI uses storagePath != null as the "this is a file, fetch a signed
+  // URL before opening" signal.
+  storagePath: string | null;
+  mimeType: string | null;
+  byteSize: number | null;
 }
 
 export const listTopicResources = (
@@ -573,7 +579,12 @@ export const addTopicResource = (
   body: {
     kind: TopicResourceKind;
     label: string;
-    url: string;
+    /** External URL (link/video resources) OR — for files — the storage
+     *  path the upload-url endpoint returned. When `storagePath` is set,
+     *  `url` is ignored by the server. */
+    url?: string;
+    storagePath?: string;
+    mimeType?: string;
     description?: string;
     sortOrder?: number;
   },
@@ -582,6 +593,32 @@ export const addTopicResource = (
     method: "POST",
     body: JSON.stringify(body),
   });
+
+/** Step 1 of the 2-step file upload flow — ask the server to mint a
+ *  signed Supabase Storage upload URL. Client PUTs the file bytes
+ *  directly to that URL (NOT through the edge function), then POSTs the
+ *  metadata via addTopicResource with the returned storagePath. */
+export const getTopicResourceUploadUrl = (
+  topicId: string,
+  body: { fileName: string; mimeType: string },
+): Promise<{
+  uploadUrl: string;
+  token: string;
+  storagePath: string;
+  maxBytes: number;
+}> =>
+  apiCall(`/school/curriculum-topics/${topicId}/resources/upload-url`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+/** Mint a short-lived (5 min) signed URL to view/download a file
+ *  resource. Re-checks org membership on the server, so revoking a
+ *  user's role takes effect on the next click. */
+export const getTopicResourceSignedUrl = (
+  resourceId: string,
+): Promise<{ url: string; expiresInSeconds: number; mimeType: string | null }> =>
+  apiCall(`/school/topic-resources/${resourceId}/signed-url`);
 
 export const updateTopicResource = (
   resourceId: string,
