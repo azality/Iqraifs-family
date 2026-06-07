@@ -52,6 +52,7 @@ const emptyForm: CreateStudentBody = {
   gender: "",
   guardianPhone: "",
   guardianEmail: "",
+  program: "",
 };
 
 export function ManageStudents() {
@@ -139,6 +140,7 @@ export function ManageStudents() {
       gender: s.gender || "",
       guardianPhone: s.guardian_phone || "",
       guardianEmail: s.guardian_email || "",
+      program: ((s as any).program as "hifz" | "conventional" | undefined) || "",
     });
     setFormOpen(true);
   };
@@ -341,6 +343,25 @@ export function ManageStudents() {
             <div className="sm:col-span-2"><Label>Photo URL</Label><Input value={form.photoUrl} onChange={(e) => setForm({ ...form, photoUrl: e.target.value })} /></div>
             <div><Label>Guardian phone</Label><Input value={form.guardianPhone} onChange={(e) => setForm({ ...form, guardianPhone: e.target.value })} /></div>
             <div><Label>Guardian email</Label><Input type="email" value={form.guardianEmail} onChange={(e) => setForm({ ...form, guardianEmail: e.target.value })} /></div>
+            <div className="sm:col-span-2">
+              <Label>Program</Label>
+              <Select
+                value={form.program || "__none__"}
+                onValueChange={(v) =>
+                  setForm({ ...form, program: v === "__none__" ? "" : (v as "hifz" | "conventional") })
+                }
+              >
+                <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">—</SelectItem>
+                  <SelectItem value="conventional">Conventional</SelectItem>
+                  <SelectItem value="hifz">Hifz</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="mt-1 text-[11px] text-slate-500">
+                Drives Hifz dashboards and "Program" announcements.
+              </p>
+            </div>
           </div>
 
           {/* Inline parent block — shown expanded on create so the admin
@@ -466,6 +487,7 @@ export function ManageStudents() {
           { key: "gender", label: "Gender" },
           { key: "guardianPhone", label: "Guardian phone", aliases: ["phone", "guardian_phone"] },
           { key: "guardianEmail", label: "Guardian email", aliases: ["email", "guardian_email"] },
+          { key: "program", label: "Program (hifz / conventional, optional)", aliases: ["program_type"] },
           // Inline parent columns — all optional. If parentFullName is
           // set, the row creates+links a primary parent in one shot.
           // Same dedup rule as the single-create flow (email then phone).

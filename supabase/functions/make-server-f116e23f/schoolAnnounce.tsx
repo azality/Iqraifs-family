@@ -155,13 +155,26 @@ async function resolveAccessibleStudents(subject: PinTokenPayload): Promise<stri
 // -----------------------------------------------------------------------------
 // Row shapes
 // -----------------------------------------------------------------------------
+// Phase F shipped 5 audience kinds. PR feat/announcement-audience-expanded
+// adds 5 more for the Iqra pilot — staff, teachers, class, program,
+// subject. The single-row model (one audience_kind + a handful of
+// discriminator columns) holds for the pilot; cross-bucket unions
+// ("Teachers + Grade 3 parents") are out of scope until we see real demand.
 const AUDIENCE_KINDS = new Set([
   "whole_school",
   "class_section",
   "parents_only",
   "students_only",
   "specific_students",
+  "staff",
+  "teachers",
+  "class",
+  "program",
+  "subject",
 ]);
+// Staff-only buckets — portal (student/parent) feeds never include these
+// since they reach internal staff only.
+const STAFF_ONLY_KINDS = new Set(["staff", "teachers"]);
 
 function announcementToJson(r: any, authorName?: string | null) {
   return {
@@ -172,6 +185,12 @@ function announcementToJson(r: any, authorName?: string | null) {
     audienceKind: r.audience_kind,
     audienceSectionId: r.audience_section_id,
     audienceStudentIds: r.audience_student_ids ?? [],
+    // Expanded audience discriminators (PR feat/announcement-audience-
+    // expanded). Null on legacy rows; UI treats their absence as the
+    // "the audience kind doesn't need this field" signal.
+    audienceClassId: r.audience_class_id ?? null,
+    audienceSubjectId: r.audience_subject_id ?? null,
+    audienceProgram: r.audience_program ?? null,
     title: r.title,
     body: r.body,
     attachments: r.attachments ?? [],
@@ -252,6 +271,9 @@ export function installAnnounce(school: Hono): void {
     const bodyText = typeof body?.body === "string" ? body.body : "";
     const audienceKind = body?.audienceKind;
     const audienceSectionId = body?.audienceSectionId ?? null;
+    const audienceClassId = body?.audienceClassId ?? null;
+    const audienceSubjectId = body?.audienceSubjectId ?? null;
+    const audienceProgram = typeof body?.audienceProgram === "string" ? body.audienceProgram : null;
     const audienceStudentIds: string[] = Array.isArray(body?.audienceStudentIds)
       ? body.audienceStudentIds.filter((x: any) => typeof x === "string")
       : [];
@@ -269,6 +291,18 @@ export function installAnnounce(school: Hono): void {
     if (audienceKind === "specific_students" && audienceStudentIds.length === 0) {
       return c.json({ error: "audienceStudentIds required for specific_students" }, 400);
     }
+    // Discriminator presence checks per new kind.
+    if (audienceKind === "class" && !audienceClassId) {
+      return c.json({ error: "audienceClassId required for class kind" }, 400);
+    }
+    if (audienceKind === "subject" && !audienceSubjectId) {
+      return c.json({ error: "audienceSubjectId required for subject kind" }, 400);
+    }
+    if (audienceKind === "program") {
+      if (audienceProgram !== "hifz" && audienceProgram !== "conventional") {
+        return c.json({ error: "audienceProgram must be 'hifz' or 'conventional'" }, 400);
+      }
+    }
 
     // Permission: admin/principal can target anything in org.
     const isAdmin = await hasAdminOrPrincipal(userId, orgId);
@@ -278,8 +312,19 @@ export function installAnnounce(school: Hono): void {
       if (teacherSections.length === 0) {
         return c.json({ error: "forbidden" }, 403);
       }
-      if (audienceKind === "whole_school" || audienceKind === "parents_only" || audienceKind === "students_only") {
-        return c.json({ error: "forbidden: only admin/principal can post school-wide" }, 403);
+      // Broad-reach kinds are admin/principal only. Teachers can still
+      // address their own sections + specific students (handled below).
+      if (
+        audienceKind === "whole_school" ||
+        audienceKind === "parents_only" ||
+        audienceKind === "students_only" ||
+        audienceKind === "staff" ||
+        audienceKind === "teachers" ||
+        audienceKind === "class" ||
+        audienceKind === "program" ||
+        audienceKind === "subject"
+      ) {
+        return c.json({ error: "forbidden: only admin/principal can post this kind" }, 403);
       }
       if (audienceKind === "class_section") {
         if (!teacherSections.includes(audienceSectionId)) {
@@ -316,6 +361,28 @@ export function installAnnounce(school: Hono): void {
         return c.json({ error: "section not in this org" }, 404);
       }
     }
+    // Verify audience class belongs to this org.
+    if (audienceKind === "class" && audienceClassId) {
+      const { data: cls } = await serviceRoleClient
+        .from("class")
+        .select("id, org_id")
+        .eq("id", audienceClassId)
+        .maybeSingle();
+      if (!cls || (cls as any).org_id !== orgId) {
+        return c.json({ error: "class not in this org" }, 404);
+      }
+    }
+    // Verify subject belongs to a class in this org.
+    if (audienceKind === "subject" && audienceSubjectId) {
+      const { data: cs } = await serviceRoleClient
+        .from("class_subject")
+        .select("id, class:class_id(org_id)")
+        .eq("id", audienceSubjectId)
+        .maybeSingle();
+      if (!cs || (cs as any).class?.org_id !== orgId) {
+        return c.json({ error: "subject not in this org" }, 404);
+      }
+    }
 
     const insertRow: any = {
       org_id: orgId,
@@ -323,6 +390,9 @@ export function installAnnounce(school: Hono): void {
       audience_kind: audienceKind,
       audience_section_id: audienceSectionId,
       audience_student_ids: audienceKind === "specific_students" ? audienceStudentIds : null,
+      audience_class_id: audienceKind === "class" ? audienceClassId : null,
+      audience_subject_id: audienceKind === "subject" ? audienceSubjectId : null,
+      audience_program: audienceKind === "program" ? audienceProgram : null,
       title,
       body: bodyText,
       attachments,
@@ -354,6 +424,17 @@ export function installAnnounce(school: Hono): void {
     const creatorOnly = c.req.query("creatorOnly") === "true";
     const isAdmin = await hasAdminOrPrincipal(userId, orgId);
 
+    // Non-admin staff feed: in addition to their own authored
+    // announcements, they should see anything addressed to their
+    // role bucket (staff / teachers / whole_school). Pull the wider
+    // set and filter in-memory — keeps the query simple and the
+    // pilot's announcement table is tiny.
+    let teacherRoles = false;
+    if (!isAdmin) {
+      const sections = await getTeacherSections(userId, orgId);
+      teacherRoles = sections.length > 0;
+    }
+
     let q = serviceRoleClient
       .from("announcement")
       .select("*")
@@ -361,15 +442,36 @@ export function installAnnounce(school: Hono): void {
       .order("published_at", { ascending: false })
       .limit(200);
 
-    if (creatorOnly || !isAdmin) {
+    if (creatorOnly) {
+      // Author asked for "only my announcements" — narrow to that
+      // regardless of admin / staff status.
       q = q.eq("author_user_id", userId);
     }
 
     const { data, error } = await q;
     if (error) return c.json({ error: error.message }, 500);
 
-    const names = await resolveAuthorNames(((data ?? []) as any[]).map((r) => r.author_user_id));
-    const announcements = (data ?? []).map((r: any) =>
+    let rows = (data ?? []) as any[];
+    if (!isAdmin && !creatorOnly) {
+      // Filter to:
+      //   - announcements they authored (always visible to author)
+      //   - whole_school + staff (every staff member sees)
+      //   - teachers (only if caller is a class/visiting teacher)
+      // Other kinds (parents_only, students_only, class_section, class,
+      // program, subject, specific_students) go through the portal feed,
+      // not the staff list.
+      rows = rows.filter((r) => {
+        if (r.author_user_id === userId) return true;
+        const k = r.audience_kind;
+        if (k === "whole_school") return true;
+        if (k === "staff") return true;
+        if (k === "teachers") return teacherRoles;
+        return false;
+      });
+    }
+
+    const names = await resolveAuthorNames(rows.map((r) => r.author_user_id));
+    const announcements = rows.map((r: any) =>
       announcementToJson(r, names.get(r.author_user_id) ?? null),
     );
     return c.json({ announcements });
@@ -454,14 +556,28 @@ export function installAnnounce(school: Hono): void {
     // Resolve accessible students + section ids for filter.
     const studentIds = await resolveAccessibleStudents(subject);
     let sectionIds: string[] = [];
+    let classIds: string[] = [];
+    let programs: string[] = [];
     if (studentIds.length > 0) {
+      // Pull all metadata we need to match expanded audience kinds in
+      // one query — keeps the in-memory filter cheap.
       const { data: stus } = await serviceRoleClient
         .from("student")
-        .select("id, class_section_id")
+        .select("id, class_section_id, program, class_section:class_section_id(class_id)")
         .in("id", studentIds);
       sectionIds = ((stus ?? []) as any[])
         .map((s) => s.class_section_id)
         .filter((x) => !!x);
+      classIds = Array.from(
+        new Set(
+          ((stus ?? []) as any[])
+            .map((s) => (s.class_section as any)?.class_id)
+            .filter((x) => !!x),
+        ),
+      );
+      programs = Array.from(
+        new Set(((stus ?? []) as any[]).map((s) => s.program).filter((x) => !!x)),
+      );
     }
 
     // Pull recent announcements for this org and filter in-memory (small set).
@@ -473,31 +589,63 @@ export function installAnnounce(school: Hono): void {
       .limit(200);
     if (error) return c.json({ error: error.message }, 500);
 
+    // Subject kind — resolve class_subject.id → class_id once for every
+    // subject announcement in the batch, so the per-row filter can check
+    // overlap in O(1). Done before the filter to avoid N queries.
+    const subjectIds = Array.from(
+      new Set(
+        ((data ?? []) as any[])
+          .filter((r) => r.audience_kind === "subject" && r.audience_subject_id)
+          .map((r) => r.audience_subject_id as string),
+      ),
+    );
+    const subjectClassMap = new Map<string, string>();
+    if (subjectIds.length > 0) {
+      const { data: subs } = await serviceRoleClient
+        .from("class_subject")
+        .select("id, class_id")
+        .in("id", subjectIds);
+      for (const s of subs ?? []) {
+        subjectClassMap.set((s as any).id, (s as any).class_id);
+      }
+    }
+
     const now = Date.now();
     const matched = ((data ?? []) as any[]).filter((r) => {
       if (r.expires_at && new Date(r.expires_at).getTime() < now) return false;
       const kind = r.audience_kind;
+      // Staff-only kinds never reach the portal feed regardless of who's
+      // logged in. Keep this above the rest as an early-exit.
+      if (STAFF_ONLY_KINDS.has(kind)) return false;
       if (kind === "whole_school") return true;
-      if (subject.subjectType === "student") {
-        if (kind === "students_only") return true;
-        if (kind === "class_section") {
-          return sectionIds.includes(r.audience_section_id);
-        }
-        if (kind === "specific_students") {
-          const ids: string[] = r.audience_student_ids ?? [];
-          return studentIds.some((sid) => ids.includes(sid));
-        }
-        return false;
-      }
-      // parent
-      if (kind === "parents_only") return true;
+      // Audience kinds that depend on student/section/class/program
+      // overlap apply equally to students and parents — both see what
+      // touches "their" students. Check them up front so we don't
+      // duplicate the same 5 branches in the two role blocks below.
       if (kind === "class_section") {
         return sectionIds.includes(r.audience_section_id);
+      }
+      if (kind === "class") {
+        return r.audience_class_id && classIds.includes(r.audience_class_id);
+      }
+      if (kind === "program") {
+        return r.audience_program && programs.includes(r.audience_program);
+      }
+      if (kind === "subject") {
+        const cid = subjectClassMap.get(r.audience_subject_id);
+        return !!cid && classIds.includes(cid);
       }
       if (kind === "specific_students") {
         const ids: string[] = r.audience_student_ids ?? [];
         return studentIds.some((sid) => ids.includes(sid));
       }
+      // Role-bucket kinds — students vs parents disagree on which apply.
+      if (subject.subjectType === "student") {
+        if (kind === "students_only") return true;
+        return false;
+      }
+      // parent
+      if (kind === "parents_only") return true;
       return false;
     }).slice(0, 50);
 

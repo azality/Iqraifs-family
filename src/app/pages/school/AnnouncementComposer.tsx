@@ -21,6 +21,7 @@ import {
   getSchoolMe,
   isOrgAdmin,
   listClasses,
+  listClassSubjects,
   listStudents,
   postAnnouncement,
   deleteAnnouncement,
@@ -29,22 +30,51 @@ import {
   type Announcement,
   type AnnouncementAudienceKind,
   type AnnouncementInput,
+  type AnnouncementProgram,
+  type ClassSubject,
   type SchoolMeResponse,
 } from "../../../utils/schoolApi";
 
+// Labels match the spec the principal cares about — they're not just
+// the raw enum slugs. Each kind also gets a one-line "who reads it"
+// hint so the admin understands the reach before posting.
 const AUDIENCE_LABEL: Record<AnnouncementAudienceKind, string> = {
   whole_school: "Whole school",
-  class_section: "One class section",
-  parents_only: "Parents only",
-  students_only: "Students only",
-  specific_students: "Specific students",
+  staff: "Staff",
+  teachers: "Teachers",
+  parents_only: "Parents",
+  students_only: "Students",
+  class: "Whole class (all sections)",
+  class_section: "One section",
+  subject: "By subject",
+  program: "Hifz / Conventional",
+  specific_students: "Individual student(s)",
+};
+const AUDIENCE_HINT: Record<AnnouncementAudienceKind, string> = {
+  whole_school: "Everyone in the school.",
+  staff: "Teachers + office + finance + admin.",
+  teachers: "Teaching staff only.",
+  parents_only: "Every parent.",
+  students_only: "Every student.",
+  class: "All students + parents + teachers of one grade.",
+  class_section: "One section's students + parents + teachers.",
+  subject: "Students enrolled in one subject + their parents + the subject teacher.",
+  program: "Students of one program + their parents + their teachers.",
+  specific_students: "Picked students + their parents.",
 };
 
+// Display order in the form — internal staff bucket first, then outward
+// to parents/students, then narrow scopes.
 const AUDIENCE_KINDS: AnnouncementAudienceKind[] = [
   "whole_school",
-  "class_section",
+  "staff",
+  "teachers",
   "parents_only",
   "students_only",
+  "class",
+  "class_section",
+  "subject",
+  "program",
   "specific_students",
 ];
 
@@ -53,6 +83,9 @@ interface FormState {
   body: string;
   audienceKind: AnnouncementAudienceKind;
   audienceSectionId: string;
+  audienceClassId: string;
+  audienceSubjectId: string;
+  audienceProgram: AnnouncementProgram | "";
   audienceStudentIds: string[];
   expiresAt: string;
   attachments: Array<{ label: string; url: string }>;
@@ -63,6 +96,9 @@ const EMPTY_FORM: FormState = {
   body: "",
   audienceKind: "whole_school",
   audienceSectionId: "",
+  audienceClassId: "",
+  audienceSubjectId: "",
+  audienceProgram: "",
   audienceStudentIds: [],
   expiresAt: "",
   attachments: [],
@@ -80,6 +116,10 @@ export function AnnouncementComposer() {
   const [existing, setExisting] = useState<Announcement | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
+  // Subjects are loaded lazily once the admin picks a class for the
+  // subject audience — saves us from pulling every class_subject in the
+  // org just to populate a select that's only used some of the time.
+  const [subjectsForClass, setSubjectsForClass] = useState<ClassSubject[]>([]);
 
   useEffect(() => {
     getSchoolMe()
@@ -100,6 +140,25 @@ export function AnnouncementComposer() {
       .then(setExisting)
       .catch((e) => toast.error(e instanceof Error ? e.message : String(e)));
   }, [isView, orgId, announcementId]);
+
+  // Lazy-load class_subjects whenever the admin switches the class for
+  // the subject-targeted audience. Reset the picked subject if the
+  // class changes so we don't post a subject from the wrong class.
+  useEffect(() => {
+    if (form.audienceKind !== "subject" || !form.audienceClassId) {
+      setSubjectsForClass([]);
+      return;
+    }
+    let cancelled = false;
+    listClassSubjects(form.audienceClassId)
+      .then((r) => {
+        if (!cancelled) setSubjectsForClass(r.subjects ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setSubjectsForClass([]);
+      });
+    return () => { cancelled = true; };
+  }, [form.audienceKind, form.audienceClassId]);
 
   const sections = useMemo(
     () =>
@@ -130,7 +189,7 @@ export function AnnouncementComposer() {
     };
     if (form.audienceKind === "class_section") {
       if (!form.audienceSectionId) {
-        toast.error("Please pick a class section");
+        toast.error("Please pick a section");
         return;
       }
       payload.audienceSectionId = form.audienceSectionId;
@@ -141,6 +200,27 @@ export function AnnouncementComposer() {
         return;
       }
       payload.audienceStudentIds = form.audienceStudentIds;
+    }
+    if (form.audienceKind === "class") {
+      if (!form.audienceClassId) {
+        toast.error("Please pick a class");
+        return;
+      }
+      payload.audienceClassId = form.audienceClassId;
+    }
+    if (form.audienceKind === "subject") {
+      if (!form.audienceSubjectId) {
+        toast.error("Please pick a subject");
+        return;
+      }
+      payload.audienceSubjectId = form.audienceSubjectId;
+    }
+    if (form.audienceKind === "program") {
+      if (form.audienceProgram !== "hifz" && form.audienceProgram !== "conventional") {
+        toast.error("Please pick a program");
+        return;
+      }
+      payload.audienceProgram = form.audienceProgram;
     }
     if (form.expiresAt) payload.expiresAt = new Date(form.expiresAt).toISOString();
     if (form.attachments.length > 0) {
@@ -310,7 +390,7 @@ export function AnnouncementComposer() {
               <label
                 key={k}
                 className={
-                  "flex items-center gap-2 rounded-md border px-3 py-2 cursor-pointer text-sm " +
+                  "flex items-start gap-2 rounded-md border px-3 py-2 cursor-pointer text-sm " +
                   (form.audienceKind === k
                     ? "border-indigo-500 bg-indigo-50 text-indigo-900"
                     : "border-slate-200 hover:bg-slate-50")
@@ -322,8 +402,14 @@ export function AnnouncementComposer() {
                   value={k}
                   checked={form.audienceKind === k}
                   onChange={() => setForm({ ...form, audienceKind: k })}
+                  className="mt-1"
                 />
-                {AUDIENCE_LABEL[k]}
+                <div className="min-w-0">
+                  <div className="font-medium">{AUDIENCE_LABEL[k]}</div>
+                  <div className="text-[11px] text-slate-500 leading-tight">
+                    {AUDIENCE_HINT[k]}
+                  </div>
+                </div>
               </label>
             ))}
           </div>
@@ -331,20 +417,110 @@ export function AnnouncementComposer() {
 
         {form.audienceKind === "class_section" && (
           <div className="space-y-1.5">
-            <Label htmlFor="section">Class section *</Label>
+            <Label htmlFor="section">Section *</Label>
             <select
               id="section"
               value={form.audienceSectionId}
               onChange={(e) => setForm({ ...form, audienceSectionId: e.target.value })}
               className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm bg-white"
             >
-              <option value="">Pick a class section…</option>
+              <option value="">Pick a section…</option>
               {sections.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.label}
                 </option>
               ))}
             </select>
+          </div>
+        )}
+
+        {form.audienceKind === "class" && (
+          <div className="space-y-1.5">
+            <Label htmlFor="cls">Class *</Label>
+            <select
+              id="cls"
+              value={form.audienceClassId}
+              onChange={(e) => setForm({ ...form, audienceClassId: e.target.value })}
+              className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm bg-white"
+            >
+              <option value="">Pick a class…</option>
+              {classes.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+            <p className="text-[11px] text-slate-500">
+              Reaches every section of {form.audienceClassId
+                ? (classes.find((c) => c.id === form.audienceClassId)?.name ?? "this class")
+                : "the picked class"}.
+            </p>
+          </div>
+        )}
+
+        {form.audienceKind === "subject" && (
+          <div className="space-y-1.5">
+            <Label htmlFor="subj-class">Class *</Label>
+            <select
+              id="subj-class"
+              value={form.audienceClassId}
+              onChange={(e) =>
+                setForm({ ...form, audienceClassId: e.target.value, audienceSubjectId: "" })
+              }
+              className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm bg-white"
+            >
+              <option value="">Pick a class…</option>
+              {classes.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+            {form.audienceClassId && (
+              <>
+                <Label htmlFor="subj">Subject *</Label>
+                <select
+                  id="subj"
+                  value={form.audienceSubjectId}
+                  onChange={(e) => setForm({ ...form, audienceSubjectId: e.target.value })}
+                  className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm bg-white"
+                >
+                  <option value="">
+                    {subjectsForClass.length === 0 ? "Loading…" : "Pick a subject…"}
+                  </option>
+                  {subjectsForClass.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </>
+            )}
+          </div>
+        )}
+
+        {form.audienceKind === "program" && (
+          <div className="space-y-1.5">
+            <Label>Program *</Label>
+            <div className="grid sm:grid-cols-2 gap-2">
+              {(["hifz", "conventional"] as AnnouncementProgram[]).map((p) => (
+                <label
+                  key={p}
+                  className={
+                    "flex items-center gap-2 rounded-md border px-3 py-2 cursor-pointer text-sm capitalize " +
+                    (form.audienceProgram === p
+                      ? "border-indigo-500 bg-indigo-50 text-indigo-900"
+                      : "border-slate-200 hover:bg-slate-50")
+                  }
+                >
+                  <input
+                    type="radio"
+                    name="audienceProgram"
+                    value={p}
+                    checked={form.audienceProgram === p}
+                    onChange={() => setForm({ ...form, audienceProgram: p })}
+                  />
+                  {p}
+                </label>
+              ))}
+            </div>
+            <p className="text-[11px] text-slate-500">
+              Students with this program on their record will see it, plus their parents and teachers.
+            </p>
           </div>
         )}
 
