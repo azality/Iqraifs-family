@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Link, Navigate, useParams } from "react-router";
+import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
@@ -38,6 +39,7 @@ import {
   addAdmin,
   removeAdmin,
   resendInvite,
+  deleteTeacher,
   type AdminTeacher,
   type OrgAdmin,
   type RoleTemplate,
@@ -172,6 +174,22 @@ export function ManageTeachers() {
     }
   };
 
+  // Revoke ALL staff-role rows for this user in this org. The auth.users
+  // row is intentionally untouched — the person may still need the login
+  // for family use or for staff roles at other schools.
+  const handleDeleteTeacher = async (t: AdminTeacher) => {
+    const label = t.full_name || t.email;
+    if (!confirm(`Remove ${label} from this school's staff?\n\nTheir login still works (they just lose access to this school's admin/teacher pages). You can re-add them later.`)) return;
+    try {
+      await deleteTeacher(orgId, t.user_id);
+      setNotice(`${label} removed from staff.`);
+      setError(null);
+      refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
   const handleRemoveAdmin = async (a: OrgAdmin) => {
     if (!confirm(`Remove ${a.full_name} as admin?`)) return;
     await removeAdmin(orgId, a.user_id);
@@ -209,28 +227,67 @@ export function ManageTeachers() {
     return res;
   };
 
+  // Role-badge styling by template — keeps the four staff types visually
+  // distinct in the list so the admin can scan "who's office vs teacher
+  // vs finance" without reading the role column.
+  const roleBadge = (raw: string) => {
+    const key = raw || "";
+    const label = key.replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
+    const cls =
+      key === "class_teacher" ? "bg-indigo-50 text-indigo-700 border-indigo-200"
+      : key === "visiting_teacher" ? "bg-amber-50 text-amber-700 border-amber-200"
+      : key === "financial_staff" ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+      : key === "office_staff" ? "bg-sky-50 text-sky-700 border-sky-200"
+      : "bg-slate-50 text-slate-700 border-slate-200";
+    return <Badge variant="outline" className={cls + " text-[10px] font-medium"}>{label}</Badge>;
+  };
+
   const teacherColumns: DataTableColumn<AdminTeacher>[] = [
-    { key: "full_name", header: "Name", cell: (t) => <span className="font-medium">{t.full_name}</span> },
+    {
+      key: "full_name",
+      header: "Name",
+      cell: (t) => (
+        // Clickable name → detail page. Underline-on-hover signals the
+        // affordance without making the whole row a button (admins still
+        // need to right-click → open in new tab a lot).
+        <Link
+          to={`/school/orgs/${orgId}/admin/teachers/${t.user_id}`}
+          className="font-medium text-indigo-700 hover:underline"
+        >
+          {t.full_name || "(no name)"}
+        </Link>
+      ),
+    },
     { key: "email", header: "Email", cell: (t) => <span className="text-xs">{t.email}</span> },
     {
       key: "role_template",
       header: "Role",
-      cell: (t) => <span className="text-xs capitalize">{(t.role_template ?? (t as any).role_type ?? "").replace("_", " ")}</span>,
+      cell: (t) => roleBadge(t.role_template ?? (t as any).role_type ?? ""),
     },
     {
       key: "actions",
       header: "",
       align: "right",
-      width: "w-24",
+      width: "w-32",
       cell: (t) => (
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => handleResend(t.user_id, t.full_name || t.email)}
-          title="Resend invite email"
-        >
-          <Mail className="h-3.5 w-3.5 text-slate-600" />
-        </Button>
+        <div className="flex justify-end gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => handleResend(t.user_id, t.full_name || t.email)}
+            title="Resend invite email"
+          >
+            <Mail className="h-3.5 w-3.5 text-slate-600" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => handleDeleteTeacher(t)}
+            title="Remove from staff"
+          >
+            <Trash2 className="h-3.5 w-3.5 text-rose-600" />
+          </Button>
+        </div>
       ),
     },
   ];
@@ -264,8 +321,8 @@ export function ManageTeachers() {
   return (
     <div className="space-y-4">
       <HeroCard
-        title="Teachers"
-        subtitle={`${teachers.length} teacher${teachers.length === 1 ? "" : "s"}`}
+        title="Teachers & Staff"
+        subtitle={`${teachers.length} staff member${teachers.length === 1 ? "" : "s"} — class teachers, visiting teachers, office, and finance`}
         rightSlot={
           <div className="flex gap-2">
             <Link to={`/school/orgs/${orgId}/admin`}>

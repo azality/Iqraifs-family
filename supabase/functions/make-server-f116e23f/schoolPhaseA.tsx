@@ -969,7 +969,13 @@ export function installPhaseA(school: Hono) {
     const { data: roleRows, error: rolesErr } = await serviceRoleClient
       .from("user_roles")
       .select("user_id, role_type, scope_type, scope_id")
-      .or("role_type.eq.class_teacher,role_type.eq.visiting_teacher,role_type.eq.teacher")
+      // Extended in feat/teachers-staff-detail-delete: include all four
+       // non-principal/non-admin staff role types. Without this, office and
+       // financial staff added via the same form silently vanish from the
+       // list — they're stored correctly but the filter excluded them.
+      .or(
+        "role_type.eq.class_teacher,role_type.eq.visiting_teacher,role_type.eq.teacher,role_type.eq.financial_staff,role_type.eq.office_staff",
+      )
       .is("revoked_at", null);
     if (rolesErr) return c.json({ error: rolesErr.message }, 500);
 
@@ -1025,6 +1031,194 @@ export function installPhaseA(school: Hono) {
       }
     }
     return c.json({ teachers: out });
+  });
+
+  // -------------------------------------------------------------------------
+  // TEACHER DETAIL — single staff member, hydrated for the admin detail
+  // page. Returns role + email/name, plus every active assignment (org-
+  // scoped roles plus class-scoped roles with their section/class names),
+  // validity dates (visiting teachers), granted_at, and granted_by hydrated
+  // to a name.
+  //
+  // Authz: any user with a role in the org may read; mutating endpoints
+  // (delete, change role) are principal/admin gated separately.
+  // -------------------------------------------------------------------------
+  school.get("/orgs/:orgId/teachers/:userId", async (c) => {
+    const callerId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const targetUserId = c.req.param("userId");
+    if (!(await hasAnyRoleInOrg(callerId, orgId))) return c.json({ error: "forbidden" }, 403);
+
+    // All non-revoked role rows for this user. Filter to staff role types
+    // AND to scope_ids belonging to THIS org so a user who happens to have
+    // a role in a different school doesn't leak across orgs.
+    const STAFF_ROLES = [
+      "class_teacher", "visiting_teacher", "teacher",
+      "financial_staff", "office_staff",
+    ];
+    const { data: rows, error } = await serviceRoleClient
+      .from("user_roles")
+      .select("id, role_type, scope_type, scope_id, granted_by, granted_at, valid_from, valid_until")
+      .eq("user_id", targetUserId)
+      .is("revoked_at", null)
+      .in("role_type", STAFF_ROLES);
+    if (error) return c.json({ error: error.message }, 500);
+
+    // For class-scoped rows, resolve the section + class to confirm it
+    // belongs to this org and to give the UI human-readable names.
+    const classScopedIds = (rows ?? [])
+      .filter((r: any) => r.scope_type === "class")
+      .map((r: any) => r.scope_id);
+    const sectionLookup = new Map<string, { sectionName: string; className: string; orgId: string }>();
+    if (classScopedIds.length > 0) {
+      const { data: sections } = await serviceRoleClient
+        .from("class_section")
+        .select("id, name, class:class_id(org_id, name)")
+        .in("id", classScopedIds);
+      for (const s of sections ?? []) {
+        const cls: any = (s as any).class;
+        if (cls) sectionLookup.set(s.id, { sectionName: (s as any).name, className: cls.name, orgId: cls.org_id });
+      }
+    }
+    const assignments = (rows ?? [])
+      .filter((r: any) => {
+        if (r.scope_type === "organization") return r.scope_id === orgId;
+        if (r.scope_type === "class") {
+          const meta = sectionLookup.get(r.scope_id);
+          return meta && meta.orgId === orgId;
+        }
+        return false;
+      })
+      .map((r: any) => ({
+        id: r.id,
+        roleType: r.role_type,
+        scopeType: r.scope_type,
+        scopeId: r.scope_id,
+        sectionName: sectionLookup.get(r.scope_id)?.sectionName ?? null,
+        className: sectionLookup.get(r.scope_id)?.className ?? null,
+        grantedBy: r.granted_by,
+        grantedAt: r.granted_at,
+        validFrom: r.valid_from ?? null,
+        validUntil: r.valid_until ?? null,
+      }));
+
+    if (assignments.length === 0) return c.json({ error: "not found" }, 404);
+
+    // Hydrate target user + each granted_by user.
+    let email = "", fullName = "";
+    try {
+      const { data: lookup } = await serviceRoleClient.auth.admin.getUserById(targetUserId);
+      const u: any = lookup?.user;
+      email = u?.email ?? "";
+      fullName = u?.user_metadata?.name || email.split("@")[0] || "Unknown";
+    } catch { /* leave blank */ }
+    const granterIds = Array.from(new Set(assignments.map((a) => a.grantedBy).filter(Boolean)));
+    const granterNames = new Map<string, string>();
+    for (const id of granterIds) {
+      try {
+        const { data: lookup } = await serviceRoleClient.auth.admin.getUserById(id);
+        const u: any = lookup?.user;
+        granterNames.set(id, u?.user_metadata?.name || u?.email || "");
+      } catch { /* leave blank */ }
+    }
+    const hydrated = assignments.map((a) => ({
+      ...a,
+      grantedByName: a.grantedBy ? (granterNames.get(a.grantedBy) ?? "") : null,
+    }));
+
+    return c.json({
+      userId: targetUserId,
+      email,
+      fullName,
+      // Primary role for badges — pick the first non-org-scoped if any,
+      // else the org one. UI re-derives if it wants something different.
+      primaryRole: hydrated[0].roleType,
+      assignments: hydrated,
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // DELETE TEACHER (revoke staff access). Principal/admin only.
+  //
+  // Revokes ALL active staff-role rows for this user scoped to this org —
+  // class_teacher, visiting_teacher, teacher (legacy), financial_staff,
+  // office_staff. Org-scoped rows revoke directly; class-scoped rows are
+  // filtered to sections whose class belongs to this org so we don't
+  // accidentally revoke a role on a different school.
+  //
+  // We do NOT delete the auth.users row — the person may still need their
+  // login for parent/family use, or for a different school they're staff at.
+  // We also don't touch the 'admin' role here — admin removal goes through
+  // DELETE /orgs/:orgId/admins/:userId which is principal-only.
+  // -------------------------------------------------------------------------
+  school.delete("/orgs/:orgId/teachers/:userId", async (c) => {
+    const callerId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const targetUserId = c.req.param("userId");
+    if (!(await requireAdminOrPrincipal(callerId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    if (targetUserId === callerId) {
+      return c.json({ error: "You can't remove yourself from this list." }, 400);
+    }
+
+    const STAFF_ROLES = [
+      "class_teacher", "visiting_teacher", "teacher",
+      "financial_staff", "office_staff",
+    ];
+
+    // Org-scoped revocation in one update.
+    const nowIso = new Date().toISOString();
+    const { error: orgErr } = await serviceRoleClient
+      .from("user_roles")
+      .update({ revoked_at: nowIso })
+      .eq("user_id", targetUserId)
+      .in("role_type", STAFF_ROLES)
+      .eq("scope_type", "organization")
+      .eq("scope_id", orgId)
+      .is("revoked_at", null);
+    if (orgErr) return c.json({ error: orgErr.message }, 500);
+
+    // Class-scoped: find the user's class-scoped staff rows, then filter to
+    // sections that belong to this org, then revoke.
+    const { data: classRows } = await serviceRoleClient
+      .from("user_roles")
+      .select("id, scope_id")
+      .eq("user_id", targetUserId)
+      .in("role_type", STAFF_ROLES)
+      .eq("scope_type", "class")
+      .is("revoked_at", null);
+    const classRoleIds: string[] = [];
+    if (classRows && classRows.length > 0) {
+      const sectionIds = classRows.map((r: any) => r.scope_id);
+      const { data: sections } = await serviceRoleClient
+        .from("class_section")
+        .select("id, class:class_id(org_id)")
+        .in("id", sectionIds);
+      const orgSectionIds = new Set(
+        (sections ?? [])
+          .filter((s: any) => (s.class as any)?.org_id === orgId)
+          .map((s: any) => s.id),
+      );
+      for (const r of classRows) {
+        if (orgSectionIds.has((r as any).scope_id)) classRoleIds.push((r as any).id);
+      }
+    }
+    if (classRoleIds.length > 0) {
+      await serviceRoleClient
+        .from("user_roles")
+        .update({ revoked_at: nowIso })
+        .in("id", classRoleIds);
+    }
+
+    await logAuditWithLookup({
+      orgId,
+      actorUserId: callerId,
+      action: "remove_teacher",
+      targetUserId: targetUserId,
+      targetRole: "teacher",
+    });
+    return c.json({ ok: true });
   });
 
   // -------------------------------------------------------------------------

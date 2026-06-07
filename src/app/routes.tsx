@@ -56,6 +56,7 @@ import { ManageStudents } from "./pages/school/ManageStudents";
 import { StudentDetail } from "./pages/school/StudentDetail";
 import { ManageParents } from "./pages/school/ManageParents";
 import { ManageTeachers } from "./pages/school/ManageTeachers";
+import { TeacherDetail } from "./pages/school/TeacherDetail";
 import { LinkCodes } from "./pages/school/LinkCodes";
 import { PermissionsEditor } from "./pages/school/PermissionsEditor";
 import { OrgSettings } from "./pages/school/OrgSettings";
@@ -457,6 +458,7 @@ export const router = createBrowserRouter([
               { path: "admin/students/:studentId", element: <StudentDetail /> },
               { path: "admin/parents", element: <ManageParents /> },
               { path: "admin/teachers", element: <ManageTeachers /> },
+              { path: "admin/teachers/:userId", element: <TeacherDetail /> },
               { path: "admin/link-codes", element: <LinkCodes /> },
               { path: "admin/permissions", element: <PermissionsEditor /> },
               { path: "admin/settings", element: <OrgSettings /> },
