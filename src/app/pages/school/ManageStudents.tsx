@@ -120,7 +120,10 @@ export function ManageStudents() {
   const startCreate = () => {
     setEditing(null);
     setForm(emptyForm);
-    resetParentForm();
+    // Reset parent fields but show the section by default — adding a
+    // student without their parent is the exception, not the norm.
+    setParentForm({ fullName: "", phone: "", email: "", relationship: "" });
+    setAddParentOpen(true);
     setNotice(null);
     setError(null);
     setFormOpen(true);
@@ -340,28 +343,49 @@ export function ManageStudents() {
             <div><Label>Guardian email</Label><Input type="email" value={form.guardianEmail} onChange={(e) => setForm({ ...form, guardianEmail: e.target.value })} /></div>
           </div>
 
-          {/* Inline parent block — collapsed by default to keep the
-              create form lightweight. When expanded, fullName is the only
-              required field. Backend dedupes by email/phone so adding a
-              sibling to an existing parent doesn't create duplicates. */}
+          {/* Inline parent block — shown expanded on create so the admin
+              sees it as part of the same form. The student↔parent link
+              is the core of how parents reach this kid in the portal, so
+              hiding it behind a toggle was the wrong default.
+              Admins who genuinely have no parent info (rare) can collapse
+              via the "Skip for now" link; on submit we omit the parent
+              payload entirely. */}
           {!editing && (
-            <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50/60">
-              <button
-                type="button"
-                onClick={() => setAddParentOpen((v) => !v)}
-                className="w-full flex items-center justify-between px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100/60"
-              >
-                <span>
-                  {addParentOpen ? "−" : "+"} Add a primary parent (optional)
-                </span>
-                <span className="text-xs text-slate-500">
-                  We'll auto-link the parent to this student.
-                </span>
-              </button>
-              {addParentOpen && (
-                <div className="grid gap-3 sm:grid-cols-2 p-3 border-t border-slate-200 bg-white">
+            <div className="mt-4 rounded-lg border border-indigo-100 bg-indigo-50/30 p-4">
+              <div className="flex items-baseline justify-between gap-2 mb-3">
+                <div>
+                  <div className="text-sm font-semibold text-slate-900">
+                    Primary parent
+                  </div>
+                  <div className="text-xs text-slate-600">
+                    The parent we link to this student — they'll see the kid in their portal.
+                  </div>
+                </div>
+                {addParentOpen ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAddParentOpen(false);
+                      setParentForm({ fullName: "", phone: "", email: "", relationship: "" });
+                    }}
+                    className="text-xs text-slate-500 hover:text-slate-700 underline"
+                  >
+                    Skip for now
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setAddParentOpen(true)}
+                    className="text-xs text-indigo-700 hover:underline font-medium"
+                  >
+                    + Add parent
+                  </button>
+                )}
+              </div>
+              {addParentOpen ? (
+                <div className="grid gap-3 sm:grid-cols-2">
                   <div className="sm:col-span-2">
-                    <Label>Parent full name*</Label>
+                    <Label>Parent full name</Label>
                     <Input
                       value={parentForm.fullName}
                       onChange={(e) => setParentForm({ ...parentForm, fullName: e.target.value })}
@@ -404,10 +428,14 @@ export function ManageStudents() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <p className="sm:col-span-2 text-xs text-slate-500">
-                    If a parent with this email or phone already exists in this school, we'll reuse that record instead of creating a duplicate — perfect for siblings.
+                  <p className="sm:col-span-2 text-xs text-slate-600">
+                    Already exists in this school? We'll match on email or phone and link to that record — siblings won't create duplicates.
                   </p>
                 </div>
+              ) : (
+                <p className="text-xs text-slate-500 italic">
+                  No parent will be linked. You can add one later from the parents page.
+                </p>
               )}
             </div>
           )}
