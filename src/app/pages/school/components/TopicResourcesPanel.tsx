@@ -8,7 +8,7 @@
 // Collapsed by default to keep the syllabus list scannable; the
 // disclosure header shows the resource count for context.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -22,6 +22,7 @@ import {
   Check,
   X,
   Plus,
+  Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "../../../components/ui/button";
@@ -31,9 +32,36 @@ import {
   addTopicResource,
   updateTopicResource,
   deleteTopicResource,
+  getTopicResourceUploadUrl,
+  getTopicResourceSignedUrl,
   type TopicResource,
   type TopicResourceKind,
 } from "../../../../utils/schoolApi";
+
+/** Map a file's mime to the best-fit resource kind so the row gets the
+ *  right icon + badge without making the admin pick. Default to 'pdf'
+ *  for anything document-shaped, 'link' as the catch-all. */
+function kindFromMime(mime: string): TopicResourceKind {
+  if (mime.startsWith("video/")) return "video";
+  if (mime === "application/pdf") return "pdf";
+  if (
+    mime.startsWith("application/vnd.openxmlformats-officedocument") ||
+    mime === "application/msword" ||
+    mime === "application/vnd.ms-excel" ||
+    mime === "application/vnd.ms-powerpoint"
+  ) {
+    return "worksheet";
+  }
+  return "link";
+}
+
+/** Human-readable file size for the list row. */
+function fmtBytes(n: number | null | undefined): string {
+  if (!n || n < 0) return "";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
 
 interface Props {
   topicId: string;
@@ -98,6 +126,12 @@ export function TopicResourcesPanel({ topicId, topicName, canManage }: Props) {
   // Add form
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState<DraftState>(EMPTY_DRAFT);
+  // File upload state — separate from `adding` because the file picker
+  // is a one-shot action: choose a file → upload → record → done. No
+  // intermediate form to fill in (the label defaults to the file name,
+  // editable after via the inline edit button).
+  const [uploadingProgress, setUploadingProgress] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Inline edit
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -147,6 +181,72 @@ export function TopicResourcesPanel({ topicId, topicName, canManage }: Props) {
       toast.error(e?.message || "Could not add resource");
     } finally {
       setSaving(false);
+    }
+  };
+
+  // 2-step file upload: ask server for a signed upload URL → PUT bytes
+  // directly to Supabase Storage → POST the metadata back. Keeping the
+  // file off the edge function avoids its 6MB body limit and tight
+  // duration ceiling, so we can handle 50MB PDFs / videos.
+  const handleFilePicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // Reset the input so the same file can be re-picked after an error.
+    e.target.value = "";
+    if (!file) return;
+    if (file.size > 50 * 1024 * 1024) {
+      toast.error(`${file.name} is ${(file.size / 1024 / 1024).toFixed(1)} MB. Limit is 50 MB.`);
+      return;
+    }
+    setSaving(true);
+    setUploadingProgress(`Preparing ${file.name}…`);
+    try {
+      // 1. Get the signed upload URL.
+      const signed = await getTopicResourceUploadUrl(topicId, {
+        fileName: file.name,
+        mimeType: file.type || "application/octet-stream",
+      });
+      // 2. Upload bytes directly to Supabase Storage.
+      setUploadingProgress(`Uploading ${file.name}…`);
+      const putRes = await fetch(signed.uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+        body: file,
+      });
+      if (!putRes.ok) {
+        throw new Error(`upload failed (${putRes.status}): ${await putRes.text()}`);
+      }
+      // 3. Record the resource. Label defaults to filename — admin can
+      //    rename via the inline edit pencil.
+      setUploadingProgress(`Saving ${file.name}…`);
+      await addTopicResource(topicId, {
+        kind: kindFromMime(file.type || ""),
+        label: file.name.replace(/\.[a-z0-9]+$/i, "") || file.name,
+        storagePath: signed.storagePath,
+        mimeType: file.type || undefined,
+      });
+      toast.success(`Uploaded ${file.name}`);
+      refresh();
+    } catch (err: any) {
+      toast.error(err?.message || "Upload failed");
+    } finally {
+      setSaving(false);
+      setUploadingProgress(null);
+    }
+  };
+
+  // Open a file resource — mint a 5-minute signed URL and pop it in a
+  // new tab. For external link resources we still use the raw URL
+  // directly (no need for a server round-trip).
+  const openResource = async (r: TopicResource) => {
+    if (!r.storagePath) {
+      window.open(r.url, "_blank", "noopener,noreferrer");
+      return;
+    }
+    try {
+      const s = await getTopicResourceSignedUrl(r.id);
+      window.open(s.url, "_blank", "noopener,noreferrer");
+    } catch (err: any) {
+      toast.error(err?.message || "Could not open file");
     }
   };
 
@@ -287,7 +387,11 @@ export function TopicResourcesPanel({ topicId, topicName, canManage }: Props) {
                     </li>
                   );
                 }
-                const thumb = r.kind === "video" ? youTubeThumb(r.url) : null;
+                // For file resources we go through a signed-URL handler.
+                // External link resources keep the native <a> so users can
+                // ctrl-click → open-in-new-tab without the JS round-trip.
+                const isFile = !!r.storagePath;
+                const thumb = r.kind === "video" && !isFile ? youTubeThumb(r.url) : null;
                 return (
                   <li
                     key={r.id}
@@ -316,14 +420,30 @@ export function TopicResourcesPanel({ topicId, topicName, canManage }: Props) {
                         />
                       </a>
                     )}
-                    <a
-                      href={r.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex-1 min-w-0 text-xs text-slate-900 hover:underline truncate"
-                    >
-                      {r.label}
-                    </a>
+                    {isFile ? (
+                      <button
+                        type="button"
+                        onClick={() => openResource(r)}
+                        title={r.label}
+                        className="flex-1 min-w-0 text-left text-xs text-slate-900 hover:underline truncate"
+                      >
+                        {r.label}
+                        {r.byteSize ? (
+                          <span className="ml-1 text-[10px] text-slate-400">
+                            · {fmtBytes(r.byteSize)}
+                          </span>
+                        ) : null}
+                      </button>
+                    ) : (
+                      <a
+                        href={r.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex-1 min-w-0 text-xs text-slate-900 hover:underline truncate"
+                      >
+                        {r.label}
+                      </a>
+                    )}
                     {canManage && (
                       <div className="flex items-center gap-0.5">
                         <button
@@ -398,15 +518,49 @@ export function TopicResourcesPanel({ topicId, topicName, canManage }: Props) {
           )}
 
           {canManage && !adding && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setAdding(true)}
-              className="mt-1.5"
-              disabled={saving}
-            >
-              <Plus className="mr-1 h-3 w-3" /> Add resource
-            </Button>
+            <div className="mt-1.5 flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setAdding(true)}
+                disabled={saving}
+              >
+                <LinkIcon className="mr-1 h-3 w-3" /> Add link
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={saving}
+              >
+                <Upload className="mr-1 h-3 w-3" /> Upload file
+              </Button>
+              {/* Hidden input — Button → ref.click() pattern keeps the
+                  visual treatment consistent with "Add link" instead of
+                  the browser's default greyed-out file input. */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                hidden
+                onChange={handleFilePicked}
+                accept={[
+                  "application/pdf",
+                  "image/*",
+                  "video/mp4",
+                  "video/quicktime",
+                  "video/webm",
+                  "audio/*",
+                  ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+                  "text/plain",
+                  "application/zip",
+                ].join(",")}
+              />
+              {uploadingProgress && (
+                <span className="text-[10px] text-slate-600 italic">
+                  {uploadingProgress}
+                </span>
+              )}
+            </div>
           )}
 
           {!canManage && loaded && resources.length === 0 && (
