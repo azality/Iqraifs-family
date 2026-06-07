@@ -315,17 +315,63 @@ export function AssignmentForm() {
                   required
                 />
               </div>
+              {/* How much does this assignment count in the term grade?
+                  Teachers found the raw "Weight = 0.01..N" number
+                  confusing — they had no anchor for what "1" meant. Map
+                  to three plain-English presets that cover ~95% of
+                  cases, with an Advanced toggle for the rest. */}
               <div className="space-y-1">
-                <Label htmlFor="weight">Weight</Label>
-                <Input
-                  id="weight"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={form.weight ?? 1}
-                  onChange={(e) => setForm({ ...form, weight: Number(e.target.value) })}
-                />
-                <p className="text-[11px] text-muted-foreground">Weight in the gradebook average.</p>
+                <Label>Counts as</Label>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {[
+                    { v: 1, label: "Small", hint: "Daily/Quiz" },
+                    { v: 2, label: "Medium", hint: "Test" },
+                    { v: 3, label: "Big", hint: "Exam" },
+                  ].map((opt) => {
+                    const isPreset =
+                      (form.weight ?? 1) === opt.v &&
+                      // Don't highlight a preset if the teacher has
+                      // chosen an unrelated custom value.
+                      [1, 2, 3].includes(form.weight ?? 1);
+                    return (
+                      <button
+                        key={opt.v}
+                        type="button"
+                        onClick={() => setForm({ ...form, weight: opt.v })}
+                        className={
+                          "rounded-md border px-2 py-2 text-xs text-center transition " +
+                          (isPreset
+                            ? "border-indigo-500 bg-indigo-50 text-indigo-900"
+                            : "border-slate-200 hover:bg-slate-50")
+                        }
+                      >
+                        <div className="font-medium">{opt.label}</div>
+                        <div className="text-[10px] text-slate-500">{opt.hint}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+                <details className="mt-1.5">
+                  <summary className="text-[11px] text-slate-500 cursor-pointer select-none">
+                    Advanced: custom weight ({form.weight ?? 1}×)
+                  </summary>
+                  <div className="mt-1.5 flex items-center gap-2">
+                    <Input
+                      id="weight"
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      value={form.weight ?? 1}
+                      onChange={(e) =>
+                        setForm({ ...form, weight: Number(e.target.value) })
+                      }
+                      className="h-8 w-24"
+                    />
+                    <span className="text-[11px] text-slate-500">
+                      Multiplier on the gradebook average.
+                    </span>
+                  </div>
+                </details>
               </div>
               <div className="space-y-1">
                 <Label htmlFor="due">Due date</Label>
