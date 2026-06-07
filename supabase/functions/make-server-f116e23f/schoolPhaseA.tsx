@@ -45,6 +45,10 @@ export interface StudentRow {
   gender?: string;
   guardianPhone?: string;
   guardianEmail?: string;
+  /** 'hifz' | 'conventional' | null. Feeds program-targeted
+   *  announcements and section dashboards. CHECK constraint at the DB
+   *  level enforces the enum so we just pass through. */
+  program?: string;
 }
 
 export interface ParentRow {
@@ -350,6 +354,10 @@ function validStudentRow(r: any, i: number): { ok: true; row: StudentRow } | { o
       gender: r.gender || undefined,
       guardianPhone: r.guardianPhone || undefined,
       guardianEmail: r.guardianEmail || undefined,
+      program:
+        typeof r.program === "string" && (r.program === "hifz" || r.program === "conventional")
+          ? r.program
+          : undefined,
     },
   };
 }
@@ -683,6 +691,7 @@ export function installPhaseA(school: Hono) {
         gender: v.row.gender ?? null,
         guardian_phone: v.row.guardianPhone ?? null,
         guardian_email: v.row.guardianEmail ?? null,
+        program: v.row.program ?? null,
       })
       .select()
       .single();
@@ -763,6 +772,7 @@ export function installPhaseA(school: Hono) {
       gender: "gender",
       guardianPhone: "guardian_phone",
       guardianEmail: "guardian_email",
+      program: "program",
     };
     const patch: Record<string, unknown> = {};
     for (const [k, col] of Object.entries(map)) {
@@ -824,6 +834,7 @@ export function installPhaseA(school: Hono) {
       gender: row.gender ?? null,
       guardian_phone: row.guardianPhone ?? null,
       guardian_email: row.guardianEmail ?? null,
+      program: row.program ?? null,
     }));
 
     // First pass: insert students. We keep a parallel array of original
@@ -850,6 +861,7 @@ export function installPhaseA(school: Hono) {
             gender: row.gender ?? null,
             guardian_phone: row.guardianPhone ?? null,
             guardian_email: row.guardianEmail ?? null,
+      program: row.program ?? null,
           })
           .select("id, gr_number")
           .single();

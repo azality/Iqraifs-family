@@ -1320,6 +1320,9 @@ export interface CreateStudentBody {
   gender?: string;
   guardianPhone?: string;
   guardianEmail?: string;
+  /** 'hifz' | 'conventional' — gates program-targeted announcements and
+   *  surfaces in the section dashboards. */
+  program?: "hifz" | "conventional" | "";
   /** Optional — create + auto-link a primary parent in one shot. */
   parent?: InlineParentInput;
 }
@@ -2870,12 +2873,31 @@ export const submitFormResponse = (
 
 // ─── Announcements ─────────────────────────────────────────────────────
 
+// PR feat/announcement-audience-expanded added the second block of
+// audience kinds. Backend types are the source of truth:
+//   * whole_school   — every role
+//   * class_section  — one section's students + parents + teachers
+//   * parents_only   — every parent in the org
+//   * students_only  — every student in the org
+//   * specific_students — explicit student IDs (+ their parents)
+//   * staff          — all org staff (teachers + office + finance + admin)
+//   * teachers       — class_teacher + visiting_teacher only
+//   * class          — every section of one class
+//   * program        — students filtered by program ('hifz' / 'conventional')
+//   * subject        — students enrolled in a class_subject
 export type AnnouncementAudienceKind =
   | "whole_school"
   | "class_section"
   | "parents_only"
   | "students_only"
-  | "specific_students";
+  | "specific_students"
+  | "staff"
+  | "teachers"
+  | "class"
+  | "program"
+  | "subject";
+
+export type AnnouncementProgram = "hifz" | "conventional";
 
 export interface Announcement {
   id: string;
@@ -2885,6 +2907,11 @@ export interface Announcement {
   audience_kind: AnnouncementAudienceKind;
   audience_section_id: string | null;
   audience_student_ids: string[] | null;
+  // Expanded audience discriminators (backend returns camelCase keys
+  // already — see announcementToJson on the server).
+  audienceClassId?: string | null;
+  audienceSubjectId?: string | null;
+  audienceProgram?: AnnouncementProgram | null;
   title: string;
   body: string;
   attachments: Array<{ label: string; url: string }>;
@@ -2899,6 +2926,9 @@ export interface AnnouncementInput {
   audienceKind: AnnouncementAudienceKind;
   audienceSectionId?: string;
   audienceStudentIds?: string[];
+  audienceClassId?: string;
+  audienceSubjectId?: string;
+  audienceProgram?: AnnouncementProgram;
   attachments?: Array<{ label: string; url: string }>;
   expiresAt?: string;
 }
