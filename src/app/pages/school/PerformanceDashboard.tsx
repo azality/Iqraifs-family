@@ -879,7 +879,7 @@ export function PerformanceDashboard() {
           </div>
         ) : (
           <div
-            className="flex gap-3 overflow-x-auto pb-1 lg:grid lg:grid-cols-5 lg:overflow-visible"
+            className="flex gap-4 overflow-x-auto pb-1 lg:grid lg:grid-cols-5 lg:overflow-visible"
             data-tour="alerts-row"
           >
             {dashboard.alerts.map((a) => (
