@@ -1430,6 +1430,43 @@ export const addTeacher = (
 /** Response from POST /admins — same idea as AddTeacherResponse. */
 export type AddAdminResponse = OrgAdmin & { invitedCount?: number };
 
+// Detail shape for a single staff member — returned by GET /teachers/:userId
+// and rendered on TeacherDetail.tsx. Each row in `assignments` is one
+// active user_roles row for this user scoped to this org. UI groups them
+// by role / section to give the admin a clear view of "what does this
+// staff member actually do here."
+export interface TeacherAssignment {
+  id: string;
+  roleType: RoleTemplate | "teacher";
+  scopeType: "organization" | "class";
+  scopeId: string;
+  sectionName: string | null;
+  className: string | null;
+  grantedBy: string | null;
+  grantedByName: string | null;
+  grantedAt: string;
+  validFrom: string | null;
+  validUntil: string | null;
+}
+export interface TeacherDetail {
+  userId: string;
+  email: string;
+  fullName: string;
+  primaryRole: RoleTemplate | "teacher";
+  assignments: TeacherAssignment[];
+}
+export const getTeacherDetail = (
+  orgId: string,
+  userId: string,
+): Promise<TeacherDetail> =>
+  apiCall(`/school/orgs/${orgId}/teachers/${userId}`);
+
+/** Revoke ALL staff-role rows for this user in this org. Does not touch
+ *  auth.users (the person can still sign in for family / other-school
+ *  use). Principal/admin only. */
+export const deleteTeacher = (orgId: string, userId: string): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/teachers/${userId}`, { method: "DELETE" });
+
 export const bulkCreateTeachers = (
   orgId: string,
   rows: Array<{ email: string; fullName: string; roleTemplate: RoleTemplate }>,
