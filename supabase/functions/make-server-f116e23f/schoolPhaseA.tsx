@@ -54,6 +54,18 @@ export interface ParentRow {
   relationship?: string;
 }
 
+// Inline-parent payload accepted by POST /students and per-row CSV bulk.
+// Same shape as ParentRow — repeated as a named type so the student-side
+// validator can distinguish "row had parent fields" from "row was a parent
+// row." All fields optional; the only requirement is fullName when any
+// field is set.
+export interface InlineParentRow {
+  fullName?: string;
+  phone?: string;
+  email?: string;
+  relationship?: string;
+}
+
 export interface TeacherRow {
   email: string;
   fullName: string;
@@ -556,6 +568,95 @@ export function installPhaseA(school: Hono) {
   });
 
   // -------------------------------------------------------------------------
+  // INLINE PARENT LINKING (helper used by POST /students,
+  // POST /students/bulk, and POST /parents/bulk).
+  //
+  // Why this exists: until now the admin had to add a student, then add
+  // a parent, then call POST /student-parent to link them — three round
+  // trips for the most common workflow. This helper makes "add student
+  // with their parent" a single atomic UX while preserving the M:N model
+  // (one Imran Khan parent → both his kids in school, no duplicates).
+  //
+  // Dedup rule, in order:
+  //   1. email match (case-insensitive) in this org → reuse
+  //   2. else phone match (digits-only compare) in this org → reuse
+  //   3. else create new parent row
+  // Then upsert student_parent with is_primary=true. Returns a structured
+  // result so callers can surface partial-success warnings without
+  // failing the whole student insert.
+  // -------------------------------------------------------------------------
+  async function attachInlineParent(
+    orgId: string,
+    studentId: string,
+    parentInput: InlineParentRow,
+  ): Promise<{ ok: true; parentId: string; reused: boolean } | { ok: false; message: string }> {
+    const fullName = (parentInput.fullName ?? "").trim();
+    const phone = (parentInput.phone ?? "").trim();
+    const email = (parentInput.email ?? "").trim();
+    const relationship = (parentInput.relationship ?? "").trim();
+    if (!fullName) {
+      return { ok: false, message: "parent.fullName required when adding a parent" };
+    }
+    // Try email dedup first — that's the strongest signal.
+    let parentId: string | null = null;
+    let reused = false;
+    if (email) {
+      const { data: byEmail } = await serviceRoleClient
+        .from("parent")
+        .select("id")
+        .eq("org_id", orgId)
+        .ilike("email", email)
+        .maybeSingle();
+      if (byEmail) {
+        parentId = (byEmail as any).id;
+        reused = true;
+      }
+    }
+    // Then phone dedup (only digits, so "+92 300" and "923000" collapse).
+    if (!parentId && phone) {
+      const phoneDigits = phone.replace(/\D/g, "");
+      if (phoneDigits.length >= 7) {
+        const { data: candidates } = await serviceRoleClient
+          .from("parent")
+          .select("id, phone")
+          .eq("org_id", orgId)
+          .not("phone", "is", null)
+          .limit(500);
+        const hit = (candidates ?? []).find(
+          (p: any) => (p.phone ?? "").replace(/\D/g, "") === phoneDigits,
+        );
+        if (hit) {
+          parentId = (hit as any).id;
+          reused = true;
+        }
+      }
+    }
+    if (!parentId) {
+      const { data: created, error: insErr } = await serviceRoleClient
+        .from("parent")
+        .insert({
+          org_id: orgId,
+          full_name: fullName,
+          phone: phone || null,
+          email: email || null,
+          relationship: relationship || null,
+        })
+        .select("id")
+        .single();
+      if (insErr) return { ok: false, message: `parent_create_failed: ${insErr.message}` };
+      parentId = (created as any).id;
+    }
+    const { error: linkErr } = await serviceRoleClient
+      .from("student_parent")
+      .upsert(
+        { student_id: studentId, parent_id: parentId, is_primary: true },
+        { onConflict: "student_id,parent_id", ignoreDuplicates: false },
+      );
+    if (linkErr) return { ok: false, message: `link_failed: ${linkErr.message}` };
+    return { ok: true, parentId: parentId!, reused };
+  }
+
+  // -------------------------------------------------------------------------
   // STUDENTS
   // -------------------------------------------------------------------------
   school.post("/orgs/:orgId/students", async (c) => {
@@ -591,7 +692,23 @@ export function installPhaseA(school: Hono) {
       }
       return c.json({ error: error.message }, 500);
     }
-    return c.json(data, 201);
+
+    // Inline-parent attach. We INTENTIONALLY do not roll back the student
+    // if the parent step fails — Supabase JS has no transactions and a
+    // half-created student is recoverable from the UI (admin can retry
+    // the parent attach via student detail or parents list). Failure
+    // surfaces as a `warning` on the 201 so the UI can flag it.
+    const inlineParent: InlineParentRow | undefined = body?.parent && typeof body.parent === "object"
+      ? body.parent
+      : undefined;
+    let warning: string | null = null;
+    let linkedParentId: string | null = null;
+    if (inlineParent && (inlineParent.fullName ?? "").trim()) {
+      const r = await attachInlineParent(orgId, (data as any).id, inlineParent);
+      if (r.ok) linkedParentId = r.parentId;
+      else warning = r.message;
+    }
+    return c.json({ ...(data as any), linkedParentId, warning }, 201);
   });
 
   school.get("/orgs/:orgId/students", async (c) => {
@@ -709,32 +826,77 @@ export function installPhaseA(school: Hono) {
       guardian_email: row.guardianEmail ?? null,
     }));
 
+    // First pass: insert students. We keep a parallel array of original
+    // CSV rows so the second pass (inline-parent attach) can look up
+    // parent fields per insert success without re-parsing.
+    const rawRows = validRows.map(({ idx }) => body.rows[idx]);
+    let insertedStudents: Array<{ id: string; gr_number: string; idx: number }> = [];
+
     const { data, error } = await serviceRoleClient
       .from("student").insert(payload).select("id, gr_number");
     if (error) {
       // Fall back to per-row inserts so we can report partial success.
-      let inserted = 0;
-      for (const { idx, row } of validRows) {
-        const { error: rowErr } = await serviceRoleClient.from("student").insert({
-          org_id: orgId,
-          gr_number: row.grNumber,
-          full_name: row.fullName,
-          class_section_id: row.classSectionId ?? null,
-          photo_url: row.photoUrl ?? null,
-          date_of_birth: row.dateOfBirth ?? null,
-          gender: row.gender ?? null,
-          guardian_phone: row.guardianPhone ?? null,
-          guardian_email: row.guardianEmail ?? null,
-        });
+      for (let i = 0; i < validRows.length; i++) {
+        const { idx, row } = validRows[i];
+        const { data: oneData, error: rowErr } = await serviceRoleClient
+          .from("student")
+          .insert({
+            org_id: orgId,
+            gr_number: row.grNumber,
+            full_name: row.fullName,
+            class_section_id: row.classSectionId ?? null,
+            photo_url: row.photoUrl ?? null,
+            date_of_birth: row.dateOfBirth ?? null,
+            gender: row.gender ?? null,
+            guardian_phone: row.guardianPhone ?? null,
+            guardian_email: row.guardianEmail ?? null,
+          })
+          .select("id, gr_number")
+          .single();
         if (rowErr) {
           errors.push({ rowIndex: idx, message: rowErr.message });
-        } else {
-          inserted++;
+        } else if (oneData) {
+          insertedStudents.push({ id: (oneData as any).id, gr_number: (oneData as any).gr_number, idx });
         }
       }
-      return c.json({ inserted, errors });
+    } else {
+      // Batch succeeded — map back to original rowIndex via gr_number.
+      const byGr = new Map<string, number>();
+      for (const v of validRows) byGr.set(v.row.grNumber, v.idx);
+      insertedStudents = (data ?? []).map((d: any) => ({
+        id: d.id,
+        gr_number: d.gr_number,
+        idx: byGr.get(d.gr_number) ?? -1,
+      }));
     }
-    return c.json({ inserted: data?.length ?? 0, errors });
+
+    // Second pass: inline parent attach for rows that had parent fields.
+    // Each link failure surfaces as a row error tagged "parent_link" so
+    // the admin sees the row succeeded as a student but the parent step
+    // didn't (e.g. duplicate constraint, bad email).
+    let linkedCount = 0;
+    for (const stu of insertedStudents) {
+      const raw = rawRows.find((_r, j) => validRows[j].idx === stu.idx);
+      const inlineParent: InlineParentRow | undefined =
+        raw && typeof raw.parent === "object" && raw.parent !== null
+          ? raw.parent as InlineParentRow
+          // Also accept flat columns coming from CSV (parentFullName etc.)
+          // so the CSV dialog doesn't have to reshape rows.
+          : raw && (raw.parentFullName || raw.parentPhone || raw.parentEmail)
+          ? {
+              fullName: raw.parentFullName,
+              phone: raw.parentPhone,
+              email: raw.parentEmail,
+              relationship: raw.parentRelationship,
+            }
+          : undefined;
+      if (!inlineParent || !(inlineParent.fullName ?? "").trim()) continue;
+      const r = await attachInlineParent(orgId, stu.id, inlineParent);
+      if (r.ok) linkedCount++;
+      else errors.push({ rowIndex: stu.idx, message: `student inserted but ${r.message}` });
+    }
+
+    return c.json({ inserted: insertedStudents.length, parentsLinked: linkedCount, errors });
   });
 
   // -------------------------------------------------------------------------
@@ -898,23 +1060,58 @@ export function installPhaseA(school: Hono) {
       email: row.email ?? null,
       relationship: row.relationship ?? null,
     }));
+    // Insert pass — collect ids per row so we can link them to students.
+    let insertedParents: Array<{ id: string; idx: number }> = [];
     const { data, error } = await serviceRoleClient.from("parent").insert(payload).select("id");
     if (error) {
-      let inserted = 0;
       for (const { idx, row } of valid) {
-        const { error: rowErr } = await serviceRoleClient.from("parent").insert({
-          org_id: orgId,
-          full_name: row.fullName,
-          phone: row.phone ?? null,
-          email: row.email ?? null,
-          relationship: row.relationship ?? null,
-        });
+        const { data: oneData, error: rowErr } = await serviceRoleClient
+          .from("parent")
+          .insert({
+            org_id: orgId,
+            full_name: row.fullName,
+            phone: row.phone ?? null,
+            email: row.email ?? null,
+            relationship: row.relationship ?? null,
+          })
+          .select("id")
+          .single();
         if (rowErr) errors.push({ rowIndex: idx, message: rowErr.message });
-        else inserted++;
+        else if (oneData) insertedParents.push({ id: (oneData as any).id, idx });
       }
-      return c.json({ inserted, errors });
+    } else {
+      // Batch insert preserves order, so map ids back to validRows index.
+      insertedParents = (data ?? []).map((d: any, i: number) => ({ id: d.id, idx: valid[i].idx }));
     }
-    return c.json({ inserted: data?.length ?? 0, errors });
+
+    // Optional link pass — if any row had a studentGrNumber, look up the
+    // student in this org and create the parent_student link.
+    let linkedCount = 0;
+    for (const p of insertedParents) {
+      const raw = body.rows[p.idx];
+      const gr = (raw?.studentGrNumber ?? "").trim();
+      if (!gr) continue;
+      const { data: stu } = await serviceRoleClient
+        .from("student")
+        .select("id")
+        .eq("org_id", orgId)
+        .eq("gr_number", gr)
+        .maybeSingle();
+      if (!stu) {
+        errors.push({ rowIndex: p.idx, message: `parent inserted but student GR ${gr} not found in this org` });
+        continue;
+      }
+      const { error: linkErr } = await serviceRoleClient
+        .from("student_parent")
+        .upsert(
+          { student_id: (stu as any).id, parent_id: p.id, is_primary: true },
+          { onConflict: "student_id,parent_id", ignoreDuplicates: false },
+        );
+      if (linkErr) errors.push({ rowIndex: p.idx, message: `parent inserted but link failed: ${linkErr.message}` });
+      else linkedCount++;
+    }
+
+    return c.json({ inserted: insertedParents.length, studentsLinked: linkedCount, errors });
   });
 
   school.post("/orgs/:orgId/student-parent", async (c) => {

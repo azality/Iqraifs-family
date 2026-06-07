@@ -1263,6 +1263,17 @@ export const getStudent = async (
   return { ...r.student, parents: r.parents ?? [] };
 };
 
+/** Optional inline parent block — when present, backend creates (or
+ *  reuses by email/phone) a parent in this org and links them to the
+ *  new student with is_primary=true. fullName is required when ANY
+ *  field is set. */
+export interface InlineParentInput {
+  fullName: string;
+  phone?: string;
+  email?: string;
+  relationship?: string;
+}
+
 export interface CreateStudentBody {
   grNumber: string;
   fullName: string;
@@ -1272,6 +1283,8 @@ export interface CreateStudentBody {
   gender?: string;
   guardianPhone?: string;
   guardianEmail?: string;
+  /** Optional — create + auto-link a primary parent in one shot. */
+  parent?: InlineParentInput;
 }
 
 export const adminCreateStudent = (

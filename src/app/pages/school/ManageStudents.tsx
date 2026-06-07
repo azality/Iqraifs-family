@@ -66,8 +66,24 @@ export function ManageStudents() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<AdminStudent | null>(null);
   const [form, setForm] = useState<CreateStudentBody>(emptyForm);
+  // Inline parent block — separate state so we can include or omit it
+  // based on whether the admin chose to add a parent. Only shown when
+  // creating (not editing) — editing parents is done from the existing
+  // ManageParents / StudentDetail flow.
+  const [addParentOpen, setAddParentOpen] = useState(false);
+  const [parentForm, setParentForm] = useState({
+    fullName: "",
+    phone: "",
+    email: "",
+    relationship: "",
+  });
+  const resetParentForm = () => {
+    setAddParentOpen(false);
+    setParentForm({ fullName: "", phone: "", email: "", relationship: "" });
+  };
   const [csvOpen, setCsvOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   // Per-row "Log behavior" target. null = closed.
   const [behaviorTarget, setBehaviorTarget] = useState<AdminStudent | null>(null);
 
@@ -101,7 +117,14 @@ export function ManageStudents() {
   if (meLoading) return null;
   if (!isOrgAdmin(me, orgId)) return <Navigate to="/school" replace />;
 
-  const startCreate = () => { setEditing(null); setForm(emptyForm); setFormOpen(true); };
+  const startCreate = () => {
+    setEditing(null);
+    setForm(emptyForm);
+    resetParentForm();
+    setNotice(null);
+    setError(null);
+    setFormOpen(true);
+  };
   const startEdit = (s: AdminStudent) => {
     setEditing(s);
     setForm({
@@ -119,13 +142,34 @@ export function ManageStudents() {
 
   const submitForm = async () => {
     if (!form.grNumber || !form.fullName) return;
+    // If the parent section is open and has data, include it. Backend
+    // will dedupe by email then phone before inserting, so re-typing an
+    // existing parent for a sibling won't create a duplicate row.
+    const parentPayload =
+      !editing && addParentOpen && parentForm.fullName.trim()
+        ? {
+            fullName: parentForm.fullName.trim(),
+            phone: parentForm.phone.trim() || undefined,
+            email: parentForm.email.trim() || undefined,
+            relationship: parentForm.relationship.trim() || undefined,
+          }
+        : undefined;
     try {
       if (editing) {
         await updateStudent(orgId, editing.id, form);
       } else {
-        await adminCreateStudent(orgId, form);
+        const res = await adminCreateStudent(orgId, { ...form, parent: parentPayload });
+        // Surface backend warning (e.g. "parent_create_failed:…") so the
+        // admin knows the student saved but the parent step didn't —
+        // they can retry on the parents page without losing the student.
+        if ((res as any)?.warning) {
+          setNotice(`Student saved but ${(res as any).warning}.`);
+        } else if (parentPayload) {
+          setNotice(`Student saved and linked to ${parentPayload.fullName}.`);
+        }
       }
       setFormOpen(false);
+      resetParentForm();
       refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -149,6 +193,10 @@ export function ManageStudents() {
     });
     const res = await bulkCreateAdminStudents(orgId, enriched);
     refresh();
+    const linked = (res as any)?.parentsLinked ?? 0;
+    if (linked > 0) {
+      setNotice(`${res.inserted} student${res.inserted === 1 ? "" : "s"} added · ${linked} parent${linked === 1 ? "" : "s"} auto-linked.`);
+    }
     return res;
   };
 
@@ -291,6 +339,85 @@ export function ManageStudents() {
             <div><Label>Guardian phone</Label><Input value={form.guardianPhone} onChange={(e) => setForm({ ...form, guardianPhone: e.target.value })} /></div>
             <div><Label>Guardian email</Label><Input type="email" value={form.guardianEmail} onChange={(e) => setForm({ ...form, guardianEmail: e.target.value })} /></div>
           </div>
+
+          {/* Inline parent block — collapsed by default to keep the
+              create form lightweight. When expanded, fullName is the only
+              required field. Backend dedupes by email/phone so adding a
+              sibling to an existing parent doesn't create duplicates. */}
+          {!editing && (
+            <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50/60">
+              <button
+                type="button"
+                onClick={() => setAddParentOpen((v) => !v)}
+                className="w-full flex items-center justify-between px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100/60"
+              >
+                <span>
+                  {addParentOpen ? "−" : "+"} Add a primary parent (optional)
+                </span>
+                <span className="text-xs text-slate-500">
+                  We'll auto-link the parent to this student.
+                </span>
+              </button>
+              {addParentOpen && (
+                <div className="grid gap-3 sm:grid-cols-2 p-3 border-t border-slate-200 bg-white">
+                  <div className="sm:col-span-2">
+                    <Label>Parent full name*</Label>
+                    <Input
+                      value={parentForm.fullName}
+                      onChange={(e) => setParentForm({ ...parentForm, fullName: e.target.value })}
+                      placeholder="e.g. Imran Khan"
+                    />
+                  </div>
+                  <div>
+                    <Label>Phone</Label>
+                    <Input
+                      value={parentForm.phone}
+                      onChange={(e) => setParentForm({ ...parentForm, phone: e.target.value })}
+                      placeholder="+92 300 1234567"
+                    />
+                  </div>
+                  <div>
+                    <Label>Email</Label>
+                    <Input
+                      type="email"
+                      value={parentForm.email}
+                      onChange={(e) => setParentForm({ ...parentForm, email: e.target.value })}
+                      placeholder="parent@example.com"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <Label>Relationship</Label>
+                    <Select
+                      value={parentForm.relationship || "__none__"}
+                      onValueChange={(v) =>
+                        setParentForm({ ...parentForm, relationship: v === "__none__" ? "" : v })
+                      }
+                    >
+                      <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">—</SelectItem>
+                        <SelectItem value="father">Father</SelectItem>
+                        <SelectItem value="mother">Mother</SelectItem>
+                        <SelectItem value="guardian">Guardian</SelectItem>
+                        <SelectItem value="grandparent">Grandparent</SelectItem>
+                        <SelectItem value="other">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <p className="sm:col-span-2 text-xs text-slate-500">
+                    If a parent with this email or phone already exists in this school, we'll reuse that record instead of creating a duplicate — perfect for siblings.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {notice && (
+            <div className="mt-2 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+              {notice}
+            </div>
+          )}
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setFormOpen(false)}>Cancel</Button>
             <Button onClick={submitForm}>{editing ? "Save" : "Create"}</Button>
@@ -311,6 +438,15 @@ export function ManageStudents() {
           { key: "gender", label: "Gender" },
           { key: "guardianPhone", label: "Guardian phone", aliases: ["phone", "guardian_phone"] },
           { key: "guardianEmail", label: "Guardian email", aliases: ["email", "guardian_email"] },
+          // Inline parent columns — all optional. If parentFullName is
+          // set, the row creates+links a primary parent in one shot.
+          // Same dedup rule as the single-create flow (email then phone).
+          // Perfect for "old students" bulk import — one row per
+          // student, parents come along automatically.
+          { key: "parentFullName", label: "Parent full name (optional)", aliases: ["parent_name", "parent name"] },
+          { key: "parentPhone", label: "Parent phone (optional)", aliases: ["parent_phone"] },
+          { key: "parentEmail", label: "Parent email (optional)", aliases: ["parent_email"] },
+          { key: "parentRelationship", label: "Parent relationship (optional)", aliases: ["parent_relationship", "relationship"] },
         ]}
         onSubmit={handleCsvSubmit}
       />
