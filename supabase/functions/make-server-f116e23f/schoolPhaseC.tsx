@@ -220,6 +220,19 @@ function hifzToJson(r: any) {
     kind: r.kind,
     quality: r.quality,
     notes: r.notes,
+    // Full-module fields (PR feat/hifz-full-module). Null on legacy rows
+    // so the UI can fall back to the generic `notes` for old data.
+    juzNumber: r.juz_number ?? null,
+    pageNumber: r.page_number ?? null,
+    mistakesCount: r.mistakes_count ?? null,
+    tajweedNotes: r.tajweed_notes ?? null,
+    fluencyNotes: r.fluency_notes ?? null,
+    teacherRemarks: r.teacher_remarks ?? null,
+    parentComments: r.parent_comments ?? null,
+    dailyTarget: r.daily_target ?? null,
+    nextTarget: r.next_target ?? null,
+    missedTargetReason: r.missed_target_reason ?? null,
+    parentAction: r.parent_action ?? null,
     recordedBy: r.recorded_by,
     recordedAt: r.recorded_at,
     createdAt: r.created_at,
@@ -708,6 +721,17 @@ export function installPhaseC(school: Hono): void {
     }
     if (!allowed) return c.json({ error: "forbidden" }, 403);
 
+    // Full-module fields — all optional. We validate the numeric ones,
+    // pass strings through (trim only). UI form chunks them into
+    // teacher-only vs parent-visible sections; backend stays neutral
+    // on visibility because the read paths handle that.
+    const safeText = (v: unknown): string | null =>
+      typeof v === "string" && v.trim().length > 0 ? v.trim() : null;
+    const safeInt = (v: unknown, min: number, max: number): number | null => {
+      const n = Number(v);
+      return Number.isInteger(n) && n >= min && n <= max ? n : null;
+    };
+
     const { data: ins, error: insErr } = await serviceRoleClient
       .from("hifz_progress")
       .insert({
@@ -719,6 +743,17 @@ export function installPhaseC(school: Hono): void {
         kind: body.kind,
         quality: body.quality ?? null,
         notes: body.notes ?? null,
+        juz_number: safeInt(body.juzNumber, 1, 30),
+        page_number: safeInt(body.pageNumber, 1, 9999),
+        mistakes_count: safeInt(body.mistakesCount, 0, 9999),
+        tajweed_notes: safeText(body.tajweedNotes),
+        fluency_notes: safeText(body.fluencyNotes),
+        teacher_remarks: safeText(body.teacherRemarks),
+        parent_comments: safeText(body.parentComments),
+        daily_target: safeText(body.dailyTarget),
+        next_target: safeText(body.nextTarget),
+        missed_target_reason: safeText(body.missedTargetReason),
+        parent_action: safeText(body.parentAction),
         recorded_by: userId,
       })
       .select()

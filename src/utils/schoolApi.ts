@@ -2265,6 +2265,19 @@ export interface HifzEntry {
   recorded_by: string | null;
   recorded_by_name?: string | null;
   recorded_at: string;
+  // Full-module fields (PR feat/hifz-full-module). Backend returns
+  // camelCase keys via hifzToJson; legacy rows arrive with null.
+  juzNumber?: number | null;
+  pageNumber?: number | null;
+  mistakesCount?: number | null;
+  tajweedNotes?: string | null;
+  fluencyNotes?: string | null;
+  teacherRemarks?: string | null;
+  parentComments?: string | null;
+  dailyTarget?: string | null;
+  nextTarget?: string | null;
+  missedTargetReason?: string | null;
+  parentAction?: string | null;
 }
 
 export interface HifzEntryInput {
@@ -2275,6 +2288,19 @@ export interface HifzEntryInput {
   kind: HifzKind;
   quality?: HifzQuality;
   notes?: string;
+  // Full-module optional fields. Numeric ones server-validates; text
+  // ones get trimmed and stored as-is.
+  juzNumber?: number;
+  pageNumber?: number;
+  mistakesCount?: number;
+  tajweedNotes?: string;
+  fluencyNotes?: string;
+  teacherRemarks?: string;
+  parentComments?: string;
+  dailyTarget?: string;
+  nextTarget?: string;
+  missedTargetReason?: string;
+  parentAction?: string;
 }
 
 export const postHifzEntry = (

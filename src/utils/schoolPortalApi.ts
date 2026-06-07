@@ -260,9 +260,35 @@ export interface MyStudentHifzSummary {
   lastEntry: string | null;
 }
 
+/** Compact "today" snapshot the portal Hifz card renders at the top —
+ *  pulls the most recent sabaq, the latest revision (sabqi/manzil), and
+ *  the teacher's parent-facing note + action. The portal endpoint
+ *  computes it server-side so the card stays cheap to render. */
+export interface MyStudentHifzToday {
+  recordedAt: string;
+  sabaq: {
+    surahNumber: number;
+    ayahFrom: number;
+    ayahTo: number;
+    quality: string | null;
+  } | null;
+  revision: {
+    kind: string;
+    surahNumber: number;
+    ayahFrom: number;
+    ayahTo: number;
+    quality: string | null;
+  } | null;
+  teacherNote: string | null;
+  parentAction: string | null;
+  nextTarget: string | null;
+  mistakesCount: number | null;
+}
+
 export interface MyStudentHifzResponse {
   entries: HifzEntry[];
   summary: MyStudentHifzSummary;
+  today: MyStudentHifzToday | null;
 }
 
 export const getMyStudentHifz = (studentId: string): Promise<MyStudentHifzResponse> =>

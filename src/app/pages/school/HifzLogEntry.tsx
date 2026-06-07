@@ -76,6 +76,22 @@ export function HifzLogEntry({
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  // Full-module fields (PR feat/hifz-full-module). All optional —
+  // teachers don't have to fill every one for a single sabaq entry, but
+  // they're available when they want to capture richer context.
+  const [juzNumber, setJuzNumber] = useState<number | "">("");
+  const [pageNumber, setPageNumber] = useState<number | "">("");
+  const [mistakesCount, setMistakesCount] = useState<number | "">("");
+  const [tajweedNotes, setTajweedNotes] = useState("");
+  const [fluencyNotes, setFluencyNotes] = useState("");
+  const [teacherRemarks, setTeacherRemarks] = useState("");
+  const [parentComments, setParentComments] = useState("");
+  const [dailyTarget, setDailyTarget] = useState("");
+  const [nextTarget, setNextTarget] = useState("");
+  const [missedTargetReason, setMissedTargetReason] = useState("");
+  const [parentAction, setParentAction] = useState("");
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+
   const surah = getSurah(surahNumber);
   const maxAyah = surah?.ayahCount ?? 1;
 
@@ -88,6 +104,18 @@ export function HifzLogEntry({
       setKind("sabaq");
       setQuality("");
       setNotes("");
+      setJuzNumber("");
+      setPageNumber("");
+      setMistakesCount("");
+      setTajweedNotes("");
+      setFluencyNotes("");
+      setTeacherRemarks("");
+      setParentComments("");
+      setDailyTarget("");
+      setNextTarget("");
+      setMissedTargetReason("");
+      setParentAction("");
+      setAdvancedOpen(false);
     }
   }, [open]);
 
@@ -118,6 +146,17 @@ export function HifzLogEntry({
         kind,
         quality: quality || undefined,
         notes: notes.trim() || undefined,
+        juzNumber: typeof juzNumber === "number" ? juzNumber : undefined,
+        pageNumber: typeof pageNumber === "number" ? pageNumber : undefined,
+        mistakesCount: typeof mistakesCount === "number" ? mistakesCount : undefined,
+        tajweedNotes: tajweedNotes.trim() || undefined,
+        fluencyNotes: fluencyNotes.trim() || undefined,
+        teacherRemarks: teacherRemarks.trim() || undefined,
+        parentComments: parentComments.trim() || undefined,
+        dailyTarget: dailyTarget.trim() || undefined,
+        nextTarget: nextTarget.trim() || undefined,
+        missedTargetReason: missedTargetReason.trim() || undefined,
+        parentAction: parentAction.trim() || undefined,
       });
       toast.success("Hifz entry logged");
       onOpenChange(false);
@@ -237,15 +276,159 @@ export function HifzLogEntry({
             </Select>
           </div>
 
+          {/* Mistakes count + tajweed note — the two highest-signal
+              quick-entry fields. Parents and head teachers both glance
+              at "how many mistakes today" trends. */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label>Mistakes today</Label>
+              <Input
+                type="number"
+                min={0}
+                value={mistakesCount === "" ? "" : mistakesCount}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setMistakesCount(v === "" ? "" : Math.max(0, Number(v) || 0));
+                }}
+                placeholder="0"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Tajweed note</Label>
+              <Input
+                value={tajweedNotes}
+                onChange={(e) => setTajweedNotes(e.target.value)}
+                placeholder="e.g. madd-letter weak"
+              />
+            </div>
+          </div>
+
+          {/* Parent-facing fields. The point of separating them from
+              teacher notes: the parent app only ever sees what the
+              teacher consciously chose to share. */}
+          <div className="space-y-1 rounded-lg border border-emerald-200 bg-emerald-50/40 p-3">
+            <Label className="text-emerald-900">What should the parent do tonight?</Label>
+            <Input
+              value={parentAction}
+              onChange={(e) => setParentAction(e.target.value)}
+              placeholder="e.g. Revise Surah Al-Mulk after Maghrib"
+              className="bg-white"
+            />
+            <p className="text-[11px] text-emerald-800">
+              Shows on the parent portal as a green &quot;What to do tonight&quot; card.
+            </p>
+          </div>
+
+          {/* Notes — internal teacher note. Kept as the bottom field of
+              the always-visible section because the existing form
+              shipped with it. */}
           <div className="space-y-1">
-            <Label>Notes</Label>
+            <Label>Internal notes (teacher only)</Label>
             <Textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              rows={3}
-              placeholder="Optional notes for parents"
+              rows={2}
+              placeholder="Notes only staff see"
             />
           </div>
+
+          {/* Advanced — collapsed by default. Holds the longer-form
+              fields most teachers don't need every day: juz/page
+              anchors, fluency notes, teacher remarks, targets,
+              missed-target reason, parent comments. */}
+          <button
+            type="button"
+            onClick={() => setAdvancedOpen((v) => !v)}
+            className="w-full text-left text-xs font-medium text-indigo-700 hover:underline"
+          >
+            {advancedOpen ? "− Hide" : "+ Show"} additional fields (juz / page / fluency / targets)
+          </button>
+
+          {advancedOpen && (
+            <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-3 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label>Juz / Para</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={30}
+                    value={juzNumber === "" ? "" : juzNumber}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setJuzNumber(
+                        v === "" ? "" : Math.max(1, Math.min(30, Number(v) || 1)),
+                      );
+                    }}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>Mushaf page</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={pageNumber === "" ? "" : pageNumber}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setPageNumber(v === "" ? "" : Math.max(1, Number(v) || 1));
+                    }}
+                  />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label>Fluency note</Label>
+                <Input
+                  value={fluencyNotes}
+                  onChange={(e) => setFluencyNotes(e.target.value)}
+                  placeholder="e.g. pauses too long mid-ayah"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>Teacher remarks (parent-visible)</Label>
+                <Textarea
+                  value={teacherRemarks}
+                  onChange={(e) => setTeacherRemarks(e.target.value)}
+                  rows={2}
+                  placeholder="Free-form summary the parent sees"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>Parent-facing comments</Label>
+                <Textarea
+                  value={parentComments}
+                  onChange={(e) => setParentComments(e.target.value)}
+                  rows={2}
+                  placeholder="Encouragement / specific guidance"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label>Today's target</Label>
+                  <Input
+                    value={dailyTarget}
+                    onChange={(e) => setDailyTarget(e.target.value)}
+                    placeholder="e.g. Memorize 5 ayahs"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>Tomorrow's target</Label>
+                  <Input
+                    value={nextTarget}
+                    onChange={(e) => setNextTarget(e.target.value)}
+                    placeholder="e.g. Sabqi Al-Mulk 1-10"
+                  />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label>Missed-target reason (if any)</Label>
+                <Input
+                  value={missedTargetReason}
+                  onChange={(e) => setMissedTargetReason(e.target.value)}
+                  placeholder="e.g. Distracted / unwell"
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         <DialogFooter>
