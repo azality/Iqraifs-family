@@ -405,16 +405,23 @@ export function RootLayout() {
             </div>
           </div>
 
-          {/* Row 2 — mobile-only: child selector + mode switcher */}
-          <div className="sm:hidden pb-2 space-y-2 border-t border-slate-200/60 pt-2">
-            <ChildSelector />
-            {!isChildLoggedIn && <ModeSwitcher mobile />}
-            {isChildLoggedIn && (
-              <div className="flex items-center justify-center gap-2 px-3 py-2 bg-gradient-to-r from-[#FFF8E7] to-[#FFE5CC] rounded-lg border-2 border-[#F4C430]">
-                <span className="text-sm font-bold text-[#2D1810]">Kid Adventure Mode</span>
-              </div>
-            )}
-          </div>
+          {/* Row 2 — mobile-only: child selector + mode switcher.
+              School workspace renders neither (principals / admins have
+              no child to pick and no parent/kid mode to flip) — mirrors
+              the desktop gate on Row 1's ChildSelector + ModeSwitcher,
+              which was missing here and leaked a kid dropdown to school
+              principals on phones. */}
+          {!isSchoolWorkspace && (
+            <div className="sm:hidden pb-2 space-y-2 border-t border-slate-200/60 pt-2">
+              <ChildSelector />
+              {!isChildLoggedIn && <ModeSwitcher mobile />}
+              {isChildLoggedIn && (
+                <div className="flex items-center justify-center gap-2 px-3 py-2 bg-gradient-to-r from-[#FFF8E7] to-[#FFE5CC] rounded-lg border-2 border-[#F4C430]">
+                  <span className="text-sm font-bold text-[#2D1810]">Kid Adventure Mode</span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* ============ Desktop: dropdown nav bar ============
