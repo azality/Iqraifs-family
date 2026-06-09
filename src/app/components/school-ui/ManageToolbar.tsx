@@ -33,6 +33,7 @@ import {
   Megaphone,
   DollarSign,
   UploadCloud,
+  BookMarked,
 } from "lucide-react";
 import type { SchoolViewerRole } from "../../../utils/schoolApi";
 import { accentBg, accentBorder, accentText } from "./tokens";
@@ -107,6 +108,12 @@ function itemsForRole(
         I("fees", "Fees", `/school/orgs/${orgId}/admin/fees`, DollarSign),
         announcements,
       ];
+      // Hifz Groups (PR feat/hifz-groups) — peer of class sections.
+      // Inserted before the import-center entry so it sits near the
+      // other structural surfaces (Classes, Students…).
+      base.push(
+        I("hifz-groups", "Hifz Groups", `/school/orgs/${orgId}/admin/hifz-groups`, BookMarked),
+      );
       // Bulk import center — admin/principal only. Pre-launch
       // migration from a paper school usually needs every importer in
       // one place; placing the link in the sidebar makes the workflow

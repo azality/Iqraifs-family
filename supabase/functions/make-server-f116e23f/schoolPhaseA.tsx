@@ -1345,6 +1345,7 @@ export function installPhaseA(school: Hono) {
       receiptNo: "receipt_no",
       admissionDate: "admission_date",
       completenessStatus: "completeness_status",
+      hifzGroupId: "hifz_group_id",
     };
     const patch: Record<string, unknown> = {};
     for (const [k, col] of Object.entries(map)) {
@@ -3131,5 +3132,153 @@ export function installPhaseA(school: Hono) {
       .eq("id", batchId);
 
     return c.json({ ok: true, removed: removedCounts });
+  });
+
+  // ─── Hifz Groups (PR feat/hifz-groups) ──────────────────────────────────
+  // Hifz groups are peers of class_section. Each group has its own
+  // teacher (independent of the class teacher), and students belong to
+  // exactly one group at a time (v1). Used by Hifz-only schools and by
+  // mixed schools running a Hifz-track alongside the conventional one.
+  // -------------------------------------------------------------------------
+  school.get("/orgs/:orgId/hifz-groups", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await hasAnyRoleInOrg(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const { data, error } = await serviceRoleClient
+      .from("hifz_group")
+      .select("id, name, description, hifz_teacher_user_id, display_order, archived_at")
+      .eq("org_id", orgId)
+      .is("archived_at", null)
+      .order("display_order", { ascending: true })
+      .order("name", { ascending: true });
+    if (error) return c.json({ error: error.message }, 500);
+
+    // Hydrate teacher names + per-group student counts so the admin
+    // list reads at a glance.
+    const teacherIds = Array.from(
+      new Set(((data ?? []) as any[])
+        .map((g) => g.hifz_teacher_user_id)
+        .filter((x): x is string => !!x)),
+    );
+    const teacherNames = new Map<string, string>();
+    for (const tid of teacherIds) {
+      try {
+        const { data: u } = await (serviceRoleClient as any).auth.admin.getUserById(tid);
+        const name = u?.user?.user_metadata?.name || u?.user?.email || "";
+        if (name) teacherNames.set(tid, name);
+      } catch { /* ignore */ }
+    }
+    const groupIds = ((data ?? []) as any[]).map((g) => g.id);
+    const studentCount = new Map<string, number>();
+    if (groupIds.length > 0) {
+      const { data: stuRows } = await serviceRoleClient
+        .from("student")
+        .select("hifz_group_id")
+        .in("hifz_group_id", groupIds);
+      for (const s of (stuRows ?? []) as any[]) {
+        const gid = s.hifz_group_id as string;
+        studentCount.set(gid, (studentCount.get(gid) ?? 0) + 1);
+      }
+    }
+    const groups = ((data ?? []) as any[]).map((g) => ({
+      id: g.id,
+      name: g.name,
+      description: g.description,
+      hifzTeacherUserId: g.hifz_teacher_user_id,
+      hifzTeacherName: g.hifz_teacher_user_id
+        ? teacherNames.get(g.hifz_teacher_user_id) ?? null
+        : null,
+      displayOrder: g.display_order,
+      studentCount: studentCount.get(g.id) ?? 0,
+    }));
+    return c.json({ groups });
+  });
+
+  school.post("/orgs/:orgId/hifz-groups", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await requireAdminOrPrincipal(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    const name = typeof body?.name === "string" ? body.name.trim() : "";
+    if (!name) return c.json({ error: "name required" }, 400);
+    const { data, error } = await serviceRoleClient
+      .from("hifz_group")
+      .insert({
+        org_id: orgId,
+        name,
+        description: typeof body?.description === "string" ? body.description.trim() : null,
+        hifz_teacher_user_id: body?.hifzTeacherUserId ?? null,
+        display_order: typeof body?.displayOrder === "number" ? body.displayOrder : 0,
+      })
+      .select()
+      .single();
+    if (error) {
+      if ((error as any).code === "23505") {
+        return c.json({ error: "a Hifz group with that name already exists" }, 409);
+      }
+      return c.json({ error: error.message }, 500);
+    }
+    return c.json(data, 201);
+  });
+
+  school.patch("/orgs/:orgId/hifz-groups/:groupId", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const groupId = c.req.param("groupId");
+    if (!(await requireAdminOrPrincipal(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    const patch: Record<string, unknown> = {};
+    if (typeof body?.name === "string") patch.name = body.name.trim();
+    if ("description" in (body ?? {})) {
+      patch.description = typeof body.description === "string"
+        ? body.description.trim() || null
+        : null;
+    }
+    if ("hifzTeacherUserId" in (body ?? {})) {
+      patch.hifz_teacher_user_id = body.hifzTeacherUserId ?? null;
+    }
+    if (typeof body?.displayOrder === "number") patch.display_order = body.displayOrder;
+    if (Object.keys(patch).length === 0) return c.json({ error: "nothing to update" }, 400);
+
+    const { data: existing } = await serviceRoleClient
+      .from("hifz_group").select("org_id").eq("id", groupId).maybeSingle();
+    if (!existing || (existing as any).org_id !== orgId) {
+      return c.json({ error: "group not found" }, 404);
+    }
+    const { data, error } = await serviceRoleClient
+      .from("hifz_group").update(patch).eq("id", groupId).select().single();
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json(data);
+  });
+
+  // Soft-archive (set archived_at) so historical Hifz log references
+  // remain readable. Students remain linked but the group disappears
+  // from dropdowns + counters.
+  school.delete("/orgs/:orgId/hifz-groups/:groupId", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const groupId = c.req.param("groupId");
+    if (!(await requireAdminOrPrincipal(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const { data: existing } = await serviceRoleClient
+      .from("hifz_group").select("org_id").eq("id", groupId).maybeSingle();
+    if (!existing || (existing as any).org_id !== orgId) {
+      return c.json({ error: "group not found" }, 404);
+    }
+    const { error } = await serviceRoleClient
+      .from("hifz_group")
+      .update({ archived_at: new Date().toISOString() })
+      .eq("id", groupId);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ ok: true });
   });
 }

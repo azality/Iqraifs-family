@@ -1409,6 +1409,9 @@ export interface CreateStudentBody {
   receiptNo?: string;
   admissionDate?: string;
   completenessStatus?: StudentCompletenessStatus;
+  /** PR feat/hifz-groups — student belongs to one Hifz group at a time
+   *  (peer of the class section, not a child of it). Optional. */
+  hifzGroupId?: string | null;
   /** Legacy single-parent shape — still accepted by the backend. New
    *  flows should use `guardians[]` instead. */
   parent?: InlineParentInput;
@@ -1770,6 +1773,59 @@ export const rollbackImportBatch = (
   apiCall(`/school/orgs/${orgId}/import-batches/${batchId}/rollback`, {
     method: "POST",
   });
+
+// ─── Hifz Groups (PR feat/hifz-groups) ──────────────────────────────────
+export interface HifzGroup {
+  id: string;
+  name: string;
+  description: string | null;
+  hifzTeacherUserId: string | null;
+  hifzTeacherName: string | null;
+  displayOrder: number;
+  studentCount: number;
+}
+
+export const listHifzGroups = async (orgId: string): Promise<HifzGroup[]> => {
+  const r = await apiCall<{ groups: HifzGroup[] }>(
+    `/school/orgs/${orgId}/hifz-groups`,
+  );
+  return r?.groups ?? [];
+};
+
+export const createHifzGroup = (
+  orgId: string,
+  body: {
+    name: string;
+    description?: string;
+    hifzTeacherUserId?: string;
+    displayOrder?: number;
+  },
+): Promise<{ id: string; name: string }> =>
+  apiCall(`/school/orgs/${orgId}/hifz-groups`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const updateHifzGroup = (
+  orgId: string,
+  groupId: string,
+  partial: Partial<{
+    name: string;
+    description: string | null;
+    hifzTeacherUserId: string | null;
+    displayOrder: number;
+  }>,
+): Promise<HifzGroup> =>
+  apiCall(`/school/orgs/${orgId}/hifz-groups/${groupId}`, {
+    method: "PATCH",
+    body: JSON.stringify(partial),
+  });
+
+export const deleteHifzGroup = (
+  orgId: string,
+  groupId: string,
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/hifz-groups/${groupId}`, { method: "DELETE" });
 
 export interface OrgAdmin {
   user_id: string;
