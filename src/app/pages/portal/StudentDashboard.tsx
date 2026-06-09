@@ -1,21 +1,152 @@
 // StudentDashboard — single-child landing page in the portal.
 //
 // PR feat/parent-portal-home: leads with plain-language status cards
-// from the today-snapshot endpoint. Recent activity from the existing
-// dashboard endpoint still appears below as the timeline.
+// from the today-snapshot endpoint. Today's Diary (from feat/daily-diary)
+// sits between status pills and recent activity. Recent activity from
+// the existing dashboard endpoint still appears at the bottom.
 
 import { useEffect, useState } from "react";
 import { useParams } from "react-router";
+import { Award, BookOpen, ClipboardList, Bell } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { DataTable, HeroCard } from "../../components/school-ui";
 import {
   getStudentDashboard,
   getTodaySnapshot,
+  getMyStudentDiary,
   type StudentDashboardResponse,
   type DashboardActivityItem,
   type TodaySnapshot,
+  type MyStudentDiaryResponse,
 } from "../../../utils/schoolPortalApi";
 import { TodayStatusPills } from "./TodayStatusPills";
+
+// Friendly Surah name lookup for the Hifz line. Compact list; falls
+// back to "Surah N" for entries outside it.
+const SURAH_NAMES: Record<number, string> = {
+  1: "Al-Fatihah", 2: "Al-Baqarah", 3: "Al-Imran", 78: "An-Naba",
+  79: "An-Nazi'at", 80: "Abasa", 111: "Al-Masad", 112: "Al-Ikhlas",
+  113: "Al-Falaq", 114: "An-Nas",
+};
+const surahLabel = (n: number) =>
+  SURAH_NAMES[n] ? `Surah ${SURAH_NAMES[n]}` : `Surah ${n}`;
+
+/** "Today's Diary" card. Spec-shaped:
+ *    English: Worksheet completed
+ *    Math: Homework page 15 (due today)
+ *    Hifz: Today's sabaq — Surah Al-Mulk, ayah 1–10
+ *    What to do tonight: Revise Surah Al-Mulk after Maghrib
+ *    Reminders: Bring notebook tomorrow
+ */
+function DiaryCard({ diary }: { diary: MyStudentDiaryResponse }) {
+  const dateLabel = new Date(diary.date + "T00:00:00Z").toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  });
+  const lessonsBySubject = new Map<string, string>();
+  for (const l of diary.lessons) {
+    const key = l.subject ?? "Lessons";
+    if (!lessonsBySubject.has(key)) lessonsBySubject.set(key, l.title);
+  }
+
+  const hifzLine = (() => {
+    if (!diary.hifz) return null;
+    const { sabaq, revision } = diary.hifz;
+    if (sabaq) {
+      return `Today's sabaq — ${surahLabel(sabaq.surahNumber)}, ayah ${sabaq.ayahFrom}${
+        sabaq.ayahTo !== sabaq.ayahFrom ? ` to ${sabaq.ayahTo}` : ""
+      }`;
+    }
+    if (revision) {
+      return `Revision (${revision.kind}) — ${surahLabel(revision.surahNumber)}, ayah ${revision.ayahFrom}${
+        revision.ayahTo !== revision.ayahFrom ? ` to ${revision.ayahTo}` : ""
+      }`;
+    }
+    return null;
+  })();
+
+  const isEmpty =
+    lessonsBySubject.size === 0 &&
+    diary.assignments.length === 0 &&
+    !hifzLine &&
+    diary.reminders.length === 0;
+
+  return (
+    <div className="bg-white border border-indigo-200 rounded-2xl shadow-sm overflow-hidden">
+      <div className="bg-gradient-to-br from-indigo-50 to-white px-5 py-3 border-b border-indigo-100">
+        <div className="text-xs font-medium uppercase tracking-wide text-indigo-700">
+          Today's Diary
+        </div>
+        <div className="text-sm text-slate-700">{dateLabel}</div>
+      </div>
+      <div className="p-5 space-y-2.5 text-sm">
+        {isEmpty && (
+          <div className="text-slate-500 italic text-center py-2">
+            Nothing logged for today yet. The teacher will post updates as the day progresses.
+          </div>
+        )}
+
+        {Array.from(lessonsBySubject.entries()).map(([subject, title]) => (
+          <div key={subject} className="flex gap-2 items-start">
+            <BookOpen className="h-4 w-4 mt-0.5 text-indigo-600 shrink-0" />
+            <div className="min-w-0">
+              <span className="font-medium text-slate-900">{subject}:</span>{" "}
+              <span className="text-slate-700">{title}</span>
+            </div>
+          </div>
+        ))}
+
+        {diary.assignments.map((a) => {
+          const today = diary.date;
+          const dueLabel = a.dueDate === today ? "due today" : "due tomorrow";
+          return (
+            <div key={a.id} className="flex gap-2 items-start">
+              <ClipboardList className="h-4 w-4 mt-0.5 text-amber-600 shrink-0" />
+              <div className="min-w-0">
+                <span className="font-medium text-slate-900">
+                  {a.subject ?? a.kind.replace(/_/g, " ")}:
+                </span>{" "}
+                <span className="text-slate-700">{a.title}</span>{" "}
+                <span className="text-[11px] text-amber-700 italic">({dueLabel})</span>
+              </div>
+            </div>
+          );
+        })}
+
+        {hifzLine && (
+          <div className="flex gap-2 items-start">
+            <Award className="h-4 w-4 mt-0.5 text-emerald-600 shrink-0" />
+            <div className="min-w-0">
+              <span className="font-medium text-slate-900">Hifz:</span>{" "}
+              <span className="text-slate-700">{hifzLine}</span>
+            </div>
+          </div>
+        )}
+
+        {diary.hifz?.parentAction && (
+          <div className="mt-3 rounded-lg bg-emerald-50 border border-emerald-200 p-3">
+            <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+              What to do tonight
+            </div>
+            <div className="mt-1 text-sm text-emerald-900">{diary.hifz.parentAction}</div>
+          </div>
+        )}
+
+        {diary.reminders.length > 0 && (
+          <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 p-3">
+            <div className="text-xs font-semibold uppercase tracking-wide text-amber-700 flex items-center gap-1">
+              <Bell className="h-3 w-3" /> Reminders
+            </div>
+            <ul className="mt-1 space-y-0.5 text-sm text-amber-900 list-disc list-inside">
+              {diary.reminders.map((r, i) => <li key={i}>{r}</li>)}
+            </ul>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function relativeTime(iso: string): string {
   const d = new Date(iso).getTime();
@@ -30,8 +161,6 @@ function relativeTime(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
-// Plain-English mapping for the activity "kind" chip — parents shouldn't
-// see snake_case labels.
 const KIND_LABEL: Record<string, string> = {
   lesson: "Lesson",
   grade: "Grade",
@@ -45,6 +174,7 @@ export function StudentDashboard() {
   const { studentId = "" } = useParams<{ studentId: string }>();
   const [snapshot, setSnapshot] = useState<TodaySnapshot | null>(null);
   const [data, setData] = useState<StudentDashboardResponse | null>(null);
+  const [diary, setDiary] = useState<MyStudentDiaryResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -55,6 +185,9 @@ export function StudentDashboard() {
     getStudentDashboard(studentId)
       .then((r) => { if (!cancelled) setData(r); })
       .catch(() => { /* recent activity is non-fatal */ });
+    getMyStudentDiary(studentId)
+      .then((d) => { if (!cancelled) setDiary(d); })
+      .catch(() => { /* diary is non-fatal — card silently hidden */ });
     return () => { cancelled = true; };
   }, [studentId]);
 
@@ -91,6 +224,9 @@ export function StudentDashboard() {
           variant="expanded"
         />
       </section>
+
+      {/* Today's Diary — narrative for today (what we did, what to do tonight). */}
+      {diary && <DiaryCard diary={diary} />}
 
       {/* Recent activity timeline — still useful for "what happened last week". */}
       {data && (
