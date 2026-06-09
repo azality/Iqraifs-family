@@ -55,6 +55,27 @@ async function pinGate(c: Context): Promise<
   };
 }
 
+// Resolve a sender id to a display name. parent_message rows store
+// either a parent.id (when sent_by_role='parent') or an auth.users.id
+// (sent_by_role='school'), and parent_user_id always stores parent.id.
+// We try the parent table first (cheaper, also handles the common case)
+// and fall back to auth.users for school senders.
+async function resolveSenderName(id: string): Promise<string | null> {
+  if (!id) return null;
+  const { data: p } = await serviceRoleClient
+    .from("parent")
+    .select("full_name")
+    .eq("id", id)
+    .maybeSingle();
+  if (p && (p as any).full_name) return (p as any).full_name as string;
+  try {
+    const { data: u } = await (serviceRoleClient as any).auth.admin.getUserById(id);
+    return u?.user?.user_metadata?.name || u?.user?.email || null;
+  } catch {
+    return null;
+  }
+}
+
 function messageToJson(r: any) {
   return {
     id: r.id,
@@ -152,15 +173,12 @@ export function installMessages(school: Hono): void {
         .in("id", unreadIds);
     }
 
-    // Hydrate sender names. Parents see the school user's name.
+    // Hydrate sender names (parent or staff — resolveSenderName handles both).
     const senderIds = Array.from(new Set((data as any[]).map((m) => m.sent_by)));
     const names = new Map<string, string>();
     for (const sid of senderIds) {
-      try {
-        const { data: u } = await (serviceRoleClient as any).auth.admin.getUserById(sid);
-        const n = u?.user?.user_metadata?.name || u?.user?.email || "";
-        if (n) names.set(sid, n);
-      } catch { /* ignore */ }
+      const n = await resolveSenderName(sid);
+      if (n) names.set(sid, n);
     }
     const messages = (data as any[]).map((m) => ({
       ...m,
@@ -275,12 +293,14 @@ export function installMessages(school: Hono): void {
       new Set((rows ?? []).map((r: any) => r.parent_user_id)),
     );
     const parentNames = new Map<string, string>();
-    for (const pid of parentIds) {
-      try {
-        const { data: u } = await (serviceRoleClient as any).auth.admin.getUserById(pid);
-        const n = u?.user?.user_metadata?.name || u?.user?.email || "";
-        if (n) parentNames.set(pid, n);
-      } catch { /* ignore */ }
+    if (parentIds.length > 0) {
+      const { data: parents } = await serviceRoleClient
+        .from("parent")
+        .select("id, full_name")
+        .in("id", parentIds);
+      for (const p of ((parents ?? []) as any[])) {
+        parentNames.set(p.id, p.full_name);
+      }
     }
     // Hydrate student labels for tagged threads.
     const studentIds = Array.from(
@@ -342,18 +362,11 @@ export function installMessages(school: Hono): void {
     const senderIds = Array.from(new Set((data as any[]).map((m) => m.sent_by)));
     const names = new Map<string, string>();
     for (const sid of senderIds) {
-      try {
-        const { data: u } = await (serviceRoleClient as any).auth.admin.getUserById(sid);
-        const n = u?.user?.user_metadata?.name || u?.user?.email || "";
-        if (n) names.set(sid, n);
-      } catch { /* ignore */ }
+      const n = await resolveSenderName(sid);
+      if (n) names.set(sid, n);
     }
     const first = (data as any)[0];
-    let parentName: string | null = null;
-    try {
-      const { data: u } = await (serviceRoleClient as any).auth.admin.getUserById(first.parent_user_id);
-      parentName = u?.user?.user_metadata?.name || u?.user?.email || null;
-    } catch { /* ignore */ }
+    const parentName: string | null = await resolveSenderName(first.parent_user_id);
     let studentName: string | null = null;
     if (first.student_id) {
       const { data: s } = await serviceRoleClient
