@@ -250,7 +250,7 @@ export function ManageHifzGroups() {
                 rows={2}
                 value={form.description}
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
-                placeholder="Optional — e.g. \"Para 30, afternoon slot\""
+                placeholder={`Optional — e.g. "Para 30, afternoon slot"`}
               />
             </div>
             <div>
