@@ -25,7 +25,7 @@ import {
   SelectValue,
 } from "../../../components/ui/select";
 import { Alert, AlertDescription } from "../../../components/ui/alert";
-import { Upload, FileWarning, CheckCircle2 } from "lucide-react";
+import { Upload, FileWarning, CheckCircle2, Download } from "lucide-react";
 import {
   parseCsv,
   autoMap,
@@ -42,9 +42,32 @@ interface Props {
   onSubmit: (
     rows: Array<Record<string, string>>,
   ) => Promise<{ inserted: number; errors: Array<{ row: number; message: string }> }>;
+  /** Optional duplicate-key detection (PR feat/import-center-hub). If
+   *  provided, every preview row's key is computed and compared against
+   *  the existing set; matches render with an amber tint + "duplicate"
+   *  tag. Pure visual flag — the backend still decides whether to
+   *  accept or reject. */
+  duplicateDetection?: {
+    /** Build the key string from a row. Return "" to skip the row. */
+    keyOf: (row: Record<string, string>) => string;
+    /** Lowercase set of already-taken keys. */
+    existing: Set<string>;
+    label?: string;
+  };
+  /** Suggested filename for the downloaded CSV template. Defaults to
+   *  "<title>-template.csv". */
+  templateFileName?: string;
 }
 
-export function CsvUploadDialog({ open, onOpenChange, title, columns, onSubmit }: Props) {
+export function CsvUploadDialog({
+  open,
+  onOpenChange,
+  title,
+  columns,
+  onSubmit,
+  duplicateDetection,
+  templateFileName,
+}: Props) {
   const [rawText, setRawText] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{
@@ -77,6 +100,38 @@ export function CsvUploadDialog({ open, onOpenChange, title, columns, onSubmit }
     () => (rowObjects.length ? validateRows(rowObjects, columns) : []),
     [rowObjects, columns],
   );
+
+  // Per-row duplicate flag — Set of row indices that match an existing
+  // record. Empty when no detection config supplied; cheap to compute.
+  const duplicateRows = useMemo(() => {
+    if (!duplicateDetection || rowObjects.length === 0) return new Set<number>();
+    const out = new Set<number>();
+    for (let i = 0; i < rowObjects.length; i++) {
+      const k = duplicateDetection.keyOf(rowObjects[i]);
+      if (k && duplicateDetection.existing.has(k.toLowerCase())) out.add(i);
+    }
+    return out;
+  }, [rowObjects, duplicateDetection]);
+
+  // Generate + download a CSV containing just the header row so the
+  // admin has a known-good starting point. Browser-only (Blob+anchor)
+  // so no server round-trip.
+  const downloadTemplate = () => {
+    const headers = columns.map((c) => c.label.replace(/[*\s\(\)]/g, (m) => {
+      // Drop required marker / parens; keep words for human readability.
+      return m === "*" || m === "(" || m === ")" ? "" : m;
+    }).trim());
+    const csv = headers.join(",") + "\n";
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = templateFileName || `${title.toLowerCase().replace(/\s+/g, "-")}-template.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -121,6 +176,17 @@ export function CsvUploadDialog({ open, onOpenChange, title, columns, onSubmit }
 
         {!result && (
           <div className="space-y-4">
+            <div className="flex items-start justify-between gap-3 rounded-md border border-slate-200 bg-slate-50/60 p-3">
+              <div>
+                <p className="text-sm font-medium">Need a starting point?</p>
+                <p className="text-xs text-muted-foreground">
+                  Download a blank CSV with all the column headers your school can fill out offline.
+                </p>
+              </div>
+              <Button variant="outline" size="sm" onClick={downloadTemplate}>
+                <Download className="h-3.5 w-3.5 mr-1" /> Template
+              </Button>
+            </div>
             <div>
               <Label htmlFor="csv-file" className="text-sm font-medium">Upload file</Label>
               <Input id="csv-file" type="file" accept=".csv,text/csv" onChange={handleFile} />
@@ -186,11 +252,25 @@ export function CsvUploadDialog({ open, onOpenChange, title, columns, onSubmit }
                       <tbody>
                         {rowObjects.slice(0, 50).map((row, ridx) => {
                           const rowErrs = localErrors.filter((e) => e.row === ridx + 1);
+                          const isDup = duplicateRows.has(ridx);
+                          // Errors take priority over duplicate tint —
+                          // a missing-required row needs the strongest
+                          // visual cue. Duplicates fall back to amber.
+                          const rowCls = rowErrs.length
+                            ? "bg-red-50"
+                            : isDup
+                            ? "bg-amber-50"
+                            : "";
                           return (
-                            <tr key={ridx} className={rowErrs.length ? "bg-red-50" : ""}>
-                              {columns.map((c) => (
+                            <tr key={ridx} className={rowCls}>
+                              {columns.map((c, ci) => (
                                 <td key={c.key} className="p-2 border-t">
                                   {row[c.key] || <span className="text-muted-foreground">—</span>}
+                                  {ci === 0 && isDup && (
+                                    <span className="ml-2 inline-flex items-center rounded-full bg-amber-100 text-amber-800 text-[10px] font-medium px-1.5 py-0.5">
+                                      duplicate
+                                    </span>
+                                  )}
                                 </td>
                               ))}
                             </tr>
@@ -206,6 +286,16 @@ export function CsvUploadDialog({ open, onOpenChange, title, columns, onSubmit }
                     <FileWarning className="h-4 w-4" />
                     <AlertDescription>
                       {localErrors.length} row(s) have missing required fields. They will be skipped on upload.
+                    </AlertDescription>
+                  </Alert>
+                )}
+                {duplicateRows.size > 0 && (
+                  <Alert className="border-amber-300 bg-amber-50 text-amber-900">
+                    <FileWarning className="h-4 w-4" />
+                    <AlertDescription>
+                      {duplicateRows.size} row(s) match {duplicateDetection?.label ?? "an existing record"}.
+                      They'll be rejected by the server with a duplicate error — review or remove them
+                      before uploading.
                     </AlertDescription>
                   </Alert>
                 )}

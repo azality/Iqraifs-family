@@ -556,6 +556,158 @@ export function installPhaseA(school: Hono) {
     return c.json(data, 201);
   });
 
+  // ─── Bulk importers (PR feat/import-center-hub) ─────────────────────
+  // Three sibling endpoints used by the Import Center. Each follows the
+  // same shape as the existing students/parents/teachers bulk routes:
+  //   * accepts { rows: [{...}] }
+  //   * returns { inserted, errors: [{ rowIndex, message }] }
+  //   * partial success — invalid rows reported as errors; valid rows
+  //     still get inserted
+  //
+  // Lookup-by-name semantics keep the CSV "old-school-friendly":
+  //   * Sections reference class by name (className)
+  //   * Subjects reference class by name (className)
+  //   * Hifz entries reference student by GR (grNumber)
+  // -------------------------------------------------------------------------
+  school.post("/orgs/:orgId/classes/bulk", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await requireAdminOrPrincipal(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    if (!Array.isArray(body?.rows)) return c.json({ error: "rows[] required" }, 400);
+
+    const errors: Array<{ rowIndex: number; message: string }> = [];
+    let inserted = 0;
+    for (let i = 0; i < body.rows.length; i++) {
+      const r = body.rows[i] ?? {};
+      const name = typeof r.name === "string" ? r.name.trim() : "";
+      if (!name) { errors.push({ rowIndex: i, message: "name required" }); continue; }
+      const displayOrder = typeof r.displayOrder === "number"
+        ? r.displayOrder
+        : Number(r.displayOrder) || 0;
+      const { error } = await serviceRoleClient
+        .from("class")
+        .insert({ org_id: orgId, name, display_order: displayOrder });
+      if (error) {
+        const msg = (error as any).code === "23505"
+          ? `class "${name}" already exists`
+          : (error as any).message;
+        errors.push({ rowIndex: i, message: msg });
+      } else {
+        inserted++;
+      }
+    }
+    return c.json({ inserted, errors });
+  });
+
+  school.post("/orgs/:orgId/sections/bulk", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await requireAdminOrPrincipal(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    if (!Array.isArray(body?.rows)) return c.json({ error: "rows[] required" }, 400);
+
+    // Resolve className → class_id once. Case-insensitive match.
+    const { data: classes } = await serviceRoleClient
+      .from("class")
+      .select("id, name")
+      .eq("org_id", orgId);
+    const classMap = new Map<string, string>();
+    for (const c of (classes ?? []) as any[]) {
+      classMap.set(String(c.name).toLowerCase().trim(), c.id);
+    }
+
+    const errors: Array<{ rowIndex: number; message: string }> = [];
+    let inserted = 0;
+    for (let i = 0; i < body.rows.length; i++) {
+      const r = body.rows[i] ?? {};
+      const className = typeof r.className === "string" ? r.className.trim() : "";
+      const sectionName = typeof r.sectionName === "string" ? r.sectionName.trim() : "";
+      if (!className || !sectionName) {
+        errors.push({ rowIndex: i, message: "className and sectionName required" });
+        continue;
+      }
+      const classId = classMap.get(className.toLowerCase());
+      if (!classId) {
+        errors.push({ rowIndex: i, message: `class "${className}" not found — create it first` });
+        continue;
+      }
+      const { error } = await serviceRoleClient
+        .from("class_section")
+        .insert({ class_id: classId, name: sectionName });
+      if (error) {
+        const msg = (error as any).code === "23505"
+          ? `section "${sectionName}" already exists for ${className}`
+          : (error as any).message;
+        errors.push({ rowIndex: i, message: msg });
+      } else {
+        inserted++;
+      }
+    }
+    return c.json({ inserted, errors });
+  });
+
+  school.post("/orgs/:orgId/class-subjects/bulk", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await requireAdminOrPrincipal(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    if (!Array.isArray(body?.rows)) return c.json({ error: "rows[] required" }, 400);
+
+    const { data: classes } = await serviceRoleClient
+      .from("class")
+      .select("id, name")
+      .eq("org_id", orgId);
+    const classMap = new Map<string, string>();
+    for (const c of (classes ?? []) as any[]) {
+      classMap.set(String(c.name).toLowerCase().trim(), c.id);
+    }
+
+    const errors: Array<{ rowIndex: number; message: string }> = [];
+    let inserted = 0;
+    for (let i = 0; i < body.rows.length; i++) {
+      const r = body.rows[i] ?? {};
+      const className = typeof r.className === "string" ? r.className.trim() : "";
+      const subjectName = typeof r.subjectName === "string" ? r.subjectName.trim() : "";
+      if (!className || !subjectName) {
+        errors.push({ rowIndex: i, message: "className and subjectName required" });
+        continue;
+      }
+      const classId = classMap.get(className.toLowerCase());
+      if (!classId) {
+        errors.push({ rowIndex: i, message: `class "${className}" not found — create it first` });
+        continue;
+      }
+      const sortOrder = typeof r.sortOrder === "number" ? r.sortOrder : 0;
+      const { error } = await serviceRoleClient
+        .from("class_subject")
+        .insert({
+          org_id: orgId,
+          class_id: classId,
+          name: subjectName,
+          sort_order: sortOrder,
+        });
+      if (error) {
+        const msg = (error as any).code === "23505"
+          ? `subject "${subjectName}" already exists for ${className}`
+          : (error as any).message;
+        errors.push({ rowIndex: i, message: msg });
+      } else {
+        inserted++;
+      }
+    }
+    return c.json({ inserted, errors });
+  });
+
   school.get("/orgs/:orgId/classes", async (c) => {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
