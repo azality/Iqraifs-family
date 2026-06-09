@@ -39,7 +39,13 @@ const surahLabel = (n: number) =>
  *    Reminders: Bring notebook tomorrow
  */
 function DiaryCard({ diary }: { diary: MyStudentDiaryResponse }) {
-  const dateLabel = new Date(diary.date + "T00:00:00Z").toLocaleDateString(undefined, {
+  // Parse YYYY-MM-DD as LOCAL midnight, not UTC — appending "T00:00:00Z"
+  // anchors to UTC, which `toLocaleDateString` then shifts back into the
+  // browser TZ, causing "Today" to render as the previous day for any
+  // browser west of UTC (e.g. North America). Constructing with
+  // (year, month-1, day) sidesteps the round-trip.
+  const [_y, _m, _d] = diary.date.split("-").map((x) => Number(x));
+  const dateLabel = new Date(_y, _m - 1, _d).toLocaleDateString(undefined, {
     weekday: "long",
     month: "long",
     day: "numeric",

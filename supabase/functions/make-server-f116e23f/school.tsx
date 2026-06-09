@@ -66,6 +66,22 @@ const PIN_TOKEN_ALLOWED_PATTERNS: RegExp[] = [
 ];
 
 // All routes require auth EXCEPT the explicitly-public PIN login endpoint.
+// Guard against malformed UUID path segments BEFORE auth so we don't
+// reach Supabase with garbage that surfaces "invalid input syntax for
+// type uuid" verbatim in the UI. Looks for any path segment that's a
+// 32+ hex run with hyphens but doesn't match the canonical UUID shape.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_SHAPE_RE = /^[0-9a-f-]{20,}$/i;
+school.use("*", async (c, next) => {
+  const segs = new URL(c.req.url).pathname.split("/");
+  for (const s of segs) {
+    if (s && UUID_SHAPE_RE.test(s) && !UUID_RE.test(s)) {
+      return c.json({ error: "not found" }, 404);
+    }
+  }
+  await next();
+});
+
 school.use("*", async (c, next) => {
   const path = new URL(c.req.url).pathname;
   // path is the full request path; strip the mount prefix to compare.

@@ -517,8 +517,11 @@ export function installReportCard(school: Hono): void {
   // the minimal gate here rather than reach into schoolPortal — fine
   // for two endpoints.
   async function pinGate(c: Context, studentId: string): Promise<{ ok: true } | { ok: false; resp: Response }> {
-    const authHeader = c.req.header("Authorization") || "";
-    const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+    // Portal sends the PIN token via X-Pin-Token (see schoolPortalApi.ts'
+    // pinApiCall) — NOT Authorization: Bearer (that header carries the
+    // anon key). Earlier this gate read the wrong header so every parent
+    // portal call here 401'd, surfacing as empty report-card lists.
+    const token = c.req.header("X-Pin-Token") || "";
     const verified = await verifyPinToken(token);
     if (!verified) {
       return { ok: false, resp: c.json({ error: "unauthenticated" }, 401) };

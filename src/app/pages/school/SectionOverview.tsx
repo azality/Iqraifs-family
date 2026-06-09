@@ -351,7 +351,7 @@ export function SectionOverview() {
                       <span className="text-xs font-medium text-slate-700 capitalize truncate">
                         {n.category ?? "—"}
                       </span>
-                      <span className="text-[10px] text-slate-400 flex-shrink-0">{relativeDate(n.observed_at)}</span>
+                      <span className="text-[10px] text-slate-400 flex-shrink-0">{relativeDate(n.observedAt)}</span>
                     </div>
                     <p className="text-xs text-slate-600 truncate">{n.notes}</p>
                   </div>
