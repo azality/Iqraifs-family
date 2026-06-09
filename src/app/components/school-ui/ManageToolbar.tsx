@@ -34,6 +34,7 @@ import {
   DollarSign,
   UploadCloud,
   BookMarked,
+  Calendar,
 } from "lucide-react";
 import type { SchoolViewerRole } from "../../../utils/schoolApi";
 import { accentBg, accentBorder, accentText } from "./tokens";
@@ -113,6 +114,9 @@ function itemsForRole(
       // other structural surfaces (Classes, Students…).
       base.push(
         I("hifz-groups", "Hifz Groups", `/school/orgs/${orgId}/admin/hifz-groups`, BookMarked),
+        // Org-wide weekly schedule. Admin sets slots once; per-section
+        // / per-Hifz-group assignments stack onto them.
+        I("timetable", "Timetable", `/school/orgs/${orgId}/admin/timetable`, Calendar),
       );
       // Bulk import center — admin/principal only. Pre-launch
       // migration from a paper school usually needs every importer in
