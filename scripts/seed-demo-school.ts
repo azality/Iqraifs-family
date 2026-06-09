@@ -994,18 +994,16 @@ if (slotsByDow.size > 0) {
           const subj = gradeSubjects.find((s) => s.subjectName === subjName);
           if (!subj) continue;
           const teacher = subjName === "Quran" ? sheikhUserId : (subj.teacherUserId || ctUid);
-          // Migration 0033's timetable_entry.section_subject_id FK
-          // actually targets class_subject(id) — see the table DDL.
-          // The backend's PostgREST select string aliases the column as
-          // "section_subject" but the underlying join lands on
-          // class_subject, so we pass classSubjectId here.
+          // Migration 0041 fixed the FK to target section_subject(id),
+          // matching the column name + lesson/assignment pattern + the
+          // PostgREST embedding strings the backend uses.
           const { error: entryErr } = await sb
             .from("timetable_entry")
             .insert({
               org_id: orgId,
               slot_id: academicSlots[i].id,
               scope_section_id: classRow.sectionId,
-              section_subject_id: subj.classSubjectId,
+              section_subject_id: subj.sectionSubjectId,
               teacher_user_id: teacher,
               room: `R-${grade}${String.fromCharCode(65 + (i % 3))}`,
             });

@@ -91,7 +91,9 @@ export function AdminDashboard() {
     getRosterRequests(orgId, { status: "pending" })
       .then((r) => setCounts((cc) => ({ ...cc, rosterPending: r.requests.length })))
       .catch(() => {});
-    listOrgFees(orgId, { status: "pending" })
+    // DB CHECK constraint uses 'unpaid' (not 'pending'); the seed +
+    // admin both write 'unpaid'. Asking for 'pending' returned nothing.
+    listOrgFees(orgId, { status: "unpaid" })
       .then((r) => setCounts((cc) => ({ ...cc, feesUnpaid: r.fees.length })))
       .catch(() => {});
     listForms(orgId, { status: "draft" })

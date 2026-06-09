@@ -35,6 +35,7 @@ import {
   UploadCloud,
   BookMarked,
   Calendar,
+  Inbox,
 } from "lucide-react";
 import type { SchoolViewerRole } from "../../../utils/schoolApi";
 import { accentBg, accentBorder, accentText } from "./tokens";
@@ -117,6 +118,10 @@ function itemsForRole(
         // Org-wide weekly schedule. Admin sets slots once; per-section
         // / per-Hifz-group assignments stack onto them.
         I("timetable", "Timetable", `/school/orgs/${orgId}/admin/timetable`, Calendar),
+        // Term + exam + marks structure that feeds report cards.
+        I("assessment", "Assessment", `/school/orgs/${orgId}/admin/assessment`, ClipboardList),
+        // Parent ↔ school messaging inbox.
+        I("inbox", "Parent inbox", `/school/orgs/${orgId}/admin/inbox`, Inbox),
       );
       // Bulk import center — admin/principal only. Pre-launch
       // migration from a paper school usually needs every importer in
