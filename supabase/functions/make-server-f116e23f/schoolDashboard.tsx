@@ -1255,7 +1255,8 @@ export function installDashboard(school: Hono): void {
         .limit(40),
       serviceRoleClient
         .from("roster_change_request")
-        .select("id, status, kind, created_at, decided_at, requested_by, decided_by")
+        // Migration uses reviewed_*, not decided_*.
+        .select("id, status, kind, created_at, reviewed_at, requested_by, reviewed_by")
         .eq("org_id", orgId)
         .gte("created_at", activityWindowStart.toISOString())
         .order("created_at", { ascending: false })
@@ -1338,10 +1339,10 @@ export function installDashboard(school: Hono): void {
     for (const r of (recentRoster.data ?? []) as Array<any>) {
       // Teacher-scoped: only show roster activity they submitted themselves.
       if (scope.kind !== "org" && r.requested_by !== userId) continue;
-      if (r.decided_at) {
+      if (r.reviewed_at) {
         activity.push({
           id: `roster_dec_${r.id}`,
-          at: r.decided_at,
+          at: r.reviewed_at,
           kind: "roster_decision",
           summary: `Roster change ${r.kind ?? "request"} ${r.status}`,
           actorName: null,

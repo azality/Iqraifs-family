@@ -61,14 +61,15 @@ async function isFinancialStaff(userId: string, orgId: string): Promise<boolean>
 }
 
 /** PR D: receipt visibility — parent linked to this student can view/print
- *  their own child's receipt. Uses the parent_child_link table. */
+ *  their own child's receipt. The pin-auth flow's "userId" is actually
+ *  parent.id (see migration 0040 — parent_user_id is misnamed; it FKs to
+ *  parent.id, not auth.users.id). Membership lives in student_parent. */
 async function isParentOfStudent(userId: string, studentId: string): Promise<boolean> {
   const { data } = await serviceRoleClient
-    .from("parent_child_link")
-    .select("id")
-    .eq("parent_user_id", userId)
+    .from("student_parent")
+    .select("student_id")
+    .eq("parent_id", userId)
     .eq("student_id", studentId)
-    .is("revoked_at", null)
     .maybeSingle();
   return !!data;
 }

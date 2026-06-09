@@ -117,11 +117,12 @@ export async function getOrgRoles(userId: string, orgId: string): Promise<Set<Sc
     const validClassRoles = (classRoles as any[]).filter(inWindow);
     const ids = validClassRoles.map(r => r.scope_id);
     if (ids.length > 0) {
+      // class_section has no org_id column — go via class.
       const { data: secs } = await serviceRoleClient
         .from("class_section")
-        .select("id, org_id")
+        .select("id, class:class_id(org_id)")
         .in("id", ids);
-      const orgOf = new Map<string, string>((secs ?? []).map((s: any) => [s.id, s.org_id]));
+      const orgOf = new Map<string, string>((secs ?? []).map((s: any) => [s.id, s.class?.org_id ?? null]));
       for (const r of validClassRoles) {
         if (orgOf.get(r.scope_id) === orgId) out.add(r.role_type as SchoolRole);
       }
