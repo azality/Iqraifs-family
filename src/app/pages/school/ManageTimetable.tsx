@@ -1,0 +1,639 @@
+// ManageTimetable — admin editor for the org-wide weekly timetable.
+//
+// Route: /school/orgs/:orgId/admin/timetable
+//
+// Two panels:
+//
+//   1. Slots — Mon..Sun × N time slots. Define once for the org;
+//      every section + Hifz group inherits the same skeleton. Kind
+//      (academic / break / prayer / hifz / assembly / other) tints
+//      the row so the school day reads at a glance.
+//
+//   2. Weekly grid — pick a section OR a Hifz group, then per
+//      slot fill in: subject + teacher + room + notes. Inline editing
+//      directly in each cell so we don't pop a dialog for every
+//      cell.
+//
+// Read-only views for parents / teachers will hit the same /sections/
+// :sid/timetable and /hifz-groups/:gid/timetable endpoints; this PR
+// only ships the editor.
+
+import { useEffect, useMemo, useState } from "react";
+import { Link, Navigate, useParams, useSearchParams } from "react-router";
+import {
+  ArrowLeft, Plus, Trash2, Calendar, Save, BookMarked, Users,
+} from "lucide-react";
+import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
+import { Label } from "../../components/ui/label";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "../../components/ui/select";
+import { Card, CardContent } from "../../components/ui/card";
+import {
+  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
+} from "../../components/ui/dialog";
+import {
+  getSchoolMe,
+  isOrgAdmin,
+  listClasses,
+  listHifzGroups,
+  listClassSubjects,
+  listAdminTeachers,
+  listTimetableSlots,
+  createTimetableSlot,
+  deleteTimetableSlot,
+  getSectionTimetable,
+  getHifzGroupTimetable,
+  createTimetableEntry,
+  updateTimetableEntry,
+  deleteTimetableEntry,
+  type AdminClass,
+  type AdminTeacher,
+  type ClassSubject,
+  type HifzGroup,
+  type SchoolMeResponse,
+  type TimetableSlot,
+  type TimetableSlotKind,
+  type TimetableWeekCell,
+} from "../../../utils/schoolApi";
+import { sectionTitleClasses } from "../../components/school-ui";
+
+const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const KIND_TONE: Record<TimetableSlotKind, string> = {
+  academic: "bg-indigo-50 text-indigo-800 border-indigo-200",
+  break:    "bg-slate-100 text-slate-700 border-slate-200",
+  prayer:   "bg-emerald-50 text-emerald-800 border-emerald-200",
+  hifz:     "bg-amber-50 text-amber-800 border-amber-200",
+  assembly: "bg-sky-50 text-sky-800 border-sky-200",
+  other:    "bg-white text-slate-700 border-slate-200",
+};
+const KIND_LABEL: Record<TimetableSlotKind, string> = {
+  academic: "Academic",
+  break: "Break",
+  prayer: "Prayer",
+  hifz: "Hifz block",
+  assembly: "Assembly",
+  other: "Other",
+};
+
+// ─── Slot dialog state ────────────────────────────────────────────────
+interface SlotFormState {
+  name: string;
+  dayOfWeek: number;
+  startTime: string;
+  endTime: string;
+  kind: TimetableSlotKind;
+}
+const emptySlotForm: SlotFormState = {
+  name: "P1",
+  dayOfWeek: 1,
+  startTime: "08:00",
+  endTime: "08:45",
+  kind: "academic",
+};
+
+export function ManageTimetable() {
+  const { orgId = "" } = useParams();
+  const [search, setSearch] = useSearchParams();
+  const [me, setMe] = useState<SchoolMeResponse | null>(null);
+  const [meLoading, setMeLoading] = useState(true);
+
+  const [slots, setSlots] = useState<TimetableSlot[]>([]);
+  const [classes, setClasses] = useState<AdminClass[]>([]);
+  const [groups, setGroups] = useState<HifzGroup[]>([]);
+  const [teachers, setTeachers] = useState<AdminTeacher[]>([]);
+  const [classSubjects, setClassSubjects] = useState<ClassSubject[]>([]);
+  const [cells, setCells] = useState<TimetableWeekCell[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  // Scope = which section / group's grid we're editing. URL-bound so
+  // a deep link survives reload. `kind` is "section" | "group".
+  const scopeKind = (search.get("scope") as "section" | "group") || "section";
+  const scopeId = search.get("id") || "";
+
+  const setScope = (kind: "section" | "group", id: string) => {
+    const next = new URLSearchParams(search);
+    next.set("scope", kind);
+    next.set("id", id);
+    setSearch(next);
+  };
+
+  const [slotDialogOpen, setSlotDialogOpen] = useState(false);
+  const [slotForm, setSlotForm] = useState<SlotFormState>(emptySlotForm);
+
+  useEffect(() => {
+    getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
+  }, []);
+
+  const refreshSlots = () => {
+    if (!orgId) return;
+    listTimetableSlots(orgId).then(setSlots).catch(() => {});
+  };
+
+  useEffect(() => {
+    if (!orgId) return;
+    refreshSlots();
+    listClasses(orgId).then(setClasses).catch(() => {});
+    listHifzGroups(orgId).then(setGroups).catch(() => {});
+    listAdminTeachers(orgId).then(setTeachers).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgId]);
+
+  // When the scope changes to a section, also pull that class's
+  // class_subjects so the per-cell subject dropdown has options. For
+  // Hifz groups there are no subjects; the cell just sets teacher + notes.
+  useEffect(() => {
+    if (!scopeId) { setCells([]); return; }
+    setError(null);
+    if (scopeKind === "section") {
+      const cls = classes.find((c) => (c.sections ?? []).some((s) => s.id === scopeId));
+      if (cls) {
+        listClassSubjects(cls.id)
+          .then((r) => setClassSubjects(r.subjects ?? []))
+          .catch(() => setClassSubjects([]));
+      }
+      getSectionTimetable(orgId, scopeId).then((r) => setCells(r.cells)).catch((e) => setError(e.message));
+    } else {
+      setClassSubjects([]);
+      getHifzGroupTimetable(orgId, scopeId).then((r) => setCells(r.cells)).catch((e) => setError(e.message));
+    }
+  }, [orgId, scopeKind, scopeId, classes]);
+
+  if (meLoading) return null;
+  if (!isOrgAdmin(me, orgId)) return <Navigate to={`/school/orgs/${orgId}`} replace />;
+
+  // Build the section dropdown options once.
+  const sectionOptions = classes.flatMap((c) =>
+    (c.sections ?? []).map((s) => ({
+      id: s.id,
+      label: `${c.name} — ${s.name}`,
+    })),
+  );
+
+  const handleAddSlot = async () => {
+    try {
+      await createTimetableSlot(orgId, slotForm);
+      setSlotDialogOpen(false);
+      refreshSlots();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const handleDeleteSlot = async (slot: TimetableSlot) => {
+    if (!confirm(`Remove "${slot.name}" (${DAYS[slot.dayOfWeek - 1]} ${slot.startTime})?\n\nAll section + group entries on this slot will be removed too.`)) return;
+    try {
+      await deleteTimetableSlot(orgId, slot.id);
+      refreshSlots();
+      // Reload the cells too if the deleted slot was on screen.
+      if (scopeId) {
+        if (scopeKind === "section") {
+          getSectionTimetable(orgId, scopeId).then((r) => setCells(r.cells));
+        } else {
+          getHifzGroupTimetable(orgId, scopeId).then((r) => setCells(r.cells));
+        }
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  // Save or update a single cell. Creates the entry if none exists,
+  // otherwise PATCHes the existing one. Removes when both subject and
+  // teacher come back empty (the admin clicked "Clear").
+  const saveCell = async (
+    cell: TimetableWeekCell,
+    patch: { sectionSubjectId?: string | null; teacherUserId?: string | null; room?: string | null; notes?: string | null },
+  ) => {
+    try {
+      if (cell.entry) {
+        await updateTimetableEntry(orgId, cell.entry.id, patch);
+      } else {
+        await createTimetableEntry(orgId, {
+          slotId: cell.slot.id,
+          scopeSectionId: scopeKind === "section" ? scopeId : undefined,
+          scopeHifzGroupId: scopeKind === "group" ? scopeId : undefined,
+          sectionSubjectId: patch.sectionSubjectId ?? undefined,
+          teacherUserId: patch.teacherUserId ?? undefined,
+          room: patch.room ?? undefined,
+          notes: patch.notes ?? undefined,
+        });
+      }
+      // Refresh cells.
+      if (scopeKind === "section") {
+        const r = await getSectionTimetable(orgId, scopeId);
+        setCells(r.cells);
+      } else {
+        const r = await getHifzGroupTimetable(orgId, scopeId);
+        setCells(r.cells);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const clearCell = async (cell: TimetableWeekCell) => {
+    if (!cell.entry) return;
+    if (!confirm("Clear this slot's assignment?")) return;
+    try {
+      await deleteTimetableEntry(orgId, cell.entry.id);
+      if (scopeKind === "section") {
+        const r = await getSectionTimetable(orgId, scopeId);
+        setCells(r.cells);
+      } else {
+        const r = await getHifzGroupTimetable(orgId, scopeId);
+        setCells(r.cells);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <Link to={`/school/orgs/${orgId}/admin`}>
+          <Button variant="outline" size="sm">
+            <ArrowLeft className="h-3.5 w-3.5 mr-1" /> Admin
+          </Button>
+        </Link>
+      </div>
+
+      <div>
+        <h1 className={sectionTitleClasses}>Timetable</h1>
+        <p className="mt-1 text-sm text-slate-600">
+          The skeleton (days × periods) is org-wide. Each section and Hifz group
+          fills in its own subject + teacher per slot.
+        </p>
+      </div>
+
+      {error && (
+        <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+          {error}
+        </div>
+      )}
+
+      {/* ─── Slots panel ─── */}
+      <section className="space-y-2">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700">
+            Time slots
+          </h2>
+          <Button
+            size="sm"
+            onClick={() => { setSlotForm(emptySlotForm); setSlotDialogOpen(true); }}
+          >
+            <Plus className="h-4 w-4 mr-1" /> Add slot
+          </Button>
+        </div>
+        {slots.length === 0 ? (
+          <Card>
+            <CardContent className="p-4 text-sm text-slate-500 italic">
+              No slots yet. Add one per period for each weekday — P1 / Break / Zuhr /
+              Hifz block / etc.
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {slots.map((s) => (
+              <div
+                key={s.id}
+                className={"rounded-lg border px-3 py-2 text-xs flex items-center justify-between gap-2 " + KIND_TONE[s.kind]}
+              >
+                <div className="min-w-0">
+                  <div className="font-medium">{s.name}</div>
+                  <div className="text-[11px] opacity-80">
+                    {DAYS[s.dayOfWeek - 1]} · {s.startTime}–{s.endTime} ·{" "}
+                    <span className="italic">{KIND_LABEL[s.kind]}</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteSlot(s)}
+                  className="opacity-50 hover:opacity-100 text-rose-700 shrink-0"
+                  title="Remove slot"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* ─── Scope picker + weekly grid ─── */}
+      <section className="space-y-2">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700">
+            Fill in slots
+          </h2>
+          <div className="flex items-center gap-2">
+            <Select
+              value={scopeKind}
+              onValueChange={(v) => { setScope(v as "section" | "group", ""); }}
+            >
+              <SelectTrigger className="h-8 text-xs w-36"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="section">
+                  <span className="inline-flex items-center gap-1"><Users className="h-3 w-3" /> Section</span>
+                </SelectItem>
+                <SelectItem value="group">
+                  <span className="inline-flex items-center gap-1"><BookMarked className="h-3 w-3" /> Hifz group</span>
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={scopeId || "__none__"}
+              onValueChange={(v) => setScope(scopeKind, v === "__none__" ? "" : v)}
+            >
+              <SelectTrigger className="h-8 text-xs w-64">
+                <SelectValue placeholder={`Pick a ${scopeKind}…`} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">Pick…</SelectItem>
+                {scopeKind === "section"
+                  ? sectionOptions.map((o) => (
+                      <SelectItem key={o.id} value={o.id}>{o.label}</SelectItem>
+                    ))
+                  : groups.map((g) => (
+                      <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+                    ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {!scopeId ? (
+          <Card>
+            <CardContent className="p-6 text-sm text-slate-500 italic text-center">
+              <Calendar className="h-6 w-6 mx-auto text-slate-300 mb-2" />
+              Pick a section or Hifz group above to start filling slots.
+            </CardContent>
+          </Card>
+        ) : (
+          <WeekGrid
+            cells={cells}
+            scopeKind={scopeKind}
+            classSubjects={classSubjects}
+            teachers={teachers}
+            onSave={saveCell}
+            onClear={clearCell}
+          />
+        )}
+      </section>
+
+      {/* Slot dialog */}
+      <Dialog open={slotDialogOpen} onOpenChange={setSlotDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>New time slot</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Name</Label>
+                <Input
+                  value={slotForm.name}
+                  onChange={(e) => setSlotForm({ ...slotForm, name: e.target.value })}
+                  placeholder="P1 / Break / Zuhr"
+                />
+              </div>
+              <div>
+                <Label>Day</Label>
+                <Select
+                  value={String(slotForm.dayOfWeek)}
+                  onValueChange={(v) => setSlotForm({ ...slotForm, dayOfWeek: Number(v) })}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {DAYS.map((d, i) => (
+                      <SelectItem key={i + 1} value={String(i + 1)}>{d}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Start</Label>
+                <Input
+                  type="time"
+                  value={slotForm.startTime}
+                  onChange={(e) => setSlotForm({ ...slotForm, startTime: e.target.value })}
+                />
+              </div>
+              <div>
+                <Label>End</Label>
+                <Input
+                  type="time"
+                  value={slotForm.endTime}
+                  onChange={(e) => setSlotForm({ ...slotForm, endTime: e.target.value })}
+                />
+              </div>
+            </div>
+            <div>
+              <Label>Kind</Label>
+              <Select
+                value={slotForm.kind}
+                onValueChange={(v) => setSlotForm({ ...slotForm, kind: v as TimetableSlotKind })}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(KIND_LABEL) as TimetableSlotKind[]).map((k) => (
+                    <SelectItem key={k} value={k}>{KIND_LABEL[k]}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSlotDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleAddSlot}>Add</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ─── Weekly grid component ───────────────────────────────────────────
+// Groups slots by day-of-week; renders one row per slot with inline
+// subject/teacher/room editors. Saves on blur to keep the UX snappy
+// without an explicit save button per cell.
+interface WeekGridProps {
+  cells: TimetableWeekCell[];
+  scopeKind: "section" | "group";
+  classSubjects: ClassSubject[];
+  teachers: AdminTeacher[];
+  onSave: (
+    cell: TimetableWeekCell,
+    patch: { sectionSubjectId?: string | null; teacherUserId?: string | null; room?: string | null; notes?: string | null },
+  ) => void;
+  onClear: (cell: TimetableWeekCell) => void;
+}
+function WeekGrid({ cells, scopeKind, classSubjects, teachers, onSave, onClear }: WeekGridProps) {
+  // Group by day-of-week so the parent can scan a column-per-day mental
+  // model. The slot list is sorted by (day, start_time) already.
+  const byDay = useMemo(() => {
+    const m = new Map<number, TimetableWeekCell[]>();
+    for (const c of cells) {
+      const arr = m.get(c.slot.dayOfWeek) ?? [];
+      arr.push(c);
+      m.set(c.slot.dayOfWeek, arr);
+    }
+    return m;
+  }, [cells]);
+
+  if (cells.length === 0) {
+    return (
+      <Card>
+        <CardContent className="p-4 text-sm text-slate-500 italic">
+          No time slots defined yet. Add slots above first.
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {DAYS.map((day, i) => {
+        const dow = i + 1;
+        const dayCells = byDay.get(dow) ?? [];
+        if (dayCells.length === 0) return null;
+        return (
+          <Card key={dow}>
+            <CardContent className="p-4 space-y-2">
+              <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
+                {day}
+              </div>
+              <div className="space-y-1.5">
+                {dayCells.map((cell) => (
+                  <CellRow
+                    key={cell.slot.id}
+                    cell={cell}
+                    scopeKind={scopeKind}
+                    classSubjects={classSubjects}
+                    teachers={teachers}
+                    onSave={onSave}
+                    onClear={onClear}
+                  />
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
+interface CellRowProps {
+  cell: TimetableWeekCell;
+  scopeKind: "section" | "group";
+  classSubjects: ClassSubject[];
+  teachers: AdminTeacher[];
+  onSave: WeekGridProps["onSave"];
+  onClear: WeekGridProps["onClear"];
+}
+function CellRow({ cell, scopeKind, classSubjects, teachers, onSave, onClear }: CellRowProps) {
+  // Editable copy of the entry so we can debounce / blur-save without
+  // re-fetching on every keystroke.
+  const [draftSubject, setDraftSubject] = useState(cell.entry?.sectionSubjectId ?? "");
+  const [draftTeacher, setDraftTeacher] = useState(cell.entry?.teacherUserId ?? "");
+  const [draftRoom, setDraftRoom] = useState(cell.entry?.room ?? "");
+
+  useEffect(() => {
+    setDraftSubject(cell.entry?.sectionSubjectId ?? "");
+    setDraftTeacher(cell.entry?.teacherUserId ?? "");
+    setDraftRoom(cell.entry?.room ?? "");
+  }, [cell.entry?.id, cell.entry?.sectionSubjectId, cell.entry?.teacherUserId, cell.entry?.room]);
+
+  // Break / prayer / assembly rows skip the subject/teacher editors —
+  // they're informational, not assignment slots.
+  const isInformational = cell.slot.kind === "break" || cell.slot.kind === "prayer" || cell.slot.kind === "assembly";
+
+  return (
+    <div className={"rounded-lg border p-2 flex flex-wrap items-center gap-2 " + KIND_TONE[cell.slot.kind]}>
+      <div className="min-w-0 flex-shrink-0 w-32">
+        <div className="text-xs font-semibold">{cell.slot.name}</div>
+        <div className="text-[10px] opacity-80">
+          {cell.slot.startTime}–{cell.slot.endTime}
+        </div>
+      </div>
+
+      {isInformational ? (
+        <div className="flex-1 text-xs italic opacity-80">
+          {KIND_LABEL[cell.slot.kind]}
+        </div>
+      ) : (
+        <>
+          {/* Subject only makes sense for a section scope */}
+          {scopeKind === "section" && (
+            <Select
+              value={draftSubject || "__none__"}
+              onValueChange={(v) => {
+                const next = v === "__none__" ? null : v;
+                setDraftSubject(next ?? "");
+                onSave(cell, { sectionSubjectId: next });
+              }}
+            >
+              <SelectTrigger className="h-7 text-xs w-40 bg-white">
+                <SelectValue placeholder="Subject" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">— No subject —</SelectItem>
+                {classSubjects.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+
+          <Select
+            value={draftTeacher || "__none__"}
+            onValueChange={(v) => {
+              const next = v === "__none__" ? null : v;
+              setDraftTeacher(next ?? "");
+              onSave(cell, { teacherUserId: next });
+            }}
+          >
+            <SelectTrigger className="h-7 text-xs w-44 bg-white">
+              <SelectValue placeholder="Teacher" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">— No teacher —</SelectItem>
+              {teachers.map((t) => (
+                <SelectItem key={t.user_id} value={t.user_id}>
+                  {t.full_name || t.email}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Input
+            value={draftRoom}
+            onChange={(e) => setDraftRoom(e.target.value)}
+            onBlur={() => {
+              if ((cell.entry?.room ?? "") !== draftRoom) {
+                onSave(cell, { room: draftRoom || null });
+              }
+            }}
+            placeholder="Room"
+            className="h-7 text-xs w-24 bg-white"
+          />
+
+          {cell.entry && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => onClear(cell)}
+              title="Clear slot"
+              className="h-7 px-2"
+            >
+              <Trash2 className="h-3.5 w-3.5 text-rose-600" />
+            </Button>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+export default ManageTimetable;

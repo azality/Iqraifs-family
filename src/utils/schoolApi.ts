@@ -1827,6 +1827,127 @@ export const deleteHifzGroup = (
 ): Promise<{ ok: true }> =>
   apiCall(`/school/orgs/${orgId}/hifz-groups/${groupId}`, { method: "DELETE" });
 
+// ─── Timetable (PR feat/timetable-foundation) ──────────────────────────
+export type TimetableSlotKind =
+  | "academic" | "break" | "prayer" | "hifz" | "assembly" | "other";
+
+export interface TimetableSlot {
+  id: string;
+  orgId: string;
+  name: string;
+  /** ISO day of week: 1 = Monday … 7 = Sunday. */
+  dayOfWeek: number;
+  startTime: string;  // HH:MM
+  endTime: string;
+  kind: TimetableSlotKind;
+  displayOrder: number;
+}
+
+export interface TimetableEntry {
+  id: string;
+  orgId: string;
+  slotId: string;
+  scopeSectionId: string | null;
+  scopeHifzGroupId: string | null;
+  sectionSubjectId: string | null;
+  teacherUserId: string | null;
+  room: string | null;
+  notes: string | null;
+}
+
+export interface TimetableWeekCell {
+  slot: TimetableSlot;
+  entry: (TimetableEntry & { subjectName: string | null; teacherName: string | null }) | null;
+}
+
+export const listTimetableSlots = async (orgId: string): Promise<TimetableSlot[]> => {
+  const r = await apiCall<{ slots: TimetableSlot[] }>(`/school/orgs/${orgId}/timetable-slots`);
+  return r?.slots ?? [];
+};
+
+export const createTimetableSlot = (
+  orgId: string,
+  body: {
+    name: string;
+    dayOfWeek: number;
+    startTime: string;
+    endTime: string;
+    kind?: TimetableSlotKind;
+    displayOrder?: number;
+  },
+): Promise<TimetableSlot> =>
+  apiCall(`/school/orgs/${orgId}/timetable-slots`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const updateTimetableSlot = (
+  orgId: string,
+  slotId: string,
+  partial: Partial<{
+    name: string;
+    dayOfWeek: number;
+    startTime: string;
+    endTime: string;
+    kind: TimetableSlotKind;
+    displayOrder: number;
+  }>,
+): Promise<TimetableSlot> =>
+  apiCall(`/school/orgs/${orgId}/timetable-slots/${slotId}`, {
+    method: "PATCH",
+    body: JSON.stringify(partial),
+  });
+
+export const deleteTimetableSlot = (orgId: string, slotId: string): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/timetable-slots/${slotId}`, { method: "DELETE" });
+
+export const createTimetableEntry = (
+  orgId: string,
+  body: {
+    slotId: string;
+    scopeSectionId?: string;
+    scopeHifzGroupId?: string;
+    sectionSubjectId?: string;
+    teacherUserId?: string;
+    room?: string;
+    notes?: string;
+  },
+): Promise<TimetableEntry> =>
+  apiCall(`/school/orgs/${orgId}/timetable-entries`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const updateTimetableEntry = (
+  orgId: string,
+  entryId: string,
+  partial: Partial<{
+    sectionSubjectId: string | null;
+    teacherUserId: string | null;
+    room: string | null;
+    notes: string | null;
+  }>,
+): Promise<TimetableEntry> =>
+  apiCall(`/school/orgs/${orgId}/timetable-entries/${entryId}`, {
+    method: "PATCH",
+    body: JSON.stringify(partial),
+  });
+
+export const deleteTimetableEntry = (orgId: string, entryId: string): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/timetable-entries/${entryId}`, { method: "DELETE" });
+
+export const getSectionTimetable = (
+  orgId: string,
+  sectionId: string,
+): Promise<{ scope: { kind: "section"; id: string }; cells: TimetableWeekCell[] }> =>
+  apiCall(`/school/orgs/${orgId}/sections/${sectionId}/timetable`);
+
+export const getHifzGroupTimetable = (
+  orgId: string,
+  groupId: string,
+): Promise<{ scope: { kind: "hifz_group"; id: string }; cells: TimetableWeekCell[] }> =>
+  apiCall(`/school/orgs/${orgId}/hifz-groups/${groupId}/timetable`);
+
 export interface OrgAdmin {
   user_id: string;
   email: string;
