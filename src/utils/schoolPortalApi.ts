@@ -552,6 +552,41 @@ export const getMyTermReportCard = (
 ): Promise<import("./schoolApi").TermReportCardResponse> =>
   pinApiCall(`/school/pin-me/students/${studentId}/terms/${termId}/report-card`);
 
+// ─── Contact school (PR feat/parent-contact-school) ─────────────────
+export interface MyThread {
+  threadId: string;
+  subject: string;
+  studentId: string | null;
+  latestBody: string;
+  latestSentByRole: "parent" | "school";
+  latestAt: string;
+  unreadCount: number;
+  messageCount: number;
+}
+export interface MyThreadMessage {
+  id: string;
+  threadId: string;
+  body: string;
+  sentByRole: "parent" | "school";
+  sentByName: string | null;
+  readAt: string | null;
+  createdAt: string;
+}
+export const listMyThreads = (): Promise<{ threads: MyThread[] }> =>
+  pinApiCall(`/school/pin-me/messages`);
+export const getMyThread = (threadId: string): Promise<{ messages: MyThreadMessage[] }> =>
+  pinApiCall(`/school/pin-me/messages/${threadId}`);
+export const startThread = (
+  body: { subject: string; body: string; studentId?: string },
+): Promise<{ threadId: string }> =>
+  pinApiCall(`/school/pin-me/messages`, {
+    method: "POST", body: JSON.stringify(body),
+  });
+export const replyInThread = (threadId: string, body: string): Promise<{ ok: true }> =>
+  pinApiCall(`/school/pin-me/messages/${threadId}/reply`, {
+    method: "POST", body: JSON.stringify({ body }),
+  });
+
 // ─── Re-exported types from schoolApi ───────────────────────────────────
 
 export type {

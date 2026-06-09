@@ -3951,5 +3951,53 @@ export const replaceGradeScaleBands = (
     method: "PUT", body: JSON.stringify({ bands }),
   });
 
+// ───── Parent inbox (PR feat/parent-contact-school) ───────────────────
+export interface InboxThread {
+  threadId: string;
+  subject: string;
+  studentId: string | null;
+  studentName: string | null;
+  parentUserId: string;
+  parentName: string | null;
+  latestBody: string;
+  latestSentByRole: "parent" | "school";
+  latestAt: string;
+  unreadCount: number;
+  messageCount: number;
+}
+export interface InboxMessage {
+  id: string;
+  threadId: string;
+  body: string;
+  sentByRole: "parent" | "school";
+  sentByName: string | null;
+  readAt: string | null;
+  createdAt: string;
+}
+export interface InboxThreadDetail {
+  thread: {
+    threadId: string;
+    subject: string;
+    parentUserId: string;
+    parentName: string | null;
+    studentId: string | null;
+    studentName: string | null;
+  };
+  messages: InboxMessage[];
+}
+
+export const listInbox = (orgId: string): Promise<{ threads: InboxThread[] }> =>
+  apiCall(`/school/orgs/${orgId}/inbox`);
+export const getInboxThread = (orgId: string, threadId: string): Promise<InboxThreadDetail> =>
+  apiCall(`/school/orgs/${orgId}/inbox/${threadId}`);
+export const replyToInboxThread = (
+  orgId: string, threadId: string, body: string,
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/inbox/${threadId}/reply`, {
+    method: "POST", body: JSON.stringify({ body }),
+  });
+export const getInboxUnreadCount = (orgId: string): Promise<{ unreadCount: number }> =>
+  apiCall(`/school/orgs/${orgId}/inbox-unread-count`);
+
 // Re-export apiCall so callers can hit ad-hoc endpoints without a second import.
 export { apiCall };
