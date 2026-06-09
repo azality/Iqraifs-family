@@ -59,6 +59,7 @@ import { ImportCenter } from "./pages/school/ImportCenter";
 import { ManageHifzGroups } from "./pages/school/ManageHifzGroups";
 import { ManageTimetable } from "./pages/school/ManageTimetable";
 import { TeacherWeekView } from "./pages/school/TeacherWeekView";
+import { ManageFeePlans } from "./pages/school/ManageFeePlans";
 import { ManageParents } from "./pages/school/ManageParents";
 import { ManageTeachers } from "./pages/school/ManageTeachers";
 import { TeacherDetail } from "./pages/school/TeacherDetail";
@@ -499,6 +500,7 @@ export const router = createBrowserRouter([
               // Phase C.3 + Phase D — curriculum, fees, forms
               { path: "sections/:sectionId/curriculum", element: <SectionCurriculum /> },
               { path: "admin/fees", element: <FeesOverview /> },
+              { path: "admin/fees/plans", element: <ManageFeePlans /> },
               { path: "students/:studentId/fees", element: <StudentFees /> },
               { path: "admin/forms", element: <FormsList /> },
               { path: "admin/forms/new", element: <FormBuilder /> },

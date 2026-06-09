@@ -22,6 +22,7 @@ import { HeroCard, sectionTitleClasses } from "../../components/school-ui";
 import { HifzLogEntry } from "./HifzLogEntry";
 import { HifzProgressFeed } from "./HifzProgressFeed";
 import { StudentGradesFeed } from "./StudentGradesFeed";
+import { StudentFeeOverrides } from "./StudentFeeOverrides";
 import {
   getSchoolMe,
   isOrgAdmin,
@@ -330,18 +331,29 @@ export function StudentDetail() {
           />
         </TabsContent>
 
-        <TabsContent value="fees" className="mt-4">
+        <TabsContent value="fees" className="mt-4 space-y-4">
           <Card>
             <CardContent className="pt-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 font-semibold text-slate-900">
-                  <Wallet className="h-4 w-4 text-emerald-600" /> Fees
+                  <Wallet className="h-4 w-4 text-emerald-600" /> Fee history
                 </div>
                 <Link to={`/school/orgs/${orgId}/students/${studentId}/fees`}>
                   <Button size="sm" variant="outline">Manage fees →</Button>
                 </Link>
               </div>
               <p className="text-xs text-slate-500 mt-1">View fee history, mark periods paid, and add new fee periods.</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="font-semibold text-slate-900 text-sm">Plan & overrides</div>
+                <Link to={`/school/orgs/${orgId}/admin/fees/plans`}>
+                  <Button size="sm" variant="ghost" className="text-xs">Edit class plans →</Button>
+                </Link>
+              </div>
+              <StudentFeeOverrides orgId={orgId} studentId={studentId} canManage={true} />
             </CardContent>
           </Card>
         </TabsContent>
