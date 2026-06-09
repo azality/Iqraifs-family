@@ -38,6 +38,7 @@ import { installAnnounce } from "./schoolAnnounce.tsx";
 import { installTimetable } from "./schoolTimetable.tsx";
 import { installFeePlans } from "./schoolFeePlans.tsx";
 import { installAssessment } from "./schoolAssessment.tsx";
+import { installReportCard } from "./schoolReportCard.tsx";
 import { verifyPinToken } from "./schoolPhaseA.tsx";
 
 const school = new Hono();
@@ -3093,5 +3094,6 @@ installAnnounce(school);
 installTimetable(school);
 installFeePlans(school);
 installAssessment(school);
+installReportCard(school);
 
 export default school;

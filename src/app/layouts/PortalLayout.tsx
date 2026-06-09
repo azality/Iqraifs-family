@@ -43,6 +43,12 @@ const NAV: NavItem[] = [
     match: (p, sid) => p.startsWith(`/school-portal/students/${sid}/grades`),
   },
   {
+    // PR feat/report-card-v2 — published term cards.
+    labelKey: "reportCard",
+    path: (sid) => `/school-portal/students/${sid}/report-card`,
+    match: (p, sid) => p.startsWith(`/school-portal/students/${sid}/report-card`),
+  },
+  {
     labelKey: "hifz",
     path: (sid) => `/school-portal/students/${sid}/hifz`,
     match: (p, sid) => p.startsWith(`/school-portal/students/${sid}/hifz`),

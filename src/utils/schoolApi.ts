@@ -3855,5 +3855,61 @@ export const saveMarksSheet = (
     method: "POST", body: JSON.stringify(body),
   });
 
+// ───── Term Report Card v2 (PR feat/report-card-v2) ───────────────────
+export interface TermReportCardSubject {
+  classSubjectId: string;
+  name: string;
+  totalObtained: number;
+  totalMax: number;
+  percentage: number | null;
+  letter: string;
+  remark: string;
+  teacherComment: string | null;
+  perExam: Array<{ examId: string; examName: string; obtained: number | null; max: number; absent: boolean }>;
+}
+export interface TermReportCardResponse {
+  school: { name: string; slug: string | null; logoUrl: string | null; motto: string | null; themeColor: string | null; address: string | null };
+  student: { id: string; fullName: string; grNumber: string; dateOfBirth: string | null; gender: string | null; photoUrl: string | null; program: string | null; religion: string | null; nationality: string | null };
+  placement: { className: string | null; sectionName: string | null; classTeacherName: string | null; hifzTeacherName: string | null };
+  term: { id: string; name: string; startDate: string; endDate: string };
+  exams: Array<{ id: string; name: string; examType: string; weight: number; examDate: string | null }>;
+  academic: {
+    subjects: TermReportCardSubject[];
+    overall: { obtained: number; max: number; percentage: number | null; letter: string; remark: string };
+  };
+  attendance: { present: number; late: number; absent: number; excused: number; total: number; attendancePct: number | null };
+  behavior: { positive: number; concern: number; netPoints: number };
+  hifz: { ayahsMemorized: number; surahsCompleted: number; totalEntries: number; missedCount: number; qualityCounts: { excellent: number; good: number; needs_practice: number; weak: number } };
+  comments: { classTeacher: string | null; principal: string | null; subjects: Record<string, string> };
+  workflow: { recordId: string | null; finalizedAt: string | null; publishedAt: string | null };
+}
+
+export const getTermReportCard = (
+  orgId: string,
+  studentId: string,
+  termId: string,
+): Promise<TermReportCardResponse> =>
+  apiCall(`/school/orgs/${orgId}/students/${studentId}/terms/${termId}/report-card`);
+
+export const saveReportCardComments = (
+  orgId: string,
+  studentId: string,
+  termId: string,
+  body: { classTeacherComment?: string | null; principalComment?: string | null; subjectComments?: Record<string, string> },
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/students/${studentId}/terms/${termId}/report-card/comments`, {
+    method: "PUT", body: JSON.stringify(body),
+  });
+
+export const setReportCardWorkflow = (
+  orgId: string,
+  studentId: string,
+  termId: string,
+  action: "finalize" | "unfinalize" | "publish" | "unpublish",
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/students/${studentId}/terms/${termId}/report-card/${action}`, {
+    method: "POST",
+  });
+
 // Re-export apiCall so callers can hit ad-hoc endpoints without a second import.
 export { apiCall };
