@@ -96,7 +96,9 @@
     "nav": {
       "dashboard": "Dashboard",
       "lessons": "Lessons",
+      "timetable": "Timetable",
       "grades": "Grades",
+      "reportCard": "Report card",
       "hifz": "Hifz",
       "attendance": "Attendance",
       "behavior": "Behavior",

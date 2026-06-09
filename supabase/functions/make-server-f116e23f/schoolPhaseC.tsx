@@ -713,7 +713,7 @@ export function installPhaseC(school: Hono): void {
 
     const { data: stu, error: stuErr } = await serviceRoleClient
       .from("student")
-      .select("id, org_id, class_section_id")
+      .select("id, org_id, class_section_id, hifz_group_id")
       .eq("id", body.studentId)
       .maybeSingle();
     if (stuErr) return c.json({ error: stuErr.message }, 500);
@@ -738,6 +738,19 @@ export function installPhaseC(school: Hono): void {
         .eq("id", stu.class_section_id)
         .maybeSingle();
       if (sec && (sec as any).hifz_teacher_user_id === userId) allowed = true;
+    }
+    // Hifz Group teacher (PR feat/hifz-groups). When a student is in a
+    // hifz_group, that group's assigned hifz_teacher_user_id also gates
+    // through. Same write-only-Hifz scope as the section-level path.
+    if (!allowed && (stu as any).hifz_group_id) {
+      const { data: grp } = await serviceRoleClient
+        .from("hifz_group")
+        .select("hifz_teacher_user_id, org_id")
+        .eq("id", (stu as any).hifz_group_id)
+        .maybeSingle();
+      if (grp && (grp as any).org_id === orgId && (grp as any).hifz_teacher_user_id === userId) {
+        allowed = true;
+      }
     }
     if (!allowed) return c.json({ error: "forbidden" }, 403);
 

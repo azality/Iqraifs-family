@@ -30,9 +30,23 @@ const NAV: NavItem[] = [
     match: (p, sid) => p.startsWith(`/school-portal/students/${sid}/lessons`),
   },
   {
+    // PR feat/timetable-consumers — weekly schedule view for parents.
+    // Falls back gracefully (empty-state) when the school hasn't set up
+    // slots yet, so adding the nav item doesn't dead-end users.
+    labelKey: "timetable",
+    path: (sid) => `/school-portal/students/${sid}/timetable`,
+    match: (p, sid) => p.startsWith(`/school-portal/students/${sid}/timetable`),
+  },
+  {
     labelKey: "grades",
     path: (sid) => `/school-portal/students/${sid}/grades`,
     match: (p, sid) => p.startsWith(`/school-portal/students/${sid}/grades`),
+  },
+  {
+    // PR feat/report-card-v2 — published term cards.
+    labelKey: "reportCard",
+    path: (sid) => `/school-portal/students/${sid}/report-card`,
+    match: (p, sid) => p.startsWith(`/school-portal/students/${sid}/report-card`),
   },
   {
     labelKey: "hifz",

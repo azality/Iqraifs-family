@@ -35,6 +35,10 @@ import { installOffice } from "./schoolOffice.tsx";
 import { installFinance } from "./schoolFinance.tsx";
 import { installPortal } from "./schoolPortal.tsx";
 import { installAnnounce } from "./schoolAnnounce.tsx";
+import { installTimetable } from "./schoolTimetable.tsx";
+import { installFeePlans } from "./schoolFeePlans.tsx";
+import { installAssessment } from "./schoolAssessment.tsx";
+import { installReportCard } from "./schoolReportCard.tsx";
 import { verifyPinToken } from "./schoolPhaseA.tsx";
 
 const school = new Hono();
@@ -3087,5 +3091,9 @@ installPortal(school);
 // Phase F — announcements + lesson completion + parent fees in portal
 // -----------------------------------------------------------------------------
 installAnnounce(school);
+installTimetable(school);
+installFeePlans(school);
+installAssessment(school);
+installReportCard(school);
 
 export default school;

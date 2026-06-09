@@ -468,6 +468,90 @@ export const getMyStudentFees = (
 ): Promise<{ fees: FeeStatus[] }> =>
   pinApiCall(`/school/pin-me/students/${studentId}/fees`);
 
+// ─── Timetable (PR feat/timetable-consumers) ───────────────────────────
+// Parent + student portal weekly view of the student's section
+// timetable. Slots come from the org skeleton; entries fall back to
+// the section + Hifz group attachments.
+export interface MyStudentTimetableCell {
+  slot: {
+    id: string;
+    name: string;
+    dayOfWeek: number;
+    startTime: string;
+    endTime: string;
+    kind: string;
+  };
+  entry: {
+    subjectName: string | null;
+    /** When a substitution exists for today, this is the SUB's name. */
+    teacherName: string | null;
+    room: string | null;
+    notes: string | null;
+    scope: "section" | "hifz_group";
+    /** Present only for today's row when a substitution is in effect. */
+    substitution?: {
+      originalTeacherName: string | null;
+      reason: string | null;
+    } | null;
+  } | null;
+}
+export interface MyStudentTimetableResponse {
+  cells: MyStudentTimetableCell[];
+}
+
+export const getMyStudentTimetable = (
+  studentId: string,
+  opts: { date?: string } = {},
+): Promise<MyStudentTimetableResponse> => {
+  const q = opts.date ? `?date=${opts.date}` : "";
+  return pinApiCall(`/school/pin-me/students/${studentId}/timetable${q}`);
+};
+
+// ─── Today snapshot (PR feat/parent-portal-home) ─────────────────────
+// Lightweight summary used by the multi-child landing card AND the
+// per-child dashboard pills. Plain-language: "Present today", "Fee due",
+// "Homework pending", "Hifz revision needed", "Teacher note added".
+export interface TodaySnapshot {
+  student: {
+    id: string;
+    fullName: string;
+    grNumber: string;
+    photoUrl: string | null;
+    className: string | null;
+    sectionName: string | null;
+  };
+  today: string;
+  attendanceToday: { status: "present" | "late" | "absent" | "excused"; takenAt: string | null } | null;
+  homeworkPending: { count: number; soonestDueDate: string | null };
+  feesDueNow: { amount: number; periodLabel: string; dueDate: string | null } | null;
+  hifzRevisionNeeded: { lastEntryDate: string; daysSince: number } | null;
+  latestTeacherNote: { kind: "positive" | "concern"; summary: string; observedAt: string } | null;
+  publishedReportCardTermName: string | null;
+}
+
+export const getTodaySnapshot = (studentId: string): Promise<TodaySnapshot> =>
+  pinApiCall(`/school/pin-me/students/${studentId}/today-snapshot`);
+
+// ─── Term report cards (parent / student portal, PR v2) ─────────────
+export interface MyTermReportCardListItem {
+  termId: string;
+  termName: string;
+  startDate: string;
+  endDate: string;
+  publishedAt: string;
+}
+export const listMyTermReportCards = (
+  studentId: string,
+): Promise<{ cards: MyTermReportCardListItem[] }> =>
+  pinApiCall(`/school/pin-me/students/${studentId}/term-report-cards`);
+
+// Reuses the same shape as admin's TermReportCardResponse.
+export const getMyTermReportCard = (
+  studentId: string,
+  termId: string,
+): Promise<import("./schoolApi").TermReportCardResponse> =>
+  pinApiCall(`/school/pin-me/students/${studentId}/terms/${termId}/report-card`);
+
 // ─── Re-exported types from schoolApi ───────────────────────────────────
 
 export type {

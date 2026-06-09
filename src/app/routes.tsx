@@ -56,6 +56,13 @@ import { ManageStudents } from "./pages/school/ManageStudents";
 import { StudentDetail } from "./pages/school/StudentDetail";
 import { StudentReportCard } from "./pages/school/StudentReportCard";
 import { ImportCenter } from "./pages/school/ImportCenter";
+import { ManageHifzGroups } from "./pages/school/ManageHifzGroups";
+import { ManageTimetable } from "./pages/school/ManageTimetable";
+import { TeacherWeekView } from "./pages/school/TeacherWeekView";
+import { ManageFeePlans } from "./pages/school/ManageFeePlans";
+import { ManageAssessment } from "./pages/school/ManageAssessment";
+import { MarksEntry } from "./pages/school/MarksEntry";
+import { ManageGradeScales } from "./pages/school/ManageGradeScales";
 import { ManageParents } from "./pages/school/ManageParents";
 import { ManageTeachers } from "./pages/school/ManageTeachers";
 import { TeacherDetail } from "./pages/school/TeacherDetail";
@@ -101,6 +108,8 @@ import { StudentDashboard } from "./pages/portal/StudentDashboard";
 import { StudentLessons } from "./pages/portal/StudentLessons";
 import { StudentGrades } from "./pages/portal/StudentGrades";
 import { StudentHifz } from "./pages/portal/StudentHifz";
+import { StudentTimetable } from "./pages/portal/StudentTimetable";
+import { StudentTermReportCard } from "./pages/portal/StudentTermReportCard";
 import { StudentAttendance } from "./pages/portal/StudentAttendance";
 import { StudentBehavior } from "./pages/portal/StudentBehavior";
 import { MyForms } from "./pages/portal/MyForms";
@@ -318,7 +327,9 @@ export const router = createBrowserRouter([
       { path: "students/:studentId", element: <StudentDashboard /> },
       { path: "students/:studentId/lessons", element: <StudentLessons /> },
       { path: "students/:studentId/grades", element: <StudentGrades /> },
+      { path: "students/:studentId/report-card", element: <StudentTermReportCard /> },
       { path: "students/:studentId/hifz", element: <StudentHifz /> },
+      { path: "students/:studentId/timetable", element: <StudentTimetable /> },
       { path: "students/:studentId/attendance", element: <StudentAttendance /> },
       { path: "students/:studentId/behavior", element: <StudentBehavior /> },
       { path: "students/:studentId/fees", element: <MyStudentFees /> },
@@ -467,6 +478,9 @@ export const router = createBrowserRouter([
               { path: "admin/settings", element: <OrgSettings /> },
               { path: "admin/audit", element: <AuditLog /> },
               { path: "admin/import", element: <ImportCenter /> },
+              { path: "admin/hifz-groups", element: <ManageHifzGroups /> },
+              { path: "admin/timetable", element: <ManageTimetable /> },
+              { path: "my-week", element: <TeacherWeekView /> },
               { path: "admin/roster-requests", element: <RosterReviewQueue /> },
               { path: "admin/announcements", element: <AnnouncementsList /> },
               { path: "admin/announcements/new", element: <AnnouncementComposer /> },
@@ -491,6 +505,10 @@ export const router = createBrowserRouter([
               // Phase C.3 + Phase D — curriculum, fees, forms
               { path: "sections/:sectionId/curriculum", element: <SectionCurriculum /> },
               { path: "admin/fees", element: <FeesOverview /> },
+              { path: "admin/fees/plans", element: <ManageFeePlans /> },
+              { path: "admin/assessment", element: <ManageAssessment /> },
+              { path: "admin/assessment/exams/:examId/marks", element: <MarksEntry /> },
+              { path: "admin/assessment/grade-scales", element: <ManageGradeScales /> },
               { path: "students/:studentId/fees", element: <StudentFees /> },
               { path: "admin/forms", element: <FormsList /> },
               { path: "admin/forms/new", element: <FormBuilder /> },

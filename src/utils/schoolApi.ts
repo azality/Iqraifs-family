@@ -1409,6 +1409,9 @@ export interface CreateStudentBody {
   receiptNo?: string;
   admissionDate?: string;
   completenessStatus?: StudentCompletenessStatus;
+  /** PR feat/hifz-groups — student belongs to one Hifz group at a time
+   *  (peer of the class section, not a child of it). Optional. */
+  hifzGroupId?: string | null;
   /** Legacy single-parent shape — still accepted by the backend. New
    *  flows should use `guardians[]` instead. */
   parent?: InlineParentInput;
@@ -1769,6 +1772,406 @@ export const rollbackImportBatch = (
 ): Promise<{ ok: true; removed: Record<string, number> }> =>
   apiCall(`/school/orgs/${orgId}/import-batches/${batchId}/rollback`, {
     method: "POST",
+  });
+
+// ─── Hifz Groups (PR feat/hifz-groups) ──────────────────────────────────
+export interface HifzGroup {
+  id: string;
+  name: string;
+  description: string | null;
+  hifzTeacherUserId: string | null;
+  hifzTeacherName: string | null;
+  displayOrder: number;
+  studentCount: number;
+}
+
+export const listHifzGroups = async (orgId: string): Promise<HifzGroup[]> => {
+  const r = await apiCall<{ groups: HifzGroup[] }>(
+    `/school/orgs/${orgId}/hifz-groups`,
+  );
+  return r?.groups ?? [];
+};
+
+export const createHifzGroup = (
+  orgId: string,
+  body: {
+    name: string;
+    description?: string;
+    hifzTeacherUserId?: string;
+    displayOrder?: number;
+  },
+): Promise<{ id: string; name: string }> =>
+  apiCall(`/school/orgs/${orgId}/hifz-groups`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const updateHifzGroup = (
+  orgId: string,
+  groupId: string,
+  partial: Partial<{
+    name: string;
+    description: string | null;
+    hifzTeacherUserId: string | null;
+    displayOrder: number;
+  }>,
+): Promise<HifzGroup> =>
+  apiCall(`/school/orgs/${orgId}/hifz-groups/${groupId}`, {
+    method: "PATCH",
+    body: JSON.stringify(partial),
+  });
+
+export const deleteHifzGroup = (
+  orgId: string,
+  groupId: string,
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/hifz-groups/${groupId}`, { method: "DELETE" });
+
+// ─── Timetable (PR feat/timetable-foundation) ──────────────────────────
+export type TimetableSlotKind =
+  | "academic" | "break" | "prayer" | "hifz" | "assembly" | "other";
+
+export interface TimetableSlot {
+  id: string;
+  orgId: string;
+  name: string;
+  /** ISO day of week: 1 = Monday … 7 = Sunday. */
+  dayOfWeek: number;
+  startTime: string;  // HH:MM
+  endTime: string;
+  kind: TimetableSlotKind;
+  displayOrder: number;
+}
+
+export interface TimetableEntry {
+  id: string;
+  orgId: string;
+  slotId: string;
+  scopeSectionId: string | null;
+  scopeHifzGroupId: string | null;
+  sectionSubjectId: string | null;
+  teacherUserId: string | null;
+  room: string | null;
+  notes: string | null;
+}
+
+export interface TimetableWeekCell {
+  slot: TimetableSlot;
+  entry: (TimetableEntry & { subjectName: string | null; teacherName: string | null }) | null;
+}
+
+export const listTimetableSlots = async (orgId: string): Promise<TimetableSlot[]> => {
+  const r = await apiCall<{ slots: TimetableSlot[] }>(`/school/orgs/${orgId}/timetable-slots`);
+  return r?.slots ?? [];
+};
+
+export const createTimetableSlot = (
+  orgId: string,
+  body: {
+    name: string;
+    dayOfWeek: number;
+    startTime: string;
+    endTime: string;
+    kind?: TimetableSlotKind;
+    displayOrder?: number;
+  },
+): Promise<TimetableSlot> =>
+  apiCall(`/school/orgs/${orgId}/timetable-slots`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const updateTimetableSlot = (
+  orgId: string,
+  slotId: string,
+  partial: Partial<{
+    name: string;
+    dayOfWeek: number;
+    startTime: string;
+    endTime: string;
+    kind: TimetableSlotKind;
+    displayOrder: number;
+  }>,
+): Promise<TimetableSlot> =>
+  apiCall(`/school/orgs/${orgId}/timetable-slots/${slotId}`, {
+    method: "PATCH",
+    body: JSON.stringify(partial),
+  });
+
+export const deleteTimetableSlot = (orgId: string, slotId: string): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/timetable-slots/${slotId}`, { method: "DELETE" });
+
+/** Returned in the 409 body when a room double-book is detected. The
+ *  editor surfaces these inline and offers a "Save anyway" override. */
+export interface RoomConflictEntry {
+  entryId: string;
+  room: string | null;
+  slotName: string | null;
+  dayOfWeek: number | null;
+  startTime: string | null;
+  endTime: string | null;
+  subjectName: string | null;
+  scopeLabel: string;
+}
+export interface RoomConflictError {
+  error: "room conflict";
+  conflicts: RoomConflictEntry[];
+}
+/** Pulls the conflict payload off an Error thrown by apiCall (the 409
+ *  body is attached as `.body`). Returns null for any other error. */
+export function getRoomConflictPayload(e: unknown): RoomConflictError | null {
+  if (!e || typeof e !== "object") return null;
+  const body = (e as any).body;
+  if (body && body.error === "room conflict" && Array.isArray(body.conflicts)) {
+    return body as RoomConflictError;
+  }
+  return null;
+}
+
+export const createTimetableEntry = (
+  orgId: string,
+  body: {
+    slotId: string;
+    scopeSectionId?: string;
+    scopeHifzGroupId?: string;
+    sectionSubjectId?: string;
+    teacherUserId?: string;
+    room?: string;
+    notes?: string;
+  },
+  opts: { force?: boolean } = {},
+): Promise<TimetableEntry> =>
+  apiCall(`/school/orgs/${orgId}/timetable-entries${opts.force ? "?force=true" : ""}`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const updateTimetableEntry = (
+  orgId: string,
+  entryId: string,
+  partial: Partial<{
+    sectionSubjectId: string | null;
+    teacherUserId: string | null;
+    room: string | null;
+    notes: string | null;
+  }>,
+  opts: { force?: boolean } = {},
+): Promise<TimetableEntry> =>
+  apiCall(`/school/orgs/${orgId}/timetable-entries/${entryId}${opts.force ? "?force=true" : ""}`, {
+    method: "PATCH",
+    body: JSON.stringify(partial),
+  });
+
+export interface RoomConflictPair {
+  room: string;
+  dayOfWeek: number;
+  a: RoomConflictEntry;
+  b: RoomConflictEntry;
+}
+export const listRoomConflicts = (
+  orgId: string,
+): Promise<{ conflicts: RoomConflictPair[] }> =>
+  apiCall(`/school/orgs/${orgId}/timetable/room-conflicts`);
+
+export const deleteTimetableEntry = (orgId: string, entryId: string): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/timetable-entries/${entryId}`, { method: "DELETE" });
+
+export const getSectionTimetable = (
+  orgId: string,
+  sectionId: string,
+): Promise<{ scope: { kind: "section"; id: string }; cells: TimetableWeekCell[] }> =>
+  apiCall(`/school/orgs/${orgId}/sections/${sectionId}/timetable`);
+
+export const getHifzGroupTimetable = (
+  orgId: string,
+  groupId: string,
+): Promise<{ scope: { kind: "hifz_group"; id: string }; cells: TimetableWeekCell[] }> =>
+  apiCall(`/school/orgs/${orgId}/hifz-groups/${groupId}/timetable`);
+
+/** Teacher's own entries. Used on TeacherHome to render "My today's
+ *  schedule". scopeLabel is pre-built ("Grade 3 — A" / Hifz group
+ *  name) so the card doesn't need a separate lookup. */
+export interface TimetableSubBadge {
+  /** "covering" — caller is the substitute for someone else's slot.
+   *  "covered" — caller is the original teacher, someone else covers today. */
+  role: "covering" | "covered";
+  originalTeacherName?: string | null;
+  substituteTeacherName?: string | null;
+  reason?: string | null;
+}
+
+export interface MyTimetableCell {
+  slot: TimetableSlot;
+  entry: TimetableEntry & { subjectName: string | null; teacherName: string | null };
+  scopeLabel: string;
+  /** Populated only when the slot's entry has a substitution for today. */
+  substitution?: TimetableSubBadge | null;
+}
+
+export const getMyTeacherTimetable = (
+  orgId: string,
+  opts: { day?: number; date?: string } = {},
+): Promise<{ cells: MyTimetableCell[] }> => {
+  const params: string[] = [];
+  if (opts.day) params.push(`day=${opts.day}`);
+  if (opts.date) params.push(`date=${opts.date}`);
+  const q = params.length ? `?${params.join("&")}` : "";
+  return apiCall(`/school/orgs/${orgId}/me/timetable${q}`);
+};
+
+export interface TeacherEntrySummary {
+  id: string;
+  slot: TimetableSlot;
+  subjectName: string | null;
+  scopeLabel: string;
+}
+export const listTeacherEntries = (
+  orgId: string,
+  teacherUserId: string,
+): Promise<{ entries: TeacherEntrySummary[] }> =>
+  apiCall(`/school/orgs/${orgId}/teachers/${teacherUserId}/entries`);
+
+// ───── Substitutions (admin/principal) ────────────────────────────────
+export interface TimetableSubstitution {
+  id: string;
+  orgId: string;
+  entryId: string;
+  date: string;
+  substituteTeacherUserId: string;
+  substituteTeacherName: string | null;
+  reason: string | null;
+  createdAt: string;
+  entry: {
+    id: string;
+    slot: TimetableSlot | null;
+    subjectName: string | null;
+    originalTeacherUserId: string | null;
+    originalTeacherName: string | null;
+    scopeLabel: string;
+  } | null;
+}
+
+export const listTimetableSubstitutions = (
+  orgId: string,
+  opts: { date?: string; from?: string; to?: string } = {},
+): Promise<{ substitutions: TimetableSubstitution[] }> => {
+  const params: string[] = [];
+  if (opts.date) params.push(`date=${opts.date}`);
+  if (opts.from) params.push(`from=${opts.from}`);
+  if (opts.to) params.push(`to=${opts.to}`);
+  const q = params.length ? `?${params.join("&")}` : "";
+  return apiCall(`/school/orgs/${orgId}/timetable/substitutions${q}`);
+};
+
+export const createTimetableSubstitution = (
+  orgId: string,
+  input: { entryId: string; date: string; substituteTeacherUserId: string; reason?: string },
+): Promise<{ substitution: TimetableSubstitution }> =>
+  apiCall(`/school/orgs/${orgId}/timetable/substitutions`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+
+export const deleteTimetableSubstitution = (
+  orgId: string,
+  subId: string,
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/timetable/substitutions/${subId}`, { method: "DELETE" });
+
+// ───── Fee plan templates (PR feat/fee-plans) ─────────────────────────
+export interface ClassFeePlan {
+  id: string;
+  orgId: string;
+  classId: string;
+  name: string;
+  amount: number;
+  frequency: "monthly" | "one_off";
+  defaultDueDay: number | null;
+  oneOffDueDate: string | null;
+  archivedAt: string | null;
+}
+export interface StudentFeeOverride {
+  id: string;
+  planId: string;
+  studentId: string;
+  overrideAmount: number | null;
+  waived: boolean;
+  notes: string | null;
+  createdAt: string;
+}
+export interface EffectiveStudentPlan {
+  plan: ClassFeePlan;
+  override: StudentFeeOverride | null;
+  effectiveAmount: number;
+}
+
+export const listClassFeePlans = (
+  orgId: string,
+  classId: string,
+): Promise<{ plans: ClassFeePlan[] }> =>
+  apiCall(`/school/orgs/${orgId}/classes/${classId}/fee-plans`);
+
+export const createClassFeePlan = (
+  orgId: string,
+  classId: string,
+  body: {
+    name: string;
+    amount: number;
+    frequency: "monthly" | "one_off";
+    defaultDueDay?: number | null;
+    oneOffDueDate?: string | null;
+  },
+): Promise<{ plan: ClassFeePlan }> =>
+  apiCall(`/school/orgs/${orgId}/classes/${classId}/fee-plans`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const updateClassFeePlan = (
+  orgId: string,
+  planId: string,
+  patch: Partial<{
+    name: string;
+    amount: number;
+    defaultDueDay: number | null;
+    oneOffDueDate: string | null;
+  }>,
+): Promise<{ plan: ClassFeePlan }> =>
+  apiCall(`/school/orgs/${orgId}/fee-plans/${planId}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+
+export const archiveClassFeePlan = (
+  orgId: string,
+  planId: string,
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/fee-plans/${planId}`, { method: "DELETE" });
+
+export const listStudentFeeOverrides = (
+  orgId: string,
+  studentId: string,
+): Promise<{ plans: EffectiveStudentPlan[] }> =>
+  apiCall(`/school/orgs/${orgId}/students/${studentId}/fee-overrides`);
+
+export const upsertStudentFeeOverride = (
+  orgId: string,
+  studentId: string,
+  planId: string,
+  body: { overrideAmount?: number | null; waived?: boolean; notes?: string | null },
+): Promise<{ override: StudentFeeOverride }> =>
+  apiCall(`/school/orgs/${orgId}/students/${studentId}/fee-overrides/${planId}`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+
+export const deleteStudentFeeOverride = (
+  orgId: string,
+  studentId: string,
+  planId: string,
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/students/${studentId}/fee-overrides/${planId}`, {
+    method: "DELETE",
   });
 
 export interface OrgAdmin {
@@ -3343,6 +3746,210 @@ export const getLessonCompletions = (
   apiCall(
     `/school/orgs/${orgId}/sections/${sectionId}/lessons/${lessonId}/completions`,
   );
+
+// ───── Assessment (PR feat/assessment-foundation) ─────────────────────
+export type ExamType = "midterm" | "final" | "test" | "quiz" | "other";
+
+export interface AcademicTerm {
+  id: string;
+  orgId: string;
+  academicYearId: string | null;
+  name: string;
+  startDate: string;
+  endDate: string;
+  isCurrent: boolean;
+  archivedAt: string | null;
+}
+export interface Exam {
+  id: string;
+  orgId: string;
+  termId: string;
+  name: string;
+  examType: ExamType;
+  weight: number;
+  examDate: string | null;
+  archivedAt: string | null;
+}
+export interface ExamSubjectScore {
+  id: string | null;
+  examId: string;
+  studentId: string;
+  classSubjectId: string;
+  maxMarks: number | null;
+  obtainedMarks: number | null;
+  absent: boolean;
+  notes: string | null;
+}
+export interface MarksSheetStudent {
+  id: string;
+  fullName: string;
+  grNumber: string | null;
+  rollNumber: number | null;
+  scores: ExamSubjectScore[];
+}
+export interface MarksSheetResponse {
+  section: { id: string; name: string; className: string };
+  subjects: { id: string; name: string }[];
+  students: MarksSheetStudent[];
+}
+
+export const listTerms = (orgId: string): Promise<{ terms: AcademicTerm[] }> =>
+  apiCall(`/school/orgs/${orgId}/terms`);
+export const createTerm = (
+  orgId: string,
+  body: { name: string; startDate: string; endDate: string; academicYearId?: string | null; isCurrent?: boolean },
+): Promise<{ term: AcademicTerm }> =>
+  apiCall(`/school/orgs/${orgId}/terms`, { method: "POST", body: JSON.stringify(body) });
+export const updateTerm = (
+  orgId: string,
+  termId: string,
+  patch: Partial<{ name: string; startDate: string; endDate: string; academicYearId: string | null; isCurrent: boolean }>,
+): Promise<{ term: AcademicTerm }> =>
+  apiCall(`/school/orgs/${orgId}/terms/${termId}`, { method: "PATCH", body: JSON.stringify(patch) });
+export const archiveTerm = (orgId: string, termId: string): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/terms/${termId}`, { method: "DELETE" });
+
+export const listExams = (orgId: string, termId: string): Promise<{ exams: Exam[] }> =>
+  apiCall(`/school/orgs/${orgId}/terms/${termId}/exams`);
+export const createExam = (
+  orgId: string,
+  termId: string,
+  body: { name: string; examType?: ExamType; weight?: number; examDate?: string | null },
+): Promise<{ exam: Exam }> =>
+  apiCall(`/school/orgs/${orgId}/terms/${termId}/exams`, {
+    method: "POST", body: JSON.stringify(body),
+  });
+export const updateExam = (
+  orgId: string,
+  examId: string,
+  patch: Partial<{ name: string; examType: ExamType; weight: number; examDate: string | null }>,
+): Promise<{ exam: Exam }> =>
+  apiCall(`/school/orgs/${orgId}/exams/${examId}`, { method: "PATCH", body: JSON.stringify(patch) });
+export const archiveExam = (orgId: string, examId: string): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/exams/${examId}`, { method: "DELETE" });
+
+export const getMarksSheet = (
+  orgId: string,
+  examId: string,
+  sectionId: string,
+): Promise<MarksSheetResponse> =>
+  apiCall(`/school/orgs/${orgId}/exams/${examId}/marks-sheet?sectionId=${sectionId}`);
+
+export const saveMarksSheet = (
+  orgId: string,
+  examId: string,
+  body: {
+    sectionId: string;
+    defaults?: { maxMarks: number };
+    rows: Array<{
+      studentId: string;
+      classSubjectId: string;
+      maxMarks?: number | null;
+      obtainedMarks?: number | null;
+      absent?: boolean;
+      notes?: string | null;
+    }>;
+  },
+): Promise<{ ok: true; written: number; deleted: number }> =>
+  apiCall(`/school/orgs/${orgId}/exams/${examId}/marks-sheet`, {
+    method: "POST", body: JSON.stringify(body),
+  });
+
+// ───── Term Report Card v2 (PR feat/report-card-v2) ───────────────────
+export interface TermReportCardSubject {
+  classSubjectId: string;
+  name: string;
+  totalObtained: number;
+  totalMax: number;
+  percentage: number | null;
+  letter: string;
+  remark: string;
+  teacherComment: string | null;
+  perExam: Array<{ examId: string; examName: string; obtained: number | null; max: number; absent: boolean }>;
+}
+export interface TermReportCardResponse {
+  school: { name: string; slug: string | null; logoUrl: string | null; motto: string | null; themeColor: string | null; address: string | null };
+  student: { id: string; fullName: string; grNumber: string; dateOfBirth: string | null; gender: string | null; photoUrl: string | null; program: string | null; religion: string | null; nationality: string | null };
+  placement: { className: string | null; sectionName: string | null; classTeacherName: string | null; hifzTeacherName: string | null };
+  term: { id: string; name: string; startDate: string; endDate: string };
+  exams: Array<{ id: string; name: string; examType: string; weight: number; examDate: string | null }>;
+  academic: {
+    subjects: TermReportCardSubject[];
+    overall: { obtained: number; max: number; percentage: number | null; letter: string; remark: string };
+  };
+  attendance: { present: number; late: number; absent: number; excused: number; total: number; attendancePct: number | null };
+  behavior: { positive: number; concern: number; netPoints: number };
+  hifz: { ayahsMemorized: number; surahsCompleted: number; totalEntries: number; missedCount: number; qualityCounts: { excellent: number; good: number; needs_practice: number; weak: number } };
+  comments: { classTeacher: string | null; principal: string | null; subjects: Record<string, string> };
+  workflow: { recordId: string | null; finalizedAt: string | null; publishedAt: string | null };
+}
+
+export const getTermReportCard = (
+  orgId: string,
+  studentId: string,
+  termId: string,
+): Promise<TermReportCardResponse> =>
+  apiCall(`/school/orgs/${orgId}/students/${studentId}/terms/${termId}/report-card`);
+
+export const saveReportCardComments = (
+  orgId: string,
+  studentId: string,
+  termId: string,
+  body: { classTeacherComment?: string | null; principalComment?: string | null; subjectComments?: Record<string, string> },
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/students/${studentId}/terms/${termId}/report-card/comments`, {
+    method: "PUT", body: JSON.stringify(body),
+  });
+
+export const setReportCardWorkflow = (
+  orgId: string,
+  studentId: string,
+  termId: string,
+  action: "finalize" | "unfinalize" | "publish" | "unpublish",
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/students/${studentId}/terms/${termId}/report-card/${action}`, {
+    method: "POST",
+  });
+
+// ───── Grade scales (PR feat/grade-scales) ────────────────────────────
+export interface GradeBand {
+  id?: string;
+  letter: string;
+  minPct: number;
+  maxPct: number;
+  remark: string | null;
+  displayOrder?: number;
+}
+export interface GradeScale {
+  id: string;
+  name: string;
+  isDefault: boolean;
+  bands: GradeBand[];
+}
+
+export const listGradeScales = (orgId: string): Promise<{ scales: GradeScale[] }> =>
+  apiCall(`/school/orgs/${orgId}/grade-scales`);
+export const createGradeScale = (
+  orgId: string,
+  body: { name: string; isDefault?: boolean },
+): Promise<{ scale: GradeScale }> =>
+  apiCall(`/school/orgs/${orgId}/grade-scales`, { method: "POST", body: JSON.stringify(body) });
+export const updateGradeScale = (
+  orgId: string,
+  scaleId: string,
+  patch: Partial<{ name: string; isDefault: boolean }>,
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/grade-scales/${scaleId}`, { method: "PATCH", body: JSON.stringify(patch) });
+export const archiveGradeScale = (orgId: string, scaleId: string): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/grade-scales/${scaleId}`, { method: "DELETE" });
+export const replaceGradeScaleBands = (
+  orgId: string,
+  scaleId: string,
+  bands: GradeBand[],
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/grade-scales/${scaleId}/bands`, {
+    method: "PUT", body: JSON.stringify({ bands }),
+  });
 
 // Re-export apiCall so callers can hit ad-hoc endpoints without a second import.
 export { apiCall };

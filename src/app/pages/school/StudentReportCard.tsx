@@ -1,393 +1,414 @@
-// StudentReportCard — printable, single-page-friendly report card for one student.
+// StudentReportCard v2 — term-based, comment editor, finalize/publish.
 //
-// Route: /school/orgs/:orgId/admin/students/:studentId/report-card
+// Replaces the previous date-range-driven view. Behaviour:
 //
-// Two key design choices:
-//
-//   1. Print CSS hides the page chrome (sidebar / nav / browser
-//      buttons) so window.print() produces a clean sheet. The user
-//      Saves as PDF via the browser's native dialog — we don't need a
-//      server-side PDF stack for the pilot.
-//
-//   2. Layout deliberately mirrors the IFS paper report card the
-//      principal already shows parents at the term meeting: school
-//      header at the top, student basics, academic section, attendance
-//      + behavior, then Hifz on its own block (matching the "two
-//      parallel progress systems" spec).
+//   - Term picker → loads /students/:id/terms/:termId/report-card.
+//   - Subjects rendered with per-exam breakdown + overall totals,
+//     letter grades, remarks (configurable in PR 3).
+//   - Attendance / behavior / Hifz blocks aggregated for the term window.
+//   - Editable comments: per-subject (class teacher), class-teacher,
+//     principal. Admin/principal can set principal_comment; teachers
+//     can set their own and per-subject.
+//   - Finalize / Publish toggles for admin/principal.
+//   - Print: window.print() with print CSS hiding page chrome.
 
 import { useEffect, useMemo, useState } from "react";
 import { Link, Navigate, useParams, useSearchParams } from "react-router";
-import { Printer, ArrowLeft, Calendar } from "lucide-react";
-import { Button } from "../../components/ui/button";
-import { Input } from "../../components/ui/input";
-import { Label } from "../../components/ui/label";
 import {
-  getReportCard,
-  getSchoolMe,
-  isOrgAdmin,
-  type ReportCardResponse,
-  type SchoolMeResponse,
+  ArrowLeft, Printer, CheckCircle2, Send, Calendar, Award, BookOpen,
+  TrendingUp, ShieldAlert, Pencil,
+} from "lucide-react";
+import { Button } from "../../components/ui/button";
+import { Textarea } from "../../components/ui/textarea";
+import { Card, CardContent } from "../../components/ui/card";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "../../components/ui/select";
+import {
+  getSchoolMe, isOrgAdmin,
+  listTerms, getTermReportCard,
+  saveReportCardComments, setReportCardWorkflow,
+  type SchoolMeResponse, type AcademicTerm,
+  type TermReportCardResponse,
 } from "../../../utils/schoolApi";
 
-function letterGrade(pct: number | null): string {
-  if (pct == null) return "—";
-  if (pct >= 90) return "A+";
-  if (pct >= 80) return "A";
-  if (pct >= 70) return "B";
-  if (pct >= 60) return "C";
-  if (pct >= 50) return "D";
-  return "F";
-}
-
-function fmtDate(s: string | null): string {
-  if (!s) return "—";
-  try {
-    return new Date(s).toLocaleDateString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  } catch {
-    return s;
-  }
+function fmtPct(n: number | null): string {
+  return n === null ? "—" : `${n.toFixed(1)}%`;
 }
 
 export function StudentReportCard() {
-  const { orgId = "", studentId = "" } = useParams();
+  const { orgId = "", studentId = "" } = useParams<{ orgId: string; studentId: string }>();
   const [search, setSearch] = useSearchParams();
-  const startDate = search.get("startDate") ?? "";
-  const endDate = search.get("endDate") ?? "";
+  const termId = search.get("term") || "";
+  const setTermId = (id: string) => {
+    const next = new URLSearchParams(search);
+    if (id) next.set("term", id); else next.delete("term");
+    setSearch(next);
+  };
 
   const [me, setMe] = useState<SchoolMeResponse | null>(null);
   const [meLoading, setMeLoading] = useState(true);
-  const [data, setData] = useState<ReportCardResponse | null>(null);
+  const [terms, setTerms] = useState<AcademicTerm[]>([]);
+  const [card, setCard] = useState<TermReportCardResponse | null>(null);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [classTeacherComment, setClassTeacherComment] = useState("");
+  const [principalComment, setPrincipalComment] = useState("");
+  const [subjectComments, setSubjectComments] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+
   useEffect(() => {
-    getSchoolMe()
-      .then(setMe)
-      .catch(() => setMe(null))
-      .finally(() => setMeLoading(false));
+    getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
   }, []);
-
   useEffect(() => {
-    if (!orgId || !studentId) return;
-    setError(null);
-    setData(null);
-    getReportCard(orgId, studentId, {
-      startDate: startDate || undefined,
-      endDate: endDate || undefined,
-    })
-      .then(setData)
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
-  }, [orgId, studentId, startDate, endDate]);
+    if (!orgId) return;
+    listTerms(orgId).then((r) => {
+      setTerms(r.terms);
+      if (!termId && r.terms.length > 0) {
+        const cur = r.terms.find((t) => t.isCurrent) ?? r.terms[0];
+        setTermId(cur.id);
+      }
+    }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgId]);
 
-  const overallLetter = useMemo(
-    () => (data ? letterGrade(data.academic.overallAveragePct) : "—"),
-    [data],
-  );
+  const refresh = () => {
+    if (!orgId || !studentId || !termId) { setCard(null); return; }
+    setLoading(true);
+    getTermReportCard(orgId, studentId, termId)
+      .then((r) => {
+        setCard(r);
+        setClassTeacherComment(r.comments.classTeacher ?? "");
+        setPrincipalComment(r.comments.principal ?? "");
+        setSubjectComments(r.comments.subjects ?? {});
+        setError(null);
+      })
+      .catch((e) => { setCard(null); setError(e instanceof Error ? e.message : "Failed to load"); })
+      .finally(() => setLoading(false));
+  };
+  useEffect(refresh, [orgId, studentId, termId]);
 
+  const isAdmin = useMemo(() => isOrgAdmin(me, orgId), [me, orgId]);
   if (meLoading) return null;
-  if (!isOrgAdmin(me, orgId)) return <Navigate to="/school" replace />;
+  if (!isAdmin && !me) return <Navigate to={`/school/orgs/${orgId}`} replace />;
 
-  if (error) {
-    return (
-      <div className="bg-rose-50 border border-rose-200 rounded p-4 text-sm text-rose-700">
-        {error}
-      </div>
-    );
-  }
-  if (!data) return <div className="text-slate-500 text-sm">Loading…</div>;
-
-  const period =
-    startDate && endDate
-      ? `${fmtDate(startDate)} → ${fmtDate(endDate)}`
-      : startDate
-      ? `From ${fmtDate(startDate)}`
-      : endDate
-      ? `Up to ${fmtDate(endDate)}`
-      : "All time";
+  const handleSaveComments = async () => {
+    if (!termId) return;
+    setSaving(true);
+    try {
+      await saveReportCardComments(orgId, studentId, termId, {
+        classTeacherComment: classTeacherComment || null,
+        principalComment: isAdmin ? (principalComment || null) : undefined,
+        subjectComments,
+      });
+      refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally { setSaving(false); }
+  };
+  const handleWorkflow = async (action: "finalize" | "unfinalize" | "publish" | "unpublish") => {
+    if (!termId) return;
+    try {
+      await setReportCardWorkflow(orgId, studentId, termId, action);
+      refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   return (
-    <div className="space-y-4">
-      {/* Action bar — hidden on print so the sheet is just the card */}
-      <div className="flex flex-wrap items-center gap-3 print:hidden">
-        <Link to={`/school/orgs/${orgId}/admin/students/${studentId}`}>
-          <Button variant="outline" size="sm">
-            <ArrowLeft className="h-3.5 w-3.5 mr-1" /> Back to student
-          </Button>
-        </Link>
-        <div className="flex items-end gap-2">
-          <div>
-            <Label className="text-[11px]">Start</Label>
-            <Input
-              type="date"
-              value={startDate}
-              onChange={(e) => {
-                const v = e.target.value;
-                const next = new URLSearchParams(search);
-                if (v) next.set("startDate", v);
-                else next.delete("startDate");
-                setSearch(next);
-              }}
-              className="h-8 w-40 text-xs"
-            />
-          </div>
-          <div>
-            <Label className="text-[11px]">End</Label>
-            <Input
-              type="date"
-              value={endDate}
-              onChange={(e) => {
-                const v = e.target.value;
-                const next = new URLSearchParams(search);
-                if (v) next.set("endDate", v);
-                else next.delete("endDate");
-                setSearch(next);
-              }}
-              className="h-8 w-40 text-xs"
-            />
-          </div>
-        </div>
-        <Button onClick={() => window.print()} className="ml-auto">
-          <Printer className="h-4 w-4 mr-1" /> Print / Save PDF
-        </Button>
-      </div>
-
-      {/* Print CSS — applies @ media print to neutralize the surrounding
-          admin shell and give the sheet a clean A4-friendly layout. */}
+    <div className="space-y-4 print:space-y-3">
       <style>{`
         @media print {
-          @page { size: A4; margin: 12mm; }
+          .no-print, .no-print * { display: none !important; }
           body { background: white !important; }
-          .print-hidden, .print\\:hidden { display: none !important; }
-          .report-card { box-shadow: none !important; border: 0 !important; }
+          .print-card { box-shadow: none !important; border: none !important; }
         }
       `}</style>
 
-      <article className="report-card bg-white border border-slate-200 rounded-lg shadow-sm p-8 max-w-4xl mx-auto">
-        {/* Header — school name + logo + period */}
-        <header className="flex items-start justify-between gap-4 pb-4 border-b-2 border-slate-900">
-          <div className="flex items-center gap-3">
-            {data.school.logoUrl && (
-              <img
-                src={data.school.logoUrl}
-                alt=""
-                className="h-14 w-14 rounded object-cover"
-              />
-            )}
-            <div>
-              <div className="text-2xl font-bold tracking-tight">
-                {data.school.name}
-              </div>
-              {data.school.motto && (
-                <div className="text-xs italic text-slate-600 mt-0.5">
-                  {data.school.motto}
-                </div>
-              )}
-              {data.school.address && (
-                <div className="text-xs text-slate-500 mt-0.5">
-                  {data.school.address}
-                </div>
-              )}
-            </div>
-          </div>
-          <div className="text-right text-xs">
-            <div className="uppercase tracking-wider font-semibold text-slate-500">
-              Student Report Card
-            </div>
-            <div className="text-slate-700 mt-1 flex items-center gap-1 justify-end">
-              <Calendar className="h-3 w-3" /> {period}
-            </div>
-          </div>
-        </header>
+      <div className="flex items-center justify-between flex-wrap gap-2 no-print">
+        <Link to={`/school/orgs/${orgId}/admin/students/${studentId}`}>
+          <Button variant="outline" size="sm">
+            <ArrowLeft className="h-3.5 w-3.5 mr-1" /> Student
+          </Button>
+        </Link>
+        <div className="flex items-center gap-2">
+          <Select value={termId || "__none__"} onValueChange={(v) => setTermId(v === "__none__" ? "" : v)}>
+            <SelectTrigger className="h-9 text-sm w-40"><SelectValue placeholder="Pick term…" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">— Pick term —</SelectItem>
+              {terms.map((t) => (
+                <SelectItem key={t.id} value={t.id}>
+                  {t.name}{t.isCurrent ? " · current" : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button variant="outline" size="sm" onClick={() => window.print()} disabled={!card}>
+            <Printer className="h-3.5 w-3.5 mr-1" /> Print
+          </Button>
+        </div>
+      </div>
 
-        {/* Student basics */}
-        <section className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-2 mt-5 text-sm">
-          <Field label="Name" value={data.student.fullName} />
-          <Field label="GR Number" value={data.student.grNumber} mono />
-          <Field
-            label="Class · Section"
-            value={
-              data.placement.className && data.placement.sectionName
-                ? `${data.placement.className} — ${data.placement.sectionName}`
-                : data.placement.className ?? "—"
-            }
-          />
-          <Field
-            label="Program"
-            value={
-              data.student.program === "hifz"
-                ? "Hifz"
-                : data.student.program === "conventional"
-                ? "Conventional"
-                : "—"
-            }
-          />
-          <Field label="Date of Birth" value={fmtDate(data.student.dateOfBirth)} />
-          <Field label="Gender" value={data.student.gender ?? "—"} />
-          <Field label="Class Teacher" value={data.placement.classTeacherName ?? "—"} />
-          <Field label="Hifz Teacher" value={data.placement.hifzTeacherName ?? "—"} />
-        </section>
+      {error && (
+        <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 no-print">{error}</div>
+      )}
 
-        {/* Academic block */}
-        <section className="mt-6">
-          <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700 border-b border-slate-300 pb-1 mb-3">
-            Academic Performance
-          </h2>
-          {data.academic.subjects.length === 0 ? (
-            <p className="text-xs text-slate-500 italic">
-              No graded assignments in this period.
-            </p>
-          ) : (
-            <table className="w-full text-sm border-collapse">
-              <thead>
-                <tr className="border-b border-slate-300 text-left">
-                  <th className="py-1.5 font-semibold">Subject</th>
-                  <th className="py-1.5 font-semibold text-right w-24 tabular-nums">
-                    Average
-                  </th>
-                  <th className="py-1.5 font-semibold text-right w-20">Grade</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.academic.subjects.map((s) => (
-                  <tr key={s.name} className="border-b border-slate-100">
-                    <td className="py-1.5">{s.name}</td>
-                    <td className="py-1.5 text-right tabular-nums">
-                      {s.averagePct == null ? "—" : `${s.averagePct.toFixed(1)}%`}
-                    </td>
-                    <td className="py-1.5 text-right font-semibold">
-                      {letterGrade(s.averagePct)}
-                    </td>
-                  </tr>
-                ))}
-                <tr className="border-t-2 border-slate-900 font-bold">
-                  <td className="py-2">Overall</td>
-                  <td className="py-2 text-right tabular-nums">
-                    {data.academic.overallAveragePct == null
-                      ? "—"
-                      : `${data.academic.overallAveragePct.toFixed(1)}%`}
-                  </td>
-                  <td className="py-2 text-right text-lg">{overallLetter}</td>
-                </tr>
-              </tbody>
-            </table>
+      {!termId ? (
+        <Card><CardContent className="p-4 text-sm text-slate-500 italic">Pick a term above.</CardContent></Card>
+      ) : loading ? (
+        <div className="text-sm text-slate-500">Loading…</div>
+      ) : !card ? null : (
+        <>
+          {isAdmin && (
+            <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs flex items-center gap-2 flex-wrap no-print">
+              <span className="font-semibold text-slate-700">Workflow:</span>
+              {card.workflow.finalizedAt ? (
+                <>
+                  <span className="inline-flex items-center gap-1 text-emerald-700">
+                    <CheckCircle2 className="h-3.5 w-3.5" /> Finalized {new Date(card.workflow.finalizedAt).toLocaleDateString()}
+                  </span>
+                  <Button size="sm" variant="ghost" onClick={() => handleWorkflow("unfinalize")}>Unfinalize</Button>
+                </>
+              ) : (
+                <Button size="sm" variant="outline" onClick={() => handleWorkflow("finalize")}>
+                  <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Finalize
+                </Button>
+              )}
+              {card.workflow.publishedAt ? (
+                <>
+                  <span className="inline-flex items-center gap-1 text-indigo-700">
+                    <Send className="h-3.5 w-3.5" /> Published {new Date(card.workflow.publishedAt).toLocaleDateString()}
+                  </span>
+                  <Button size="sm" variant="ghost" onClick={() => handleWorkflow("unpublish")}>Unpublish</Button>
+                </>
+              ) : (
+                <Button size="sm" variant="outline" onClick={() => handleWorkflow("publish")} disabled={!card.workflow.finalizedAt}>
+                  <Send className="h-3.5 w-3.5 mr-1" /> Publish to parents
+                </Button>
+              )}
+            </div>
           )}
-        </section>
 
-        {/* Attendance + Behavior side by side */}
-        <section className="mt-6 grid sm:grid-cols-2 gap-6">
-          <div>
-            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700 border-b border-slate-300 pb-1 mb-3">
-              Attendance
-            </h2>
-            <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-              <dt className="text-slate-600">Present</dt>
-              <dd className="text-right tabular-nums">{data.attendance.present}</dd>
-              <dt className="text-slate-600">Late</dt>
-              <dd className="text-right tabular-nums">{data.attendance.late}</dd>
-              <dt className="text-slate-600">Absent</dt>
-              <dd className="text-right tabular-nums">{data.attendance.absent}</dd>
-              <dt className="text-slate-600">Excused</dt>
-              <dd className="text-right tabular-nums">{data.attendance.excused}</dd>
-              <dt className="font-semibold border-t pt-1">Total days</dt>
-              <dd className="text-right tabular-nums font-semibold border-t pt-1">
-                {data.attendance.total}
-              </dd>
-              <dt className="font-semibold">Attendance %</dt>
-              <dd className="text-right tabular-nums font-semibold">
-                {data.attendance.attendancePct == null
-                  ? "—"
-                  : `${data.attendance.attendancePct}%`}
-              </dd>
-            </dl>
-          </div>
-          <div>
-            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700 border-b border-slate-300 pb-1 mb-3">
-              Behavior
-            </h2>
-            <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-              <dt className="text-slate-600">Positive observations</dt>
-              <dd className="text-right tabular-nums">{data.behavior.positive}</dd>
-              <dt className="text-slate-600">Concerns</dt>
-              <dd className="text-right tabular-nums">{data.behavior.concern}</dd>
-              <dt className="font-semibold border-t pt-1">Net behavior points</dt>
-              <dd
-                className={
-                  "text-right tabular-nums font-semibold border-t pt-1 " +
-                  (data.behavior.netPoints >= 0 ? "text-emerald-700" : "text-rose-700")
-                }
-              >
-                {data.behavior.netPoints > 0 ? "+" : ""}
-                {data.behavior.netPoints}
-              </dd>
-            </dl>
-          </div>
-        </section>
+          <Card className="print-card">
+            <CardContent className="p-6 space-y-5">
+              <div className="flex items-start justify-between gap-4 border-b border-slate-200 pb-3">
+                <div className="flex items-center gap-3">
+                  {card.school.logoUrl && (
+                    <img src={card.school.logoUrl} alt="" className="h-12 w-12 rounded object-cover" />
+                  )}
+                  <div>
+                    <div className="text-lg font-bold text-slate-900">{card.school.name}</div>
+                    {card.school.motto && <div className="text-xs text-slate-600 italic">{card.school.motto}</div>}
+                    {card.school.address && <div className="text-[11px] text-slate-500">{card.school.address}</div>}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-xs font-semibold uppercase tracking-wider text-indigo-700">Report Card</div>
+                  <div className="text-sm font-medium text-slate-900">{card.term.name}</div>
+                  <div className="text-[11px] text-slate-500">{card.term.startDate} → {card.term.endDate}</div>
+                </div>
+              </div>
 
-        {/* Hifz — own block. Per the spec, this is a parallel track and
-            should never be confused with academic grades. */}
-        <section className="mt-6">
-          <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700 border-b border-slate-300 pb-1 mb-3">
-            Hifz (Memorization) Progress
-          </h2>
-          <div className="grid sm:grid-cols-2 gap-6">
-            <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-              <dt className="text-slate-600">Ayahs memorized</dt>
-              <dd className="text-right tabular-nums">{data.hifz.ayahsMemorized}</dd>
-              <dt className="text-slate-600">Surahs touched</dt>
-              <dd className="text-right tabular-nums">{data.hifz.surahsCompleted}</dd>
-              <dt className="text-slate-600">Sabaq / revision entries</dt>
-              <dd className="text-right tabular-nums">{data.hifz.totalEntries}</dd>
-              <dt className="text-slate-600">Missed sabaq days</dt>
-              <dd className="text-right tabular-nums">{data.hifz.missedCount}</dd>
-            </dl>
-            <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-              <dt className="text-emerald-700">Excellent</dt>
-              <dd className="text-right tabular-nums text-emerald-700">
-                {data.hifz.qualityCounts.excellent}
-              </dd>
-              <dt className="text-sky-700">Good</dt>
-              <dd className="text-right tabular-nums text-sky-700">
-                {data.hifz.qualityCounts.good}
-              </dd>
-              <dt className="text-amber-700">Needs practice</dt>
-              <dd className="text-right tabular-nums text-amber-700">
-                {data.hifz.qualityCounts.needs_practice}
-              </dd>
-              <dt className="text-rose-700">Weak</dt>
-              <dd className="text-right tabular-nums text-rose-700">
-                {data.hifz.qualityCounts.weak}
-              </dd>
-            </dl>
-          </div>
-        </section>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                <div><div className="text-slate-500">Name</div><div className="font-medium">{card.student.fullName}</div></div>
+                <div><div className="text-slate-500">GR No</div><div className="font-medium">{card.student.grNumber}</div></div>
+                <div><div className="text-slate-500">Class</div>
+                  <div className="font-medium">
+                    {card.placement.className ?? "—"}{card.placement.sectionName ? ` — ${card.placement.sectionName}` : ""}
+                  </div>
+                </div>
+                <div><div className="text-slate-500">Class teacher</div>
+                  <div className="font-medium">{card.placement.classTeacherName ?? "—"}</div>
+                </div>
+              </div>
 
-        {/* Signatures footer */}
-        <footer className="mt-12 pt-8 grid grid-cols-3 gap-6 text-xs">
-          <div className="border-t border-slate-400 pt-1 text-center">Class Teacher</div>
-          <div className="border-t border-slate-400 pt-1 text-center">Hifz Teacher</div>
-          <div className="border-t border-slate-400 pt-1 text-center">Principal</div>
-        </footer>
-      </article>
-    </div>
-  );
-}
+              <section>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-2 flex items-center gap-1">
+                  <BookOpen className="h-3.5 w-3.5 text-indigo-500" /> Academic performance
+                </h3>
+                {card.academic.subjects.length === 0 ? (
+                  <div className="text-xs text-slate-500 italic">No subject scores recorded for this term.</div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead className="bg-slate-50 text-slate-700">
+                        <tr>
+                          <th className="text-left px-2 py-1.5">Subject</th>
+                          {card.exams.map((e) => (
+                            <th key={e.id} className="text-center px-2 py-1.5">{e.name}</th>
+                          ))}
+                          <th className="text-right px-2 py-1.5">Total</th>
+                          <th className="text-right px-2 py-1.5">%</th>
+                          <th className="text-center px-2 py-1.5">Grade</th>
+                          <th className="text-left px-2 py-1.5">Remarks</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {card.academic.subjects.map((s) => (
+                          <tr key={s.classSubjectId} className="border-t border-slate-100">
+                            <td className="px-2 py-1.5 font-medium">{s.name}</td>
+                            {card.exams.map((e) => {
+                              const pe = s.perExam.find((x) => x.examId === e.id);
+                              return (
+                                <td key={e.id} className="px-2 py-1.5 text-center">
+                                  {!pe ? "—" : pe.absent ? <span className="text-rose-600">Abs</span> :
+                                    pe.obtained === null ? "—" :
+                                    <>{pe.obtained}<span className="text-slate-400">/{pe.max}</span></>}
+                                </td>
+                              );
+                            })}
+                            <td className="px-2 py-1.5 text-right">
+                              {s.totalMax > 0 ? `${s.totalObtained}/${s.totalMax}` : "—"}
+                            </td>
+                            <td className="px-2 py-1.5 text-right font-medium">{fmtPct(s.percentage)}</td>
+                            <td className="px-2 py-1.5 text-center font-bold">{s.letter}</td>
+                            <td className="px-2 py-1.5 text-slate-600">{s.remark}</td>
+                          </tr>
+                        ))}
+                        <tr className="border-t-2 border-slate-300 bg-slate-50/60 font-semibold">
+                          <td className="px-2 py-1.5">Overall</td>
+                          <td colSpan={card.exams.length} className="px-2 py-1.5"></td>
+                          <td className="px-2 py-1.5 text-right">
+                            {card.academic.overall.max > 0
+                              ? `${card.academic.overall.obtained}/${card.academic.overall.max}`
+                              : "—"}
+                          </td>
+                          <td className="px-2 py-1.5 text-right">{fmtPct(card.academic.overall.percentage)}</td>
+                          <td className="px-2 py-1.5 text-center">{card.academic.overall.letter}</td>
+                          <td className="px-2 py-1.5">{card.academic.overall.remark}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
 
-function Field({
-  label,
-  value,
-  mono,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
-  return (
-    <div>
-      <div className="text-[10px] uppercase tracking-wider text-slate-500">{label}</div>
-      <div className={"text-sm text-slate-900 " + (mono ? "font-mono" : "")}>{value}</div>
+              <section className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="rounded-md border border-slate-200 bg-white p-3">
+                  <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 flex items-center gap-1">
+                    <Calendar className="h-3.5 w-3.5 text-indigo-500" /> Attendance
+                  </div>
+                  <div className="text-xs space-y-0.5">
+                    <div>Present: <span className="font-medium">{card.attendance.present}</span></div>
+                    <div>Late: <span className="font-medium">{card.attendance.late}</span></div>
+                    <div>Absent: <span className="font-medium">{card.attendance.absent}</span></div>
+                    <div>Excused: <span className="font-medium">{card.attendance.excused}</span></div>
+                    <div className="pt-1 border-t border-slate-100 mt-1">
+                      <span className="font-semibold">{fmtPct(card.attendance.attendancePct)}</span> attendance
+                    </div>
+                  </div>
+                </div>
+                <div className="rounded-md border border-slate-200 bg-white p-3">
+                  <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 flex items-center gap-1">
+                    <TrendingUp className="h-3.5 w-3.5 text-emerald-500" /> Behavior
+                  </div>
+                  <div className="text-xs space-y-0.5">
+                    <div>Positive notes: <span className="font-medium text-emerald-700">{card.behavior.positive}</span></div>
+                    <div>Concerns: <span className="font-medium text-amber-700">{card.behavior.concern}</span></div>
+                    <div>Net points: <span className="font-semibold">{card.behavior.netPoints}</span></div>
+                  </div>
+                </div>
+                <div className="rounded-md border border-slate-200 bg-white p-3">
+                  <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 flex items-center gap-1">
+                    <Award className="h-3.5 w-3.5 text-amber-500" /> Hifz progress
+                  </div>
+                  <div className="text-xs space-y-0.5">
+                    <div>Ayahs memorized: <span className="font-medium">{card.hifz.ayahsMemorized}</span></div>
+                    <div>Surahs touched: <span className="font-medium">{card.hifz.surahsCompleted}</span></div>
+                    <div>Entries: {card.hifz.totalEntries} (missed {card.hifz.missedCount})</div>
+                    <div className="pt-1 border-t border-slate-100 mt-1 text-[11px] text-slate-500">
+                      Quality: Excellent {card.hifz.qualityCounts.excellent} ·
+                      Good {card.hifz.qualityCounts.good} ·
+                      Needs practice {card.hifz.qualityCounts.needs_practice} ·
+                      Weak {card.hifz.qualityCounts.weak}
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="space-y-3 print:break-inside-avoid">
+                <div>
+                  <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                    Subject remarks
+                  </div>
+                  <div className="space-y-1.5">
+                    {card.academic.subjects.map((s) => {
+                      const v = subjectComments[s.classSubjectId] ?? "";
+                      return (
+                        <div key={s.classSubjectId} className="text-xs">
+                          <div className="font-medium text-slate-700">{s.name}:</div>
+                          <Textarea
+                            value={v}
+                            onChange={(e) => setSubjectComments({ ...subjectComments, [s.classSubjectId]: e.target.value })}
+                            placeholder="—"
+                            className="text-xs h-16 no-print"
+                            maxLength={1000}
+                          />
+                          <div className="hidden print:block text-slate-700">{v || "—"}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                      Class teacher's remark
+                    </div>
+                    <Textarea
+                      value={classTeacherComment}
+                      onChange={(e) => setClassTeacherComment(e.target.value)}
+                      placeholder="—"
+                      className="text-xs h-20 no-print"
+                      maxLength={2000}
+                    />
+                    <div className="hidden print:block text-xs text-slate-700">
+                      {classTeacherComment || "—"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                      Principal's remark
+                    </div>
+                    <Textarea
+                      value={principalComment}
+                      onChange={(e) => setPrincipalComment(e.target.value)}
+                      placeholder="—"
+                      className="text-xs h-20 no-print"
+                      maxLength={2000}
+                      disabled={!isAdmin}
+                    />
+                    <div className="hidden print:block text-xs text-slate-700">
+                      {principalComment || "—"}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 no-print">
+                  <Button size="sm" onClick={handleSaveComments} disabled={saving}>
+                    <Pencil className="h-3.5 w-3.5 mr-1" /> {saving ? "Saving…" : "Save comments"}
+                  </Button>
+                  {card.workflow.publishedAt && (
+                    <span className="text-[11px] text-amber-700 inline-flex items-center gap-1">
+                      <ShieldAlert className="h-3.5 w-3.5" />
+                      Card is published — edits show to parents immediately.
+                    </span>
+                  )}
+                </div>
+              </section>
+
+              <section className="grid grid-cols-3 gap-6 pt-4 mt-4 border-t border-slate-200 text-[11px] text-slate-500 print:break-inside-avoid">
+                <div className="text-center">________________<div className="mt-1">Class teacher</div></div>
+                <div className="text-center">________________<div className="mt-1">Principal</div></div>
+                <div className="text-center">________________<div className="mt-1">Parent signature</div></div>
+              </section>
+            </CardContent>
+          </Card>
+        </>
+      )}
     </div>
   );
 }

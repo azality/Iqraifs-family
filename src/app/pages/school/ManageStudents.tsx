@@ -34,10 +34,12 @@ import {
   updateStudent,
   deleteStudent,
   bulkCreateAdminStudents,
+  listHifzGroups,
   type AdminClass,
   type AdminStudent,
   type CreateStudentBody,
   type GuardianInput,
+  type HifzGroup,
   type SchoolMeResponse,
 } from "../../../utils/schoolApi";
 import { CsvUploadDialog } from "./components/CsvUploadDialog";
@@ -91,6 +93,7 @@ export function ManageStudents() {
   const [meLoading, setMeLoading] = useState(true);
   const [students, setStudents] = useState<AdminStudent[]>([]);
   const [classes, setClasses] = useState<AdminClass[]>([]);
+  const [hifzGroups, setHifzGroups] = useState<HifzGroup[]>([]);
   const [search, setSearch] = useState("");
   const [sectionFilter, setSectionFilter] = useState<string>("__all__");
   const [formOpen, setFormOpen] = useState(false);
@@ -139,6 +142,7 @@ export function ManageStudents() {
   useEffect(() => {
     if (!orgId) return;
     listClasses(orgId).then(setClasses).catch(() => {});
+    listHifzGroups(orgId).then(setHifzGroups).catch(() => {});
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId, sectionFilter, search]);
@@ -174,6 +178,7 @@ export function ManageStudents() {
       guardianPhone: s.guardian_phone || "",
       guardianEmail: s.guardian_email || "",
       program: ((s as any).program as "hifz" | "conventional" | undefined) || "",
+      hifzGroupId: (s as any).hifz_group_id ?? "",
     });
     setFormOpen(true);
   };
@@ -421,6 +426,29 @@ export function ManageStudents() {
               </Select>
               <p className="mt-1 text-[11px] text-slate-500">
                 Drives Hifz dashboards and "Program" announcements.
+              </p>
+            </div>
+            <div className="sm:col-span-2">
+              <Label>Hifz group</Label>
+              <Select
+                value={form.hifzGroupId || "__none__"}
+                onValueChange={(v) =>
+                  setForm({ ...form, hifzGroupId: v === "__none__" ? "" : v })
+                }
+              >
+                <SelectTrigger><SelectValue placeholder="(unassigned)" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">(unassigned)</SelectItem>
+                  {hifzGroups.map((g) => (
+                    <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="mt-1 text-[11px] text-slate-500">
+                Hifz groups are a peer of the class section.{" "}
+                <Link to={`/school/orgs/${orgId}/admin/hifz-groups`} className="text-indigo-600 hover:underline">
+                  Manage groups →
+                </Link>
               </p>
             </div>
           </div>

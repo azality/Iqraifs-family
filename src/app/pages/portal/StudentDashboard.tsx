@@ -1,20 +1,28 @@
-// StudentDashboard — overview of a single student for the portal.
+// StudentDashboard — single-child landing page in the portal.
+//
+// PR feat/parent-portal-home: leads with plain-language status cards
+// from the today-snapshot endpoint. Today's Diary (from feat/daily-diary)
+// sits between status pills and recent activity. Recent activity from
+// the existing dashboard endpoint still appears at the bottom.
 
 import { useEffect, useState } from "react";
 import { useParams } from "react-router";
-import { CalendarCheck, Award, BookOpen, Sparkles, ClipboardList, Bell } from "lucide-react";
+import { Award, BookOpen, ClipboardList, Bell } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { DataTable, HeroCard, KpiTile } from "../../components/school-ui";
+import { DataTable, HeroCard } from "../../components/school-ui";
 import {
   getStudentDashboard,
+  getTodaySnapshot,
   getMyStudentDiary,
   type StudentDashboardResponse,
   type DashboardActivityItem,
+  type TodaySnapshot,
   type MyStudentDiaryResponse,
 } from "../../../utils/schoolPortalApi";
+import { TodayStatusPills } from "./TodayStatusPills";
 
-// Friendly Surah name lookup for the Hifz line. Same compact list the
-// StudentHifz card uses; falls back to "Surah N" for entries outside it.
+// Friendly Surah name lookup for the Hifz line. Compact list; falls
+// back to "Surah N" for entries outside it.
 const SURAH_NAMES: Record<number, string> = {
   1: "Al-Fatihah", 2: "Al-Baqarah", 3: "Al-Imran", 78: "An-Naba",
   79: "An-Nazi'at", 80: "Abasa", 111: "Al-Masad", 112: "Al-Ikhlas",
@@ -23,22 +31,19 @@ const SURAH_NAMES: Record<number, string> = {
 const surahLabel = (n: number) =>
   SURAH_NAMES[n] ? `Surah ${SURAH_NAMES[n]}` : `Surah ${n}`;
 
-/** "Today" diary card — the headline of the parent portal home. Mirrors
- *  the spec's example output line-by-line:
+/** "Today's Diary" card. Spec-shaped:
  *    English: Worksheet completed
- *    Math: Homework page 15
- *    Hifz: Revise Surah ___
- *    Reminder: Bring notebook tomorrow
- *  Each row is a single line keyed to a subject (or "Hifz") so a parent
- *  glancing on a phone gets the whole picture in 5 seconds. */
+ *    Math: Homework page 15 (due today)
+ *    Hifz: Today's sabaq — Surah Al-Mulk, ayah 1–10
+ *    What to do tonight: Revise Surah Al-Mulk after Maghrib
+ *    Reminders: Bring notebook tomorrow
+ */
 function DiaryCard({ diary }: { diary: MyStudentDiaryResponse }) {
   const dateLabel = new Date(diary.date + "T00:00:00Z").toLocaleDateString(undefined, {
     weekday: "long",
     month: "long",
     day: "numeric",
   });
-  // Group lessons by subject — first lesson title wins per subject so
-  // the row reads as "English: <today's lesson>".
   const lessonsBySubject = new Map<string, string>();
   for (const l of diary.lessons) {
     const key = l.subject ?? "Lessons";
@@ -61,8 +66,6 @@ function DiaryCard({ diary }: { diary: MyStudentDiaryResponse }) {
     return null;
   })();
 
-  // Anything to render at all? If nothing happened today, the card
-  // shows a friendly empty state — better than disappearing silently.
   const isEmpty =
     lessonsBySubject.size === 0 &&
     diary.assignments.length === 0 &&
@@ -80,12 +83,10 @@ function DiaryCard({ diary }: { diary: MyStudentDiaryResponse }) {
       <div className="p-5 space-y-2.5 text-sm">
         {isEmpty && (
           <div className="text-slate-500 italic text-center py-2">
-            Nothing logged for today yet. The teacher will post updates as the day
-            progresses.
+            Nothing logged for today yet. The teacher will post updates as the day progresses.
           </div>
         )}
 
-        {/* One row per subject — "English: Worksheet completed" */}
         {Array.from(lessonsBySubject.entries()).map(([subject, title]) => (
           <div key={subject} className="flex gap-2 items-start">
             <BookOpen className="h-4 w-4 mt-0.5 text-indigo-600 shrink-0" />
@@ -96,7 +97,6 @@ function DiaryCard({ diary }: { diary: MyStudentDiaryResponse }) {
           </div>
         ))}
 
-        {/* Today + tomorrow's assignments — "Math: Homework page 15" */}
         {diary.assignments.map((a) => {
           const today = diary.date;
           const dueLabel = a.dueDate === today ? "due today" : "due tomorrow";
@@ -114,7 +114,6 @@ function DiaryCard({ diary }: { diary: MyStudentDiaryResponse }) {
           );
         })}
 
-        {/* Hifz line — single highlight row */}
         {hifzLine && (
           <div className="flex gap-2 items-start">
             <Award className="h-4 w-4 mt-0.5 text-emerald-600 shrink-0" />
@@ -125,7 +124,6 @@ function DiaryCard({ diary }: { diary: MyStudentDiaryResponse }) {
           </div>
         )}
 
-        {/* Parent action — emerald CTA */}
         {diary.hifz?.parentAction && (
           <div className="mt-3 rounded-lg bg-emerald-50 border border-emerald-200 p-3">
             <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
@@ -135,7 +133,6 @@ function DiaryCard({ diary }: { diary: MyStudentDiaryResponse }) {
           </div>
         )}
 
-        {/* Reminders — extracted from lesson notes */}
         {diary.reminders.length > 0 && (
           <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 p-3">
             <div className="text-xs font-semibold uppercase tracking-wide text-amber-700 flex items-center gap-1">
@@ -164,130 +161,109 @@ function relativeTime(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
+const KIND_LABEL: Record<string, string> = {
+  lesson: "Lesson",
+  grade: "Grade",
+  hifz: "Hifz",
+  attendance: "Attendance",
+  behavior: "Teacher note",
+};
+
 export function StudentDashboard() {
   const { t } = useTranslation();
   const { studentId = "" } = useParams<{ studentId: string }>();
+  const [snapshot, setSnapshot] = useState<TodaySnapshot | null>(null);
   const [data, setData] = useState<StudentDashboardResponse | null>(null);
   const [diary, setDiary] = useState<MyStudentDiaryResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      try {
-        // Parallel — diary is independent of dashboard. If diary fails
-        // we still want to render the rest, so don't await both
-        // together: fire diary fetch separately and only log on
-        // failure (no need to surface as user error).
-        const res = await getStudentDashboard(studentId);
-        if (!cancelled) setData(res);
-        getMyStudentDiary(studentId)
-          .then((d) => { if (!cancelled) setDiary(d); })
-          .catch(() => { /* silent fail — dashboard still renders */ });
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load");
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    getTodaySnapshot(studentId)
+      .then((r) => { if (!cancelled) setSnapshot(r); })
+      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load"); });
+    getStudentDashboard(studentId)
+      .then((r) => { if (!cancelled) setData(r); })
+      .catch(() => { /* recent activity is non-fatal */ });
+    getMyStudentDiary(studentId)
+      .then((d) => { if (!cancelled) setDiary(d); })
+      .catch(() => { /* diary is non-fatal — card silently hidden */ });
+    return () => { cancelled = true; };
   }, [studentId]);
 
-  if (error) {
+  if (error && !snapshot) {
     return (
       <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 text-sm text-rose-700">
         {error}
       </div>
     );
   }
-  if (!data) {
+  if (!snapshot) {
     return <div className="text-slate-500 text-sm">{t("common.loading")}</div>;
   }
 
-  const { student, tiles, recentActivity } = data;
-  const sectionSubtitle = [student.sectionName, student.className].filter(Boolean).join(" · ");
+  const sectionSubtitle = [snapshot.student.sectionName, snapshot.student.className]
+    .filter(Boolean).join(" · ");
 
   return (
     <div className="space-y-5">
       <HeroCard
-        title={student.fullName}
-        subtitle={sectionSubtitle || `GR # ${student.grNumber}`}
+        title={snapshot.student.fullName}
+        subtitle={sectionSubtitle || `GR # ${snapshot.student.grNumber}`}
         asOf={`As of ${new Date().toLocaleDateString()}`}
-      >
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" data-tour="portal-dashboard-tiles">
-          <KpiTile
-            icon={CalendarCheck}
-            label={t("portal.tiles.attendance")}
-            value={
-              tiles.attendancePct?.value !== null && tiles.attendancePct?.value !== undefined
-                ? `${tiles.attendancePct.value}%`
-                : null
-            }
-            hint={tiles.attendancePct?.hint ?? undefined}
-            variant="light"
-          />
-          <KpiTile
-            icon={Award}
-            label={t("portal.tiles.averageGrade")}
-            value={
-              tiles.averageGrade?.value !== null && tiles.averageGrade?.value !== undefined
-                ? `${tiles.averageGrade.value}%`
-                : null
-            }
-            hint={tiles.averageGrade?.hint ?? undefined}
-            variant="light"
-          />
-          <KpiTile
-            icon={BookOpen}
-            label={t("portal.tiles.ayahsMemorized")}
-            value={tiles.hifzAyahsMemorized?.value ?? null}
-            hint={tiles.hifzAyahsMemorized?.hint ?? undefined}
-            variant="light"
-          />
-          <KpiTile
-            icon={Sparkles}
-            label={t("portal.tiles.behaviorScore")}
-            value={tiles.behaviorScore?.value ?? null}
-            hint={tiles.behaviorScore?.hint ?? undefined}
-            variant="light"
-          />
-        </div>
-      </HeroCard>
+      />
 
-      {/* Today's diary — highest-signal panel above recent activity */}
+      {/* Today's plain-language status cards. */}
+      <section>
+        <h2 className="text-xs font-bold uppercase tracking-widest text-slate-500 mb-2">
+          Today
+        </h2>
+        <TodayStatusPills
+          studentId={studentId}
+          snapshot={snapshot}
+          variant="expanded"
+        />
+      </section>
+
+      {/* Today's Diary — narrative for today (what we did, what to do tonight). */}
       {diary && <DiaryCard diary={diary} />}
 
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm">
-        <div className="px-5 py-3 border-b border-slate-100">
-          <h3 className="text-sm font-bold uppercase tracking-widest text-slate-500">
-            {t("portal.recentActivity")}
-          </h3>
+      {/* Recent activity timeline — still useful for "what happened last week". */}
+      {data && (
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm">
+          <div className="px-5 py-3 border-b border-slate-100">
+            <h3 className="text-sm font-bold uppercase tracking-widest text-slate-500">
+              Recent activity
+            </h3>
+          </div>
+          <DataTable<DashboardActivityItem>
+            rows={data.recentActivity}
+            rowKey={(r) => r.id}
+            emptyMessage="No recent activity."
+            columns={[
+              {
+                key: "at",
+                header: "When",
+                width: "w-32",
+                cell: (r) => <span className="text-slate-500">{relativeTime(r.at)}</span>,
+              },
+              {
+                key: "kind",
+                header: "Kind",
+                width: "w-32",
+                cell: (r) => (
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-indigo-50 text-indigo-700">
+                    {KIND_LABEL[r.kind] ?? r.kind.replace(/_/g, " ")}
+                  </span>
+                ),
+              },
+              { key: "summary", header: "What happened", cell: (r) => r.summary },
+            ]}
+          />
         </div>
-        <DataTable<DashboardActivityItem>
-          rows={recentActivity}
-          rowKey={(r) => r.id}
-          emptyMessage="No recent activity."
-          columns={[
-            {
-              key: "at",
-              header: "When",
-              width: "w-32",
-              cell: (r) => <span className="text-slate-500">{relativeTime(r.at)}</span>,
-            },
-            {
-              key: "kind",
-              header: "Kind",
-              width: "w-32",
-              cell: (r) => (
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-indigo-50 text-indigo-700 capitalize">
-                  {r.kind.replace(/_/g, " ")}
-                </span>
-              ),
-            },
-            { key: "summary", header: "Summary", cell: (r) => r.summary },
-          ]}
-        />
-      </div>
+      )}
     </div>
   );
 }
+
+export default StudentDashboard;

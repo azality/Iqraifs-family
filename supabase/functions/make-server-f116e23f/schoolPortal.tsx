@@ -538,20 +538,9 @@ export function installPortal(school: Hono): void {
   // GET /school/pin-me/students/:studentId/diary?date=YYYY-MM-DD
   //
   // Daily Diary digest — the "what happened today + what to do tonight"
-  // panel the parent portal home renders. Aggregates from existing
-  // surfaces in one round trip:
-  //   - lessons:     today's lessons (visibility-filtered) grouped by subject
-  //   - assignments: items due today AND tomorrow, surfaced as a
-  //                  short to-do list ("Math: homework page 15")
-  //   - hifz:        the latest Hifz entry (sabaq + revision + parent
-  //                  action) so the parent gets "Revise Surah X after
-  //                  Maghrib" without bouncing through the Hifz tab
-  //   - reminders:   string array, currently derived from lesson notes
-  //                  that match a "reminder" / "bring" keyword pattern
-  //
-  // `date` defaults to today (UTC). The spec for the digest mirrors
-  // exactly the "English: Worksheet completed / Math: Homework page 15
-  // / Hifz: Revise Surah / Reminder: bring notebook" example.
+  // panel the parent portal home renders. Aggregates lessons today,
+  // assignments due today+tomorrow, latest Hifz entry, and reminder
+  // lines extracted heuristically from lesson bodies.
   // ---------------------------------------------------------------------------
   school.get("/pin-me/students/:studentId/diary", async (c) => {
     const g = await gatePerStudent(c);
@@ -706,6 +695,161 @@ export function installPortal(school: Hono): void {
       hifz,
       reminders,
     });
+  });
+
+  // ---------------------------------------------------------------------------
+  // GET /school/pin-me/students/:studentId/timetable
+  //
+  // Parent / student portal weekly timetable view. Joins the org-wide
+  // slot list with the student's section's entries — Hifz group entries
+  // also flow through if the student is in a group, deduped by slot
+  // (section entry wins when both exist on the same slot).
+  // ---------------------------------------------------------------------------
+  school.get("/pin-me/students/:studentId/timetable", async (c) => {
+    const g = await gatePerStudent(c);
+    if (!g.ok) return g.resp;
+    const { studentId } = g;
+
+    const { data: stu } = await serviceRoleClient
+      .from("student")
+      .select("class_section_id, hifz_group_id, org_id")
+      .eq("id", studentId)
+      .maybeSingle();
+    if (!stu) return c.json({ error: "student not found" }, 404);
+
+    // Pull all slots for the org so empty cells render too.
+    const { data: slots } = await serviceRoleClient
+      .from("timetable_slot")
+      .select("*")
+      .eq("org_id", (stu as any).org_id)
+      .is("archived_at", null)
+      .order("day_of_week", { ascending: true })
+      .order("start_time", { ascending: true });
+
+    // Entries for the section + (optional) hifz group.
+    const scopes: string[] = [];
+    if ((stu as any).class_section_id) scopes.push((stu as any).class_section_id);
+    const { data: secEntries } = (stu as any).class_section_id
+      ? await serviceRoleClient
+          .from("timetable_entry")
+          .select(
+            "*, section_subject:section_subject_id(class_subject:class_subject_id(name))",
+          )
+          .eq("scope_section_id", (stu as any).class_section_id)
+      : { data: [] as any[] };
+    const { data: groupEntries } = (stu as any).hifz_group_id
+      ? await serviceRoleClient
+          .from("timetable_entry")
+          .select(
+            "*, section_subject:section_subject_id(class_subject:class_subject_id(name))",
+          )
+          .eq("scope_hifz_group_id", (stu as any).hifz_group_id)
+      : { data: [] as any[] };
+
+    // Hydrate teacher names once.
+    const all = [...(secEntries ?? []), ...(groupEntries ?? [])] as any[];
+    const teacherIds = Array.from(
+      new Set(all.map((e) => e.teacher_user_id).filter((x): x is string => !!x)),
+    );
+    const teacherNames = new Map<string, string>();
+    for (const tid of teacherIds) {
+      try {
+        const { data: u } = await (serviceRoleClient as any).auth.admin.getUserById(tid);
+        const name = u?.user?.user_metadata?.name || u?.user?.email || "";
+        if (name) teacherNames.set(tid, name);
+      } catch { /* ignore */ }
+    }
+
+    // Section entries win when both exist on the same slot — that
+    // shouldn't happen given the UNIQUE constraints + the editor
+    // enforces one scope at a time, but being explicit costs nothing.
+    const bySlot = new Map<string, any>();
+    for (const e of (groupEntries ?? []) as any[]) bySlot.set(e.slot_id, e);
+    for (const e of (secEntries ?? []) as any[]) bySlot.set(e.slot_id, e);
+
+    // PR feat/timetable-substitutions — overlay today's subs onto the
+    // weekly view. Caller may pass ?date=YYYY-MM-DD to anchor today in
+    // their tz; otherwise we use server-local today.
+    const dateQ = c.req.query("date");
+    const today =
+      dateQ && /^\d{4}-\d{2}-\d{2}$/.test(dateQ)
+        ? dateQ
+        : new Date().toISOString().slice(0, 10);
+    const entryIdsForSub = all.map((e) => e.id);
+    const { data: subsToday } = entryIdsForSub.length
+      ? await serviceRoleClient
+          .from("timetable_substitution")
+          .select("entry_id, substitute_teacher_user_id, reason")
+          .eq("date", today)
+          .in("entry_id", entryIdsForSub)
+      : { data: [] as any[] };
+    const subByEntry = new Map<string, any>();
+    for (const s of (subsToday ?? []) as any[]) subByEntry.set(s.entry_id, s);
+
+    // Hydrate sub teacher names not already known.
+    const subTids = Array.from(
+      new Set(
+        ((subsToday ?? []) as any[])
+          .map((s) => s.substitute_teacher_user_id)
+          .filter((x): x is string => !!x && !teacherNames.has(x)),
+      ),
+    );
+    for (const tid of subTids) {
+      try {
+        const { data: u } = await (serviceRoleClient as any).auth.admin.getUserById(tid);
+        const name = u?.user?.user_metadata?.name || u?.user?.email || "";
+        if (name) teacherNames.set(tid, name);
+      } catch { /* ignore */ }
+    }
+
+    // Today's ISO day-of-week (Mon=1..Sun=7) for limiting sub overlay.
+    const tDate = new Date(today + "T00:00:00");
+    const jsDay = tDate.getDay();
+    const todayDow = jsDay === 0 ? 7 : jsDay;
+
+    const cells = ((slots ?? []) as any[]).map((s) => {
+      const e = bySlot.get(s.id);
+      const sub = e && s.day_of_week === todayDow ? subByEntry.get(e.id) : null;
+      const subName =
+        sub && sub.substitute_teacher_user_id
+          ? teacherNames.get(sub.substitute_teacher_user_id) ?? null
+          : null;
+      return {
+        slot: {
+          id: s.id,
+          name: s.name,
+          dayOfWeek: s.day_of_week,
+          startTime: s.start_time,
+          endTime: s.end_time,
+          kind: s.kind,
+        },
+        entry: e
+          ? {
+              subjectName: e.section_subject?.class_subject?.name ?? null,
+              // If today is covered, show the substitute's name with
+              // the original kept around so the UI can render
+              // "Sub: B (covering A)".
+              teacherName: sub
+                ? subName
+                : e.teacher_user_id
+                ? teacherNames.get(e.teacher_user_id) ?? null
+                : null,
+              room: e.room,
+              notes: e.notes,
+              scope: e.scope_section_id ? "section" : "hifz_group",
+              substitution: sub
+                ? {
+                    originalTeacherName: e.teacher_user_id
+                      ? teacherNames.get(e.teacher_user_id) ?? null
+                      : null,
+                    reason: sub.reason ?? null,
+                  }
+                : null,
+            }
+          : null,
+      };
+    });
+    return c.json({ cells });
   });
 
   // ---------------------------------------------------------------------------
@@ -1339,6 +1483,183 @@ export function installPortal(school: Hono): void {
         },
       },
       recentActivity,
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // GET /school/pin-me/students/:studentId/today-snapshot
+  //
+  // PR feat/parent-portal-home — small, plain-language summary built from
+  // existing data sources. Powers the multi-child landing page AND the
+  // child dashboard's status pills. Designed to be cheap enough that
+  // multi-child parents can hit it once per kid in parallel without a
+  // batched endpoint.
+  // ---------------------------------------------------------------------------
+  school.get("/pin-me/students/:studentId/today-snapshot", async (c) => {
+    const g = await gatePerStudent(c);
+    if (!g.ok) return g.resp;
+    const { studentId, subject } = g;
+    const stuCtx = await loadStudentWithContext(studentId, subject.orgId);
+    if (!stuCtx) return c.json({ error: "student not found" }, 404);
+
+    const today = new Date().toISOString().slice(0, 10);
+
+    // ── Attendance today ──
+    let attendanceToday: { status: string; takenAt: string | null } | null = null;
+    {
+      const { data: row } = await serviceRoleClient
+        .from("school_attendance")
+        .select("status, created_at")
+        .eq("student_id", studentId)
+        .eq("attendance_date", today)
+        .maybeSingle();
+      if (row) {
+        attendanceToday = {
+          status: (row as any).status,
+          takenAt: (row as any).created_at ?? null,
+        };
+      }
+    }
+
+    // ── Homework pending: assignments past created_at, due in the
+    // future (or today), no grade row for this student yet. Crude but
+    // matches how teachers actually use the gradebook today.
+    let homeworkPending = { count: 0, soonestDueDate: null as string | null };
+    if (stuCtx.sectionId) {
+      const { data: assigns } = await serviceRoleClient
+        .from("assignment")
+        .select(
+          "id, due_date, section_subject:section_subject_id(class_section_id)",
+        )
+        .gte("due_date", today)
+        .limit(50);
+      const mine = ((assigns ?? []) as any[]).filter(
+        (a) => a.section_subject?.class_section_id === stuCtx.sectionId,
+      );
+      if (mine.length > 0) {
+        const assignIds = mine.map((a) => a.id);
+        const { data: gradedRows } = await serviceRoleClient
+          .from("grade")
+          .select("assignment_id")
+          .eq("student_id", studentId)
+          .in("assignment_id", assignIds);
+        const graded = new Set(((gradedRows ?? []) as any[]).map((g) => g.assignment_id));
+        const pending = mine.filter((a) => !graded.has(a.id));
+        homeworkPending.count = pending.length;
+        if (pending.length > 0) {
+          const dates = pending.map((a) => a.due_date).filter(Boolean).sort();
+          homeworkPending.soonestDueDate = dates[0] ?? null;
+        }
+      }
+    }
+
+    // ── Fees due now: any unpaid/partial row in fee_status whose
+    // due_date is on or before today (or has no due_date — treat as
+    // overdue placeholder). Returns just the next-due bill.
+    let feesDueNow: { amount: number; periodLabel: string; dueDate: string | null } | null = null;
+    {
+      const { data: rows } = await serviceRoleClient
+        .from("fee_status")
+        .select("amount_due, amount_paid, period, due_date, status")
+        .eq("student_id", studentId)
+        .in("status", ["unpaid", "partial"])
+        .order("due_date", { ascending: true, nullsFirst: true });
+      const unpaid = ((rows ?? []) as any[]).filter((r) =>
+        !r.due_date || r.due_date <= today,
+      );
+      if (unpaid.length > 0) {
+        const r = unpaid[0];
+        const owed = Math.max(0, Number(r.amount_due ?? 0) - Number(r.amount_paid ?? 0));
+        feesDueNow = {
+          amount: owed,
+          periodLabel: r.period ?? "",
+          dueDate: r.due_date ?? null,
+        };
+      }
+    }
+
+    // ── Hifz revision needed: latest sabqi/manzil entry older than 3
+    // days OR no revision entry in the last 7 days flags revision.
+    let hifzRevisionNeeded: { lastEntryDate: string; daysSince: number } | null = null;
+    {
+      const { data: hifz } = await serviceRoleClient
+        .from("hifz_progress")
+        .select("recorded_at, kind")
+        .eq("student_id", studentId)
+        .order("recorded_at", { ascending: false })
+        .limit(20);
+      const lastRevision = ((hifz ?? []) as any[]).find(
+        (h) => h.kind === "sabqi" || h.kind === "manzil",
+      );
+      if (lastRevision) {
+        const last = new Date(lastRevision.recorded_at);
+        const days = Math.floor((Date.now() - last.getTime()) / (24 * 60 * 60 * 1000));
+        if (days >= 3) {
+          hifzRevisionNeeded = {
+            lastEntryDate: lastRevision.recorded_at,
+            daysSince: days,
+          };
+        }
+      } else if ((hifz ?? []).length > 0) {
+        // Student has Hifz entries but never any revision — flag immediately.
+        const last = (hifz as any)[0].recorded_at;
+        const days = Math.floor((Date.now() - new Date(last).getTime()) / (24 * 60 * 60 * 1000));
+        hifzRevisionNeeded = { lastEntryDate: last, daysSince: days };
+      }
+    }
+
+    // ── Latest teacher note (last 14 days) ──
+    let latestTeacherNote: { kind: string; summary: string; observedAt: string } | null = null;
+    {
+      const cutoff = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
+      const { data: n } = await serviceRoleClient
+        .from("behavior_note")
+        .select("kind, notes, observed_at")
+        .eq("student_id", studentId)
+        .gte("observed_at", cutoff)
+        .order("observed_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (n) {
+        latestTeacherNote = {
+          kind: (n as any).kind,
+          summary: ((n as any).notes ?? "").slice(0, 140),
+          observedAt: (n as any).observed_at,
+        };
+      }
+    }
+
+    // ── Latest published report card term name (just for the chip) ──
+    let publishedReportCardTermName: string | null = null;
+    {
+      const { data: card } = await serviceRoleClient
+        .from("term_report_card")
+        .select("term:term_id(name, end_date, archived_at)")
+        .eq("student_id", studentId)
+        .not("published_at", "is", null)
+        .order("published_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const term = (card as any)?.term;
+      if (term && !term.archived_at) publishedReportCardTermName = term.name;
+    }
+
+    return c.json({
+      student: {
+        id: stuCtx.id,
+        fullName: stuCtx.fullName,
+        grNumber: stuCtx.grNumber,
+        photoUrl: stuCtx.photoUrl,
+        className: stuCtx.className,
+        sectionName: stuCtx.sectionName,
+      },
+      today,
+      attendanceToday,
+      homeworkPending,
+      feesDueNow,
+      hifzRevisionNeeded,
+      latestTeacherNote,
+      publishedReportCardTermName,
     });
   });
 }
