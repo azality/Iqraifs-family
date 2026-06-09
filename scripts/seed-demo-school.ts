@@ -892,6 +892,425 @@ for (const sub of seededSubjects) {
 }
 console.log(`  ✓ ${lesson_count} tagged lessons, ${assignment_count} tagged assignments, ${grade_count} grades`);
 
+// ─── New-features seed ─────────────────────────────────────────────────
+// All blocks below are best-effort. If a table / endpoint isn't yet
+// migrated in this environment, the catch-and-warn pattern keeps the
+// rest of the seed working. Each block prints a tick on success.
+
+let gradeScaleCount = 0;
+let timetableSlotCount = 0;
+let timetableEntryCount = 0;
+let subCount = 0;
+let feePlanCount = 0;
+let termCount = 0;
+let examCount = 0;
+let scoreCount = 0;
+let reportCardCount = 0;
+let messageCount = 0;
+
+// ─── Grade scale (Iqra Academy custom: A+ at 85) ───────────────────────
+let iqraScaleId: string | null = null;
+try {
+  const { data: scale, error: scaleErr } = await sb
+    .from("grade_scale")
+    .insert({ org_id: orgId, name: "Iqra Academy scale", is_default: true })
+    .select("id").single();
+  if (scaleErr) throw new Error(scaleErr.message);
+  iqraScaleId = (scale as any).id;
+  gradeScaleCount = 1;
+  const bands = [
+    { letter: "A+", min_pct: 85, max_pct: 100, remark: "Outstanding",         display_order: 0 },
+    { letter: "A",  min_pct: 75, max_pct: 85,  remark: "Very good",           display_order: 1 },
+    { letter: "B",  min_pct: 65, max_pct: 75,  remark: "Good",                display_order: 2 },
+    { letter: "C",  min_pct: 55, max_pct: 65,  remark: "Satisfactory",        display_order: 3 },
+    { letter: "D",  min_pct: 45, max_pct: 55,  remark: "Needs improvement",   display_order: 4 },
+    { letter: "F",  min_pct: 0,  max_pct: 45,  remark: "Unsatisfactory",      display_order: 5 },
+  ].map((b) => ({ scale_id: iqraScaleId, ...b }));
+  await sb.from("grade_scale_band").insert(bands);
+  console.log(`  ✓ grade scale seeded (Iqra Academy, A+ at 85)`);
+} catch (e) {
+  console.log(`  ⚠ grade scale skipped: ${(e as Error).message}`);
+}
+
+// ─── Timetable: org-wide slots + per-section entries ───────────────────
+// 6 slots per weekday (Mon–Fri): P1 P2 break P3 prayer P4. Realistic
+// enough to render the parent weekly view + the admin editor.
+const SLOT_TEMPLATES = [
+  { name: "P1",     start: "08:00", end: "08:45", kind: "academic" },
+  { name: "P2",     start: "08:50", end: "09:35", kind: "academic" },
+  { name: "Break",  start: "09:35", end: "09:55", kind: "break" },
+  { name: "P3",     start: "10:00", end: "10:45", kind: "academic" },
+  { name: "Zuhr",   start: "13:00", end: "13:30", kind: "prayer" },
+  { name: "P4",     start: "13:30", end: "14:15", kind: "academic" },
+];
+const slotsByDow = new Map<number, Array<{ id: string; kind: string; start: string; end: string; name: string }>>();
+try {
+  for (let dow = 1; dow <= 5; dow++) {
+    const arr: any[] = [];
+    for (let i = 0; i < SLOT_TEMPLATES.length; i++) {
+      const tpl = SLOT_TEMPLATES[i];
+      const { data: slot, error } = await sb
+        .from("timetable_slot")
+        .insert({
+          org_id: orgId,
+          name: tpl.name,
+          day_of_week: dow,
+          start_time: tpl.start,
+          end_time: tpl.end,
+          kind: tpl.kind,
+          display_order: i,
+        })
+        .select("id").single();
+      if (error) throw new Error(error.message);
+      arr.push({ id: (slot as any).id, kind: tpl.kind, start: tpl.start, end: tpl.end, name: tpl.name });
+      timetableSlotCount++;
+    }
+    slotsByDow.set(dow, arr);
+  }
+  console.log(`  ✓ ${timetableSlotCount} timetable slots (Mon–Fri × 6)`);
+} catch (e) {
+  console.log(`  ⚠ timetable slots skipped: ${(e as Error).message}`);
+}
+
+// Entries — for each grade, map academic slots to subjects in rotation.
+// Quran always taught by Sheikh; others by the grade's class teacher
+// (or the principal for grades without a CT, matching the rest of the seed).
+if (slotsByDow.size > 0) {
+  try {
+    const sheikhUserId = staffByKey.get("vt_sheikh")!.userId;
+    for (const grade of [1, 2, 3, 4, 5]) {
+      const classRow = classesByGrade.get(grade)!;
+      const teacherKey = grade === 3 ? "ct_zara" : grade === 5 ? "ct_hina" : null;
+      const ctUid = teacherKey ? staffByKey.get(teacherKey)!.userId : principalId;
+      const gradeSubjects = seededSubjects.filter((s) => s.grade === grade);
+      // Build a Map from class_subject_id → section_subject_id for entry insert.
+      // Pick a stable subject rotation across the week.
+      const rotation = ["Math", "English", "Urdu", "Science", "Islamiat", "Quran"];
+      for (let dow = 1; dow <= 5; dow++) {
+        const slots = slotsByDow.get(dow)!;
+        // Academic slot indexes: 0 (P1), 1 (P2), 3 (P3), 5 (P4).
+        const academicSlots = [slots[0], slots[1], slots[3], slots[5]];
+        const start = (dow - 1) % rotation.length; // shift per day
+        for (let i = 0; i < academicSlots.length; i++) {
+          const subjName = rotation[(start + i) % rotation.length];
+          const subj = gradeSubjects.find((s) => s.subjectName === subjName);
+          if (!subj) continue;
+          const teacher = subjName === "Quran" ? sheikhUserId : (subj.teacherUserId || ctUid);
+          await sb
+            .from("timetable_entry")
+            .insert({
+              org_id: orgId,
+              slot_id: academicSlots[i].id,
+              scope_section_id: classRow.sectionId,
+              section_subject_id: subj.sectionSubjectId,
+              teacher_user_id: teacher,
+              room: `R-${grade}${String.fromCharCode(65 + (i % 3))}`,
+            });
+          timetableEntryCount++;
+        }
+      }
+    }
+    console.log(`  ✓ ${timetableEntryCount} timetable entries (5 grades × 5 days × 4 academic slots)`);
+  } catch (e) {
+    console.log(`  ⚠ timetable entries skipped: ${(e as Error).message}`);
+  }
+}
+
+// One substitution for TODAY (so the admin "today" panel + the teacher
+// today card + the parent portal sub badge all light up).
+try {
+  // Pick any entry for today's DOW that's owned by Zara (Grade 3 CT)
+  // and cover it with Hina (Grade 5 CT).
+  const todayDate = new Date();
+  const todayIso = todayDate.toISOString().slice(0, 10);
+  const jsDow = todayDate.getDay();
+  const isoDow = jsDow === 0 ? 7 : jsDow;
+  if (isoDow >= 1 && isoDow <= 5) {
+    const zaraUid = staffByKey.get("ct_zara")!.userId;
+    const hinaUid = staffByKey.get("ct_hina")!.userId;
+    const { data: candidate } = await sb
+      .from("timetable_entry")
+      .select("id, slot:slot_id(day_of_week)")
+      .eq("org_id", orgId)
+      .eq("teacher_user_id", zaraUid)
+      .limit(20);
+    const today = ((candidate ?? []) as any[]).find((e) => e.slot?.day_of_week === isoDow);
+    if (today) {
+      const { error } = await sb
+        .from("timetable_substitution")
+        .insert({
+          org_id: orgId,
+          entry_id: today.id,
+          date: todayIso,
+          substitute_teacher_user_id: hinaUid,
+          reason: "Sick leave",
+          created_by: principalId,
+        });
+      if (error) throw new Error(error.message);
+      subCount = 1;
+      console.log(`  ✓ 1 substitution (Hina covering Zara today)`);
+    }
+  }
+} catch (e) {
+  console.log(`  ⚠ substitution skipped: ${(e as Error).message}`);
+}
+
+// ─── Fee plans (per-class templates, monthly tuition + one-off books) ──
+try {
+  for (const grade of [1, 2, 3, 4, 5]) {
+    const classRow = classesByGrade.get(grade)!;
+    const baseTuition = 6000 + (grade - 1) * 500; // Grade 1 = 6000, Grade 5 = 8000
+    await sb.from("class_fee_plan").insert([
+      {
+        org_id: orgId, class_id: classRow.classId,
+        name: "Tuition", amount: baseTuition,
+        frequency: "monthly", default_due_day: 5,
+      },
+      {
+        org_id: orgId, class_id: classRow.classId,
+        name: "Books", amount: 2500,
+        frequency: "one_off", one_off_due_date: isoDate(daysAgo(-30)),
+      },
+    ]);
+    feePlanCount += 2;
+  }
+  // One scholarship-style override on the first Grade 3 student so the
+  // override surface has data to demo.
+  const targetStu = studentsByGrade[3]?.[0];
+  if (targetStu) {
+    const { data: plan } = await sb
+      .from("class_fee_plan")
+      .select("id")
+      .eq("class_id", classesByGrade.get(3)!.classId)
+      .eq("name", "Tuition")
+      .maybeSingle();
+    if (plan) {
+      await sb.from("student_fee_override").insert({
+        org_id: orgId,
+        student_id: targetStu.id,
+        class_fee_plan_id: (plan as any).id,
+        override_amount: 3500,
+        waived: false,
+        notes: "Sibling discount",
+        created_by: principalId,
+      });
+    }
+  }
+  console.log(`  ✓ ${feePlanCount} fee plans (5 grades × tuition+books) + 1 student override`);
+} catch (e) {
+  console.log(`  ⚠ fee plans skipped: ${(e as Error).message}`);
+}
+
+// ─── Assessment: term + exams + marks for Grade 3 (richest section) ────
+let termId: string | null = null;
+let midtermId: string | null = null;
+let finalId: string | null = null;
+try {
+  const ay = ACADEMIC_YEAR; // e.g. "2026-27"
+  const yearStart = Number(ay.split("-")[0]);
+  // Term 1 = Aug 15 → Dec 15 of the academic year start year (typical PK calendar).
+  const { data: term, error } = await sb
+    .from("academic_term")
+    .insert({
+      org_id: orgId,
+      name: "Term 1",
+      start_date: `${yearStart}-08-15`,
+      end_date: `${yearStart}-12-15`,
+      is_current: true,
+    })
+    .select("id").single();
+  if (error) throw new Error(error.message);
+  termId = (term as any).id;
+  termCount = 1;
+
+  // Mid-term (1.0 weight) + Final (2.0 weight)
+  const { data: mid } = await sb
+    .from("exam")
+    .insert({
+      org_id: orgId, term_id: termId,
+      name: "Mid-term", exam_type: "midterm",
+      weight: 1.0, exam_date: `${yearStart}-10-15`,
+    })
+    .select("id").single();
+  midtermId = (mid as any).id; examCount++;
+
+  const { data: fin } = await sb
+    .from("exam")
+    .insert({
+      org_id: orgId, term_id: termId,
+      name: "Final", exam_type: "final",
+      weight: 2.0, exam_date: `${yearStart}-12-10`,
+    })
+    .select("id").single();
+  finalId = (fin as any).id; examCount++;
+
+  console.log(`  ✓ ${termCount} term (Term 1, current) + ${examCount} exams`);
+} catch (e) {
+  console.log(`  ⚠ assessment term/exams skipped: ${(e as Error).message}`);
+}
+
+// Marks for Grade 3 students × Grade 3 subjects × both exams
+if (termId && midtermId && finalId) {
+  try {
+    const g3Subjects = seededSubjects.filter((s) => s.grade === 3);
+    const ctUid = staffByKey.get("ct_zara")!.userId;
+    for (const stu of studentsByGrade[3] ?? []) {
+      // Each student has a baseline ability 50..95; vary by subject ±10.
+      const baseline = randomInt(55, 92);
+      for (const subj of g3Subjects) {
+        // Some subjects use max 50 (Islamiat, Quran) — gives the
+        // per-cell-max override demo something realistic.
+        const subjMax = subj.subjectName === "Islamiat" || subj.subjectName === "Quran" ? 50 : 100;
+        const ability = Math.max(20, Math.min(100, baseline + randomInt(-10, 10)));
+        for (const examId of [midtermId, finalId]) {
+          const obtainedPct = ability + randomInt(-5, 5);
+          const obtained = Math.max(0, Math.min(subjMax, Math.round((obtainedPct / 100) * subjMax)));
+          await sb.from("exam_subject_score").insert({
+            org_id: orgId,
+            exam_id: examId,
+            student_id: stu.id,
+            class_subject_id: subj.classSubjectId,
+            max_marks: subjMax,
+            obtained_marks: obtained,
+            absent: false,
+            notes: examId === finalId && Math.random() < 0.25
+              ? `${stu.name.split(" ")[0]} showed marked improvement in this paper.`
+              : null,
+            recorded_by: ctUid,
+          });
+          scoreCount++;
+        }
+      }
+    }
+    console.log(`  ✓ ${scoreCount} exam scores (Grade 3 × 6 subjects × 2 exams)`);
+  } catch (e) {
+    console.log(`  ⚠ exam scores skipped: ${(e as Error).message}`);
+  }
+}
+
+// ─── Published Term 1 report cards for Grade 3 students ────────────────
+if (termId) {
+  try {
+    const g3Subjects = seededSubjects.filter((s) => s.grade === 3);
+    const zaraUid = staffByKey.get("ct_zara")!.userId;
+    const nowIso = new Date().toISOString();
+    const ctRemarks = [
+      "A well-rounded student who shows initiative. Continue the steady effort.",
+      "Reliable and engaged. Could speak up more in class discussions.",
+      "Improved noticeably this term — please keep up the daily revision habit.",
+      "Excellent progress on the daily sabaq. Encourage the same at home.",
+      "Settled in well. Watch the pace of writing tasks at home.",
+      "Strong in maths; needs a little extra reading practice in English.",
+    ];
+    const principalRemarks = [
+      "Wishing the student continued success next term, in shā Allāh.",
+      "Excellent term overall. Keep up the hard work.",
+      "Pleased with the progress shown this term — alḥamdulillāh.",
+    ];
+    for (let i = 0; i < (studentsByGrade[3] ?? []).length; i++) {
+      const stu = studentsByGrade[3][i];
+      // subject_comments JSON keyed by class_subject_id
+      const subjectComments: Record<string, string> = {};
+      for (const subj of g3Subjects) {
+        if (Math.random() < 0.6) {
+          subjectComments[subj.classSubjectId] = randomChoice([
+            "Strong this term — keep it up.",
+            "Good improvement; revise weekly.",
+            "Needs more home practice.",
+            "Excellent work throughout.",
+            "Steady and consistent.",
+          ]);
+        }
+      }
+      const { error } = await sb
+        .from("term_report_card")
+        .insert({
+          org_id: orgId,
+          student_id: stu.id,
+          term_id: termId,
+          class_teacher_comment: ctRemarks[i % ctRemarks.length],
+          principal_comment: principalRemarks[i % principalRemarks.length],
+          subject_comments: subjectComments,
+          finalized_at: nowIso,
+          finalized_by: zaraUid,
+          published_at: nowIso,
+          published_by: principalId,
+        });
+      if (error) throw new Error(error.message);
+      reportCardCount++;
+    }
+    console.log(`  ✓ ${reportCardCount} published Term 1 report cards (Grade 3)`);
+  } catch (e) {
+    console.log(`  ⚠ report cards skipped: ${(e as Error).message}`);
+  }
+}
+
+// ─── Parent ↔ school messages (2 sample threads) ───────────────────────
+try {
+  // Pick the first parent who has at least one student linked.
+  const firstParent = parentRows.find((p) => p.children.length > 0);
+  if (firstParent) {
+    // Find that parent's first student.
+    const { data: link } = await sb
+      .from("student_parent")
+      .select("student_id")
+      .eq("parent_id", firstParent.id)
+      .limit(1)
+      .maybeSingle();
+    const studentId = (link as any)?.student_id ?? null;
+
+    // Thread 1: parent → school, with a school reply (resolved).
+    const { data: t1 } = await sb
+      .from("parent_message")
+      .insert({
+        org_id: orgId,
+        thread_id: "00000000-0000-0000-0000-000000000000",
+        parent_user_id: firstParent.id,
+        student_id: studentId,
+        subject: "Picking up early on Friday",
+        body: "As-salāmu ʿalaykum. We have a family appointment on Friday, can my child be ready for pick-up at 12:30 pm instead of the usual time?",
+        sent_by: firstParent.id,
+        sent_by_role: "parent",
+      })
+      .select("id").single();
+    if (t1) {
+      await sb.from("parent_message").update({ thread_id: (t1 as any).id }).eq("id", (t1 as any).id);
+      await sb.from("parent_message").insert({
+        org_id: orgId,
+        thread_id: (t1 as any).id,
+        parent_user_id: firstParent.id,
+        student_id: studentId,
+        body: "Walaikum salām. Noted — please send a brief note with the student in the morning so the gate has it on record. JazakAllāhu khairan.",
+        sent_by: staffByKey.get("os_rabia")!.userId,
+        sent_by_role: "school",
+      });
+      messageCount += 2;
+    }
+
+    // Thread 2: parent → school, awaiting reply (unread for admin demo).
+    const { data: t2 } = await sb
+      .from("parent_message")
+      .insert({
+        org_id: orgId,
+        thread_id: "00000000-0000-0000-0000-000000000000",
+        parent_user_id: firstParent.id,
+        student_id: studentId,
+        subject: "Report card meeting time",
+        body: "Could we schedule the Term 1 meeting next week? Tuesday after Asr would work best for us.",
+        sent_by: firstParent.id,
+        sent_by_role: "parent",
+      })
+      .select("id").single();
+    if (t2) {
+      await sb.from("parent_message").update({ thread_id: (t2 as any).id }).eq("id", (t2 as any).id);
+      messageCount += 1;
+    }
+    console.log(`  ✓ ${messageCount} parent messages (2 threads, 1 unread)`);
+  }
+} catch (e) {
+  console.log(`  ⚠ parent messages skipped: ${(e as Error).message}`);
+}
+
 // ─── Summary ────────────────────────────────────────────────────────────
 console.log(`
 ═══════════════════════════════════════════════════════════════════════════
@@ -938,6 +1357,27 @@ ${[1,2,3,4,5].map((g) =>
    - ${resource_count} topic resources (worksheet / video / quiz / PDF samples)
    - ${lesson_count} tagged lessons + ${assignment_count} tagged assignments
    - ${grade_count} grades across past assignments (avg ~70-80%)
+   - ${gradeScaleCount} configurable grade scale (Iqra Academy, A+ at 85)
+   - ${timetableSlotCount} timetable slots + ${timetableEntryCount} entries
+     + ${subCount} substitution today (Hina covering Zara)
+   - ${feePlanCount} fee plans (tuition monthly + books one-off per class)
+   - ${termCount} academic term (Term 1, current) + ${examCount} exams + ${scoreCount} scores
+   - ${reportCardCount} published Term 1 report cards (Grade 3)
+     with class teacher + principal + per-subject comments
+   - ${messageCount} parent ↔ school messages (2 threads, 1 unread)
+
+🆕 NEW SURFACES TO DEMO
+   - Admin → Assessment → Term 1 → Mid-term / Final → Enter marks (Grade 3-A)
+   - Admin → Assessment → Grade scales (Iqra scale, A+ at 85)
+   - Admin → Fees → Plans (per-class templates + per-student override)
+   - Admin → Timetable (slots + entries + substitution panel)
+   - Admin → Parent inbox (1 unread thread)
+   - Student profile → Report card → Term 1 (already published, printable)
+   - Parent portal home → multi-child landing with plain-language pills
+   - Parent portal → Contact school (chat) / Comments (consolidated feed)
+   - Parent portal → Report card (Term 1, published)
+   - Parent portal → Timetable (weekly + sub badge today)
+   - Teacher home → "Today's schedule" card + "See full week →"
 
 🧹 CLEANUP
    When done: log in as principal → Settings → Danger Zone → Delete school.
