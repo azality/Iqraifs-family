@@ -733,7 +733,11 @@ export function installPortal(school: Hono): void {
       ? await serviceRoleClient
           .from("timetable_entry")
           .select(
-            "*, section_subject:section_subject_id(class_subject:class_subject_id(name))",
+            // section_subject.name is denormalized (seeded + UI-updated)
+            // so we read it directly as a fallback for when the
+            // class_subject join lands null (PostgREST schema cache lag
+            // or older entry rows from before the FK fix).
+            "*, section_subject:section_subject_id(name, class_subject:class_subject_id(name))",
           )
           .eq("scope_section_id", (stu as any).class_section_id)
       : { data: [] as any[] };
@@ -741,7 +745,11 @@ export function installPortal(school: Hono): void {
       ? await serviceRoleClient
           .from("timetable_entry")
           .select(
-            "*, section_subject:section_subject_id(class_subject:class_subject_id(name))",
+            // section_subject.name is denormalized (seeded + UI-updated)
+            // so we read it directly as a fallback for when the
+            // class_subject join lands null (PostgREST schema cache lag
+            // or older entry rows from before the FK fix).
+            "*, section_subject:section_subject_id(name, class_subject:class_subject_id(name))",
           )
           .eq("scope_hifz_group_id", (stu as any).hifz_group_id)
       : { data: [] as any[] };
@@ -825,7 +833,10 @@ export function installPortal(school: Hono): void {
         },
         entry: e
           ? {
-              subjectName: e.section_subject?.class_subject?.name ?? null,
+              subjectName:
+                e.section_subject?.class_subject?.name
+                  ?? e.section_subject?.name
+                  ?? null,
               // If today is covered, show the substitute's name with
               // the original kept around so the UI can render
               // "Sub: B (covering A)".

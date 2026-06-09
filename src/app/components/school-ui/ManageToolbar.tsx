@@ -89,6 +89,9 @@ function itemsForRole(
         I("students", t("toolbar.students"), `/school/orgs/${orgId}/admin/students`, Users),
         I("parents", t("toolbar.parents"), `/school/orgs/${orgId}/admin/parents`, Heart),
         I("roster-requests", t("toolbar.rosterRequests"), `/school/orgs/${orgId}/admin/roster-requests`, ClipboardList),
+        // PR #176 isSchoolStaff helper allows office_staff to read the
+        // parent inbox; the nav was the only thing missing.
+        I("inbox", "Parent inbox", `/school/orgs/${orgId}/admin/inbox`, Inbox),
         announcements,
       ];
 

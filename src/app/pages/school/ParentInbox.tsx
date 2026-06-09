@@ -80,8 +80,22 @@ export function ParentInbox() {
     [threads],
   );
 
-  if (meLoading) return null;
-  if (!isStaff(me, orgId)) return <Navigate to={`/school/orgs/${orgId}`} replace />;
+  if (meLoading) {
+    return (
+      <div className="p-6 text-sm text-slate-500">Loading inbox…</div>
+    );
+  }
+  if (!isStaff(me, orgId)) {
+    // Defensive — F17 saw office_staff land on a blank body. If we
+    // ever fail isStaff here, render an explanation and a link back
+    // instead of an invisible <Navigate /> that may not fire.
+    return (
+      <div className="p-6 text-sm text-rose-700 space-y-2">
+        <div>This page is restricted to principals, admins, and office staff.</div>
+        <Link to={`/school/orgs/${orgId}`} className="underline">Return to dashboard →</Link>
+      </div>
+    );
+  }
 
   const handleReply = async () => {
     if (!detail || !replyBody.trim()) return;
