@@ -968,6 +968,120 @@ export function installPhaseC(school: Hono): void {
   });
 
   // ---------------------------------------------------------------------------
+  // POST /school/orgs/:orgId/hifz-progress/bulk
+  //
+  // Migration importer for old Hifz records. CSV references students by
+  // GR number (the same column office staff already know from the paper
+  // ledger). One row per Hifz observation.
+  //
+  // Body: { rows: [{ grNumber, recordedAt?, kind, surahNumber, ayahFrom,
+  //                  ayahTo, quality?, notes?, mistakesCount?,
+  //                  juzNumber?, pageNumber?, missed? }] }
+  //
+  // recordedAt defaults to now() — the bulk path is for backfilling
+  // historical entries, so providing a date is almost always what the
+  // admin wants. Validation matches the single POST.
+  // ---------------------------------------------------------------------------
+  school.post("/orgs/:orgId/hifz-progress/bulk", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    if (!(await hasAdminOrPrincipal(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    if (!Array.isArray(body?.rows)) return c.json({ error: "rows[] required" }, 400);
+
+    // Pre-fetch student GR → id map. Saves a query per row.
+    const { data: students } = await serviceRoleClient
+      .from("student")
+      .select("id, gr_number")
+      .eq("org_id", orgId);
+    const grMap = new Map<string, string>();
+    for (const s of (students ?? []) as any[]) {
+      grMap.set(String(s.gr_number).toLowerCase().trim(), s.id);
+    }
+
+    const safeInt = (v: unknown, min: number, max: number): number | null => {
+      const n = Number(v);
+      return Number.isInteger(n) && n >= min && n <= max ? n : null;
+    };
+
+    const errors: Array<{ rowIndex: number; message: string }> = [];
+    const payload: Array<Record<string, unknown>> = [];
+    for (let i = 0; i < body.rows.length; i++) {
+      const r = body.rows[i] ?? {};
+      const gr = typeof r.grNumber === "string" ? r.grNumber.trim() : "";
+      if (!gr) { errors.push({ rowIndex: i, message: "grNumber required" }); continue; }
+      const studentId = grMap.get(gr.toLowerCase());
+      if (!studentId) {
+        errors.push({ rowIndex: i, message: `student GR "${gr}" not found in this org` });
+        continue;
+      }
+      const surah = safeInt(r.surahNumber, 1, 114);
+      const af = safeInt(r.ayahFrom, 1, 9999);
+      const at = safeInt(r.ayahTo, af ?? 1, 9999);
+      if (surah === null || af === null || at === null) {
+        errors.push({ rowIndex: i, message: "surahNumber 1..114 + ayahFrom/ayahTo required" });
+        continue;
+      }
+      if (!HIFZ_KINDS.has(r.kind)) {
+        errors.push({ rowIndex: i, message: `kind must be one of ${Array.from(HIFZ_KINDS).join("/")}` });
+        continue;
+      }
+      if (r.quality !== undefined && r.quality !== null && r.quality !== "" && !HIFZ_QUALITIES.has(r.quality)) {
+        errors.push({ rowIndex: i, message: "quality must be excellent/good/needs_practice/weak" });
+        continue;
+      }
+      const recordedAt = typeof r.recordedAt === "string" && r.recordedAt.trim().length > 0
+        ? r.recordedAt
+        : new Date().toISOString();
+
+      payload.push({
+        org_id: orgId,
+        student_id: studentId,
+        surah_number: surah,
+        ayah_from: af,
+        ayah_to: at,
+        kind: r.kind,
+        quality: r.quality || null,
+        notes: typeof r.notes === "string" && r.notes.trim() ? r.notes.trim() : null,
+        mistakes_count: safeInt(r.mistakesCount, 0, 9999),
+        juz_number: safeInt(r.juzNumber, 1, 30),
+        page_number: safeInt(r.pageNumber, 1, 9999),
+        missed: r.missed === true || r.missed === "true",
+        recorded_by: userId,
+        recorded_at: recordedAt,
+      });
+    }
+
+    let inserted = 0;
+    if (payload.length > 0) {
+      const { data, error } = await serviceRoleClient
+        .from("hifz_progress")
+        .insert(payload)
+        .select("id");
+      if (error) {
+        // Per-row fallback so partial success works on FK / constraint
+        // hits without losing the whole batch.
+        for (let j = 0; j < payload.length; j++) {
+          const { error: rowErr } = await serviceRoleClient
+            .from("hifz_progress")
+            .insert(payload[j]);
+          // Find which original row this came from — the validRows order
+          // is preserved, so look up by skipping rows already errored.
+          if (rowErr) errors.push({ rowIndex: j, message: rowErr.message });
+          else inserted++;
+        }
+      } else {
+        inserted = data?.length ?? 0;
+      }
+    }
+    return c.json({ inserted, errors });
+  });
+
+  // ---------------------------------------------------------------------------
   // DELETE /school/orgs/:orgId/hifz-progress/:entryId
   // Only the recorder or Admin+.
   // ---------------------------------------------------------------------------

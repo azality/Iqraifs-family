@@ -32,6 +32,7 @@ import {
   Settings as SettingsIcon,
   Megaphone,
   DollarSign,
+  UploadCloud,
 } from "lucide-react";
 import type { SchoolViewerRole } from "../../../utils/schoolApi";
 import { accentBg, accentBorder, accentText } from "./tokens";
@@ -106,6 +107,14 @@ function itemsForRole(
         I("fees", "Fees", `/school/orgs/${orgId}/admin/fees`, DollarSign),
         announcements,
       ];
+      // Bulk import center — admin/principal only. Pre-launch
+      // migration from a paper school usually needs every importer in
+      // one place; placing the link in the sidebar makes the workflow
+      // discoverable. Translation key intentionally inline ("Import")
+      // until we wire it through the i18n bundle.
+      base.push(
+        I("import", "Import", `/school/orgs/${orgId}/admin/import`, UploadCloud),
+      );
       if (role === "principal") {
         base.push(
           I("permissions", t("toolbar.permissions"), `/school/orgs/${orgId}/admin/permissions`, ShieldCheck),

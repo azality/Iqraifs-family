@@ -1623,6 +1623,83 @@ export const bulkCreateTeachers = (
     body: JSON.stringify({ rows }),
   });
 
+// ─── Bulk importers (PR feat/import-center-hub) ─────────────────────────
+// 4 importers for the Import Center. All share the same partial-success
+// contract: response.errors flags any rows that failed; valid rows still
+// get inserted. Backend returns rowIndex; we normalize to `row` so the
+// CsvUploadDialog (which expects { row }) renders consistently.
+
+/** Normalize the backend's {rowIndex,message} shape to the dialog's
+ *  expected {row,message}. Keeps the dialog code unchanged. */
+function normalizeBulkResult(r: any): BulkResult {
+  const errs = Array.isArray(r?.errors)
+    ? r.errors.map((e: any) => ({
+        row: typeof e?.row === "number" ? e.row : (e?.rowIndex ?? 0),
+        message: String(e?.message ?? "unknown error"),
+      }))
+    : [];
+  return { inserted: Number(r?.inserted ?? 0), errors: errs };
+}
+
+export const bulkCreateClasses = async (
+  orgId: string,
+  rows: Array<{ name: string; displayOrder?: number }>,
+): Promise<BulkResult> =>
+  normalizeBulkResult(
+    await apiCall(`/school/orgs/${orgId}/classes/bulk`, {
+      method: "POST",
+      body: JSON.stringify({ rows }),
+    }),
+  );
+
+export const bulkCreateSections = async (
+  orgId: string,
+  rows: Array<{ className: string; sectionName: string }>,
+): Promise<BulkResult> =>
+  normalizeBulkResult(
+    await apiCall(`/school/orgs/${orgId}/sections/bulk`, {
+      method: "POST",
+      body: JSON.stringify({ rows }),
+    }),
+  );
+
+export const bulkCreateClassSubjects = async (
+  orgId: string,
+  rows: Array<{ className: string; subjectName: string; sortOrder?: number }>,
+): Promise<BulkResult> =>
+  normalizeBulkResult(
+    await apiCall(`/school/orgs/${orgId}/class-subjects/bulk`, {
+      method: "POST",
+      body: JSON.stringify({ rows }),
+    }),
+  );
+
+export interface BulkHifzRow {
+  grNumber: string;
+  recordedAt?: string;
+  kind: HifzKind;
+  surahNumber: number;
+  ayahFrom: number;
+  ayahTo: number;
+  quality?: HifzQuality;
+  notes?: string;
+  mistakesCount?: number;
+  juzNumber?: number;
+  pageNumber?: number;
+  missed?: boolean;
+}
+
+export const bulkCreateHifzProgress = async (
+  orgId: string,
+  rows: BulkHifzRow[],
+): Promise<BulkResult> =>
+  normalizeBulkResult(
+    await apiCall(`/school/orgs/${orgId}/hifz-progress/bulk`, {
+      method: "POST",
+      body: JSON.stringify({ rows }),
+    }),
+  );
+
 export interface OrgAdmin {
   user_id: string;
   email: string;
