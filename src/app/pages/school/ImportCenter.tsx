@@ -26,6 +26,8 @@ import {
   BookMarked,
   CheckCircle2,
   AlertCircle,
+  DollarSign,
+  CalendarCheck,
 } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
@@ -41,6 +43,8 @@ import {
   bulkCreateParents,
   bulkCreateTeachers,
   bulkCreateHifzProgress,
+  bulkCreateFees,
+  bulkCreateAttendance,
   type AdminClass,
   type AdminStudent,
   type SchoolMeResponse,
@@ -56,7 +60,9 @@ type ImporterId =
   | "students"
   | "parents"
   | "teachers"
-  | "hifz";
+  | "hifz"
+  | "fees"
+  | "attendance";
 
 interface Importer {
   id: ImporterId;
@@ -119,6 +125,22 @@ const IMPORTERS: Importer[] = [
     title: "Hifz history",
     description: "Backfill old sabaq / sabqi / manzil records. References students by GR.",
     Icon: BookMarked,
+    dependsOn: ["students"],
+  },
+  {
+    id: "fees",
+    step: 8,
+    title: "Fee opening balances",
+    description: "Carry over outstanding fees from the old system. One row per (student, period).",
+    Icon: DollarSign,
+    dependsOn: ["students"],
+  },
+  {
+    id: "attendance",
+    step: 9,
+    title: "Attendance history",
+    description: "Backfill the term's attendance from the paper register. Student must be in a section.",
+    Icon: CalendarCheck,
     dependsOn: ["students"],
   },
 ];
@@ -346,6 +368,66 @@ export function ImportCenter() {
               return { email: r.email, fullName: r.fullName, roleTemplate };
             });
             const res = await bulkCreateTeachers(orgId, typed);
+            return res;
+          }}
+        />
+      );
+    }
+    if (openId === "fees") {
+      return (
+        <CsvUploadDialog
+          open
+          onOpenChange={(v) => { if (!v) { setOpenId(null); refresh(); } }}
+          title="Import fee opening balances"
+          templateFileName="fees-template.csv"
+          columns={[
+            { key: "grNumber", label: "Student GR#", required: true, aliases: ["student_gr", "gr_no"] },
+            { key: "period", label: "Period (e.g. 2026-08)", required: true, aliases: ["month"] },
+            { key: "amountDue", label: "Amount due", aliases: ["due", "fees"] },
+            { key: "amountPaid", label: "Amount paid", aliases: ["paid"] },
+            { key: "status", label: "Status (unpaid / paid / partial / waived)" },
+            { key: "dueDate", label: "Due date (YYYY-MM-DD)", aliases: ["due_date"] },
+            { key: "paidDate", label: "Paid date (YYYY-MM-DD)", aliases: ["paid_date"] },
+            { key: "notes", label: "Notes" },
+          ]}
+          onSubmit={async (rows) => {
+            const typed = rows.map((r) => ({
+              grNumber: r.grNumber,
+              period: r.period,
+              amountDue: r.amountDue || undefined,
+              amountPaid: r.amountPaid || undefined,
+              status: (r.status as any) || undefined,
+              dueDate: r.dueDate || undefined,
+              paidDate: r.paidDate || undefined,
+              notes: r.notes || undefined,
+            }));
+            const res = await bulkCreateFees(orgId, typed);
+            return res;
+          }}
+        />
+      );
+    }
+    if (openId === "attendance") {
+      return (
+        <CsvUploadDialog
+          open
+          onOpenChange={(v) => { if (!v) { setOpenId(null); refresh(); } }}
+          title="Import attendance history"
+          templateFileName="attendance-template.csv"
+          columns={[
+            { key: "grNumber", label: "Student GR#", required: true, aliases: ["student_gr", "gr_no"] },
+            { key: "date", label: "Date (YYYY-MM-DD)", required: true },
+            { key: "status", label: "Status (present / absent / late / excused)", required: true },
+            { key: "notes", label: "Notes" },
+          ]}
+          onSubmit={async (rows) => {
+            const typed = rows.map((r) => ({
+              grNumber: r.grNumber,
+              date: r.date,
+              status: (r.status as any) || "present",
+              notes: r.notes || undefined,
+            }));
+            const res = await bulkCreateAttendance(orgId, typed);
             return res;
           }}
         />
