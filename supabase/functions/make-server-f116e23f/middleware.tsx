@@ -450,6 +450,64 @@ export function getAuthUserId(c: Context): string {
 }
 
 /**
+ * Create a new import_batch row for the given org + entity type.
+ *
+ * Every bulk endpoint calls this at the top, includes the returned
+ * batchId in each insert payload as `import_batch_id`, and calls
+ * finalizeImportBatch() at the end with the actual count inserted.
+ * Failure is non-fatal — if the batch row can't be created we proceed
+ * untagged so the import still succeeds (rollback just won't work
+ * for that batch).
+ */
+export type ImportBatchEntity =
+  | "classes"
+  | "sections"
+  | "subjects"
+  | "students"
+  | "parents"
+  | "teachers"
+  | "hifz"
+  | "fees"
+  | "attendance";
+
+export async function createImportBatch(
+  orgId: string,
+  entityType: ImportBatchEntity,
+  userId: string | null,
+): Promise<string | null> {
+  try {
+    const { data, error } = await serviceRoleClient
+      .from("import_batch")
+      .insert({
+        org_id: orgId,
+        entity_type: entityType,
+        created_by: userId,
+        row_count: 0,
+      })
+      .select("id")
+      .single();
+    if (error || !data) return null;
+    return (data as any).id;
+  } catch {
+    return null;
+  }
+}
+
+/** Update the row_count after the bulk insert completes. Best-effort. */
+export async function finalizeImportBatch(
+  batchId: string | null,
+  rowCount: number,
+): Promise<void> {
+  if (!batchId) return;
+  try {
+    await serviceRoleClient
+      .from("import_batch")
+      .update({ row_count: rowCount })
+      .eq("id", batchId);
+  } catch { /* best-effort */ }
+}
+
+/**
  * Helper: Get family ID from route params
  */
 export function getFamilyId(c: Context): string {

@@ -1740,6 +1740,37 @@ export const bulkCreateAttendance = async (
     }),
   );
 
+// ─── Import batches (rollback) — PR feat/import-rollback ────────────────
+export interface ImportBatch {
+  id: string;
+  entityType:
+    | "classes" | "sections" | "subjects" | "students"
+    | "parents" | "teachers" | "hifz" | "fees" | "attendance";
+  rowCount: number;
+  createdAt: string;
+  createdByName: string | null;
+  rolledBackAt: string | null;
+  rolledBackByName: string | null;
+  notes: string | null;
+}
+
+export const listImportBatches = async (
+  orgId: string,
+): Promise<ImportBatch[]> => {
+  const r = await apiCall<{ batches: ImportBatch[] }>(
+    `/school/orgs/${orgId}/import-batches`,
+  );
+  return r?.batches ?? [];
+};
+
+export const rollbackImportBatch = (
+  orgId: string,
+  batchId: string,
+): Promise<{ ok: true; removed: Record<string, number> }> =>
+  apiCall(`/school/orgs/${orgId}/import-batches/${batchId}/rollback`, {
+    method: "POST",
+  });
+
 export interface OrgAdmin {
   user_id: string;
   email: string;

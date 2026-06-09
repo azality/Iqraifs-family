@@ -28,6 +28,8 @@ import {
   AlertCircle,
   DollarSign,
   CalendarCheck,
+  Undo2,
+  Clock,
 } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
@@ -45,6 +47,9 @@ import {
   bulkCreateHifzProgress,
   bulkCreateFees,
   bulkCreateAttendance,
+  listImportBatches,
+  rollbackImportBatch,
+  type ImportBatch,
   type AdminClass,
   type AdminStudent,
   type SchoolMeResponse,
@@ -155,11 +160,14 @@ export function ImportCenter() {
   // duplicate detection can flag rows the user re-uploaded.
   const [classes, setClasses] = useState<AdminClass[]>([]);
   const [students, setStudents] = useState<AdminStudent[]>([]);
+  const [batches, setBatches] = useState<ImportBatch[]>([]);
+  const [rollingBackId, setRollingBackId] = useState<string | null>(null);
 
   const refresh = () => {
     if (!orgId) return;
     listClasses(orgId).then(setClasses).catch(() => {});
     listStudents(orgId).then(setStudents).catch(() => {});
+    listImportBatches(orgId).then(setBatches).catch(() => {});
   };
 
   useEffect(() => {
@@ -543,6 +551,86 @@ export function ImportCenter() {
           );
         })}
       </div>
+
+      {/* Recent imports — audit trail + rollback (PR feat/import-rollback).
+          Every bulk endpoint creates an import_batch row tagged with the
+          inserted records. Within 7 days the admin can undo a batch in
+          one click. Older batches show as read-only history. */}
+      <section className="mt-8 space-y-3">
+        <h2 className={sectionTitleClasses}>Recent imports</h2>
+        <p className="text-xs text-slate-500">
+          Every bulk import is logged here. Undo is available for 7 days; older imports stay
+          as a read-only audit trail.
+        </p>
+        {batches.length === 0 ? (
+          <Card>
+            <CardContent className="p-4 text-sm text-slate-500 italic">
+              No imports yet. Use a card above to bring data in.
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-2">
+            {batches.map((b) => {
+              const rolledBack = !!b.rolledBackAt;
+              const ageMs = Date.now() - new Date(b.createdAt).getTime();
+              const expired = ageMs > 7 * 24 * 60 * 60 * 1000;
+              const canRollback = !rolledBack && !expired;
+              return (
+                <Card key={b.id} className={rolledBack ? "opacity-60" : ""}>
+                  <CardContent className="p-3 flex items-center justify-between gap-3 flex-wrap">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-slate-900 flex items-center gap-2">
+                        <span className="capitalize">{b.entityType}</span>
+                        <span className="tabular-nums text-slate-500">
+                          · {b.rowCount} row{b.rowCount === 1 ? "" : "s"}
+                        </span>
+                        {rolledBack && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 text-slate-700 text-[10px] font-medium px-1.5 py-0.5">
+                            <Undo2 className="h-3 w-3" /> Rolled back
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-slate-500 flex items-center gap-1">
+                        <Clock className="h-3 w-3" />
+                        {new Date(b.createdAt).toLocaleString()}
+                        {b.createdByName && <> · by {b.createdByName}</>}
+                      </div>
+                    </div>
+                    {canRollback && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={rollingBackId === b.id}
+                        onClick={async () => {
+                          if (!confirm(
+                            `Undo this import?\n\n${b.rowCount} ${b.entityType} record(s) will be deleted. ` +
+                            `If other records depend on them (e.g. fees on imported students), those will also be removed via FK cascade. This cannot be re-undone.`,
+                          )) return;
+                          setRollingBackId(b.id);
+                          try {
+                            await rollbackImportBatch(orgId, b.id);
+                            refresh();
+                          } catch (e) {
+                            alert(e instanceof Error ? e.message : String(e));
+                          } finally {
+                            setRollingBackId(null);
+                          }
+                        }}
+                      >
+                        <Undo2 className="h-3.5 w-3.5 mr-1" />
+                        {rollingBackId === b.id ? "Undoing…" : "Undo"}
+                      </Button>
+                    )}
+                    {expired && !rolledBack && (
+                      <span className="text-[11px] text-slate-400 italic">Older than 7 days</span>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+      </section>
 
       {renderDialog()}
     </div>

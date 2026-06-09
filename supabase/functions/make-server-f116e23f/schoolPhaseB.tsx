@@ -26,7 +26,12 @@
 // =============================================================================
 
 import type { Hono } from "npm:hono";
-import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
+import {
+  serviceRoleClient,
+  getAuthUserId,
+  createImportBatch,
+  finalizeImportBatch,
+} from "./middleware.tsx";
 
 // -----------------------------------------------------------------------------
 // Permission helpers
@@ -222,6 +227,7 @@ export function installPhaseB(school: Hono): void {
       });
     }
 
+    const batchId = await createImportBatch(orgId, "attendance", userId);
     const errors: Array<{ rowIndex: number; message: string }> = [];
     let inserted = 0;
     for (let i = 0; i < body.rows.length; i++) {
@@ -256,6 +262,7 @@ export function installPhaseB(school: Hono): void {
           status,
           notes: r.notes || null,
           recorded_by: userId,
+          import_batch_id: batchId,
         });
       if (error) {
         const msg = (error as any).code === "23505"
@@ -266,7 +273,8 @@ export function installPhaseB(school: Hono): void {
         inserted++;
       }
     }
-    return c.json({ inserted, errors });
+    await finalizeImportBatch(batchId, inserted);
+    return c.json({ inserted, errors, batchId });
   });
 
   school.post("/orgs/:orgId/sections/:sectionId/attendance", async (c) => {
