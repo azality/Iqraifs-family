@@ -16,7 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../../components/ui/dialog";
-import { Users, KeyRound, Plus, Copy, Trash2, Link2, BookMarked, Trophy, ClipboardCheck, Wallet } from "lucide-react";
+import { Users, KeyRound, Plus, Copy, Trash2, Link2, BookMarked, Trophy, ClipboardCheck, Wallet, FileText } from "lucide-react";
 import { HeroCard, sectionTitleClasses } from "../../components/school-ui";
 import { HifzLogEntry } from "./HifzLogEntry";
 import { HifzProgressFeed } from "./HifzProgressFeed";
@@ -175,6 +175,15 @@ export function StudentDetail() {
               >
                 <BookMarked className="h-3.5 w-3.5 mr-1" /> Log Hifz
               </Button>
+              <Link to={`/school/orgs/${orgId}/admin/students/${studentId}/report-card`}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 border-white/30 bg-white/5 text-white hover:bg-white/10 hover:text-white w-full"
+                >
+                  <FileText className="h-3.5 w-3.5 mr-1" /> Report card
+                </Button>
+              </Link>
               <Button
                 size="sm"
                 variant="outline"

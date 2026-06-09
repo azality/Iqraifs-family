@@ -26,6 +26,7 @@
 
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
+import { computeMemorizedTotals } from "./schoolPhaseC.tsx";
 
 // -----------------------------------------------------------------------------
 // Permission helpers (duplicated from Phase B pattern — self-contained)
@@ -1104,5 +1105,247 @@ export function installPhaseC2(school: Hono): void {
     if (delErr) return c.json({ error: delErr.message }, 500);
 
     return c.json({ ok: true });
+  });
+
+  // ===========================================================================
+  // REPORT CARD — single endpoint that aggregates every track for one
+  // student so the admin printable view doesn't need 6 separate round
+  // trips. Optional ?startDate=&endDate= scopes attendance / behavior /
+  // grades / hifz to a term window; missing dates → all-time.
+  //
+  // GET /school/orgs/:orgId/students/:studentId/report-card
+  // ===========================================================================
+  school.get("/orgs/:orgId/students/:studentId/report-card", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    const studentId = c.req.param("studentId");
+    const startDate = c.req.query("startDate");
+    const endDate = c.req.query("endDate");
+    if (startDate && !isIsoDate(startDate)) {
+      return c.json({ error: "startDate must be YYYY-MM-DD" }, 400);
+    }
+    if (endDate && !isIsoDate(endDate)) {
+      return c.json({ error: "endDate must be YYYY-MM-DD" }, 400);
+    }
+
+    // Authz: admins + the student's teacher + the assigned Hifz teacher
+    // (PR feat/hifz-trends-missed-teacher) can pull a report card. We
+    // intentionally do NOT gate on parents here — parent portal builds
+    // its own report card view via /pin-me/students/:id/report-card if
+    // they ask for one (follow-up).
+    const { data: stu, error: stuErr } = await serviceRoleClient
+      .from("student")
+      .select(
+        "id, full_name, gr_number, date_of_birth, gender, photo_url, org_id, class_section_id, program, applying_for_grade, religion, nationality",
+      )
+      .eq("id", studentId)
+      .maybeSingle();
+    if (stuErr) return c.json({ error: stuErr.message }, 500);
+    if (!stu) return c.json({ error: "student not found" }, 404);
+    if ((stu as any).org_id !== orgId) return c.json({ error: "not found" }, 404);
+
+    let allowed = await hasAdminOrPrincipal(userId, orgId);
+    if (!allowed && (stu as any).class_section_id) {
+      const gate = await requireTeacherOfSection(
+        userId,
+        orgId,
+        (stu as any).class_section_id,
+        orgId,
+      );
+      allowed = gate.ok;
+      if (!allowed) {
+        // Hifz teacher fallback (cross-PR coordination — same column
+        // we added in migration 0030).
+        const { data: sec } = await serviceRoleClient
+          .from("class_section")
+          .select("hifz_teacher_user_id")
+          .eq("id", (stu as any).class_section_id)
+          .maybeSingle();
+        if (sec && (sec as any).hifz_teacher_user_id === userId) allowed = true;
+      }
+    }
+    if (!allowed) return c.json({ error: "forbidden" }, 403);
+
+    // Organization name + branding for the print header.
+    const { data: org } = await serviceRoleClient
+      .from("organizations")
+      .select("name, slug, settings")
+      .eq("id", orgId)
+      .maybeSingle();
+    const orgSettings = ((org as any)?.settings ?? {}) as Record<string, unknown>;
+
+    // Class + section names for the header.
+    let className: string | null = null;
+    let sectionName: string | null = null;
+    let classTeacherName: string | null = null;
+    let hifzTeacherName: string | null = null;
+    if ((stu as any).class_section_id) {
+      const { data: section } = await serviceRoleClient
+        .from("class_section")
+        .select(
+          "name, class_teacher_user_id, hifz_teacher_user_id, class:class_id(name)",
+        )
+        .eq("id", (stu as any).class_section_id)
+        .maybeSingle();
+      if (section) {
+        sectionName = (section as any).name ?? null;
+        className = (section as any).class?.name ?? null;
+        // Best-effort name hydration via auth admin API.
+        for (const [col, target] of [
+          ["class_teacher_user_id", "class"] as const,
+          ["hifz_teacher_user_id", "hifz"] as const,
+        ]) {
+          const uid = (section as any)[col];
+          if (!uid) continue;
+          try {
+            const { data: u } = await (serviceRoleClient as any).auth.admin
+              .getUserById(uid);
+            const name = u?.user?.user_metadata?.name || u?.user?.email || null;
+            if (target === "class") classTeacherName = name;
+            else hifzTeacherName = name;
+          } catch { /* leave null */ }
+        }
+      }
+    }
+
+    // ─── Grades ────────────────────────────────────────────────────
+    // Pull every grade row for this student joined to its assignment;
+    // collapse to per-subject averages weighted by assignment.weight.
+    let gq = serviceRoleClient
+      .from("grade")
+      .select(
+        "score_obtained, score_max, assignment:assignment_id(weight, assigned_date, section_subject_id, section_subject:section_subject_id(class_subject:class_subject_id(name)))",
+      )
+      .eq("student_id", studentId);
+    if (startDate) gq = gq.gte("assignment.assigned_date", startDate);
+    if (endDate) gq = gq.lte("assignment.assigned_date", endDate);
+    const { data: gradeRows } = await gq;
+
+    type SubjAcc = { name: string; weighted: number; total: number };
+    const bySubject = new Map<string, SubjAcc>();
+    let overallWeighted = 0;
+    let overallTotal = 0;
+    for (const g of (gradeRows ?? []) as any[]) {
+      const a = g.assignment;
+      if (!a) continue;
+      const max = Number(g.score_max ?? a?.max_score ?? 100);
+      const obtained = Number(g.score_obtained ?? 0);
+      if (!Number.isFinite(max) || max <= 0) continue;
+      const pct = (obtained / max) * 100;
+      const weight = Math.max(0, Number(a.weight ?? 1));
+      const subjName: string = a?.section_subject?.class_subject?.name ?? "Other";
+      const key = subjName.toLowerCase();
+      const acc = bySubject.get(key) ?? { name: subjName, weighted: 0, total: 0 };
+      acc.weighted += pct * weight;
+      acc.total += weight;
+      bySubject.set(key, acc);
+      overallWeighted += pct * weight;
+      overallTotal += weight;
+    }
+    const subjects = Array.from(bySubject.values())
+      .map((s) => ({
+        name: s.name,
+        averagePct: s.total > 0 ? +(s.weighted / s.total).toFixed(1) : null,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    const overallAveragePct =
+      overallTotal > 0 ? +(overallWeighted / overallTotal).toFixed(1) : null;
+
+    // ─── Attendance ───────────────────────────────────────────────
+    let attQ = serviceRoleClient
+      .from("school_attendance")
+      .select("status, attendance_date")
+      .eq("student_id", studentId);
+    if (startDate) attQ = attQ.gte("attendance_date", startDate);
+    if (endDate) attQ = attQ.lte("attendance_date", endDate);
+    const { data: attRows } = await attQ;
+    const att = { present: 0, late: 0, absent: 0, excused: 0, total: 0 };
+    for (const a of (attRows ?? []) as any[]) {
+      att.total++;
+      if (a.status in att) (att as any)[a.status]++;
+    }
+    const attendancePct =
+      att.total > 0
+        ? +(((att.present + att.late) / att.total) * 100).toFixed(1)
+        : null;
+
+    // ─── Behavior ─────────────────────────────────────────────────
+    let behQ = serviceRoleClient
+      .from("behavior_note")
+      .select("kind, points")
+      .eq("student_id", studentId);
+    if (startDate) behQ = behQ.gte("observed_at", startDate);
+    if (endDate) behQ = behQ.lte("observed_at", `${endDate}T23:59:59.999Z`);
+    const { data: behRows } = await behQ;
+    const behavior = { positive: 0, concern: 0, netPoints: 0 };
+    for (const b of (behRows ?? []) as any[]) {
+      if (b.kind === "positive") behavior.positive++;
+      else if (b.kind === "concern") behavior.concern++;
+      behavior.netPoints += Number(b.points ?? 0);
+    }
+
+    // ─── Hifz ─────────────────────────────────────────────────────
+    let hifzQ = serviceRoleClient
+      .from("hifz_progress")
+      .select("surah_number, ayah_from, ayah_to, kind, quality, missed, recorded_at")
+      .eq("student_id", studentId);
+    if (startDate) hifzQ = hifzQ.gte("recorded_at", startDate);
+    if (endDate) hifzQ = hifzQ.lte("recorded_at", `${endDate}T23:59:59.999Z`);
+    const { data: hifzRows } = await hifzQ;
+    const hifzAll = (hifzRows ?? []) as any[];
+    const memorized = computeMemorizedTotals(hifzAll);
+    const qualityCounts = { excellent: 0, good: 0, needs_practice: 0, weak: 0 };
+    let totalEntries = 0;
+    let missedCount = 0;
+    for (const h of hifzAll) {
+      if (h.missed) { missedCount++; continue; }
+      totalEntries++;
+      if (h.quality && h.quality in qualityCounts) (qualityCounts as any)[h.quality]++;
+    }
+
+    return c.json({
+      school: {
+        name: (org as any)?.name ?? "School",
+        slug: (org as any)?.slug ?? null,
+        logoUrl: (orgSettings as any).logo_url ?? null,
+        motto: (orgSettings as any).school_motto ?? null,
+        themeColor: (orgSettings as any).theme_color ?? null,
+        address: (orgSettings as any).address ?? null,
+      },
+      student: {
+        id: (stu as any).id,
+        fullName: (stu as any).full_name,
+        grNumber: (stu as any).gr_number,
+        dateOfBirth: (stu as any).date_of_birth,
+        gender: (stu as any).gender,
+        photoUrl: (stu as any).photo_url,
+        program: (stu as any).program,
+        religion: (stu as any).religion,
+        nationality: (stu as any).nationality,
+      },
+      placement: {
+        className,
+        sectionName,
+        classTeacherName,
+        hifzTeacherName,
+      },
+      period: { startDate: startDate ?? null, endDate: endDate ?? null },
+      academic: {
+        subjects,
+        overallAveragePct,
+        // Letter grade is computed client-side — depends on the
+        // school's scale and we don't want to bake one in here.
+      },
+      attendance: { ...att, attendancePct },
+      behavior,
+      hifz: {
+        ayahsMemorized: memorized.ayahsMemorized,
+        surahsCompleted: memorized.surahsCompleted,
+        totalEntries,
+        missedCount,
+        qualityCounts,
+      },
+    });
   });
 }

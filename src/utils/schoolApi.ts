@@ -2061,6 +2061,87 @@ export const getStudentBehaviorNotes = (
   return apiCall(`/school/orgs/${orgId}/students/${studentId}/behavior-notes${qs}`);
 };
 
+// ─── Report card ────────────────────────────────────────────────────────
+// Single round-trip aggregator the printable Student Report Card page
+// renders. Optional date window scopes attendance / behavior / grades /
+// Hifz to a term. Missing dates → all-time.
+
+export interface ReportCardSubject {
+  name: string;
+  /** 0..100, or null if the subject has no graded items in the window. */
+  averagePct: number | null;
+}
+
+export interface ReportCardResponse {
+  school: {
+    name: string;
+    slug: string | null;
+    logoUrl: string | null;
+    motto: string | null;
+    themeColor: string | null;
+    address: string | null;
+  };
+  student: {
+    id: string;
+    fullName: string;
+    grNumber: string;
+    dateOfBirth: string | null;
+    gender: string | null;
+    photoUrl: string | null;
+    program: string | null;
+    religion: string | null;
+    nationality: string | null;
+  };
+  placement: {
+    className: string | null;
+    sectionName: string | null;
+    classTeacherName: string | null;
+    hifzTeacherName: string | null;
+  };
+  period: { startDate: string | null; endDate: string | null };
+  academic: {
+    subjects: ReportCardSubject[];
+    overallAveragePct: number | null;
+  };
+  attendance: {
+    present: number;
+    late: number;
+    absent: number;
+    excused: number;
+    total: number;
+    attendancePct: number | null;
+  };
+  behavior: {
+    positive: number;
+    concern: number;
+    netPoints: number;
+  };
+  hifz: {
+    ayahsMemorized: number;
+    surahsCompleted: number;
+    totalEntries: number;
+    missedCount: number;
+    qualityCounts: {
+      excellent: number;
+      good: number;
+      needs_practice: number;
+      weak: number;
+    };
+  };
+}
+
+export const getReportCard = (
+  orgId: string,
+  studentId: string,
+  opts: { startDate?: string; endDate?: string } = {},
+): Promise<ReportCardResponse> => {
+  const q = new URLSearchParams();
+  if (opts.startDate) q.append("startDate", opts.startDate);
+  if (opts.endDate) q.append("endDate", opts.endDate);
+  const qs = q.toString() ? `?${q}` : "";
+  return apiCall(`/school/orgs/${orgId}/students/${studentId}/report-card${qs}`);
+};
+
 export const getSectionBehaviorNotes = (
   orgId: string,
   sectionId: string,
