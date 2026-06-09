@@ -118,6 +118,7 @@ export function AdminDashboard() {
     { to: `/school/orgs/${orgId}/admin/link-codes`, label: "Link codes", count: counts.linkCodes, icon: KeyRound },
     { to: `/school/orgs/${orgId}/admin/roster-requests`, label: "Roster requests", count: counts.rosterPending, icon: ClipboardList, badge: true },
     { to: `/school/orgs/${orgId}/admin/fees`, label: "Fees", count: counts.feesUnpaid, icon: Wallet, badge: true },
+    { to: `/school/orgs/${orgId}/admin/assessment`, label: "Assessment", count: null, icon: ClipboardList },
     { to: `/school/orgs/${orgId}/admin/forms`, label: "Forms", count: counts.formsDraft, icon: FileText, badge: true },
     { to: `/school/orgs/${orgId}/admin/announcements`, label: "Announcements", count: null, icon: Megaphone },
     { to: `/school/orgs/${orgId}/admin/permissions`, label: "Permissions", count: null, icon: ShieldCheck, principalOnly: true },

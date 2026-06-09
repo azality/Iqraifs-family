@@ -3747,5 +3747,113 @@ export const getLessonCompletions = (
     `/school/orgs/${orgId}/sections/${sectionId}/lessons/${lessonId}/completions`,
   );
 
+// ───── Assessment (PR feat/assessment-foundation) ─────────────────────
+export type ExamType = "midterm" | "final" | "test" | "quiz" | "other";
+
+export interface AcademicTerm {
+  id: string;
+  orgId: string;
+  academicYearId: string | null;
+  name: string;
+  startDate: string;
+  endDate: string;
+  isCurrent: boolean;
+  archivedAt: string | null;
+}
+export interface Exam {
+  id: string;
+  orgId: string;
+  termId: string;
+  name: string;
+  examType: ExamType;
+  weight: number;
+  examDate: string | null;
+  archivedAt: string | null;
+}
+export interface ExamSubjectScore {
+  id: string | null;
+  examId: string;
+  studentId: string;
+  classSubjectId: string;
+  maxMarks: number | null;
+  obtainedMarks: number | null;
+  absent: boolean;
+  notes: string | null;
+}
+export interface MarksSheetStudent {
+  id: string;
+  fullName: string;
+  grNumber: string | null;
+  rollNumber: number | null;
+  scores: ExamSubjectScore[];
+}
+export interface MarksSheetResponse {
+  section: { id: string; name: string; className: string };
+  subjects: { id: string; name: string }[];
+  students: MarksSheetStudent[];
+}
+
+export const listTerms = (orgId: string): Promise<{ terms: AcademicTerm[] }> =>
+  apiCall(`/school/orgs/${orgId}/terms`);
+export const createTerm = (
+  orgId: string,
+  body: { name: string; startDate: string; endDate: string; academicYearId?: string | null; isCurrent?: boolean },
+): Promise<{ term: AcademicTerm }> =>
+  apiCall(`/school/orgs/${orgId}/terms`, { method: "POST", body: JSON.stringify(body) });
+export const updateTerm = (
+  orgId: string,
+  termId: string,
+  patch: Partial<{ name: string; startDate: string; endDate: string; academicYearId: string | null; isCurrent: boolean }>,
+): Promise<{ term: AcademicTerm }> =>
+  apiCall(`/school/orgs/${orgId}/terms/${termId}`, { method: "PATCH", body: JSON.stringify(patch) });
+export const archiveTerm = (orgId: string, termId: string): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/terms/${termId}`, { method: "DELETE" });
+
+export const listExams = (orgId: string, termId: string): Promise<{ exams: Exam[] }> =>
+  apiCall(`/school/orgs/${orgId}/terms/${termId}/exams`);
+export const createExam = (
+  orgId: string,
+  termId: string,
+  body: { name: string; examType?: ExamType; weight?: number; examDate?: string | null },
+): Promise<{ exam: Exam }> =>
+  apiCall(`/school/orgs/${orgId}/terms/${termId}/exams`, {
+    method: "POST", body: JSON.stringify(body),
+  });
+export const updateExam = (
+  orgId: string,
+  examId: string,
+  patch: Partial<{ name: string; examType: ExamType; weight: number; examDate: string | null }>,
+): Promise<{ exam: Exam }> =>
+  apiCall(`/school/orgs/${orgId}/exams/${examId}`, { method: "PATCH", body: JSON.stringify(patch) });
+export const archiveExam = (orgId: string, examId: string): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/exams/${examId}`, { method: "DELETE" });
+
+export const getMarksSheet = (
+  orgId: string,
+  examId: string,
+  sectionId: string,
+): Promise<MarksSheetResponse> =>
+  apiCall(`/school/orgs/${orgId}/exams/${examId}/marks-sheet?sectionId=${sectionId}`);
+
+export const saveMarksSheet = (
+  orgId: string,
+  examId: string,
+  body: {
+    sectionId: string;
+    defaults?: { maxMarks: number };
+    rows: Array<{
+      studentId: string;
+      classSubjectId: string;
+      maxMarks?: number | null;
+      obtainedMarks?: number | null;
+      absent?: boolean;
+      notes?: string | null;
+    }>;
+  },
+): Promise<{ ok: true; written: number; deleted: number }> =>
+  apiCall(`/school/orgs/${orgId}/exams/${examId}/marks-sheet`, {
+    method: "POST", body: JSON.stringify(body),
+  });
+
 // Re-export apiCall so callers can hit ad-hoc endpoints without a second import.
 export { apiCall };

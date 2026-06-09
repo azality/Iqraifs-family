@@ -60,6 +60,8 @@ import { ManageHifzGroups } from "./pages/school/ManageHifzGroups";
 import { ManageTimetable } from "./pages/school/ManageTimetable";
 import { TeacherWeekView } from "./pages/school/TeacherWeekView";
 import { ManageFeePlans } from "./pages/school/ManageFeePlans";
+import { ManageAssessment } from "./pages/school/ManageAssessment";
+import { MarksEntry } from "./pages/school/MarksEntry";
 import { ManageParents } from "./pages/school/ManageParents";
 import { ManageTeachers } from "./pages/school/ManageTeachers";
 import { TeacherDetail } from "./pages/school/TeacherDetail";
@@ -501,6 +503,8 @@ export const router = createBrowserRouter([
               { path: "sections/:sectionId/curriculum", element: <SectionCurriculum /> },
               { path: "admin/fees", element: <FeesOverview /> },
               { path: "admin/fees/plans", element: <ManageFeePlans /> },
+              { path: "admin/assessment", element: <ManageAssessment /> },
+              { path: "admin/assessment/exams/:examId/marks", element: <MarksEntry /> },
               { path: "students/:studentId/fees", element: <StudentFees /> },
               { path: "admin/forms", element: <FormsList /> },
               { path: "admin/forms/new", element: <FormBuilder /> },
