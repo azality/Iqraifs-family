@@ -144,6 +144,9 @@ export function ManageAssessment() {
             <ArrowLeft className="h-3.5 w-3.5 mr-1" /> Admin
           </Button>
         </Link>
+        <Link to={`/school/orgs/${orgId}/admin/assessment/grade-scales`}>
+          <Button variant="outline" size="sm">Grade scales →</Button>
+        </Link>
       </div>
       <div>
         <h1 className={sectionTitleClasses}>Assessment</h1>
