@@ -455,6 +455,31 @@ export const getMyStudentTimetable = (
   return pinApiCall(`/school/pin-me/students/${studentId}/timetable${q}`);
 };
 
+// ─── Today snapshot (PR feat/parent-portal-home) ─────────────────────
+// Lightweight summary used by the multi-child landing card AND the
+// per-child dashboard pills. Plain-language: "Present today", "Fee due",
+// "Homework pending", "Hifz revision needed", "Teacher note added".
+export interface TodaySnapshot {
+  student: {
+    id: string;
+    fullName: string;
+    grNumber: string;
+    photoUrl: string | null;
+    className: string | null;
+    sectionName: string | null;
+  };
+  today: string;
+  attendanceToday: { status: "present" | "late" | "absent" | "excused"; takenAt: string | null } | null;
+  homeworkPending: { count: number; soonestDueDate: string | null };
+  feesDueNow: { amount: number; periodLabel: string; dueDate: string | null } | null;
+  hifzRevisionNeeded: { lastEntryDate: string; daysSince: number } | null;
+  latestTeacherNote: { kind: "positive" | "concern"; summary: string; observedAt: string } | null;
+  publishedReportCardTermName: string | null;
+}
+
+export const getTodaySnapshot = (studentId: string): Promise<TodaySnapshot> =>
+  pinApiCall(`/school/pin-me/students/${studentId}/today-snapshot`);
+
 // ─── Term report cards (parent / student portal, PR v2) ─────────────
 export interface MyTermReportCardListItem {
   termId: string;
