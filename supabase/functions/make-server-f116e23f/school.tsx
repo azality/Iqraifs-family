@@ -179,7 +179,7 @@ school.get("/me", async (c) => {
     // Lookup failure is non-fatal — default to 'family'.
   }
 
-  const { data: roles, error: rolesErr } = await serviceRoleClient
+  const { data: roleRows, error: rolesErr } = await serviceRoleClient
     .from("user_roles")
     .select("role_type, scope_type, scope_id")
     .eq("user_id", userId)
@@ -187,14 +187,65 @@ school.get("/me", async (c) => {
   if (rolesErr) {
     return c.json({ error: "could not load roles", details: rolesErr.message }, 500);
   }
+  const roles: Array<{ role_type: string; scope_type: string; scope_id: string }> =
+    (roleRows ?? []) as any;
 
-  // Hydrate scope names so the frontend doesn't need extra round trips
-  const orgIds = (roles ?? [])
-    .filter((r: any) => r.scope_type === "organization")
-    .map((r: any) => r.scope_id);
-  const classIds = (roles ?? [])
-    .filter((r: any) => r.scope_type === "class")
-    .map((r: any) => r.scope_id);
+  // SYNTHETIC HIFZ TEACHER ROLES (PR feat/hifz-teacher-section-listing).
+  // class_section.hifz_teacher_user_id grants Hifz-log POST access but
+  // doesn't write a user_roles row. Without surfacing those attachments
+  // here, a Hifz-only teacher (no class_teacher / visiting_teacher
+  // role) lands on /school with no orgs in their access list and is
+  // shown the "no staff role" card. We materialize them here as
+  // synthetic class-scoped role rows with role_type='hifz_teacher' so
+  // viewerRoleForOrg + the access-denied gate downstream can see them.
+  // role_type intentionally NOT equal to 'class_teacher' so existing
+  // gates that grant write powers based on a real class_teacher row
+  // remain unaffected.
+  const { data: hifzSections } = await serviceRoleClient
+    .from("class_section")
+    .select("id, class_id, class:class_id(id, org_id)")
+    .eq("hifz_teacher_user_id", userId);
+  const hifzSectionRows = (hifzSections ?? []) as Array<{
+    id: string;
+    class_id: string;
+    class: { id: string; org_id: string } | null;
+  }>;
+  for (const sec of hifzSectionRows) {
+    if (!sec.class) continue;
+    // Section-scoped synthetic — feeds determineScope downstream.
+    roles.push({
+      role_type: "hifz_teacher",
+      scope_type: "class",
+      scope_id: sec.id,
+    });
+    // Also synthesize an org-scoped marker so viewerRoleForOrg can
+    // resolve the role without needing to look at every section.
+    roles.push({
+      role_type: "hifz_teacher",
+      scope_type: "organization",
+      scope_id: sec.class.org_id,
+    });
+  }
+
+  // Hydrate scope names so the frontend doesn't need extra round trips.
+  // For the org list we union real role-row orgs + Hifz section orgs so
+  // a Hifz-only teacher gets their org in me.organizations.
+  const orgIds = Array.from(
+    new Set([
+      ...roles
+        .filter((r) => r.scope_type === "organization")
+        .map((r) => r.scope_id),
+      ...hifzSectionRows
+        .map((s) => s.class?.org_id)
+        .filter((x): x is string => !!x),
+    ]),
+  );
+  const classIds = Array.from(
+    new Set([
+      ...roles.filter((r) => r.scope_type === "class").map((r) => r.scope_id),
+      ...hifzSectionRows.map((s) => s.class_id),
+    ]),
+  );
 
   const [orgRows, classRows] = await Promise.all([
     orgIds.length > 0
@@ -218,7 +269,7 @@ school.get("/me", async (c) => {
   return c.json({
     userId,
     signupIntent,
-    roles: roles ?? [],
+    roles,
     organizations: orgRows.data ?? [],
     classes: classRows.data ?? [],
   });

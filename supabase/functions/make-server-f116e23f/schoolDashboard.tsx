@@ -126,6 +126,17 @@ async function hasAnyRoleInOrg(userId: string, orgId: string): Promise<boolean> 
     .limit(1);
   if (classSections && classSections.length > 0) return true;
 
+  // Same flavour for Hifz teacher assignments (PR feat/hifz-teacher-
+  // section-listing). A teacher attached ONLY via hifz_teacher_user_id
+  // should still count as having org access.
+  const { data: hifzSections } = await serviceRoleClient
+    .from("class_section")
+    .select("id, class!inner(org_id)")
+    .eq("hifz_teacher_user_id", userId)
+    .eq("class.org_id", orgId)
+    .limit(1);
+  if (hifzSections && hifzSections.length > 0) return true;
+
   // Check class-scoped visiting teacher roles tied to sections in this org.
   const { data: classScoped } = await serviceRoleClient
     .from("user_roles")
@@ -191,6 +202,20 @@ async function determineScope(
     .eq("class_teacher_user_id", userId)
     .eq("class.org_id", orgId);
   for (const s of (ownedSections ?? []) as Array<{ id: string }>) {
+    scopedSectionIds.add(s.id);
+  }
+
+  // 2a.5. class_section.hifz_teacher_user_id (PR feat/hifz-teacher-
+  // section-listing). Treat the assignment as section ownership for
+  // scope purposes — the user gets to see their Hifz sections in the
+  // dashboard. Write gates downstream still check the column
+  // explicitly when needed (e.g. lesson POST requires class_teacher).
+  const { data: hifzOwned } = await serviceRoleClient
+    .from("class_section")
+    .select("id, class!inner(org_id)")
+    .eq("hifz_teacher_user_id", userId)
+    .eq("class.org_id", orgId);
+  for (const s of (hifzOwned ?? []) as Array<{ id: string }>) {
     scopedSectionIds.add(s.id);
   }
 
