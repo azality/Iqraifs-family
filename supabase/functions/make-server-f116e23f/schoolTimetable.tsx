@@ -73,6 +73,18 @@ function slotToJson(r: any) {
   };
 }
 
+function subToJson(r: any) {
+  return {
+    id: r.id,
+    orgId: r.org_id,
+    entryId: r.entry_id,
+    date: r.date,
+    substituteTeacherUserId: r.substitute_teacher_user_id,
+    reason: r.reason,
+    createdAt: r.created_at,
+  };
+}
+
 function entryToJson(r: any) {
   return {
     id: r.id,
@@ -427,7 +439,88 @@ export function installTimetable(school: Hono): void {
       .eq("teacher_user_id", userId);
     if (entryErr) return c.json({ error: entryErr.message }, 500);
 
-    let rows = ((entries ?? []) as any[]).filter((r) => r.slot && !r.slot.archived_at);
+    // Substitutions today: caller might be covering (subbing IN) or
+    // covered (subbing OUT). Caller passes `date` to anchor to their
+    // local day; falls back to server today.
+    const dateQ = c.req.query("date");
+    const today =
+      dateQ && /^\d{4}-\d{2}-\d{2}$/.test(dateQ)
+        ? dateQ
+        : new Date().toISOString().slice(0, 10);
+
+    // Subbing IN — entries where I'm the substitute for today.
+    const { data: subbingIn } = await serviceRoleClient
+      .from("timetable_substitution")
+      .select(
+        "*, entry:entry_id(*, slot:slot_id(*), section_subject:section_subject_id(class_subject:class_subject_id(name)), section:scope_section_id(name, class:class_id(name)), hifz_group:scope_hifz_group_id(name))",
+      )
+      .eq("org_id", orgId)
+      .eq("date", today)
+      .eq("substitute_teacher_user_id", userId);
+
+    // Subbing OUT — I'm the original teacher and someone is covering today.
+    const myEntryIds = ((entries ?? []) as any[]).map((e) => e.id);
+    const { data: subbingOut } = myEntryIds.length
+      ? await serviceRoleClient
+          .from("timetable_substitution")
+          .select("entry_id, substitute_teacher_user_id, reason")
+          .eq("date", today)
+          .in("entry_id", myEntryIds)
+      : { data: [] as any[] };
+    const subbingOutByEntry = new Map<string, any>();
+    for (const s of (subbingOut ?? []) as any[]) {
+      subbingOutByEntry.set(s.entry_id, s);
+    }
+
+    // Hydrate names for sub-out entries (the teacher covering me).
+    const subTeacherIds = Array.from(
+      new Set(
+        ((subbingOut ?? []) as any[])
+          .map((s) => s.substitute_teacher_user_id)
+          .filter((x): x is string => !!x),
+      ),
+    );
+    const subTeacherNames = new Map<string, string>();
+    for (const tid of subTeacherIds) {
+      try {
+        const { data: u } = await (serviceRoleClient as any).auth.admin.getUserById(tid);
+        const name = u?.user?.user_metadata?.name || u?.user?.email || "";
+        if (name) subTeacherNames.set(tid, name);
+      } catch { /* ignore */ }
+    }
+    // And original-teacher names for entries I'm covering today.
+    const origIds = Array.from(
+      new Set(
+        ((subbingIn ?? []) as any[])
+          .map((s) => s.entry?.teacher_user_id)
+          .filter((x): x is string => !!x),
+      ),
+    );
+    const origNames = new Map<string, string>();
+    for (const tid of origIds) {
+      try {
+        const { data: u } = await (serviceRoleClient as any).auth.admin.getUserById(tid);
+        const name = u?.user?.user_metadata?.name || u?.user?.email || "";
+        if (name) origNames.set(tid, name);
+      } catch { /* ignore */ }
+    }
+
+    // Build a synthetic row for each entry I'm subbing IN to.
+    const subbedInRows = ((subbingIn ?? []) as any[])
+      .filter((s) => s.entry && s.entry.slot && !s.entry.slot.archived_at)
+      .map((s) => ({
+        ...s.entry,
+        __sub_in: {
+          reason: s.reason,
+          originalTeacherName:
+            s.entry.teacher_user_id ? origNames.get(s.entry.teacher_user_id) ?? null : null,
+        },
+      }));
+
+    let rows = [
+      ...((entries ?? []) as any[]).filter((r) => r.slot && !r.slot.archived_at),
+      ...subbedInRows,
+    ];
     if (day !== null) rows = rows.filter((r) => r.slot.day_of_week === day);
 
     // Sort by (day, start_time). The slot is embedded so we sort
@@ -437,21 +530,218 @@ export function installTimetable(school: Hono): void {
       a.slot.start_time.localeCompare(b.slot.start_time),
     );
 
-    const cells = rows.map((r) => ({
-      slot: slotToJson(r.slot),
-      entry: {
-        ...entryToJson(r),
+    const cells = rows.map((r) => {
+      const sIn = r.__sub_in;
+      const sOut = sIn ? null : subbingOutByEntry.get(r.id);
+      return {
+        slot: slotToJson(r.slot),
+        entry: {
+          ...entryToJson(r),
+          subjectName: r.section_subject?.class_subject?.name ?? null,
+          teacherName: null, // it's the caller — UI knows
+        },
+        scopeLabel:
+          r.section
+            ? `${r.section.class?.name ?? "Class"} — ${r.section.name}`
+            : r.hifz_group?.name ?? "—",
+        // PR feat/timetable-substitutions — UI badges drive off these.
+        substitution: sIn
+          ? { role: "covering", originalTeacherName: sIn.originalTeacherName, reason: sIn.reason }
+          : sOut
+          ? {
+              role: "covered",
+              substituteTeacherName:
+                subTeacherNames.get(sOut.substitute_teacher_user_id) ?? null,
+              reason: sOut.reason,
+            }
+          : null,
+      };
+    });
+    return c.json({ cells });
+  });
+
+  // ─── Teacher's entries (admin-only helper for sub picker) ───────────
+  // GET /school/orgs/:orgId/teachers/:teacherId/entries
+  school.get("/orgs/:orgId/teachers/:teacherId/entries", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const teacherId = c.req.param("teacherId");
+    if (!(await isAdminOrPrincipal(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const { data, error } = await serviceRoleClient
+      .from("timetable_entry")
+      .select(
+        "*, slot:slot_id(*), section_subject:section_subject_id(class_subject:class_subject_id(name)), section:scope_section_id(name, class:class_id(name)), hifz_group:scope_hifz_group_id(name)",
+      )
+      .eq("org_id", orgId)
+      .eq("teacher_user_id", teacherId);
+    if (error) return c.json({ error: error.message }, 500);
+
+    const rows = ((data ?? []) as any[])
+      .filter((r) => r.slot && !r.slot.archived_at)
+      .sort(
+        (a, b) =>
+          a.slot.day_of_week - b.slot.day_of_week ||
+          a.slot.start_time.localeCompare(b.slot.start_time),
+      )
+      .map((r) => ({
+        id: r.id,
+        slot: slotToJson(r.slot),
         subjectName: r.section_subject?.class_subject?.name ?? null,
-        teacherName: null, // it's the caller — UI knows
-      },
-      // Where this entry takes place — section "Grade 3 — A" or Hifz
-      // group "Hifz Group B". One of the two is always set.
-      scopeLabel:
-        r.section
+        scopeLabel: r.section
           ? `${r.section.class?.name ?? "Class"} — ${r.section.name}`
           : r.hifz_group?.name ?? "—",
+      }));
+    return c.json({ entries: rows });
+  });
+
+  // ─── Substitutions CRUD ─────────────────────────────────────────────
+  // Listing for the admin/principal substitution panel — defaults to
+  // today, optional ?date=YYYY-MM-DD or ?from/?to range.
+  school.get("/orgs/:orgId/timetable/substitutions", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await hasAnyOrgRole(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const date = c.req.query("date");
+    const from = c.req.query("from");
+    const to = c.req.query("to");
+    let q = serviceRoleClient
+      .from("timetable_substitution")
+      .select(
+        "*, entry:entry_id(*, slot:slot_id(*), section:scope_section_id(name, class:class_id(name)), hifz_group:scope_hifz_group_id(name), section_subject:section_subject_id(class_subject:class_subject_id(name)))",
+      )
+      .eq("org_id", orgId)
+      .order("date", { ascending: true });
+    if (date) q = q.eq("date", date);
+    if (from) q = q.gte("date", from);
+    if (to) q = q.lte("date", to);
+    const { data, error } = await q;
+    if (error) return c.json({ error: error.message }, 500);
+
+    // Hydrate substitute teacher names.
+    const tids = Array.from(
+      new Set(
+        ((data ?? []) as any[])
+          .map((s) => s.substitute_teacher_user_id)
+          .filter((x): x is string => !!x),
+      ),
+    );
+    const names = new Map<string, string>();
+    for (const tid of tids) {
+      try {
+        const { data: u } = await (serviceRoleClient as any).auth.admin.getUserById(tid);
+        const name = u?.user?.user_metadata?.name || u?.user?.email || "";
+        if (name) names.set(tid, name);
+      } catch { /* ignore */ }
+    }
+    // Original teacher names too.
+    const otids = Array.from(
+      new Set(
+        ((data ?? []) as any[])
+          .map((s) => s.entry?.teacher_user_id)
+          .filter((x): x is string => !!x),
+      ),
+    );
+    for (const tid of otids) {
+      if (names.has(tid)) continue;
+      try {
+        const { data: u } = await (serviceRoleClient as any).auth.admin.getUserById(tid);
+        const name = u?.user?.user_metadata?.name || u?.user?.email || "";
+        if (name) names.set(tid, name);
+      } catch { /* ignore */ }
+    }
+
+    const subs = ((data ?? []) as any[]).map((s) => ({
+      ...subToJson(s),
+      substituteTeacherName: names.get(s.substitute_teacher_user_id) ?? null,
+      entry: s.entry
+        ? {
+            id: s.entry.id,
+            slot: s.entry.slot ? slotToJson(s.entry.slot) : null,
+            subjectName: s.entry.section_subject?.class_subject?.name ?? null,
+            originalTeacherUserId: s.entry.teacher_user_id ?? null,
+            originalTeacherName:
+              s.entry.teacher_user_id ? names.get(s.entry.teacher_user_id) ?? null : null,
+            scopeLabel: s.entry.section
+              ? `${s.entry.section.class?.name ?? "Class"} — ${s.entry.section.name}`
+              : s.entry.hifz_group?.name ?? "—",
+          }
+        : null,
     }));
-    return c.json({ cells });
+    return c.json({ substitutions: subs });
+  });
+
+  // Create. Admin/principal only — a teacher reporting their own sick
+  // day shouldn't be self-serve here without a workflow we don't have yet.
+  school.post("/orgs/:orgId/timetable/substitutions", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await isAdminOrPrincipal(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const body = await c.req.json().catch(() => ({}));
+    const entry_id = String(body.entryId ?? "");
+    const date = String(body.date ?? "");
+    const sub_id = String(body.substituteTeacherUserId ?? "");
+    const reason = body.reason ? String(body.reason).slice(0, 500) : null;
+    if (!entry_id || !sub_id || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return c.json({ error: "entryId, date (YYYY-MM-DD), substituteTeacherUserId required" }, 400);
+    }
+    // Verify the entry belongs to this org.
+    const { data: ent } = await serviceRoleClient
+      .from("timetable_entry")
+      .select("id, org_id, teacher_user_id")
+      .eq("id", entry_id)
+      .maybeSingle();
+    if (!ent || (ent as any).org_id !== orgId) {
+      return c.json({ error: "entry not found in this org" }, 404);
+    }
+    // Substitute must be a member of this org (any role).
+    if (!(await hasAnyOrgRole(sub_id, orgId))) {
+      return c.json({ error: "substitute is not a member of this org" }, 400);
+    }
+    if (sub_id === (ent as any).teacher_user_id) {
+      return c.json({ error: "substitute is the same as the original teacher" }, 400);
+    }
+
+    const { data, error } = await serviceRoleClient
+      .from("timetable_substitution")
+      .insert({
+        org_id: orgId,
+        entry_id,
+        date,
+        substitute_teacher_user_id: sub_id,
+        reason,
+        created_by: userId,
+      })
+      .select("*")
+      .single();
+    if (error) {
+      if (String(error.message).includes("duplicate")) {
+        return c.json({ error: "a substitution already exists for this slot on this date" }, 409);
+      }
+      return c.json({ error: error.message }, 500);
+    }
+    return c.json({ substitution: subToJson(data) });
+  });
+
+  school.delete("/orgs/:orgId/timetable/substitutions/:subId", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const subId = c.req.param("subId");
+    if (!(await isAdminOrPrincipal(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const { error } = await serviceRoleClient
+      .from("timetable_substitution")
+      .delete()
+      .eq("id", subId)
+      .eq("org_id", orgId);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ ok: true });
   });
 }
 

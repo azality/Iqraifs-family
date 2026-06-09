@@ -1951,19 +1951,92 @@ export const getHifzGroupTimetable = (
 /** Teacher's own entries. Used on TeacherHome to render "My today's
  *  schedule". scopeLabel is pre-built ("Grade 3 — A" / Hifz group
  *  name) so the card doesn't need a separate lookup. */
+export interface TimetableSubBadge {
+  /** "covering" — caller is the substitute for someone else's slot.
+   *  "covered" — caller is the original teacher, someone else covers today. */
+  role: "covering" | "covered";
+  originalTeacherName?: string | null;
+  substituteTeacherName?: string | null;
+  reason?: string | null;
+}
+
 export interface MyTimetableCell {
   slot: TimetableSlot;
   entry: TimetableEntry & { subjectName: string | null; teacherName: string | null };
   scopeLabel: string;
+  /** Populated only when the slot's entry has a substitution for today. */
+  substitution?: TimetableSubBadge | null;
 }
 
 export const getMyTeacherTimetable = (
   orgId: string,
-  opts: { day?: number } = {},
+  opts: { day?: number; date?: string } = {},
 ): Promise<{ cells: MyTimetableCell[] }> => {
-  const q = opts.day ? `?day=${opts.day}` : "";
+  const params: string[] = [];
+  if (opts.day) params.push(`day=${opts.day}`);
+  if (opts.date) params.push(`date=${opts.date}`);
+  const q = params.length ? `?${params.join("&")}` : "";
   return apiCall(`/school/orgs/${orgId}/me/timetable${q}`);
 };
+
+export interface TeacherEntrySummary {
+  id: string;
+  slot: TimetableSlot;
+  subjectName: string | null;
+  scopeLabel: string;
+}
+export const listTeacherEntries = (
+  orgId: string,
+  teacherUserId: string,
+): Promise<{ entries: TeacherEntrySummary[] }> =>
+  apiCall(`/school/orgs/${orgId}/teachers/${teacherUserId}/entries`);
+
+// ───── Substitutions (admin/principal) ────────────────────────────────
+export interface TimetableSubstitution {
+  id: string;
+  orgId: string;
+  entryId: string;
+  date: string;
+  substituteTeacherUserId: string;
+  substituteTeacherName: string | null;
+  reason: string | null;
+  createdAt: string;
+  entry: {
+    id: string;
+    slot: TimetableSlot | null;
+    subjectName: string | null;
+    originalTeacherUserId: string | null;
+    originalTeacherName: string | null;
+    scopeLabel: string;
+  } | null;
+}
+
+export const listTimetableSubstitutions = (
+  orgId: string,
+  opts: { date?: string; from?: string; to?: string } = {},
+): Promise<{ substitutions: TimetableSubstitution[] }> => {
+  const params: string[] = [];
+  if (opts.date) params.push(`date=${opts.date}`);
+  if (opts.from) params.push(`from=${opts.from}`);
+  if (opts.to) params.push(`to=${opts.to}`);
+  const q = params.length ? `?${params.join("&")}` : "";
+  return apiCall(`/school/orgs/${orgId}/timetable/substitutions${q}`);
+};
+
+export const createTimetableSubstitution = (
+  orgId: string,
+  input: { entryId: string; date: string; substituteTeacherUserId: string; reason?: string },
+): Promise<{ substitution: TimetableSubstitution }> =>
+  apiCall(`/school/orgs/${orgId}/timetable/substitutions`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+
+export const deleteTimetableSubstitution = (
+  orgId: string,
+  subId: string,
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/timetable/substitutions/${subId}`, { method: "DELETE" });
 
 export interface OrgAdmin {
   user_id: string;

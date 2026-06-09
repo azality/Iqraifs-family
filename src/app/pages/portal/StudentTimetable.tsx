@@ -42,6 +42,11 @@ function todayDow(): number {
   return d === 0 ? 7 : d;
 }
 
+function todayIso(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 export function StudentTimetable() {
   const { studentId = "" } = useParams<{ studentId: string }>();
   const [cells, setCells] = useState<MyStudentTimetableCell[]>([]);
@@ -51,7 +56,7 @@ export function StudentTimetable() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    getMyStudentTimetable(studentId)
+    getMyStudentTimetable(studentId, { date: todayIso() })
       .then((r) => { if (!cancelled) { setCells(r.cells); setError(null); } })
       .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load"); })
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -148,6 +153,14 @@ export function StudentTimetable() {
                         {c.entry.teacherName && (
                           <span className="text-xs inline-flex items-center gap-1 opacity-80">
                             <User className="h-3 w-3" /> {c.entry.teacherName}
+                            {c.entry.substitution && (
+                              <span className="ml-1 text-[10px] font-medium text-amber-800 bg-amber-100 px-1 py-0.5 rounded">
+                                Sub today
+                                {c.entry.substitution.originalTeacherName
+                                  ? ` (for ${c.entry.substitution.originalTeacherName})`
+                                  : ""}
+                              </span>
+                            )}
                           </span>
                         )}
                         {c.entry.room && (

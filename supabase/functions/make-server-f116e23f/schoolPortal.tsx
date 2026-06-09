@@ -605,8 +605,53 @@ export function installPortal(school: Hono): void {
     for (const e of (groupEntries ?? []) as any[]) bySlot.set(e.slot_id, e);
     for (const e of (secEntries ?? []) as any[]) bySlot.set(e.slot_id, e);
 
+    // PR feat/timetable-substitutions — overlay today's subs onto the
+    // weekly view. Caller may pass ?date=YYYY-MM-DD to anchor today in
+    // their tz; otherwise we use server-local today.
+    const dateQ = c.req.query("date");
+    const today =
+      dateQ && /^\d{4}-\d{2}-\d{2}$/.test(dateQ)
+        ? dateQ
+        : new Date().toISOString().slice(0, 10);
+    const entryIdsForSub = all.map((e) => e.id);
+    const { data: subsToday } = entryIdsForSub.length
+      ? await serviceRoleClient
+          .from("timetable_substitution")
+          .select("entry_id, substitute_teacher_user_id, reason")
+          .eq("date", today)
+          .in("entry_id", entryIdsForSub)
+      : { data: [] as any[] };
+    const subByEntry = new Map<string, any>();
+    for (const s of (subsToday ?? []) as any[]) subByEntry.set(s.entry_id, s);
+
+    // Hydrate sub teacher names not already known.
+    const subTids = Array.from(
+      new Set(
+        ((subsToday ?? []) as any[])
+          .map((s) => s.substitute_teacher_user_id)
+          .filter((x): x is string => !!x && !teacherNames.has(x)),
+      ),
+    );
+    for (const tid of subTids) {
+      try {
+        const { data: u } = await (serviceRoleClient as any).auth.admin.getUserById(tid);
+        const name = u?.user?.user_metadata?.name || u?.user?.email || "";
+        if (name) teacherNames.set(tid, name);
+      } catch { /* ignore */ }
+    }
+
+    // Today's ISO day-of-week (Mon=1..Sun=7) for limiting sub overlay.
+    const tDate = new Date(today + "T00:00:00");
+    const jsDay = tDate.getDay();
+    const todayDow = jsDay === 0 ? 7 : jsDay;
+
     const cells = ((slots ?? []) as any[]).map((s) => {
       const e = bySlot.get(s.id);
+      const sub = e && s.day_of_week === todayDow ? subByEntry.get(e.id) : null;
+      const subName =
+        sub && sub.substitute_teacher_user_id
+          ? teacherNames.get(sub.substitute_teacher_user_id) ?? null
+          : null;
       return {
         slot: {
           id: s.id,
@@ -619,12 +664,25 @@ export function installPortal(school: Hono): void {
         entry: e
           ? {
               subjectName: e.section_subject?.class_subject?.name ?? null,
-              teacherName: e.teacher_user_id
+              // If today is covered, show the substitute's name with
+              // the original kept around so the UI can render
+              // "Sub: B (covering A)".
+              teacherName: sub
+                ? subName
+                : e.teacher_user_id
                 ? teacherNames.get(e.teacher_user_id) ?? null
                 : null,
               room: e.room,
               notes: e.notes,
               scope: e.scope_section_id ? "section" : "hifz_group",
+              substitution: sub
+                ? {
+                    originalTeacherName: e.teacher_user_id
+                      ? teacherNames.get(e.teacher_user_id) ?? null
+                      : null,
+                    reason: sub.reason ?? null,
+                  }
+                : null,
             }
           : null,
       };
