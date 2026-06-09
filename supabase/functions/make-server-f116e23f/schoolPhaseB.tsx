@@ -193,6 +193,82 @@ export function installPhaseB(school: Hono): void {
   // Body: { date: 'YYYY-MM-DD', entries: [{ studentId, status, notes? }, ...] }
   // Upserts one row per student per date. Teacher of section OR Admin+.
   // ---------------------------------------------------------------------------
+  // POST /school/orgs/:orgId/attendance/bulk
+  //
+  // Historical attendance import (PR feat/import-editable-fee-attendance).
+  // CSV references students by GR; one row per (student, date).
+  // Useful for backfilling the term's attendance from a paper register
+  // when migrating a school mid-term.
+  school.post("/orgs/:orgId/attendance/bulk", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    if (!(await userCanInOrg(userId, orgId, "manage_attendance"))) {
+      return c.json({ error: "forbidden", code: "FORBIDDEN_PERMISSION" }, 403);
+    }
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    if (!Array.isArray(body?.rows)) return c.json({ error: "rows[] required" }, 400);
+
+    const { data: students } = await serviceRoleClient
+      .from("student")
+      .select("id, gr_number, class_section_id")
+      .eq("org_id", orgId);
+    const studentMap = new Map<string, { id: string; sectionId: string | null }>();
+    for (const s of (students ?? []) as any[]) {
+      studentMap.set(String(s.gr_number).toLowerCase().trim(), {
+        id: s.id,
+        sectionId: s.class_section_id ?? null,
+      });
+    }
+
+    const errors: Array<{ rowIndex: number; message: string }> = [];
+    let inserted = 0;
+    for (let i = 0; i < body.rows.length; i++) {
+      const r = body.rows[i] ?? {};
+      const gr = typeof r.grNumber === "string" ? r.grNumber.trim() : "";
+      const date = typeof r.date === "string" ? r.date.trim() : "";
+      const status = typeof r.status === "string" ? r.status.trim().toLowerCase() : "";
+      if (!gr || !isIsoDate(date)) {
+        errors.push({ rowIndex: i, message: "grNumber + date (YYYY-MM-DD) required" });
+        continue;
+      }
+      if (!ATTENDANCE_STATUSES.has(status)) {
+        errors.push({ rowIndex: i, message: "status must be present / absent / late / excused" });
+        continue;
+      }
+      const meta = studentMap.get(gr.toLowerCase());
+      if (!meta) {
+        errors.push({ rowIndex: i, message: `student GR "${gr}" not found` });
+        continue;
+      }
+      if (!meta.sectionId) {
+        errors.push({ rowIndex: i, message: `student "${gr}" has no class_section — assign one first` });
+        continue;
+      }
+      const { error } = await serviceRoleClient
+        .from("school_attendance")
+        .insert({
+          org_id: orgId,
+          student_id: meta.id,
+          class_section_id: meta.sectionId,
+          attendance_date: date,
+          status,
+          notes: r.notes || null,
+          recorded_by: userId,
+        });
+      if (error) {
+        const msg = (error as any).code === "23505"
+          ? `attendance for ${gr} on ${date} already recorded`
+          : (error as any).message;
+        errors.push({ rowIndex: i, message: msg });
+      } else {
+        inserted++;
+      }
+    }
+    return c.json({ inserted, errors });
+  });
+
   school.post("/orgs/:orgId/sections/:sectionId/attendance", async (c) => {
     const userId = getAuthUserId(c);
     if (!userId) return c.json({ error: "unauthenticated" }, 401);

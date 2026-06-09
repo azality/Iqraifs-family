@@ -1700,6 +1700,46 @@ export const bulkCreateHifzProgress = async (
     }),
   );
 
+export interface BulkFeeRow {
+  grNumber: string;
+  period: string;
+  amountDue?: number | string;
+  amountPaid?: number | string;
+  status?: "unpaid" | "paid" | "partial" | "waived";
+  dueDate?: string;
+  paidDate?: string;
+  notes?: string;
+}
+
+export const bulkCreateFees = async (
+  orgId: string,
+  rows: BulkFeeRow[],
+): Promise<BulkResult> =>
+  normalizeBulkResult(
+    await apiCall(`/school/orgs/${orgId}/fees/bulk`, {
+      method: "POST",
+      body: JSON.stringify({ rows }),
+    }),
+  );
+
+export interface BulkAttendanceRow {
+  grNumber: string;
+  date: string;
+  status: "present" | "absent" | "late" | "excused";
+  notes?: string;
+}
+
+export const bulkCreateAttendance = async (
+  orgId: string,
+  rows: BulkAttendanceRow[],
+): Promise<BulkResult> =>
+  normalizeBulkResult(
+    await apiCall(`/school/orgs/${orgId}/attendance/bulk`, {
+      method: "POST",
+      body: JSON.stringify({ rows }),
+    }),
+  );
+
 export interface OrgAdmin {
   user_id: string;
   email: string;

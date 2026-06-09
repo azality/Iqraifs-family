@@ -4,7 +4,7 @@
 // surfaces validation errors, then hands the parsed row objects to the
 // page's onSubmit.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -91,15 +91,39 @@ export function CsvUploadDialog({
     return { ...auto, ...columnMapping };
   }, [parsed, columnMapping, columns]);
 
-  const rowObjects = useMemo(
+  // Mirror parsed rows into mutable state so cells can be edited in
+  // place before upload (Phase 2 of Import Center). The useEffect
+  // syncs whenever the parsed input or mapping changes, but in-between
+  // the rows are user-mutable. localEdits === rowObjects when no edits
+  // have happened.
+  const computedRows = useMemo(
     () => (parsed ? rowsToObjects(parsed.dataRows, effectiveMapping) : []),
     [parsed, effectiveMapping],
   );
+  const [editedRows, setEditedRows] = useState<Array<Record<string, string>>>([]);
+  // Resync whenever the underlying CSV / mapping changes — discards
+  // any in-place edits to avoid stale state.
+  useEffect(() => {
+    setEditedRows(computedRows);
+  }, [computedRows]);
+  const rowObjects = editedRows;
 
   const localErrors = useMemo(
     () => (rowObjects.length ? validateRows(rowObjects, columns) : []),
     [rowObjects, columns],
   );
+
+  const updateCell = (rowIdx: number, key: string, value: string) => {
+    setEditedRows((rs) => {
+      const next = rs.slice();
+      next[rowIdx] = { ...next[rowIdx], [key]: value };
+      return next;
+    });
+  };
+
+  const removeRow = (rowIdx: number) => {
+    setEditedRows((rs) => rs.filter((_, i) => i !== rowIdx));
+  };
 
   // Per-row duplicate flag — Set of row indices that match an existing
   // record. Empty when no detection config supplied; cheap to compute.
@@ -235,9 +259,14 @@ export function CsvUploadDialog({
                 </div>
 
                 <div>
-                  <p className="text-sm font-medium mb-2">
-                    Preview ({rowObjects.length} rows)
-                  </p>
+                  <div className="flex items-baseline justify-between mb-2">
+                    <p className="text-sm font-medium">
+                      Preview ({rowObjects.length} rows)
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Click any cell to edit · ✕ to remove a row before upload
+                    </p>
+                  </div>
                   <div className="border rounded-md max-h-64 overflow-auto">
                     <table className="w-full text-xs">
                       <thead className="bg-muted/50 sticky top-0">
@@ -247,15 +276,13 @@ export function CsvUploadDialog({
                               {c.label}{c.required ? " *" : ""}
                             </th>
                           ))}
+                          <th className="w-8 p-2"></th>
                         </tr>
                       </thead>
                       <tbody>
                         {rowObjects.slice(0, 50).map((row, ridx) => {
                           const rowErrs = localErrors.filter((e) => e.row === ridx + 1);
                           const isDup = duplicateRows.has(ridx);
-                          // Errors take priority over duplicate tint —
-                          // a missing-required row needs the strongest
-                          // visual cue. Duplicates fall back to amber.
                           const rowCls = rowErrs.length
                             ? "bg-red-50"
                             : isDup
@@ -264,15 +291,36 @@ export function CsvUploadDialog({
                           return (
                             <tr key={ridx} className={rowCls}>
                               {columns.map((c, ci) => (
-                                <td key={c.key} className="p-2 border-t">
-                                  {row[c.key] || <span className="text-muted-foreground">—</span>}
+                                <td key={c.key} className="p-1 border-t align-top">
+                                  {/* Inline editable cell — keeps the
+                                      preview row layout but lets the
+                                      admin patch typos before upload.
+                                      Plain <input> rather than the UI
+                                      Input component so the row stays
+                                      compact. */}
+                                  <input
+                                    value={row[c.key] ?? ""}
+                                    onChange={(e) => updateCell(ridx, c.key, e.target.value)}
+                                    className="w-full bg-transparent border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded px-1.5 py-1 text-xs focus:outline-none focus:bg-white"
+                                  />
                                   {ci === 0 && isDup && (
-                                    <span className="ml-2 inline-flex items-center rounded-full bg-amber-100 text-amber-800 text-[10px] font-medium px-1.5 py-0.5">
+                                    <span className="ml-1 inline-flex items-center rounded-full bg-amber-100 text-amber-800 text-[10px] font-medium px-1.5 py-0.5">
                                       duplicate
                                     </span>
                                   )}
                                 </td>
                               ))}
+                              <td className="p-1 border-t align-top">
+                                <button
+                                  type="button"
+                                  onClick={() => removeRow(ridx)}
+                                  className="text-slate-400 hover:text-rose-600 text-xs px-1"
+                                  title="Remove row"
+                                  aria-label="Remove row"
+                                >
+                                  ×
+                                </button>
+                              </td>
                             </tr>
                           );
                         })}

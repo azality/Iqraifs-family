@@ -812,6 +812,114 @@ export function installPhaseCD(school: Hono): void {
     return c.json({ fee: feeToJson(data) }, 201);
   });
 
+  // POST /school/orgs/:orgId/fees/bulk
+  //
+  // Phase 2 of Import Center (PR feat/import-editable-fee-attendance).
+  // Used for opening-balance migration: one row per (student, period).
+  // CSV references students by GR so it reads like the paper ledger.
+  // amountPaid + status default to "unpaid" with 0 paid; admins can
+  // override per row to record carried-over balances from the old
+  // system. UNIQUE(student_id, period) catches the duplicate case.
+  school.post("/orgs/:orgId/fees/bulk", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    if (!(await userCanInOrg(userId, orgId, "mark_fees_status"))) {
+      return c.json({ error: "forbidden", code: "FORBIDDEN_PERMISSION" }, 403);
+    }
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    if (!Array.isArray(body?.rows)) return c.json({ error: "rows[] required" }, 400);
+
+    // Student GR → id lookup once. Saves N queries.
+    const { data: students } = await serviceRoleClient
+      .from("student")
+      .select("id, gr_number")
+      .eq("org_id", orgId);
+    const grMap = new Map<string, string>();
+    for (const s of (students ?? []) as any[]) {
+      grMap.set(String(s.gr_number).toLowerCase().trim(), s.id);
+    }
+
+    const errors: Array<{ rowIndex: number; message: string }> = [];
+    let inserted = 0;
+    for (let i = 0; i < body.rows.length; i++) {
+      const r = body.rows[i] ?? {};
+      const gr = typeof r.grNumber === "string" ? r.grNumber.trim() : "";
+      const period = typeof r.period === "string" ? r.period.trim() : "";
+      if (!gr || !period) {
+        errors.push({ rowIndex: i, message: "grNumber + period required" });
+        continue;
+      }
+      const studentId = grMap.get(gr.toLowerCase());
+      if (!studentId) {
+        errors.push({ rowIndex: i, message: `student GR "${gr}" not found` });
+        continue;
+      }
+      const amountDueNum = r.amountDue === undefined || r.amountDue === ""
+        ? null
+        : Number(r.amountDue);
+      if (amountDueNum !== null && (!Number.isFinite(amountDueNum) || amountDueNum < 0)) {
+        errors.push({ rowIndex: i, message: "amountDue must be non-negative" });
+        continue;
+      }
+      const amountPaidNum = r.amountPaid === undefined || r.amountPaid === ""
+        ? 0
+        : Number(r.amountPaid);
+      if (!Number.isFinite(amountPaidNum) || amountPaidNum < 0) {
+        errors.push({ rowIndex: i, message: "amountPaid must be non-negative" });
+        continue;
+      }
+      const allowedStatus = new Set(["unpaid", "paid", "partial", "waived"]);
+      let status = typeof r.status === "string" && r.status.trim() ? r.status.trim() : null;
+      if (!status) {
+        // Auto-derive: paid >= due → paid; 0 < paid < due → partial; else unpaid.
+        if (amountDueNum != null && amountPaidNum >= amountDueNum && amountDueNum > 0) {
+          status = "paid";
+        } else if (amountPaidNum > 0) {
+          status = "partial";
+        } else {
+          status = "unpaid";
+        }
+      }
+      if (!allowedStatus.has(status)) {
+        errors.push({ rowIndex: i, message: "status must be unpaid/paid/partial/waived" });
+        continue;
+      }
+      if (r.dueDate && !isIsoDate(r.dueDate)) {
+        errors.push({ rowIndex: i, message: "dueDate must be YYYY-MM-DD" });
+        continue;
+      }
+      if (r.paidDate && !isIsoDate(r.paidDate)) {
+        errors.push({ rowIndex: i, message: "paidDate must be YYYY-MM-DD" });
+        continue;
+      }
+      const { error } = await serviceRoleClient
+        .from("fee_status")
+        .insert({
+          org_id: orgId,
+          student_id: studentId,
+          period,
+          amount_due: amountDueNum,
+          amount_paid: amountPaidNum,
+          status,
+          due_date: r.dueDate || null,
+          paid_date: r.paidDate || null,
+          notes: r.notes || null,
+          recorded_by: userId,
+        });
+      if (error) {
+        const msg = (error as any).code === "23505"
+          ? `fee for ${gr} / ${period} already exists`
+          : (error as any).message;
+        errors.push({ rowIndex: i, message: msg });
+      } else {
+        inserted++;
+      }
+    }
+    return c.json({ inserted, errors });
+  });
+
   // GET /school/orgs/:orgId/students/:studentId/fees
   school.get("/orgs/:orgId/students/:studentId/fees", async (c) => {
     const userId = getAuthUserId(c);
