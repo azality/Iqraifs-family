@@ -431,10 +431,16 @@ export interface MyStudentTimetableCell {
   };
   entry: {
     subjectName: string | null;
+    /** When a substitution exists for today, this is the SUB's name. */
     teacherName: string | null;
     room: string | null;
     notes: string | null;
     scope: "section" | "hifz_group";
+    /** Present only for today's row when a substitution is in effect. */
+    substitution?: {
+      originalTeacherName: string | null;
+      reason: string | null;
+    } | null;
   } | null;
 }
 export interface MyStudentTimetableResponse {
@@ -443,8 +449,11 @@ export interface MyStudentTimetableResponse {
 
 export const getMyStudentTimetable = (
   studentId: string,
-): Promise<MyStudentTimetableResponse> =>
-  pinApiCall(`/school/pin-me/students/${studentId}/timetable`);
+  opts: { date?: string } = {},
+): Promise<MyStudentTimetableResponse> => {
+  const q = opts.date ? `?date=${opts.date}` : "";
+  return pinApiCall(`/school/pin-me/students/${studentId}/timetable${q}`);
+};
 
 // ─── Re-exported types from schoolApi ───────────────────────────────────
 

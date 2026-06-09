@@ -58,6 +58,7 @@ import {
   type TimetableWeekCell,
 } from "../../../utils/schoolApi";
 import { sectionTitleClasses } from "../../components/school-ui";
+import { SubstitutionsPanel } from "./SubstitutionsPanel";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const KIND_TONE: Record<TimetableSlotKind, string> = {
@@ -449,6 +450,9 @@ export function ManageTimetable() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ─── Substitutions (PR feat/timetable-substitutions) ─── */}
+      <SubstitutionsPanel orgId={orgId} teachers={teachers} />
     </div>
   );
 }
