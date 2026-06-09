@@ -2718,18 +2718,20 @@ export function installPhaseA(school: Hono) {
       }
     }
     // Final fallback: scan org-scoped credentials and match by
-    // normalised identifier (strip all whitespace on both sides).
-    // Slow but only fires when the exact-match path fails — fine for
-    // demo orgs with < 100 credentials.
+    // normalised identifier — strip whitespace AND lowercase, so
+    // student GR numbers like "ida-001" hit the seeded "IDA-001". Slow
+    // but only fires when the exact-match path fails, and the demo
+    // orgs have < 100 credentials.
     if (!cred) {
       const { data: all } = await serviceRoleClient
         .from("pin_credential")
         .select("*")
         .eq("org_id", org.id);
-      const wanted = stripped;
+      const norm = (s: string) => s.replace(/\s+/g, "").toLowerCase();
+      const wanted = norm(loginIdentifier);
       cred =
         (all ?? []).find(
-          (r: any) => String(r.login_identifier).replace(/\s+/g, "") === wanted,
+          (r: any) => norm(String(r.login_identifier)) === wanted,
         ) ?? null;
     }
     if (!cred) return c.json({ error: "invalid credentials" }, 401);

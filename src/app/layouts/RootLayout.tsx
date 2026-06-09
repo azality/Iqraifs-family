@@ -236,9 +236,18 @@ export function RootLayout() {
   const userInitial = (userName || 'U').charAt(0).toUpperCase();
 
   const handleLogout = () => {
+    // If the user signed in via an org-specific URL like /iqra-demo-xxxx,
+    // try to land them back on the same login page after logout instead
+    // of bouncing to the generic /welcome — F14 from QA: the operator
+    // loses their org context every time they log out.
+    let target = '/welcome';
+    try {
+      const last = localStorage.getItem('fgs_last_org_slug');
+      if (last) target = `/${last}`;
+    } catch { /* ignore */ }
     logout();
     toast.success('Logged out successfully');
-    navigate('/welcome');
+    navigate(target);
   };
 
   // Mobile bottom nav. In school workspace we collapse it to a single

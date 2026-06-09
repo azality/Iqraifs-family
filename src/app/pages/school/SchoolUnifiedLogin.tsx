@@ -56,6 +56,10 @@ export function SchoolUnifiedLogin() {
       setBrandingResolved(true);
       return;
     }
+    // Remember the slug so logout can return here instead of dumping
+    // staff/parent at the generic /welcome page. Best-effort: any
+    // localStorage failure (private mode, quota) silently falls back.
+    try { localStorage.setItem("fgs_last_org_slug", orgSlug); } catch { /* ignore */ }
     let cancelled = false;
     getOrgBySlug(orgSlug)
       .then((b) => {

@@ -350,16 +350,22 @@ export function TeacherHome({ orgId, me }: Props) {
         </div>
       )}
 
-      {/* My sections grid */}
+      {/* My sections grid.
+          If the teacher has subjects assigned but no sections, they're
+          likely a visiting/specialist teacher (PR F #Q5 case) — they
+          appear on subject pages and the timetable rather than owning
+          a homeroom. Show a friendlier message in that case so the
+          screen doesn't read as "your principal forgot you." */}
       {sections && sections.length === 0 && !loading && (
         <div className="rounded-xl border border-slate-200 bg-white p-8 text-center">
           <Users className="mx-auto h-8 w-8 text-slate-300" />
           <h3 className="mt-3 text-sm font-semibold text-slate-900">
-            No sections assigned
+            {mySubjects.length > 0 ? "Subject teacher" : "No sections assigned"}
           </h3>
           <p className="mt-1 text-sm text-slate-500">
-            Your principal hasn't assigned you to a class yet. Once they do,
-            you'll see roll-call, students, and behavior tools here.
+            {mySubjects.length > 0
+              ? "You're set up as a subject teacher — your assigned subjects are listed below. Class teachers see roll-call here."
+              : "Your principal hasn't assigned you to a class yet. Once they do, you'll see roll-call, students, and behavior tools here."}
           </p>
         </div>
       )}

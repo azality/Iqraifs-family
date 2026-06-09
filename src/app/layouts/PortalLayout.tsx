@@ -115,8 +115,13 @@ export function PortalLayout() {
     location.pathname.startsWith(`/school-portal/students/${activeStudentId}/fees`);
 
   const handleLogout = () => {
+    // Preserve org slug so logout returns to the school-specific login
+    // page (/iqra-demo-xxxx) instead of dropping the user at the
+    // generic /school-login screen where they'd have to retype the
+    // slug. Falls back to /school-login when slug unknown.
+    const slug = subject?.orgSlug;
     logout();
-    navigate("/school-login", { replace: true });
+    navigate(slug ? `/${slug}` : "/school-login", { replace: true });
   };
 
   const portalRole: TourRole | null =
