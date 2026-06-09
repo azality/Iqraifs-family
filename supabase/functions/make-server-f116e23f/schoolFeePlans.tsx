@@ -353,6 +353,200 @@ export function installFeePlans(school: Hono): void {
     if (error) return c.json({ error: error.message }, 500);
     return c.json({ ok: true });
   });
+
+  // ─── Bulk fee generation (PR feat/bulk-fee-billing) ─────────────────
+  //
+  // POST /school/orgs/:orgId/fees/bulk-generate
+  // body: { period: "2026-09", classIds?: string[], dryRun?: boolean }
+  //
+  // For each class with active monthly fee plans:
+  //   - walk every student in the class's sections
+  //   - resolve effective amount per plan (override → plan default)
+  //   - skip waived overrides (effectiveAmount = 0)
+  //   - upsert fee_status (org_id, student_id, period) — UNIQUE
+  //     constraint means re-running is idempotent
+  //
+  // Returns { created, updated, skipped, waived, total } so the admin
+  // sees exactly what happened. dryRun: true computes the same plan
+  // without writing — useful for "preview before billing" UX.
+  //
+  // One-off (non-monthly) plans are NOT swept here; they're per-student
+  // and billed via the plan's oneOffDueDate at admission time. Future
+  // PR can extend if there's demand.
+  school.post("/orgs/:orgId/fees/bulk-generate", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await canManageFees(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const body = await c.req.json().catch(() => ({}));
+    const period = String(body.period ?? "").trim();
+    const dryRun = body.dryRun === true;
+    if (!/^\d{4}-\d{2}$/.test(period)) {
+      return c.json({ error: "period must be YYYY-MM" }, 400);
+    }
+    const classIds: string[] | null = Array.isArray(body.classIds) && body.classIds.length > 0
+      ? body.classIds.map((x: any) => String(x))
+      : null;
+
+    // 1. Pull monthly plans (optionally scoped to classes the admin chose).
+    let planQ = serviceRoleClient
+      .from("class_fee_plan")
+      .select("id, class_id, name, amount, default_due_day")
+      .eq("org_id", orgId)
+      .eq("frequency", "monthly")
+      .is("archived_at", null);
+    if (classIds) planQ = planQ.in("class_id", classIds);
+    const { data: plans, error: planErr } = await planQ;
+    if (planErr) return c.json({ error: planErr.message }, 500);
+    if (!plans || plans.length === 0) {
+      return c.json({ created: 0, updated: 0, skipped: 0, waived: 0, total: 0, message: "No monthly plans found." });
+    }
+
+    // 2. Index plans by class for downstream walks.
+    const plansByClass = new Map<string, any[]>();
+    for (const p of plans as any[]) {
+      const arr = plansByClass.get(p.class_id) ?? [];
+      arr.push(p);
+      plansByClass.set(p.class_id, arr);
+    }
+    const classIdsTouched = Array.from(plansByClass.keys());
+
+    // 3. Pull students for every class — via their class_sections.
+    const { data: sections } = await serviceRoleClient
+      .from("class_section")
+      .select("id, class_id")
+      .in("class_id", classIdsTouched);
+    const sectionIds = ((sections ?? []) as any[]).map((s) => s.id);
+    const sectionToClass = new Map<string, string>();
+    for (const s of ((sections ?? []) as any[])) sectionToClass.set(s.id, s.class_id);
+
+    const { data: students } = sectionIds.length
+      ? await serviceRoleClient
+          .from("student")
+          .select("id, class_section_id")
+          .in("class_section_id", sectionIds)
+      : { data: [] as any[] };
+
+    // 4. Pull all existing overrides for the plans in one shot.
+    const planIds = (plans as any[]).map((p) => p.id);
+    const { data: overrides } = planIds.length
+      ? await serviceRoleClient
+          .from("student_fee_override")
+          .select("student_id, class_fee_plan_id, override_amount, waived")
+          .eq("org_id", orgId)
+          .in("class_fee_plan_id", planIds)
+      : { data: [] as any[] };
+    const overrideByKey = new Map<string, any>();
+    for (const o of ((overrides ?? []) as any[])) {
+      overrideByKey.set(`${o.student_id}:${o.class_fee_plan_id}`, o);
+    }
+
+    // 5. Walk students × plans, compute effective amounts, queue upserts.
+    type Row = {
+      org_id: string;
+      student_id: string;
+      period: string;
+      amount_due: number;
+      amount_paid: number;
+      status: string;
+      due_date: string;
+      recorded_by: string;
+      notes: string;
+    };
+    const rows: Row[] = [];
+    let waived = 0;
+    const dueDateFor = (defaultDueDay: number | null): string => {
+      const day = defaultDueDay && defaultDueDay >= 1 && defaultDueDay <= 28
+        ? defaultDueDay : 5;
+      return `${period}-${String(day).padStart(2, "0")}`;
+    };
+
+    for (const stu of ((students ?? []) as any[])) {
+      const classId = sectionToClass.get(stu.class_section_id);
+      if (!classId) continue;
+      const studentPlans = plansByClass.get(classId) ?? [];
+      // Sum across plans for this student. We collapse into ONE fee_status
+      // row per (student, period) since the table has UNIQUE (student, period).
+      // The notes column carries the breakdown for receipt rendering.
+      let total = 0;
+      const breakdown: string[] = [];
+      let earliestDue: string | null = null;
+      for (const plan of studentPlans) {
+        const ov = overrideByKey.get(`${stu.id}:${plan.id}`);
+        if (ov?.waived) {
+          waived++;
+          continue;
+        }
+        const amt = ov?.override_amount !== null && ov?.override_amount !== undefined
+          ? Number(ov.override_amount)
+          : Number(plan.amount);
+        total += amt;
+        breakdown.push(`${plan.name}: ${amt}`);
+        const due = dueDateFor(plan.default_due_day);
+        if (!earliestDue || due < earliestDue) earliestDue = due;
+      }
+      if (total <= 0 || !earliestDue) continue;
+      rows.push({
+        org_id: orgId,
+        student_id: stu.id,
+        period,
+        amount_due: total,
+        amount_paid: 0,
+        status: "unpaid",
+        due_date: earliestDue,
+        recorded_by: userId,
+        notes: breakdown.join("; "),
+      });
+    }
+
+    if (dryRun) {
+      return c.json({
+        created: rows.length,
+        updated: 0,
+        skipped: 0,
+        waived,
+        total: rows.length,
+        dryRun: true,
+        sample: rows.slice(0, 3),
+      });
+    }
+
+    // 6. Check existing fee_status rows so we can split into created vs updated.
+    const studentIdsToBill = rows.map((r) => r.student_id);
+    const { data: existing } = studentIdsToBill.length
+      ? await serviceRoleClient
+          .from("fee_status")
+          .select("student_id")
+          .eq("org_id", orgId)
+          .eq("period", period)
+          .in("student_id", studentIdsToBill)
+      : { data: [] as any[] };
+    const existingSet = new Set(((existing ?? []) as any[]).map((r) => r.student_id));
+
+    // 7. Upsert. fee_status has UNIQUE (student, period) so onConflict
+    // updates amounts in place — if the admin runs Sept billing twice
+    // after editing a plan, the second run reflects new totals without
+    // doubling rows.
+    let created = 0;
+    let updated = 0;
+    for (const r of rows) {
+      if (existingSet.has(r.student_id)) updated++;
+      else created++;
+    }
+    const { error: upsertErr } = await serviceRoleClient
+      .from("fee_status")
+      .upsert(rows, { onConflict: "student_id,period" });
+    if (upsertErr) return c.json({ error: upsertErr.message }, 500);
+
+    return c.json({
+      created,
+      updated,
+      skipped: 0,
+      waived,
+      total: rows.length,
+    });
+  });
 }
 
 export default installFeePlans;

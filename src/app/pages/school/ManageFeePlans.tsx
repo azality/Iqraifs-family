@@ -12,7 +12,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import {
-  ArrowLeft, Plus, Trash2, Pencil, Calendar, RotateCw,
+  ArrowLeft, Plus, Trash2, Pencil, Calendar, RotateCw, Send, Eye,
 } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -30,7 +30,9 @@ import {
   createClassFeePlan,
   updateClassFeePlan,
   archiveClassFeePlan,
+  bulkGenerateFees,
   type AdminClass,
+  type BulkFeeGenerateResult,
   type ClassFeePlan,
 } from "../../../utils/schoolApi";
 import { sectionTitleClasses } from "../../components/school-ui";
@@ -78,6 +80,14 @@ export function ManageFeePlans() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingPlan, setEditingPlan] = useState<ClassFeePlan | null>(null);
   const [form, setForm] = useState<PlanForm>(emptyForm);
+
+  // Bulk billing dialog state (FEAT #3).
+  const [billOpen, setBillOpen] = useState(false);
+  const todayISO = new Date();
+  const defaultPeriod = `${todayISO.getFullYear()}-${String(todayISO.getMonth() + 1).padStart(2, "0")}`;
+  const [billPeriod, setBillPeriod] = useState(defaultPeriod);
+  const [billPreview, setBillPreview] = useState<BulkFeeGenerateResult | null>(null);
+  const [billRunning, setBillRunning] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -174,14 +184,21 @@ export function ManageFeePlans() {
             <ArrowLeft className="h-3.5 w-3.5 mr-1" /> Fees
           </Button>
         </Link>
+        <Button
+          size="sm"
+          onClick={() => { setBillPreview(null); setBillPeriod(defaultPeriod); setBillOpen(true); }}
+        >
+          <Send className="h-3.5 w-3.5 mr-1" /> Generate billing
+        </Button>
       </div>
 
       <div>
         <h1 className={sectionTitleClasses}>Fee plans</h1>
         <p className="mt-1 text-sm text-slate-600">
-          Per-class templates. Bulk billing (coming) will use these to generate
-          monthly fees in one click. Students can have per-plan overrides
-          (scholarship, sibling discount) from their profile.
+          Per-class templates. Use <strong>Generate billing</strong> at the top
+          to walk every active monthly plan × student × override and create
+          fee_status rows in one shot. Re-running for the same period updates
+          amounts in place.
         </p>
       </div>
 
@@ -264,6 +281,97 @@ export function ManageFeePlans() {
           ))}
         </div>
       )}
+
+      <Dialog open={billOpen} onOpenChange={setBillOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Generate billing</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-xs">Period (YYYY-MM)</Label>
+              <Input
+                value={billPeriod}
+                onChange={(e) => { setBillPeriod(e.target.value); setBillPreview(null); }}
+                placeholder="2026-09"
+                className="h-9 text-sm font-mono"
+                maxLength={7}
+              />
+              <p className="text-[11px] text-slate-500 mt-1 italic">
+                Each student in a class with active monthly plans gets one
+                fee_status row for this period. Waived overrides skip. Re-runs
+                for the same period overwrite amounts.
+              </p>
+            </div>
+            {billPreview && (
+              <div className={
+                "rounded-md border px-3 py-2 text-xs " +
+                (billPreview.dryRun
+                  ? "border-indigo-200 bg-indigo-50 text-indigo-900"
+                  : "border-emerald-200 bg-emerald-50 text-emerald-900")
+              }>
+                <div className="font-semibold mb-1">
+                  {billPreview.dryRun ? "Preview" : "Done"}
+                </div>
+                <div>
+                  {billPreview.created} new · {billPreview.updated} updated · {billPreview.waived} waived · {billPreview.total} total
+                </div>
+                {billPreview.message && (
+                  <div className="mt-1 italic">{billPreview.message}</div>
+                )}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setBillOpen(false)}
+              disabled={billRunning}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="outline"
+              onClick={async () => {
+                if (!/^\d{4}-\d{2}$/.test(billPeriod)) {
+                  setError("Period must be YYYY-MM");
+                  return;
+                }
+                setBillRunning(true);
+                try {
+                  const r = await bulkGenerateFees(orgId, { period: billPeriod, dryRun: true });
+                  setBillPreview(r);
+                  setError(null);
+                } catch (e) {
+                  setError(e instanceof Error ? e.message : String(e));
+                } finally { setBillRunning(false); }
+              }}
+              disabled={billRunning || !billPeriod}
+            >
+              <Eye className="h-3.5 w-3.5 mr-1" /> Preview
+            </Button>
+            <Button
+              onClick={async () => {
+                if (!/^\d{4}-\d{2}$/.test(billPeriod)) {
+                  setError("Period must be YYYY-MM");
+                  return;
+                }
+                setBillRunning(true);
+                try {
+                  const r = await bulkGenerateFees(orgId, { period: billPeriod });
+                  setBillPreview(r);
+                  setError(null);
+                } catch (e) {
+                  setError(e instanceof Error ? e.message : String(e));
+                } finally { setBillRunning(false); }
+              }}
+              disabled={billRunning || !billPeriod}
+            >
+              <Send className="h-3.5 w-3.5 mr-1" /> {billRunning ? "Running…" : "Generate"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-md">

@@ -2148,6 +2148,25 @@ export const archiveClassFeePlan = (
 ): Promise<{ ok: true }> =>
   apiCall(`/school/orgs/${orgId}/fee-plans/${planId}`, { method: "DELETE" });
 
+export interface BulkFeeGenerateResult {
+  created: number;
+  updated: number;
+  skipped: number;
+  waived: number;
+  total: number;
+  dryRun?: boolean;
+  message?: string;
+  sample?: Array<Record<string, unknown>>;
+}
+export const bulkGenerateFees = (
+  orgId: string,
+  body: { period: string; classIds?: string[]; dryRun?: boolean },
+): Promise<BulkFeeGenerateResult> =>
+  apiCall(`/school/orgs/${orgId}/fees/bulk-generate`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
 export const listStudentFeeOverrides = (
   orgId: string,
   studentId: string,
