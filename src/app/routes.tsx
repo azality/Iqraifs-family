@@ -56,6 +56,7 @@ import { ManageStudents } from "./pages/school/ManageStudents";
 import { StudentDetail } from "./pages/school/StudentDetail";
 import { StudentReportCard } from "./pages/school/StudentReportCard";
 import { ImportCenter } from "./pages/school/ImportCenter";
+import { ManageHifzGroups } from "./pages/school/ManageHifzGroups";
 import { ManageParents } from "./pages/school/ManageParents";
 import { ManageTeachers } from "./pages/school/ManageTeachers";
 import { TeacherDetail } from "./pages/school/TeacherDetail";
@@ -467,6 +468,7 @@ export const router = createBrowserRouter([
               { path: "admin/settings", element: <OrgSettings /> },
               { path: "admin/audit", element: <AuditLog /> },
               { path: "admin/import", element: <ImportCenter /> },
+              { path: "admin/hifz-groups", element: <ManageHifzGroups /> },
               { path: "admin/roster-requests", element: <RosterReviewQueue /> },
               { path: "admin/announcements", element: <AnnouncementsList /> },
               { path: "admin/announcements/new", element: <AnnouncementComposer /> },
