@@ -11,7 +11,7 @@
 
 CREATE TABLE IF NOT EXISTS public.timetable_substitution (
   id                          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  org_id                      uuid NOT NULL REFERENCES public.org(id) ON DELETE CASCADE,
+  org_id                      uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
   entry_id                    uuid NOT NULL REFERENCES public.timetable_entry(id) ON DELETE CASCADE,
   date                        date NOT NULL,
   substitute_teacher_user_id  uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
