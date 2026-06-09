@@ -2078,6 +2078,102 @@ export const deleteTimetableSubstitution = (
 ): Promise<{ ok: true }> =>
   apiCall(`/school/orgs/${orgId}/timetable/substitutions/${subId}`, { method: "DELETE" });
 
+// ───── Fee plan templates (PR feat/fee-plans) ─────────────────────────
+export interface ClassFeePlan {
+  id: string;
+  orgId: string;
+  classId: string;
+  name: string;
+  amount: number;
+  frequency: "monthly" | "one_off";
+  defaultDueDay: number | null;
+  oneOffDueDate: string | null;
+  archivedAt: string | null;
+}
+export interface StudentFeeOverride {
+  id: string;
+  planId: string;
+  studentId: string;
+  overrideAmount: number | null;
+  waived: boolean;
+  notes: string | null;
+  createdAt: string;
+}
+export interface EffectiveStudentPlan {
+  plan: ClassFeePlan;
+  override: StudentFeeOverride | null;
+  effectiveAmount: number;
+}
+
+export const listClassFeePlans = (
+  orgId: string,
+  classId: string,
+): Promise<{ plans: ClassFeePlan[] }> =>
+  apiCall(`/school/orgs/${orgId}/classes/${classId}/fee-plans`);
+
+export const createClassFeePlan = (
+  orgId: string,
+  classId: string,
+  body: {
+    name: string;
+    amount: number;
+    frequency: "monthly" | "one_off";
+    defaultDueDay?: number | null;
+    oneOffDueDate?: string | null;
+  },
+): Promise<{ plan: ClassFeePlan }> =>
+  apiCall(`/school/orgs/${orgId}/classes/${classId}/fee-plans`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const updateClassFeePlan = (
+  orgId: string,
+  planId: string,
+  patch: Partial<{
+    name: string;
+    amount: number;
+    defaultDueDay: number | null;
+    oneOffDueDate: string | null;
+  }>,
+): Promise<{ plan: ClassFeePlan }> =>
+  apiCall(`/school/orgs/${orgId}/fee-plans/${planId}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+
+export const archiveClassFeePlan = (
+  orgId: string,
+  planId: string,
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/fee-plans/${planId}`, { method: "DELETE" });
+
+export const listStudentFeeOverrides = (
+  orgId: string,
+  studentId: string,
+): Promise<{ plans: EffectiveStudentPlan[] }> =>
+  apiCall(`/school/orgs/${orgId}/students/${studentId}/fee-overrides`);
+
+export const upsertStudentFeeOverride = (
+  orgId: string,
+  studentId: string,
+  planId: string,
+  body: { overrideAmount?: number | null; waived?: boolean; notes?: string | null },
+): Promise<{ override: StudentFeeOverride }> =>
+  apiCall(`/school/orgs/${orgId}/students/${studentId}/fee-overrides/${planId}`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+
+export const deleteStudentFeeOverride = (
+  orgId: string,
+  studentId: string,
+  planId: string,
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/students/${studentId}/fee-overrides/${planId}`, {
+    method: "DELETE",
+  });
+
 export interface OrgAdmin {
   user_id: string;
   email: string;
