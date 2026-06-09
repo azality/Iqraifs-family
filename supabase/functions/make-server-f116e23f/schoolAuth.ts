@@ -148,13 +148,14 @@ export async function requireTeacherOfSection(
   sectionId: string,
 ): Promise<ScopeGate> {
   // First confirm the section is in this org. Doubles as an existence check.
+  // class_section has no org_id column — resolve via class.class_id(org_id).
   const { data: sec } = await serviceRoleClient
     .from("class_section")
-    .select("id, org_id, class_teacher_user_id")
+    .select("id, class_teacher_user_id, class:class_id(org_id)")
     .eq("id", sectionId)
     .maybeSingle();
   if (!sec) return { ok: false, status: 404, error: "section not found", code: "SECTION_NOT_FOUND" };
-  if ((sec as any).org_id !== orgId) {
+  if ((sec as any).class?.org_id !== orgId) {
     return { ok: false, status: 404, error: "section not in this org", code: "SECTION_NOT_IN_ORG" };
   }
 
