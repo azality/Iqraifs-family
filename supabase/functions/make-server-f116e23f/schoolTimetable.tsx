@@ -211,6 +211,63 @@ export function installTimetable(school: Hono): void {
     return c.json({ ok: true });
   });
 
+  // ─── Room conflict helper ───────────────────────────────────────────
+  // Two entries conflict if they share a room (case-insensitive, trimmed)
+  // AND their slots are on the same day-of-week AND the time intervals
+  // overlap. Same-slot (equal day + equal start/end) is the trivial case.
+  //
+  // We pull all entries in the org with a non-null room and the same
+  // normalized name, then filter overlaps in JS. Rooms-per-org is small
+  // enough (tens, not thousands) that one query + JS filter beats two
+  // PostgREST round-trips with .or() time-range gymnastics.
+  function normRoom(s: unknown): string | null {
+    if (typeof s !== "string") return null;
+    const t = s.trim();
+    return t ? t.toLowerCase() : null;
+  }
+  function timesOverlap(aStart: string, aEnd: string, bStart: string, bEnd: string): boolean {
+    return aStart < bEnd && bStart < aEnd;
+  }
+  async function findRoomConflicts(
+    orgId: string,
+    room: string,
+    slotDay: number,
+    slotStart: string,
+    slotEnd: string,
+    excludeEntryId: string | null,
+  ): Promise<any[]> {
+    const norm = normRoom(room);
+    if (!norm) return [];
+    const { data } = await serviceRoleClient
+      .from("timetable_entry")
+      .select(
+        "id, room, scope_section_id, scope_hifz_group_id, slot:slot_id(day_of_week, start_time, end_time, archived_at, name), section_subject:section_subject_id(class_subject:class_subject_id(name)), section:scope_section_id(name, class:class_id(name)), hifz_group:scope_hifz_group_id(name)",
+      )
+      .eq("org_id", orgId)
+      .not("room", "is", null);
+    return ((data ?? []) as any[]).filter((e) => {
+      if (!e.slot || e.slot.archived_at) return false;
+      if (excludeEntryId && e.id === excludeEntryId) return false;
+      if (normRoom(e.room) !== norm) return false;
+      if (e.slot.day_of_week !== slotDay) return false;
+      return timesOverlap(slotStart, slotEnd, e.slot.start_time, e.slot.end_time);
+    });
+  }
+  function conflictToJson(e: any) {
+    return {
+      entryId: e.id,
+      room: e.room,
+      slotName: e.slot?.name ?? null,
+      dayOfWeek: e.slot?.day_of_week ?? null,
+      startTime: e.slot?.start_time ?? null,
+      endTime: e.slot?.end_time ?? null,
+      subjectName: e.section_subject?.class_subject?.name ?? null,
+      scopeLabel: e.section
+        ? `${e.section.class?.name ?? "Class"} — ${e.section.name}`
+        : e.hifz_group?.name ?? "—",
+    };
+  }
+
   // ─── Entries ────────────────────────────────────────────────────────
   school.post("/orgs/:orgId/timetable-entries", async (c) => {
     const userId = getAuthUserId(c);
@@ -245,9 +302,36 @@ export function installTimetable(school: Hono): void {
       }
     }
     const { data: slot } = await serviceRoleClient
-      .from("timetable_slot").select("org_id").eq("id", body.slotId).maybeSingle();
+      .from("timetable_slot")
+      .select("org_id, day_of_week, start_time, end_time")
+      .eq("id", body.slotId)
+      .maybeSingle();
     if (!slot || (slot as any).org_id !== orgId) {
       return c.json({ error: "slot not in this org" }, 404);
+    }
+
+    // PR feat/timetable-room-conflicts — block double-bookings unless
+    // the admin explicitly overrides with ?force=true (joint classes,
+    // intentional same-room cases).
+    const force = c.req.query("force") === "true";
+    if (body?.room && !force) {
+      const conflicts = await findRoomConflicts(
+        orgId,
+        body.room,
+        (slot as any).day_of_week,
+        (slot as any).start_time,
+        (slot as any).end_time,
+        null,
+      );
+      if (conflicts.length > 0) {
+        return c.json(
+          {
+            error: "room conflict",
+            conflicts: conflicts.map(conflictToJson),
+          },
+          409,
+        );
+      }
     }
 
     const { data, error } = await serviceRoleClient
@@ -283,7 +367,10 @@ export function installTimetable(school: Hono): void {
     let body: any;
     try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
     const { data: existing } = await serviceRoleClient
-      .from("timetable_entry").select("org_id").eq("id", entryId).maybeSingle();
+      .from("timetable_entry")
+      .select("org_id, slot:slot_id(day_of_week, start_time, end_time)")
+      .eq("id", entryId)
+      .maybeSingle();
     if (!existing || (existing as any).org_id !== orgId) {
       return c.json({ error: "entry not found" }, 404);
     }
@@ -293,10 +380,83 @@ export function installTimetable(school: Hono): void {
     if ("room" in (body ?? {})) patch.room = body.room ?? null;
     if ("notes" in (body ?? {})) patch.notes = body.notes ?? null;
     if (Object.keys(patch).length === 0) return c.json({ error: "nothing to update" }, 400);
+
+    // Room-conflict guard. Only runs if the patch sets a non-null room,
+    // since clearing the room can't create a conflict.
+    const force = c.req.query("force") === "true";
+    const newRoom = "room" in (body ?? {}) ? body.room : undefined;
+    if (newRoom && !force) {
+      const slot = (existing as any).slot;
+      if (slot) {
+        const conflicts = await findRoomConflicts(
+          orgId,
+          newRoom,
+          slot.day_of_week,
+          slot.start_time,
+          slot.end_time,
+          entryId,
+        );
+        if (conflicts.length > 0) {
+          return c.json(
+            {
+              error: "room conflict",
+              conflicts: conflicts.map(conflictToJson),
+            },
+            409,
+          );
+        }
+      }
+    }
+
     const { data, error } = await serviceRoleClient
       .from("timetable_entry").update(patch).eq("id", entryId).select().single();
     if (error) return c.json({ error: error.message }, 500);
     return c.json(entryToJson(data));
+  });
+
+  // ─── Org-wide conflict scan ─────────────────────────────────────────
+  // Admin/principal banner runs this on load. Walks all rooms in the
+  // org and groups overlapping entries per (room, day, overlapping span).
+  school.get("/orgs/:orgId/timetable/room-conflicts", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await isAdminOrPrincipal(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const { data } = await serviceRoleClient
+      .from("timetable_entry")
+      .select(
+        "id, room, slot:slot_id(day_of_week, start_time, end_time, archived_at, name), section_subject:section_subject_id(class_subject:class_subject_id(name)), section:scope_section_id(name, class:class_id(name)), hifz_group:scope_hifz_group_id(name)",
+      )
+      .eq("org_id", orgId)
+      .not("room", "is", null);
+    const rows = ((data ?? []) as any[]).filter(
+      (e) => e.slot && !e.slot.archived_at && normRoom(e.room),
+    );
+
+    // For each entry, find any other entry on same day + same normalized
+    // room + overlapping time. Output as conflict pairs grouped per
+    // entry. The list dedupes by canonical pair (low_id, high_id).
+    const seen = new Set<string>();
+    const conflicts: any[] = [];
+    for (let i = 0; i < rows.length; i++) {
+      for (let j = i + 1; j < rows.length; j++) {
+        const a = rows[i], b = rows[j];
+        if (normRoom(a.room) !== normRoom(b.room)) continue;
+        if (a.slot.day_of_week !== b.slot.day_of_week) continue;
+        if (!timesOverlap(a.slot.start_time, a.slot.end_time, b.slot.start_time, b.slot.end_time)) continue;
+        const key = a.id < b.id ? `${a.id}:${b.id}` : `${b.id}:${a.id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        conflicts.push({
+          room: a.room,
+          dayOfWeek: a.slot.day_of_week,
+          a: conflictToJson(a),
+          b: conflictToJson(b),
+        });
+      }
+    }
+    return c.json({ conflicts });
   });
 
   school.delete("/orgs/:orgId/timetable-entries/:entryId", async (c) => {

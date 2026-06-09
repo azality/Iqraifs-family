@@ -21,7 +21,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, Navigate, useParams, useSearchParams } from "react-router";
 import {
-  ArrowLeft, Plus, Trash2, Calendar, Save, BookMarked, Users,
+  ArrowLeft, Plus, Trash2, Calendar, Save, BookMarked, Users, AlertTriangle,
 } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -48,6 +48,10 @@ import {
   createTimetableEntry,
   updateTimetableEntry,
   deleteTimetableEntry,
+  listRoomConflicts,
+  getRoomConflictPayload,
+  type RoomConflictError,
+  type RoomConflictPair,
   type AdminClass,
   type AdminTeacher,
   type ClassSubject,
@@ -122,6 +126,16 @@ export function ManageTimetable() {
 
   const [slotDialogOpen, setSlotDialogOpen] = useState(false);
   const [slotForm, setSlotForm] = useState<SlotFormState>(emptySlotForm);
+  const [conflicts, setConflicts] = useState<RoomConflictPair[]>([]);
+  const [conflictModalOpen, setConflictModalOpen] = useState(false);
+
+  const refreshConflicts = () => {
+    if (!orgId) return;
+    listRoomConflicts(orgId)
+      .then((r) => setConflicts(r.conflicts))
+      .catch(() => setConflicts([]));
+  };
+  useEffect(() => { refreshConflicts(); /* eslint-disable-next-line */ }, [orgId]);
 
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
@@ -203,13 +217,18 @@ export function ManageTimetable() {
   // Save or update a single cell. Creates the entry if none exists,
   // otherwise PATCHes the existing one. Removes when both subject and
   // teacher come back empty (the admin clicked "Clear").
+  //
+  // Returns a result object so the cell row can render an inline
+  // room-conflict warning with a "Save anyway" override button without
+  // each cell re-implementing the try/catch dance.
   const saveCell = async (
     cell: TimetableWeekCell,
     patch: { sectionSubjectId?: string | null; teacherUserId?: string | null; room?: string | null; notes?: string | null },
-  ) => {
+    opts: { force?: boolean } = {},
+  ): Promise<{ ok: true } | { ok: false; conflict?: RoomConflictError; message: string }> => {
     try {
       if (cell.entry) {
-        await updateTimetableEntry(orgId, cell.entry.id, patch);
+        await updateTimetableEntry(orgId, cell.entry.id, patch, opts);
       } else {
         await createTimetableEntry(orgId, {
           slotId: cell.slot.id,
@@ -219,7 +238,7 @@ export function ManageTimetable() {
           teacherUserId: patch.teacherUserId ?? undefined,
           room: patch.room ?? undefined,
           notes: patch.notes ?? undefined,
-        });
+        }, opts);
       }
       // Refresh cells.
       if (scopeKind === "section") {
@@ -229,8 +248,13 @@ export function ManageTimetable() {
         const r = await getHifzGroupTimetable(orgId, scopeId);
         setCells(r.cells);
       }
+      refreshConflicts();
+      return { ok: true };
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const conflict = getRoomConflictPayload(e) ?? undefined;
+      const message = e instanceof Error ? e.message : String(e);
+      if (!conflict) setError(message);
+      return { ok: false, conflict, message };
     }
   };
 
@@ -274,6 +298,58 @@ export function ManageTimetable() {
           {error}
         </div>
       )}
+
+      {/* PR feat/timetable-room-conflicts — org-wide banner. Clicking
+          opens a modal listing every (room, day, overlap) collision so
+          the admin can jump straight to fixing them. */}
+      {conflicts.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setConflictModalOpen(true)}
+          className="w-full text-left rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 hover:bg-amber-100 flex items-center gap-2"
+        >
+          <AlertTriangle className="h-4 w-4 text-amber-600" />
+          <span className="font-medium">
+            {conflicts.length} room conflict{conflicts.length === 1 ? "" : "s"}
+          </span>
+          <span className="text-xs text-amber-700">— click to review</span>
+        </button>
+      )}
+
+      <Dialog open={conflictModalOpen} onOpenChange={setConflictModalOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Room conflicts</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+            {conflicts.length === 0 && (
+              <div className="text-sm text-slate-500 italic">No conflicts.</div>
+            )}
+            {conflicts.map((p, i) => (
+              <div
+                key={i}
+                className="rounded-md border border-amber-200 bg-amber-50/40 px-3 py-2 text-sm"
+              >
+                <div className="text-xs font-semibold text-amber-900">
+                  Room {p.room} · {DAYS[p.dayOfWeek - 1]}
+                </div>
+                <div className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                  {[p.a, p.b].map((e, j) => (
+                    <div key={j} className="rounded border border-amber-100 bg-white px-2 py-1">
+                      <div className="font-medium text-slate-800">
+                        {e.subjectName ?? "Slot"} — {e.scopeLabel}
+                      </div>
+                      <div className="text-slate-500">
+                        {e.slotName} · {e.startTime}–{e.endTime}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* ─── Slots panel ─── */}
       <section className="space-y-2">
@@ -461,15 +537,14 @@ export function ManageTimetable() {
 // Groups slots by day-of-week; renders one row per slot with inline
 // subject/teacher/room editors. Saves on blur to keep the UX snappy
 // without an explicit save button per cell.
+type SavePatch = { sectionSubjectId?: string | null; teacherUserId?: string | null; room?: string | null; notes?: string | null };
+type SaveResult = { ok: true } | { ok: false; conflict?: RoomConflictError; message: string };
 interface WeekGridProps {
   cells: TimetableWeekCell[];
   scopeKind: "section" | "group";
   classSubjects: ClassSubject[];
   teachers: AdminTeacher[];
-  onSave: (
-    cell: TimetableWeekCell,
-    patch: { sectionSubjectId?: string | null; teacherUserId?: string | null; room?: string | null; notes?: string | null },
-  ) => void;
+  onSave: (cell: TimetableWeekCell, patch: SavePatch, opts?: { force?: boolean }) => Promise<SaveResult>;
   onClear: (cell: TimetableWeekCell) => void;
 }
 function WeekGrid({ cells, scopeKind, classSubjects, teachers, onSave, onClear }: WeekGridProps) {
@@ -543,6 +618,24 @@ function CellRow({ cell, scopeKind, classSubjects, teachers, onSave, onClear }: 
   const [draftTeacher, setDraftTeacher] = useState(cell.entry?.teacherUserId ?? "");
   const [draftRoom, setDraftRoom] = useState(cell.entry?.room ?? "");
 
+  // Room-conflict state. Set when the most recent save was rejected
+  // with a 409 — the row shows an inline warning + "Save anyway"
+  // button that re-issues the same patch with force=true.
+  const [conflict, setConflict] = useState<RoomConflictError | null>(null);
+  const [lastPatch, setLastPatch] = useState<SavePatch | null>(null);
+
+  const trySave = async (patch: SavePatch) => {
+    setLastPatch(patch);
+    const r = await onSave(cell, patch);
+    if (!r.ok && r.conflict) setConflict(r.conflict);
+    else setConflict(null);
+  };
+  const forceSave = async () => {
+    if (!lastPatch) return;
+    const r = await onSave(cell, lastPatch, { force: true });
+    if (r.ok) setConflict(null);
+  };
+
   useEffect(() => {
     setDraftSubject(cell.entry?.sectionSubjectId ?? "");
     setDraftTeacher(cell.entry?.teacherUserId ?? "");
@@ -554,6 +647,7 @@ function CellRow({ cell, scopeKind, classSubjects, teachers, onSave, onClear }: 
   const isInformational = cell.slot.kind === "break" || cell.slot.kind === "prayer" || cell.slot.kind === "assembly";
 
   return (
+    <div className="space-y-1">
     <div className={"rounded-lg border p-2 flex flex-wrap items-center gap-2 " + KIND_TONE[cell.slot.kind]}>
       <div className="min-w-0 flex-shrink-0 w-32">
         <div className="text-xs font-semibold">{cell.slot.name}</div>
@@ -575,7 +669,7 @@ function CellRow({ cell, scopeKind, classSubjects, teachers, onSave, onClear }: 
               onValueChange={(v) => {
                 const next = v === "__none__" ? null : v;
                 setDraftSubject(next ?? "");
-                onSave(cell, { sectionSubjectId: next });
+                trySave({ sectionSubjectId: next });
               }}
             >
               <SelectTrigger className="h-7 text-xs w-40 bg-white">
@@ -595,7 +689,7 @@ function CellRow({ cell, scopeKind, classSubjects, teachers, onSave, onClear }: 
             onValueChange={(v) => {
               const next = v === "__none__" ? null : v;
               setDraftTeacher(next ?? "");
-              onSave(cell, { teacherUserId: next });
+              trySave({ teacherUserId: next });
             }}
           >
             <SelectTrigger className="h-7 text-xs w-44 bg-white">
@@ -616,7 +710,7 @@ function CellRow({ cell, scopeKind, classSubjects, teachers, onSave, onClear }: 
             onChange={(e) => setDraftRoom(e.target.value)}
             onBlur={() => {
               if ((cell.entry?.room ?? "") !== draftRoom) {
-                onSave(cell, { room: draftRoom || null });
+                trySave({ room: draftRoom || null });
               }
             }}
             placeholder="Room"
@@ -636,6 +730,40 @@ function CellRow({ cell, scopeKind, classSubjects, teachers, onSave, onClear }: 
           )}
         </>
       )}
+    </div>
+    {conflict && (
+      <div className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-900 flex flex-wrap items-center gap-2">
+        <AlertTriangle className="h-3.5 w-3.5 text-amber-700 shrink-0" />
+        <span>
+          Room <strong>{draftRoom || conflict.conflicts[0]?.room}</strong> is already used
+          {conflict.conflicts.map((cf, i) => (
+            <span key={cf.entryId}>
+              {i === 0 ? " by " : i === conflict.conflicts.length - 1 ? " and " : ", "}
+              <strong>{cf.subjectName ?? "another slot"}</strong> ({cf.scopeLabel})
+            </span>
+          ))}
+          {" "}during this period.
+        </span>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-6 text-[11px] px-2"
+          onClick={forceSave}
+        >
+          Save anyway
+        </Button>
+        <button
+          type="button"
+          className="text-amber-700 underline text-[11px]"
+          onClick={() => {
+            setConflict(null);
+            setDraftRoom(cell.entry?.room ?? "");
+          }}
+        >
+          Cancel
+        </button>
+      </div>
+    )}
     </div>
   );
 }

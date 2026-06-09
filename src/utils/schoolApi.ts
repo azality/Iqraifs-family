@@ -1901,6 +1901,33 @@ export const updateTimetableSlot = (
 export const deleteTimetableSlot = (orgId: string, slotId: string): Promise<{ ok: true }> =>
   apiCall(`/school/orgs/${orgId}/timetable-slots/${slotId}`, { method: "DELETE" });
 
+/** Returned in the 409 body when a room double-book is detected. The
+ *  editor surfaces these inline and offers a "Save anyway" override. */
+export interface RoomConflictEntry {
+  entryId: string;
+  room: string | null;
+  slotName: string | null;
+  dayOfWeek: number | null;
+  startTime: string | null;
+  endTime: string | null;
+  subjectName: string | null;
+  scopeLabel: string;
+}
+export interface RoomConflictError {
+  error: "room conflict";
+  conflicts: RoomConflictEntry[];
+}
+/** Pulls the conflict payload off an Error thrown by apiCall (the 409
+ *  body is attached as `.body`). Returns null for any other error. */
+export function getRoomConflictPayload(e: unknown): RoomConflictError | null {
+  if (!e || typeof e !== "object") return null;
+  const body = (e as any).body;
+  if (body && body.error === "room conflict" && Array.isArray(body.conflicts)) {
+    return body as RoomConflictError;
+  }
+  return null;
+}
+
 export const createTimetableEntry = (
   orgId: string,
   body: {
@@ -1912,8 +1939,9 @@ export const createTimetableEntry = (
     room?: string;
     notes?: string;
   },
+  opts: { force?: boolean } = {},
 ): Promise<TimetableEntry> =>
-  apiCall(`/school/orgs/${orgId}/timetable-entries`, {
+  apiCall(`/school/orgs/${orgId}/timetable-entries${opts.force ? "?force=true" : ""}`, {
     method: "POST",
     body: JSON.stringify(body),
   });
@@ -1927,11 +1955,23 @@ export const updateTimetableEntry = (
     room: string | null;
     notes: string | null;
   }>,
+  opts: { force?: boolean } = {},
 ): Promise<TimetableEntry> =>
-  apiCall(`/school/orgs/${orgId}/timetable-entries/${entryId}`, {
+  apiCall(`/school/orgs/${orgId}/timetable-entries/${entryId}${opts.force ? "?force=true" : ""}`, {
     method: "PATCH",
     body: JSON.stringify(partial),
   });
+
+export interface RoomConflictPair {
+  room: string;
+  dayOfWeek: number;
+  a: RoomConflictEntry;
+  b: RoomConflictEntry;
+}
+export const listRoomConflicts = (
+  orgId: string,
+): Promise<{ conflicts: RoomConflictPair[] }> =>
+  apiCall(`/school/orgs/${orgId}/timetable/room-conflicts`);
 
 export const deleteTimetableEntry = (orgId: string, entryId: string): Promise<{ ok: true }> =>
   apiCall(`/school/orgs/${orgId}/timetable-entries/${entryId}`, { method: "DELETE" });
