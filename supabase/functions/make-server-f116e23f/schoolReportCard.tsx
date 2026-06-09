@@ -63,24 +63,65 @@ async function isClassTeacherOfStudent(userId: string, studentId: string): Promi
   return sec.class_teacher_user_id === userId || sec.class?.class_teacher_user_id === userId;
 }
 
-// ─── Grade scale (hardcoded for v2; configurable in PR 3) ─────────────
-function letterGrade(pct: number | null): string {
-  if (pct === null) return "—";
-  if (pct >= 90) return "A+";
-  if (pct >= 80) return "A";
-  if (pct >= 70) return "B";
-  if (pct >= 60) return "C";
-  if (pct >= 50) return "D";
-  return "F";
+// ─── Grade scale (configurable per org, PR feat/grade-scales) ─────────
+//
+// Each org has at most one default scale; report cards resolve through
+// it. If none configured, falls back to the legacy hardcoded scale so
+// orgs that haven't set one up keep working.
+//
+// Bands are half-open [min_pct, max_pct) — except the top band where
+// max_pct = 100 is treated as inclusive.
+interface GradeBand { letter: string; minPct: number; maxPct: number; remark: string | null }
+
+const FALLBACK_BANDS: GradeBand[] = [
+  { letter: "A+", minPct: 90, maxPct: 100, remark: "Excellent" },
+  { letter: "A",  minPct: 80, maxPct: 90,  remark: "Very good" },
+  { letter: "B",  minPct: 70, maxPct: 80,  remark: "Good" },
+  { letter: "C",  minPct: 60, maxPct: 70,  remark: "Satisfactory" },
+  { letter: "D",  minPct: 50, maxPct: 60,  remark: "Needs improvement" },
+  { letter: "F",  minPct: 0,  maxPct: 50,  remark: "Unsatisfactory" },
+];
+
+async function loadOrgBands(orgId: string): Promise<GradeBand[]> {
+  const { data: scale } = await serviceRoleClient
+    .from("grade_scale")
+    .select("id")
+    .eq("org_id", orgId)
+    .eq("is_default", true)
+    .is("archived_at", null)
+    .maybeSingle();
+  if (!scale) return FALLBACK_BANDS;
+  const { data: bands } = await serviceRoleClient
+    .from("grade_scale_band")
+    .select("letter, min_pct, max_pct, remark, display_order")
+    .eq("scale_id", (scale as any).id)
+    .order("display_order", { ascending: true });
+  const rows = ((bands ?? []) as any[]).map((b) => ({
+    letter: b.letter,
+    minPct: Number(b.min_pct),
+    maxPct: Number(b.max_pct),
+    remark: b.remark ?? null,
+  }));
+  return rows.length > 0 ? rows : FALLBACK_BANDS;
 }
-function gradeRemark(pct: number | null): string {
+
+function resolveBand(bands: GradeBand[], pct: number | null): GradeBand | null {
+  if (pct === null) return null;
+  // Top-band 100 is inclusive; others are [min, max).
+  for (const b of bands) {
+    if (b.maxPct === 100 && pct >= b.minPct && pct <= 100) return b;
+    if (pct >= b.minPct && pct < b.maxPct) return b;
+  }
+  return null;
+}
+function letterFor(bands: GradeBand[], pct: number | null): string {
+  const b = resolveBand(bands, pct);
+  return b ? b.letter : "—";
+}
+function remarkFor(bands: GradeBand[], pct: number | null): string {
   if (pct === null) return "Not graded";
-  if (pct >= 90) return "Excellent";
-  if (pct >= 80) return "Very good";
-  if (pct >= 70) return "Good";
-  if (pct >= 60) return "Satisfactory";
-  if (pct >= 50) return "Needs improvement";
-  return "Unsatisfactory";
+  const b = resolveBand(bands, pct);
+  return b?.remark ?? "—";
 }
 
 // ─── Card assembly (shared by admin + portal endpoints) ───────────────
@@ -92,6 +133,9 @@ async function assembleReportCard(
   studentId: string,
   termId: string,
 ) {
+  // Resolve grade scale up front so per-subject + overall use the same bands.
+  const bands = await loadOrgBands(orgId);
+
   // ── Org + term ──
   // Branding lives on organizations.settings JSONB (same pattern as
   // the legacy /report-card endpoint).
@@ -201,7 +245,7 @@ async function assembleReportCard(
       totalObtained: s.weightedObtained,
       totalMax: s.weightedMax,
       percentage: pct,
-      letter: letterGrade(pct),
+      letter: letterFor(bands, pct),
       perExam: s.perExam,
     };
   }).sort((a, b) => a.name.localeCompare(b.name));
@@ -327,14 +371,14 @@ async function assembleReportCard(
         subjects: subjects.map((s) => ({
           ...s,
           teacherComment: subjectComments[s.classSubjectId] ?? null,
-          remark: gradeRemark(s.percentage),
+          remark: remarkFor(bands, s.percentage),
         })),
         overall: {
           obtained: overallObtained,
           max: overallMax,
           percentage: overallPct,
-          letter: letterGrade(overallPct),
-          remark: gradeRemark(overallPct),
+          letter: letterFor(bands, overallPct),
+          remark: remarkFor(bands, overallPct),
         },
       },
       attendance: {
@@ -547,6 +591,209 @@ export function installReportCard(school: Hono): void {
     const r = await assembleReportCard(orgId, studentId, termId);
     if (!r.ok) return c.json({ error: r.error }, r.status);
     return c.json(r.payload);
+  });
+
+  // ─── Grade scales CRUD ─────────────────────────────────────────────
+  // Scale = container with a name + is_default; bands = letter rows.
+  // GET also returns the effective scale (default + bands) for the
+  // org so the report-card admin page can preview.
+
+  school.get("/orgs/:orgId/grade-scales", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await hasAnyOrgRole(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const { data: scales } = await serviceRoleClient
+      .from("grade_scale")
+      .select("id, name, is_default, archived_at, created_at")
+      .eq("org_id", orgId)
+      .is("archived_at", null)
+      .order("created_at", { ascending: true });
+    const scaleIds = ((scales ?? []) as any[]).map((s) => s.id);
+    const { data: bands } = scaleIds.length
+      ? await serviceRoleClient
+          .from("grade_scale_band")
+          .select("id, scale_id, letter, min_pct, max_pct, remark, display_order")
+          .in("scale_id", scaleIds)
+          .order("display_order", { ascending: true })
+      : { data: [] as any[] };
+    const bandsByScale = new Map<string, any[]>();
+    for (const b of (bands ?? []) as any[]) {
+      const arr = bandsByScale.get(b.scale_id) ?? [];
+      arr.push({
+        id: b.id, letter: b.letter,
+        minPct: Number(b.min_pct), maxPct: Number(b.max_pct),
+        remark: b.remark ?? null, displayOrder: b.display_order,
+      });
+      bandsByScale.set(b.scale_id, arr);
+    }
+    return c.json({
+      scales: ((scales ?? []) as any[]).map((s) => ({
+        id: s.id, name: s.name, isDefault: s.is_default,
+        bands: bandsByScale.get(s.id) ?? [],
+      })),
+    });
+  });
+
+  school.post("/orgs/:orgId/grade-scales", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await isAdminOrPrincipal(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const body = await c.req.json().catch(() => ({}));
+    const name = String(body.name ?? "").trim();
+    if (!name) return c.json({ error: "name required" }, 400);
+    const isDefault = body.isDefault === true;
+    if (isDefault) {
+      await serviceRoleClient
+        .from("grade_scale")
+        .update({ is_default: false })
+        .eq("org_id", orgId).is("archived_at", null).eq("is_default", true);
+    }
+    const { data, error } = await serviceRoleClient
+      .from("grade_scale")
+      .insert({ org_id: orgId, name, is_default: isDefault })
+      .select("id, name, is_default").single();
+    if (error) {
+      if ((error as any).code === "23505") {
+        return c.json({ error: "a scale with that name already exists" }, 409);
+      }
+      return c.json({ error: error.message }, 500);
+    }
+    return c.json({
+      scale: {
+        id: (data as any).id,
+        name: (data as any).name,
+        isDefault: (data as any).is_default,
+        bands: [],
+      },
+    }, 201);
+  });
+
+  school.patch("/orgs/:orgId/grade-scales/:scaleId", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const scaleId = c.req.param("scaleId");
+    if (!(await isAdminOrPrincipal(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const { data: existing } = await serviceRoleClient
+      .from("grade_scale").select("org_id").eq("id", scaleId).maybeSingle();
+    if (!existing || (existing as any).org_id !== orgId) {
+      return c.json({ error: "scale not found" }, 404);
+    }
+    const body = await c.req.json().catch(() => ({}));
+    const patch: Record<string, unknown> = {};
+    if ("name" in body) patch.name = String(body.name).trim();
+    if ("isDefault" in body) {
+      if (body.isDefault === true) {
+        await serviceRoleClient
+          .from("grade_scale")
+          .update({ is_default: false })
+          .eq("org_id", orgId).is("archived_at", null).eq("is_default", true)
+          .neq("id", scaleId);
+      }
+      patch.is_default = body.isDefault === true;
+    }
+    if (Object.keys(patch).length === 0) return c.json({ error: "nothing to update" }, 400);
+    const { error } = await serviceRoleClient
+      .from("grade_scale").update(patch).eq("id", scaleId);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ ok: true });
+  });
+
+  school.delete("/orgs/:orgId/grade-scales/:scaleId", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const scaleId = c.req.param("scaleId");
+    if (!(await isAdminOrPrincipal(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const { error } = await serviceRoleClient
+      .from("grade_scale")
+      .update({ archived_at: new Date().toISOString(), is_default: false })
+      .eq("id", scaleId).eq("org_id", orgId);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ ok: true });
+  });
+
+  // Replace ALL bands in one call — simpler than per-band CRUD for the
+  // small lists involved (a typical scale is 4–6 bands). Caller passes
+  // the new band set; we wipe + reinsert.
+  school.put("/orgs/:orgId/grade-scales/:scaleId/bands", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const scaleId = c.req.param("scaleId");
+    if (!(await isAdminOrPrincipal(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const { data: existing } = await serviceRoleClient
+      .from("grade_scale").select("org_id").eq("id", scaleId).maybeSingle();
+    if (!existing || (existing as any).org_id !== orgId) {
+      return c.json({ error: "scale not found" }, 404);
+    }
+    const body = await c.req.json().catch(() => ({}));
+    const bands = Array.isArray(body.bands) ? body.bands : [];
+    // Validate: letters non-empty, min<max (or both 100), 0..100 range.
+    // We also validate the bands cover 0..100 without gaps or overlaps
+    // so the UI can't accidentally leave a hole.
+    type BIn = { letter: string; minPct: number; maxPct: number; remark: string | null };
+    const cleaned: BIn[] = [];
+    for (const b of bands) {
+      const letter = String(b.letter ?? "").trim();
+      const minPct = Number(b.minPct);
+      const maxPct = Number(b.maxPct);
+      if (!letter) return c.json({ error: "every band needs a letter" }, 400);
+      if (!Number.isFinite(minPct) || !Number.isFinite(maxPct)) {
+        return c.json({ error: "minPct/maxPct must be numbers" }, 400);
+      }
+      if (minPct < 0 || maxPct > 100 || minPct > 100 || maxPct < 0) {
+        return c.json({ error: "minPct/maxPct must be in 0..100" }, 400);
+      }
+      if (!(maxPct > minPct || (maxPct === 100 && minPct === 100))) {
+        return c.json({ error: `band "${letter}" needs maxPct > minPct` }, 400);
+      }
+      cleaned.push({
+        letter, minPct, maxPct,
+        remark: b.remark ? String(b.remark).slice(0, 200) : null,
+      });
+    }
+    // Sort by minPct desc so the highest band reads first; validate
+    // contiguity (top to bottom should cover 0..100 with no overlaps).
+    cleaned.sort((a, b) => b.minPct - a.minPct);
+    for (let i = 0; i < cleaned.length - 1; i++) {
+      // The NEXT band's max should equal this band's min — half-open.
+      if (cleaned[i].minPct !== cleaned[i + 1].maxPct) {
+        return c.json({
+          error: `gap or overlap between bands "${cleaned[i].letter}" and "${cleaned[i + 1].letter}"`,
+        }, 400);
+      }
+    }
+    if (cleaned.length > 0) {
+      if (cleaned[0].maxPct !== 100) {
+        return c.json({ error: "top band must reach 100" }, 400);
+      }
+      if (cleaned[cleaned.length - 1].minPct !== 0) {
+        return c.json({ error: "bottom band must reach 0" }, 400);
+      }
+    }
+    // Wipe + reinsert.
+    await serviceRoleClient.from("grade_scale_band").delete().eq("scale_id", scaleId);
+    if (cleaned.length > 0) {
+      const rows = cleaned.map((b, i) => ({
+        scale_id: scaleId,
+        letter: b.letter,
+        min_pct: b.minPct,
+        max_pct: b.maxPct,
+        remark: b.remark,
+        display_order: i,
+      }));
+      const { error } = await serviceRoleClient.from("grade_scale_band").insert(rows);
+      if (error) return c.json({ error: error.message }, 500);
+    }
+    return c.json({ ok: true });
   });
 }
 

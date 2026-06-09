@@ -3911,5 +3911,45 @@ export const setReportCardWorkflow = (
     method: "POST",
   });
 
+// ───── Grade scales (PR feat/grade-scales) ────────────────────────────
+export interface GradeBand {
+  id?: string;
+  letter: string;
+  minPct: number;
+  maxPct: number;
+  remark: string | null;
+  displayOrder?: number;
+}
+export interface GradeScale {
+  id: string;
+  name: string;
+  isDefault: boolean;
+  bands: GradeBand[];
+}
+
+export const listGradeScales = (orgId: string): Promise<{ scales: GradeScale[] }> =>
+  apiCall(`/school/orgs/${orgId}/grade-scales`);
+export const createGradeScale = (
+  orgId: string,
+  body: { name: string; isDefault?: boolean },
+): Promise<{ scale: GradeScale }> =>
+  apiCall(`/school/orgs/${orgId}/grade-scales`, { method: "POST", body: JSON.stringify(body) });
+export const updateGradeScale = (
+  orgId: string,
+  scaleId: string,
+  patch: Partial<{ name: string; isDefault: boolean }>,
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/grade-scales/${scaleId}`, { method: "PATCH", body: JSON.stringify(patch) });
+export const archiveGradeScale = (orgId: string, scaleId: string): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/grade-scales/${scaleId}`, { method: "DELETE" });
+export const replaceGradeScaleBands = (
+  orgId: string,
+  scaleId: string,
+  bands: GradeBand[],
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/grade-scales/${scaleId}/bands`, {
+    method: "PUT", body: JSON.stringify({ bands }),
+  });
+
 // Re-export apiCall so callers can hit ad-hoc endpoints without a second import.
 export { apiCall };
