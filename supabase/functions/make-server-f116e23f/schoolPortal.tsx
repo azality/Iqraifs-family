@@ -535,6 +535,180 @@ export function installPortal(school: Hono): void {
   });
 
   // ---------------------------------------------------------------------------
+  // GET /school/pin-me/students/:studentId/diary?date=YYYY-MM-DD
+  //
+  // Daily Diary digest — the "what happened today + what to do tonight"
+  // panel the parent portal home renders. Aggregates from existing
+  // surfaces in one round trip:
+  //   - lessons:     today's lessons (visibility-filtered) grouped by subject
+  //   - assignments: items due today AND tomorrow, surfaced as a
+  //                  short to-do list ("Math: homework page 15")
+  //   - hifz:        the latest Hifz entry (sabaq + revision + parent
+  //                  action) so the parent gets "Revise Surah X after
+  //                  Maghrib" without bouncing through the Hifz tab
+  //   - reminders:   string array, currently derived from lesson notes
+  //                  that match a "reminder" / "bring" keyword pattern
+  //
+  // `date` defaults to today (UTC). The spec for the digest mirrors
+  // exactly the "English: Worksheet completed / Math: Homework page 15
+  // / Hifz: Revise Surah / Reminder: bring notebook" example.
+  // ---------------------------------------------------------------------------
+  school.get("/pin-me/students/:studentId/diary", async (c) => {
+    const g = await gatePerStudent(c);
+    if (!g.ok) return g.resp;
+    const { studentId } = g;
+
+    const dateQ = c.req.query("date");
+    if (dateQ && !isIsoDate(dateQ)) {
+      return c.json({ error: "date must be YYYY-MM-DD" }, 400);
+    }
+    const today = dateQ ?? new Date().toISOString().slice(0, 10);
+    const tomorrow = new Date(today + "T00:00:00Z");
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    const tomorrowIso = tomorrow.toISOString().slice(0, 10);
+
+    const { data: stu } = await serviceRoleClient
+      .from("student")
+      .select("id, full_name, class_section_id")
+      .eq("id", studentId)
+      .maybeSingle();
+    if (!stu) return c.json({ error: "student not found" }, 404);
+    const sectionId = (stu as any).class_section_id;
+
+    // ─── Today's lessons (visibility-filtered) ────────────────────
+    let lessons: Array<{
+      id: string;
+      subject: string | null;
+      title: string;
+      body: string | null;
+    }> = [];
+    if (sectionId) {
+      const nowIso = new Date().toISOString();
+      const { data: ls } = await serviceRoleClient
+        .from("lesson")
+        .select(
+          "id, title, body, section_subject:section_subject_id(class_subject:class_subject_id(name))",
+        )
+        .eq("class_section_id", sectionId)
+        .eq("lesson_date", today)
+        .or(
+          `and(published_at.not.is.null,published_at.lte.${nowIso}),and(published_at.is.null,lesson_date.lte.${today})`,
+        )
+        .order("created_at", { ascending: true })
+        .limit(20);
+      lessons = ((ls ?? []) as any[]).map((r) => ({
+        id: r.id,
+        subject: r.section_subject?.class_subject?.name ?? null,
+        title: r.title,
+        body: r.body,
+      }));
+    }
+
+    // ─── Assignments due today + tomorrow ─────────────────────────
+    let assignments: Array<{
+      id: string;
+      subject: string | null;
+      title: string;
+      kind: string;
+      dueDate: string;
+    }> = [];
+    if (sectionId) {
+      const { data: asg } = await serviceRoleClient
+        .from("assignment")
+        .select(
+          "id, title, kind, due_date, section_subject:section_subject_id(class_subject:class_subject_id(name))",
+        )
+        .eq("class_section_id", sectionId)
+        .in("due_date", [today, tomorrowIso])
+        .order("due_date", { ascending: true })
+        .limit(20);
+      assignments = ((asg ?? []) as any[]).map((r) => ({
+        id: r.id,
+        subject: r.section_subject?.class_subject?.name ?? null,
+        title: r.title,
+        kind: r.kind,
+        dueDate: r.due_date,
+      }));
+    }
+
+    // ─── Latest Hifz entry (sabaq + revision) ─────────────────────
+    let hifz: {
+      sabaq: { surahNumber: number; ayahFrom: number; ayahTo: number; quality: string | null } | null;
+      revision: { kind: string; surahNumber: number; ayahFrom: number; ayahTo: number; quality: string | null } | null;
+      teacherNote: string | null;
+      parentAction: string | null;
+    } | null = null;
+    const { data: hifzRows } = await serviceRoleClient
+      .from("hifz_progress")
+      .select("kind, surah_number, ayah_from, ayah_to, quality, tajweed_notes, fluency_notes, parent_comments, notes, parent_action, recorded_at, missed")
+      .eq("student_id", studentId)
+      .order("recorded_at", { ascending: false })
+      .limit(20);
+    const recent = ((hifzRows ?? []) as any[]).filter((h) =>
+      !h.missed && (h.recorded_at ?? "").slice(0, 10) === today,
+    );
+    const sabaqRow = recent.find((h) => h.kind === "sabaq");
+    const revisionRow = recent.find((h) => h.kind === "sabqi" || h.kind === "manzil");
+    const latest = recent[0] ?? null;
+    if (latest) {
+      hifz = {
+        sabaq: sabaqRow
+          ? {
+              surahNumber: sabaqRow.surah_number,
+              ayahFrom: sabaqRow.ayah_from,
+              ayahTo: sabaqRow.ayah_to,
+              quality: sabaqRow.quality,
+            }
+          : null,
+        revision: revisionRow
+          ? {
+              kind: revisionRow.kind,
+              surahNumber: revisionRow.surah_number,
+              ayahFrom: revisionRow.ayah_from,
+              ayahTo: revisionRow.ayah_to,
+              quality: revisionRow.quality,
+            }
+          : null,
+        teacherNote:
+          latest.tajweed_notes ||
+          latest.fluency_notes ||
+          latest.parent_comments ||
+          latest.notes ||
+          null,
+        parentAction: latest.parent_action ?? null,
+      };
+    }
+
+    // ─── Reminders ─────────────────────────────────────────────────
+    // Cheap heuristic for v1: scan today's lesson bodies for lines
+    // that LOOK like reminders ("bring …" / "remind…" / "reminder:"
+    // / "tomorrow…"). Real reminder structure can come later as a
+    // dedicated column. Cap to 5 to avoid leaking long notes.
+    const reminders: string[] = [];
+    const rxReminder = /^.{0,20}(bring|remind(er)?|tomorrow)\b.*$/im;
+    for (const l of lessons) {
+      if (reminders.length >= 5) break;
+      const body = (l.body ?? "").trim();
+      if (!body) continue;
+      for (const line of body.split(/\r?\n/)) {
+        if (rxReminder.test(line) && line.trim().length < 200) {
+          reminders.push(line.trim());
+          break;
+        }
+      }
+    }
+
+    return c.json({
+      date: today,
+      studentName: (stu as any).full_name,
+      lessons,
+      assignments,
+      hifz,
+      reminders,
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // GET /school/pin-me/students/:studentId/grades
   // ---------------------------------------------------------------------------
   school.get("/pin-me/students/:studentId/grades", async (c) => {

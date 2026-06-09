@@ -311,6 +311,58 @@ export interface MyStudentHifzResponse {
 export const getMyStudentHifz = (studentId: string): Promise<MyStudentHifzResponse> =>
   pinApiCall(`/school/pin-me/students/${studentId}/hifz`);
 
+// ─── Daily Diary (PR feat/daily-diary) ──────────────────────────────────
+// Single-round-trip aggregate of "what happened today + what to do
+// tonight" for a student. Rendered on the parent portal home and
+// designed to mirror the spec: English: Worksheet completed / Math:
+// Homework page 15 / Hifz: Revise Surah / Reminder: bring notebook.
+export interface DiaryLessonRow {
+  id: string;
+  subject: string | null;
+  title: string;
+  body: string | null;
+}
+export interface DiaryAssignmentRow {
+  id: string;
+  subject: string | null;
+  title: string;
+  kind: string;
+  dueDate: string;
+}
+export interface DiaryHifz {
+  sabaq: {
+    surahNumber: number;
+    ayahFrom: number;
+    ayahTo: number;
+    quality: string | null;
+  } | null;
+  revision: {
+    kind: string;
+    surahNumber: number;
+    ayahFrom: number;
+    ayahTo: number;
+    quality: string | null;
+  } | null;
+  teacherNote: string | null;
+  parentAction: string | null;
+}
+export interface MyStudentDiaryResponse {
+  date: string;
+  studentName: string;
+  lessons: DiaryLessonRow[];
+  assignments: DiaryAssignmentRow[];
+  hifz: DiaryHifz | null;
+  reminders: string[];
+}
+
+export const getMyStudentDiary = (
+  studentId: string,
+  date?: string,
+): Promise<MyStudentDiaryResponse> => {
+  const q = date ? `?date=${encodeURIComponent(date)}` : "";
+  return pinApiCall(`/school/pin-me/students/${studentId}/diary${q}`);
+};
+
 export interface MyStudentAttendanceSummary {
   present: number;
   late: number;
