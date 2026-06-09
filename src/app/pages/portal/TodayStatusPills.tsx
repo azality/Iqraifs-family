@@ -142,6 +142,22 @@ export function TodayStatusPills({ studentId, snapshot, variant }: Props) {
     });
   }
 
+  // Report card published — promoted ABOVE the teacher note so when
+  // multiple cards stack the highest-signal pill (a publishable term
+  // result) stays in the visible window on the compact landing strip.
+  // Previously a 4th teacher-note pill was pushing this off the row
+  // for some children even when slice(0, 5) should have fit it; the
+  // wrap-at-row-end caused it to land on a second visual line that the
+  // landing card layout hid.
+  if (snapshot.publishedReportCardTermName) {
+    items.push({
+      tone: "indigo", icon: FileText,
+      title: `${snapshot.publishedReportCardTermName} report card`,
+      detail: "Published — tap to view",
+      to: `${base}/report-card`,
+    });
+  }
+
   // Latest teacher note.
   if (snapshot.latestTeacherNote) {
     const isPositive = snapshot.latestTeacherNote.kind === "positive";
@@ -151,16 +167,6 @@ export function TodayStatusPills({ studentId, snapshot, variant }: Props) {
       title: isPositive ? "Teacher praise" : "Teacher concern",
       detail: snapshot.latestTeacherNote.summary || "View note",
       to: `${base}/behavior`,
-    });
-  }
-
-  // Report card published.
-  if (snapshot.publishedReportCardTermName) {
-    items.push({
-      tone: "indigo", icon: FileText,
-      title: `${snapshot.publishedReportCardTermName} report card`,
-      detail: "Published — tap to view",
-      to: `${base}/report-card`,
     });
   }
 
