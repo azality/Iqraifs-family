@@ -22,6 +22,7 @@ import {
   Wallet,
   FileText,
   Megaphone,
+  Inbox,
   Settings as SettingsIcon,
 } from "lucide-react";
 import { Button } from "../../components/ui/button";
@@ -39,6 +40,7 @@ import {
   listLinkCodes,
   listOrgFees,
   listForms,
+  getInboxUnreadCount,
   type SchoolMeResponse,
 } from "../../../utils/schoolApi";
 
@@ -66,7 +68,8 @@ export function AdminDashboard() {
     rosterPending: number | null;
     feesUnpaid: number | null;
     formsDraft: number | null;
-  }>({ classes: null, students: null, parents: null, teachers: null, linkCodes: null, rosterPending: null, feesUnpaid: null, formsDraft: null });
+    inboxUnread: number | null;
+  }>({ classes: null, students: null, parents: null, teachers: null, linkCodes: null, rosterPending: null, feesUnpaid: null, formsDraft: null, inboxUnread: null });
 
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
@@ -94,6 +97,9 @@ export function AdminDashboard() {
     listForms(orgId, { status: "draft" })
       .then((r) => setCounts((cc) => ({ ...cc, formsDraft: r.forms.length })))
       .catch(() => {});
+    getInboxUnreadCount(orgId)
+      .then((r) => setCounts((cc) => ({ ...cc, inboxUnread: r.unreadCount })))
+      .catch(() => {});
   }, [orgId]);
 
   if (meLoading) {
@@ -119,6 +125,7 @@ export function AdminDashboard() {
     { to: `/school/orgs/${orgId}/admin/roster-requests`, label: "Roster requests", count: counts.rosterPending, icon: ClipboardList, badge: true },
     { to: `/school/orgs/${orgId}/admin/fees`, label: "Fees", count: counts.feesUnpaid, icon: Wallet, badge: true },
     { to: `/school/orgs/${orgId}/admin/assessment`, label: "Assessment", count: null, icon: ClipboardList },
+    { to: `/school/orgs/${orgId}/admin/inbox`, label: "Parent inbox", count: counts.inboxUnread, icon: Inbox, badge: true },
     { to: `/school/orgs/${orgId}/admin/forms`, label: "Forms", count: counts.formsDraft, icon: FileText, badge: true },
     { to: `/school/orgs/${orgId}/admin/announcements`, label: "Announcements", count: null, icon: Megaphone },
     { to: `/school/orgs/${orgId}/admin/permissions`, label: "Permissions", count: null, icon: ShieldCheck, principalOnly: true },

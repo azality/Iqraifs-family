@@ -231,6 +231,19 @@ export function PortalLayout() {
             )}
             {subject?.subjectType === "parent" && (
               <NavLink
+                to="/school-portal/contact-school"
+                className={
+                  "px-3 py-2 text-sm border-b-2 -mb-px whitespace-nowrap " +
+                  (location.pathname.startsWith("/school-portal/contact-school")
+                    ? "border-indigo-600 text-indigo-700 font-medium"
+                    : "border-transparent text-slate-600 hover:text-slate-900")
+                }
+              >
+                {t("portal.nav.contactSchool")}
+              </NavLink>
+            )}
+            {subject?.subjectType === "parent" && (
+              <NavLink
                 to="/school-portal/forms"
                 className={
                   "px-3 py-2 text-sm border-b-2 -mb-px whitespace-nowrap inline-flex items-center gap-1.5 " +

@@ -63,6 +63,8 @@ import { ManageFeePlans } from "./pages/school/ManageFeePlans";
 import { ManageAssessment } from "./pages/school/ManageAssessment";
 import { MarksEntry } from "./pages/school/MarksEntry";
 import { ManageGradeScales } from "./pages/school/ManageGradeScales";
+import { ParentInbox } from "./pages/school/ParentInbox";
+import { ContactSchool } from "./pages/portal/ContactSchool";
 import { ManageParents } from "./pages/school/ManageParents";
 import { ManageTeachers } from "./pages/school/ManageTeachers";
 import { TeacherDetail } from "./pages/school/TeacherDetail";
@@ -336,6 +338,7 @@ export const router = createBrowserRouter([
       { path: "forms", element: <MyForms /> },
       { path: "forms/:formId", element: <FormFill /> },
       { path: "announcements", element: <MyAnnouncements /> },
+      { path: "contact-school", element: <ContactSchool /> },
     ],
   },
   // Per-school slug login: iqraifs.com/:orgSlug (e.g. /iqra-demo).
@@ -509,6 +512,7 @@ export const router = createBrowserRouter([
               { path: "admin/assessment", element: <ManageAssessment /> },
               { path: "admin/assessment/exams/:examId/marks", element: <MarksEntry /> },
               { path: "admin/assessment/grade-scales", element: <ManageGradeScales /> },
+              { path: "admin/inbox", element: <ParentInbox /> },
               { path: "students/:studentId/fees", element: <StudentFees /> },
               { path: "admin/forms", element: <FormsList /> },
               { path: "admin/forms/new", element: <FormBuilder /> },
