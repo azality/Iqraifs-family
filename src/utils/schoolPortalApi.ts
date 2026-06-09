@@ -455,6 +455,26 @@ export const getMyStudentTimetable = (
   return pinApiCall(`/school/pin-me/students/${studentId}/timetable${q}`);
 };
 
+// ─── Term report cards (parent / student portal, PR v2) ─────────────
+export interface MyTermReportCardListItem {
+  termId: string;
+  termName: string;
+  startDate: string;
+  endDate: string;
+  publishedAt: string;
+}
+export const listMyTermReportCards = (
+  studentId: string,
+): Promise<{ cards: MyTermReportCardListItem[] }> =>
+  pinApiCall(`/school/pin-me/students/${studentId}/term-report-cards`);
+
+// Reuses the same shape as admin's TermReportCardResponse.
+export const getMyTermReportCard = (
+  studentId: string,
+  termId: string,
+): Promise<import("./schoolApi").TermReportCardResponse> =>
+  pinApiCall(`/school/pin-me/students/${studentId}/terms/${termId}/report-card`);
+
 // ─── Re-exported types from schoolApi ───────────────────────────────────
 
 export type {
