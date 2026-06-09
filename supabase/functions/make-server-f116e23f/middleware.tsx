@@ -1,20 +1,27 @@
 import { Context } from "npm:hono";
 import { createClient } from "npm:@supabase/supabase-js@2.39.3";
 import { verifyKidSession as verifyKidSessionFromModule } from "./kidSessions.tsx";
+import type { Database } from "../_shared/db.ts";
 
 // JWT Authentication Middleware - Fixed JWT verification (v3)
 // CRITICAL: Create TWO separate clients
 // 1. Service role client for admin operations (user management, bypassing RLS)
 // 2. Anon key client for JWT verification (must use same key that issued the tokens)
+//
+// Both clients are parameterised by the auto-generated Database type
+// (see supabase/functions/_shared/db.ts and scripts/gen-db-types.ts).
+// This means .from("table").select("col1, col2") fails at compile time
+// when col2 doesn't exist — catching the F8-class bug at build instead of
+// silently returning empty rows at runtime.
 
-const serviceRoleClient = createClient(
+const serviceRoleClient = createClient<Database>(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
 );
 
 // CRITICAL FIX: Use anon key client for JWT verification
 // User JWTs are signed with the project's secret and validated against the anon key
-const anonClient = createClient(
+const anonClient = createClient<Database>(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_ANON_KEY")!
 );

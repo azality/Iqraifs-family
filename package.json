@@ -22,7 +22,9 @@
     "dev": "vite",
     "test": "vitest run && npm run test:backend",
     "test:watch": "vitest",
-    "test:backend": "npx deno test --allow-env --no-check supabase/functions/make-server-f116e23f/schoolAuth_test.ts"
+    "test:backend": "npx deno test --allow-env --no-check supabase/functions/make-server-f116e23f/schoolAuth_test.ts",
+    "db:types": "tsx scripts/gen-db-types.ts",
+    "db:types:check": "tsx scripts/gen-db-types.ts --check"
   },
   "dependencies": {
     "@capacitor/cli": "^8.1.0",
