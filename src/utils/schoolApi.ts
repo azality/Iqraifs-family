@@ -1948,6 +1948,23 @@ export const getHifzGroupTimetable = (
 ): Promise<{ scope: { kind: "hifz_group"; id: string }; cells: TimetableWeekCell[] }> =>
   apiCall(`/school/orgs/${orgId}/hifz-groups/${groupId}/timetable`);
 
+/** Teacher's own entries. Used on TeacherHome to render "My today's
+ *  schedule". scopeLabel is pre-built ("Grade 3 — A" / Hifz group
+ *  name) so the card doesn't need a separate lookup. */
+export interface MyTimetableCell {
+  slot: TimetableSlot;
+  entry: TimetableEntry & { subjectName: string | null; teacherName: string | null };
+  scopeLabel: string;
+}
+
+export const getMyTeacherTimetable = (
+  orgId: string,
+  opts: { day?: number } = {},
+): Promise<{ cells: MyTimetableCell[] }> => {
+  const q = opts.day ? `?day=${opts.day}` : "";
+  return apiCall(`/school/orgs/${orgId}/me/timetable${q}`);
+};
+
 export interface OrgAdmin {
   user_id: string;
   email: string;

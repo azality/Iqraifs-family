@@ -535,6 +535,104 @@ export function installPortal(school: Hono): void {
   });
 
   // ---------------------------------------------------------------------------
+  // GET /school/pin-me/students/:studentId/timetable
+  //
+  // Parent / student portal weekly timetable view. Joins the org-wide
+  // slot list with the student's section's entries — Hifz group entries
+  // also flow through if the student is in a group, deduped by slot
+  // (section entry wins when both exist on the same slot — that case
+  // is illegal in the editor anyway).
+  // ---------------------------------------------------------------------------
+  school.get("/pin-me/students/:studentId/timetable", async (c) => {
+    const g = await gatePerStudent(c);
+    if (!g.ok) return g.resp;
+    const { studentId } = g;
+
+    const { data: stu } = await serviceRoleClient
+      .from("student")
+      .select("class_section_id, hifz_group_id, org_id")
+      .eq("id", studentId)
+      .maybeSingle();
+    if (!stu) return c.json({ error: "student not found" }, 404);
+
+    // Pull all slots for the org so empty cells render too.
+    const { data: slots } = await serviceRoleClient
+      .from("timetable_slot")
+      .select("*")
+      .eq("org_id", (stu as any).org_id)
+      .is("archived_at", null)
+      .order("day_of_week", { ascending: true })
+      .order("start_time", { ascending: true });
+
+    // Entries for the section + (optional) hifz group.
+    const scopes: string[] = [];
+    if ((stu as any).class_section_id) scopes.push((stu as any).class_section_id);
+    const { data: secEntries } = (stu as any).class_section_id
+      ? await serviceRoleClient
+          .from("timetable_entry")
+          .select(
+            "*, section_subject:section_subject_id(class_subject:class_subject_id(name))",
+          )
+          .eq("scope_section_id", (stu as any).class_section_id)
+      : { data: [] as any[] };
+    const { data: groupEntries } = (stu as any).hifz_group_id
+      ? await serviceRoleClient
+          .from("timetable_entry")
+          .select(
+            "*, section_subject:section_subject_id(class_subject:class_subject_id(name))",
+          )
+          .eq("scope_hifz_group_id", (stu as any).hifz_group_id)
+      : { data: [] as any[] };
+
+    // Hydrate teacher names once.
+    const all = [...(secEntries ?? []), ...(groupEntries ?? [])] as any[];
+    const teacherIds = Array.from(
+      new Set(all.map((e) => e.teacher_user_id).filter((x): x is string => !!x)),
+    );
+    const teacherNames = new Map<string, string>();
+    for (const tid of teacherIds) {
+      try {
+        const { data: u } = await (serviceRoleClient as any).auth.admin.getUserById(tid);
+        const name = u?.user?.user_metadata?.name || u?.user?.email || "";
+        if (name) teacherNames.set(tid, name);
+      } catch { /* ignore */ }
+    }
+
+    // Section entries win when both exist on the same slot — that
+    // shouldn't happen given the UNIQUE constraints + the editor
+    // enforces one scope at a time, but being explicit costs nothing.
+    const bySlot = new Map<string, any>();
+    for (const e of (groupEntries ?? []) as any[]) bySlot.set(e.slot_id, e);
+    for (const e of (secEntries ?? []) as any[]) bySlot.set(e.slot_id, e);
+
+    const cells = ((slots ?? []) as any[]).map((s) => {
+      const e = bySlot.get(s.id);
+      return {
+        slot: {
+          id: s.id,
+          name: s.name,
+          dayOfWeek: s.day_of_week,
+          startTime: s.start_time,
+          endTime: s.end_time,
+          kind: s.kind,
+        },
+        entry: e
+          ? {
+              subjectName: e.section_subject?.class_subject?.name ?? null,
+              teacherName: e.teacher_user_id
+                ? teacherNames.get(e.teacher_user_id) ?? null
+                : null,
+              room: e.room,
+              notes: e.notes,
+              scope: e.scope_section_id ? "section" : "hifz_group",
+            }
+          : null,
+      };
+    });
+    return c.json({ cells });
+  });
+
+  // ---------------------------------------------------------------------------
   // GET /school/pin-me/students/:studentId/grades
   // ---------------------------------------------------------------------------
   school.get("/pin-me/students/:studentId/grades", async (c) => {

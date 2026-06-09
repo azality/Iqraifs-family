@@ -20,18 +20,29 @@ import {
   ChevronRight,
   Eye,
   ListChecks,
+  Calendar,
+  BookOpen,
+  MapPin,
 } from "lucide-react";
 import {
   getSectionsLeaderboard,
   getMySectionSubjects,
   getMyTeacherSnapshot,
+  getMyTeacherTimetable,
   type MySectionSubject,
+  type MyTimetableCell,
   type TeacherSnapshot,
   getSectionBehaviorNotes,
   type LeaderboardRow,
   type BehaviorNote,
   type SchoolMeResponse,
 } from "../../../utils/schoolApi";
+
+function todayDow(): number {
+  // ISO day: Mon=1 ... Sun=7. JS getDay(): Sun=0.
+  const d = new Date().getDay();
+  return d === 0 ? 7 : d;
+}
 
 interface Props {
   orgId: string;
@@ -86,6 +97,7 @@ export function TeacherHome({ orgId, me }: Props) {
   const [notes, setNotes] = useState<BehaviorNote[]>([]);
   const [mySubjects, setMySubjects] = useState<MySectionSubject[]>([]);
   const [snapshot, setSnapshot] = useState<TeacherSnapshot | null>(null);
+  const [todayCells, setTodayCells] = useState<MyTimetableCell[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -119,6 +131,23 @@ export function TeacherHome({ orgId, me }: Props) {
       cancelled = true;
     };
   }, []);
+
+  // Phase 2 (timetable consumers): today's slots for the signed-in
+  // teacher. Non-blocking widget — hidden silently on error / empty.
+  useEffect(() => {
+    if (!orgId) return;
+    let cancelled = false;
+    getMyTeacherTimetable(orgId, { day: todayDow() })
+      .then((r) => {
+        if (!cancelled) setTodayCells(r.cells);
+      })
+      .catch(() => {
+        /* non-fatal */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId]);
 
   useEffect(() => {
     if (!orgId) return;
@@ -209,6 +238,51 @@ export function TeacherHome({ orgId, me }: Props) {
         <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
           Could not load: {error}
         </div>
+      )}
+
+      {/* Today's schedule — only shown when the school has published
+          a timetable AND this teacher has at least one entry today. */}
+      {todayCells.length > 0 && (
+        <section className="rounded-xl border border-indigo-100 bg-white p-4 shadow-sm">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-slate-700">
+              <Calendar className="h-4 w-4 text-indigo-500" />
+              Today's schedule
+            </h2>
+            <span className="text-xs text-slate-400">
+              {todayCells.length} slot{todayCells.length === 1 ? "" : "s"}
+            </span>
+          </div>
+          <div className="space-y-1.5">
+            {todayCells.map((c) => (
+              <div
+                key={c.entry.id}
+                className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-slate-200 bg-slate-50/40 px-3 py-2 text-sm"
+              >
+                <div className="w-28 shrink-0">
+                  <div className="text-xs font-semibold text-slate-900">
+                    {c.slot.name}
+                  </div>
+                  <div className="text-[10px] text-slate-500">
+                    {c.slot.startTime}–{c.slot.endTime}
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 min-w-0 flex-1">
+                  <span className="inline-flex items-center gap-1 font-medium text-slate-800">
+                    <BookOpen className="h-3.5 w-3.5 text-indigo-500" />
+                    {c.entry.subjectName ?? "Class"}
+                  </span>
+                  <span className="text-xs text-slate-600">{c.scopeLabel}</span>
+                  {c.entry.room && (
+                    <span className="inline-flex items-center gap-1 text-xs text-slate-500">
+                      <MapPin className="h-3 w-3" /> Room {c.entry.room}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
       )}
 
       {/* Roll-call nudge */}
