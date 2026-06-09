@@ -63,6 +63,15 @@ const NAV: NavItem[] = [
     path: (sid) => `/school-portal/students/${sid}/behavior`,
     match: (p, sid) => p.startsWith(`/school-portal/students/${sid}/behavior`),
   },
+  {
+    // PR feat/teacher-comments-feed — chronological feed across all
+    // teacher-authored remarks (behavior + hifz + exams + report cards
+    // + lesson notes). Lives at the per-child level since comments are
+    // student-specific.
+    labelKey: "teacherComments",
+    path: (sid) => `/school-portal/students/${sid}/teacher-comments`,
+    match: (p, sid) => p.startsWith(`/school-portal/students/${sid}/teacher-comments`),
+  },
 ];
 
 const ANNOUNCEMENTS_PATH = "/school-portal/announcements";
