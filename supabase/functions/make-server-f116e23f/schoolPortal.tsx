@@ -776,20 +776,30 @@ export function installPortal(school: Hono): void {
       mistakesCount: number | null;
     };
     const last14Days: DayCell[] = [];
+    // The Monthly view (parent portal) renders 30 calendar days
+    // alongside the 14-day quick strip. We build both arrays here in
+    // one pass — both indexed by the same byDate map — so we don't
+    // round-trip per call. 30 days is a sensible "month" anchor at
+    // pilot scale (no DST/lunar-month nuance yet).
+    const last30Days: DayCell[] = [];
     const today0 = new Date();
     today0.setUTCHours(0, 0, 0, 0);
-    for (let i = 13; i >= 0; i--) {
+    for (let i = 29; i >= 0; i--) {
       const d = new Date(today0);
       d.setUTCDate(today0.getUTCDate() - i);
-      last14Days.push({
+      const cell: DayCell = {
         date: d.toISOString().slice(0, 10),
         logged: false,
         missed: false,
         quality: null,
         mistakesCount: null,
-      });
+      };
+      last30Days.push(cell);
+      // last14Days references the LAST 14 entries of the same array —
+      // so updating the cell in place updates both views.
+      if (i <= 13) last14Days.push(cell);
     }
-    const byDate = new Map(last14Days.map((d) => [d.date, d]));
+    const byDate = new Map(last30Days.map((d) => [d.date, d]));
     // We want the BEST representative entry per day. Most recent first
     // works because if a teacher logs sabaq, then sabqi later same day,
     // the latest one is what surfaces in the cell.
@@ -813,6 +823,7 @@ export function installPortal(school: Hono): void {
       summary: { ayahsMemorized, surahsCompleted, lastEntry },
       today,
       last14Days,
+      last30Days,
     });
   });
 
