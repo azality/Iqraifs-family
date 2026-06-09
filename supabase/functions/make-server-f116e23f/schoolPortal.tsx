@@ -1662,6 +1662,239 @@ export function installPortal(school: Hono): void {
       publishedReportCardTermName,
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // GET /school/pin-me/students/:studentId/teacher-comments
+  //
+  // PR feat/teacher-comments-feed — consolidates every teacher-authored
+  // remark about a student into one chronological feed. Sources:
+  //   - behavior_note (positive/concern)
+  //   - hifz_progress notes fields (tajweed_notes, fluency_notes,
+  //     parent_comments, parent_action, notes)
+  //   - exam_subject_score.notes (per-exam per-subject)
+  //   - term_report_card published cards (subject_comments,
+  //     class_teacher_comment, principal_comment)
+  //   - lesson body (when prose, last 60 days, this student's section)
+  //
+  // Capped to last 120 days OR 200 items, whichever bigger. Newest first.
+  // ---------------------------------------------------------------------------
+  school.get("/pin-me/students/:studentId/teacher-comments", async (c) => {
+    const g = await gatePerStudent(c);
+    if (!g.ok) return g.resp;
+    const { studentId, subject } = g;
+
+    const stuCtx = await loadStudentWithContext(studentId, subject.orgId);
+    if (!stuCtx) return c.json({ error: "student not found" }, 404);
+
+    const cutoff = new Date(Date.now() - 120 * 24 * 60 * 60 * 1000);
+    const cutoffDate = cutoff.toISOString().slice(0, 10);
+    const cutoffIso = cutoff.toISOString();
+
+    interface FeedItem {
+      id: string;
+      kind: "behavior" | "hifz" | "exam_note" | "report_card_subject"
+          | "report_card_class_teacher" | "report_card_principal" | "lesson";
+      at: string;
+      authorName: string | null;
+      title: string;
+      body: string;
+      link: string | null;  // portal route — caller composes /students/:id base
+      tone?: "positive" | "concern" | "neutral";
+    }
+    const out: FeedItem[] = [];
+    const authorIds = new Set<string>();
+
+    // ── behavior_note ──
+    const { data: behRows } = await serviceRoleClient
+      .from("behavior_note")
+      .select("id, kind, notes, observed_at, recorded_by, category")
+      .eq("student_id", studentId)
+      .gte("observed_at", cutoffIso)
+      .order("observed_at", { ascending: false })
+      .limit(80);
+    for (const r of (behRows ?? []) as any[]) {
+      if (r.recorded_by) authorIds.add(r.recorded_by);
+      out.push({
+        id: `behavior:${r.id}`,
+        kind: "behavior",
+        at: r.observed_at,
+        authorName: r.recorded_by, // resolved below
+        title: r.kind === "positive" ? "Positive note" : "Concern",
+        body: r.notes ?? "",
+        link: "/behavior",
+        tone: r.kind === "positive" ? "positive" : "concern",
+      });
+    }
+
+    // ── hifz_progress prose fields ──
+    const { data: hifzRows } = await serviceRoleClient
+      .from("hifz_progress")
+      .select("id, kind, surah_number, ayah_from, ayah_to, recorded_at, recorded_by, tajweed_notes, fluency_notes, teacher_remarks, parent_comments, parent_action, notes")
+      .eq("student_id", studentId)
+      .gte("recorded_at", cutoffIso)
+      .order("recorded_at", { ascending: false })
+      .limit(60);
+    for (const r of (hifzRows ?? []) as any[]) {
+      const lines: string[] = [];
+      if (r.teacher_remarks) lines.push(r.teacher_remarks);
+      if (r.tajweed_notes) lines.push(`Tajweed: ${r.tajweed_notes}`);
+      if (r.fluency_notes) lines.push(`Fluency: ${r.fluency_notes}`);
+      if (r.notes) lines.push(r.notes);
+      if (r.parent_comments) lines.push(`Parent comment: ${r.parent_comments}`);
+      if (r.parent_action) lines.push(`What to do: ${r.parent_action}`);
+      if (lines.length === 0) continue;
+      if (r.recorded_by) authorIds.add(r.recorded_by);
+      out.push({
+        id: `hifz:${r.id}`,
+        kind: "hifz",
+        at: r.recorded_at,
+        authorName: r.recorded_by,
+        title: `Hifz ${r.kind}${r.surah_number ? ` · Surah ${r.surah_number}${r.ayah_from && r.ayah_to ? `:${r.ayah_from}-${r.ayah_to}` : ""}` : ""}`,
+        body: lines.join("\n"),
+        link: "/hifz",
+        tone: "neutral",
+      });
+    }
+
+    // ── exam_subject_score.notes (per-exam per-subject) ──
+    const { data: scoreRows } = await serviceRoleClient
+      .from("exam_subject_score")
+      .select("id, notes, updated_at, recorded_by, max_marks, obtained_marks, exam:exam_id(name), class_subject:class_subject_id(name)")
+      .eq("student_id", studentId)
+      .not("notes", "is", null)
+      .gte("updated_at", cutoffIso)
+      .order("updated_at", { ascending: false })
+      .limit(40);
+    for (const r of (scoreRows ?? []) as any[]) {
+      if (!r.notes || !r.notes.trim()) continue;
+      if (r.recorded_by) authorIds.add(r.recorded_by);
+      out.push({
+        id: `exam_note:${r.id}`,
+        kind: "exam_note",
+        at: r.updated_at,
+        authorName: r.recorded_by,
+        title: `${r.class_subject?.name ?? "Subject"} · ${r.exam?.name ?? "Exam"}`,
+        body: r.notes,
+        link: "/grades",
+        tone: "neutral",
+      });
+    }
+
+    // ── term_report_card (published only) ──
+    const { data: cardRows } = await serviceRoleClient
+      .from("term_report_card")
+      .select("id, principal_comment, class_teacher_comment, subject_comments, published_at, finalized_by, published_by, term:term_id(name)")
+      .eq("student_id", studentId)
+      .not("published_at", "is", null);
+    // Pull class_subject names once for any subject_comments keys we hit.
+    const subjIdsFromCards = new Set<string>();
+    for (const card of (cardRows ?? []) as any[]) {
+      const sc = card.subject_comments ?? {};
+      for (const k of Object.keys(sc)) subjIdsFromCards.add(k);
+    }
+    const subjNameById = new Map<string, string>();
+    if (subjIdsFromCards.size > 0) {
+      const { data: subs } = await serviceRoleClient
+        .from("class_subject")
+        .select("id, name")
+        .in("id", Array.from(subjIdsFromCards));
+      for (const s of ((subs ?? []) as any[])) subjNameById.set(s.id, s.name);
+    }
+    for (const card of (cardRows ?? []) as any[]) {
+      const termName = card.term?.name ?? "Term";
+      if (card.published_by) authorIds.add(card.published_by);
+      if (card.class_teacher_comment) {
+        out.push({
+          id: `rc_ct:${card.id}`,
+          kind: "report_card_class_teacher",
+          at: card.published_at,
+          authorName: card.published_by,
+          title: `${termName} report card · class teacher`,
+          body: card.class_teacher_comment,
+          link: "/report-card",
+          tone: "neutral",
+        });
+      }
+      if (card.principal_comment) {
+        out.push({
+          id: `rc_p:${card.id}`,
+          kind: "report_card_principal",
+          at: card.published_at,
+          authorName: card.published_by,
+          title: `${termName} report card · principal`,
+          body: card.principal_comment,
+          link: "/report-card",
+          tone: "neutral",
+        });
+      }
+      const sc = (card.subject_comments ?? {}) as Record<string, string>;
+      for (const [csId, txt] of Object.entries(sc)) {
+        if (!txt || !txt.trim()) continue;
+        const subjectName = subjNameById.get(csId) ?? "Subject";
+        out.push({
+          id: `rc_subj:${card.id}:${csId}`,
+          kind: "report_card_subject",
+          at: card.published_at,
+          authorName: null,
+          title: `${termName} report card · ${subjectName}`,
+          body: txt,
+          link: "/report-card",
+          tone: "neutral",
+        });
+      }
+    }
+
+    // ── lesson prose (this student's section, has body) ──
+    if (stuCtx.sectionId) {
+      const { data: lessons } = await serviceRoleClient
+        .from("lesson")
+        .select("id, title, body, lesson_date, taught_by, section_subject:section_subject_id(class_subject:class_subject_id(name))")
+        .eq("class_section_id", stuCtx.sectionId)
+        .gte("lesson_date", cutoffDate)
+        .order("lesson_date", { ascending: false })
+        .limit(60);
+      for (const r of (lessons ?? []) as any[]) {
+        const body = (r.body ?? "").trim();
+        if (!body) continue;
+        if (r.taught_by) authorIds.add(r.taught_by);
+        out.push({
+          id: `lesson:${r.id}`,
+          kind: "lesson",
+          at: r.lesson_date,
+          authorName: r.taught_by,
+          title: `${r.section_subject?.class_subject?.name ?? "Lesson"}${r.title ? ` — ${r.title}` : ""}`,
+          body,
+          link: "/lessons",
+          tone: "neutral",
+        });
+      }
+    }
+
+    // ── Hydrate author names once ──
+    const nameById = new Map<string, string>();
+    for (const uid of authorIds) {
+      try {
+        const { data: u } = await (serviceRoleClient as any).auth.admin.getUserById(uid);
+        const n = u?.user?.user_metadata?.name || u?.user?.email || "";
+        if (n) nameById.set(uid, n);
+      } catch { /* ignore */ }
+    }
+    for (const item of out) {
+      if (item.authorName && nameById.has(item.authorName)) {
+        item.authorName = nameById.get(item.authorName)!;
+      } else if (item.authorName && !nameById.has(item.authorName)) {
+        // It was a uid we couldn't resolve — null it out so the UI shows
+        // a generic "Teacher" label rather than a uuid.
+        item.authorName = null;
+      }
+    }
+
+    // Sort newest first, cap to 200.
+    out.sort((a, b) => (a.at < b.at ? 1 : -1));
+    const items = out.slice(0, 200);
+
+    return c.json({ items });
+  });
 }
 
 export default installPortal;

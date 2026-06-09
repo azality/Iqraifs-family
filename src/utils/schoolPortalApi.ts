@@ -552,6 +552,28 @@ export const getMyTermReportCard = (
 ): Promise<import("./schoolApi").TermReportCardResponse> =>
   pinApiCall(`/school/pin-me/students/${studentId}/terms/${termId}/report-card`);
 
+// ─── Teacher comments feed (PR feat/teacher-comments-feed) ───────────
+export type TeacherCommentKind =
+  | "behavior" | "hifz" | "exam_note"
+  | "report_card_subject" | "report_card_class_teacher" | "report_card_principal"
+  | "lesson";
+
+export interface TeacherCommentItem {
+  id: string;
+  kind: TeacherCommentKind;
+  at: string;
+  authorName: string | null;
+  title: string;
+  body: string;
+  link: string | null;
+  tone?: "positive" | "concern" | "neutral";
+}
+
+export const getTeacherComments = (
+  studentId: string,
+): Promise<{ items: TeacherCommentItem[] }> =>
+  pinApiCall(`/school/pin-me/students/${studentId}/teacher-comments`);
+
 // ─── Contact school (PR feat/parent-contact-school) ─────────────────
 export interface MyThread {
   threadId: string;

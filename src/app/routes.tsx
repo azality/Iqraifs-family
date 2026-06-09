@@ -65,6 +65,7 @@ import { MarksEntry } from "./pages/school/MarksEntry";
 import { ManageGradeScales } from "./pages/school/ManageGradeScales";
 import { ParentInbox } from "./pages/school/ParentInbox";
 import { ContactSchool } from "./pages/portal/ContactSchool";
+import { StudentTeacherComments } from "./pages/portal/StudentTeacherComments";
 import { ManageParents } from "./pages/school/ManageParents";
 import { ManageTeachers } from "./pages/school/ManageTeachers";
 import { TeacherDetail } from "./pages/school/TeacherDetail";
@@ -330,6 +331,7 @@ export const router = createBrowserRouter([
       { path: "students/:studentId/lessons", element: <StudentLessons /> },
       { path: "students/:studentId/grades", element: <StudentGrades /> },
       { path: "students/:studentId/report-card", element: <StudentTermReportCard /> },
+      { path: "students/:studentId/teacher-comments", element: <StudentTeacherComments /> },
       { path: "students/:studentId/hifz", element: <StudentHifz /> },
       { path: "students/:studentId/timetable", element: <StudentTimetable /> },
       { path: "students/:studentId/attendance", element: <StudentAttendance /> },
