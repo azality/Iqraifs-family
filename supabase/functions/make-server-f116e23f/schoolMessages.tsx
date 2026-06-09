@@ -423,6 +423,36 @@ export function installMessages(school: Hono): void {
         sent_by_role: "school",
       });
     if (error) return c.json({ error: error.message }, 500);
+
+    // Notification trigger (PR feat/notification-scaffold).
+    // Channel is 'log' until the operator wires an SMS/email provider —
+    // the row still lands in notification_event so analytics + a future
+    // back-fill can see what was supposed to go out.
+    try {
+      const { data: parent } = await serviceRoleClient
+        .from("parent")
+        .select("phone, email, full_name")
+        .eq("id", (first as any).parent_user_id)
+        .maybeSingle();
+      const recipient = (parent as any)?.phone || (parent as any)?.email || "";
+      if (recipient) {
+        const { data: org } = await serviceRoleClient
+          .from("organizations").select("name").eq("id", orgId).maybeSingle();
+        const { queueNotification } = await import("./notify.tsx");
+        await queueNotification({
+          orgId, channel: "log", recipient,
+          templateKey: "message_reply",
+          templateVars: {
+            schoolName: (org as any)?.name ?? "the school",
+            subject: text.slice(0, 80),
+          },
+          subjectType: "message",
+          subjectId: threadId,
+          dedupKey: `msg-reply:${threadId}:${Date.now()}`,
+        });
+      }
+    } catch { /* notification failures don't break the reply */ }
+
     return c.json({ ok: true });
   });
 
