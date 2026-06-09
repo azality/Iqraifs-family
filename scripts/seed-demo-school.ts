@@ -1028,28 +1028,34 @@ try {
   if (isoDow >= 1 && isoDow <= 5) {
     const zaraUid = staffByKey.get("ct_zara")!.userId;
     const hinaUid = staffByKey.get("ct_hina")!.userId;
-    const { data: candidate } = await sb
+    // Pull ALL of Zara's entries (no LIMIT — there are ~20 per week and
+    // a low cap was silently missing today's DOW). Bubble up the query
+    // error too so seed runs don't quietly skip the row.
+    const { data: candidate, error: qErr } = await sb
       .from("timetable_entry")
       .select("id, slot:slot_id(day_of_week)")
       .eq("org_id", orgId)
-      .eq("teacher_user_id", zaraUid)
-      .limit(20);
+      .eq("teacher_user_id", zaraUid);
+    if (qErr) throw new Error(qErr.message);
     const today = ((candidate ?? []) as any[]).find((e) => e.slot?.day_of_week === isoDow);
-    if (today) {
-      const { error } = await sb
-        .from("timetable_substitution")
-        .insert({
-          org_id: orgId,
-          entry_id: today.id,
-          date: todayIso,
-          substitute_teacher_user_id: hinaUid,
-          reason: "Sick leave",
-          created_by: principalId,
-        });
-      if (error) throw new Error(error.message);
-      subCount = 1;
-      console.log(`  ✓ 1 substitution (Hina covering Zara today)`);
+    if (!today) {
+      throw new Error(`no Zara entry found for DOW ${isoDow} (Zara has ${(candidate ?? []).length} entries total)`);
     }
+    const { error } = await sb
+      .from("timetable_substitution")
+      .insert({
+        org_id: orgId,
+        entry_id: today.id,
+        date: todayIso,
+        substitute_teacher_user_id: hinaUid,
+        reason: "Sick leave",
+        created_by: principalId,
+      });
+    if (error) throw new Error(error.message);
+    subCount = 1;
+    console.log(`  ✓ 1 substitution (Hina covering Zara today)`);
+  } else {
+    console.log(`  ℹ substitution skipped: today is weekend (DOW ${isoDow})`);
   }
 } catch (e) {
   console.log(`  ⚠ substitution skipped: ${(e as Error).message}`);
@@ -1246,67 +1252,74 @@ if (termId) {
 }
 
 // ─── Parent ↔ school messages (2 sample threads) ───────────────────────
+// Surfaces the insert errors so seeding doesn't silently end with 0
+// messages when the migration is missing or the RLS policy bites.
 try {
   // Pick the first parent who has at least one student linked.
   const firstParent = parentRows.find((p) => p.children.length > 0);
-  if (firstParent) {
-    // Find that parent's first student.
-    const { data: link } = await sb
-      .from("student_parent")
-      .select("student_id")
-      .eq("parent_id", firstParent.id)
-      .limit(1)
-      .maybeSingle();
-    const studentId = (link as any)?.student_id ?? null;
+  if (!firstParent) throw new Error("no parent with a linked child");
 
-    // Thread 1: parent → school, with a school reply (resolved).
-    const { data: t1 } = await sb
-      .from("parent_message")
-      .insert({
-        org_id: orgId,
-        thread_id: "00000000-0000-0000-0000-000000000000",
-        parent_user_id: firstParent.id,
-        student_id: studentId,
-        subject: "Picking up early on Friday",
-        body: "As-salāmu ʿalaykum. We have a family appointment on Friday, can my child be ready for pick-up at 12:30 pm instead of the usual time?",
-        sent_by: firstParent.id,
-        sent_by_role: "parent",
-      })
-      .select("id").single();
-    if (t1) {
-      await sb.from("parent_message").update({ thread_id: (t1 as any).id }).eq("id", (t1 as any).id);
-      await sb.from("parent_message").insert({
-        org_id: orgId,
-        thread_id: (t1 as any).id,
-        parent_user_id: firstParent.id,
-        student_id: studentId,
-        body: "Walaikum salām. Noted — please send a brief note with the student in the morning so the gate has it on record. JazakAllāhu khairan.",
-        sent_by: staffByKey.get("os_rabia")!.userId,
-        sent_by_role: "school",
-      });
-      messageCount += 2;
-    }
+  const { data: link, error: linkErr } = await sb
+    .from("student_parent")
+    .select("student_id")
+    .eq("parent_id", firstParent.id)
+    .limit(1)
+    .maybeSingle();
+  if (linkErr) throw new Error(`student_parent lookup: ${linkErr.message}`);
+  const studentId = (link as any)?.student_id ?? null;
+  const rabiaUid = staffByKey.get("os_rabia")!.userId;
 
-    // Thread 2: parent → school, awaiting reply (unread for admin demo).
-    const { data: t2 } = await sb
-      .from("parent_message")
-      .insert({
-        org_id: orgId,
-        thread_id: "00000000-0000-0000-0000-000000000000",
-        parent_user_id: firstParent.id,
-        student_id: studentId,
-        subject: "Report card meeting time",
-        body: "Could we schedule the Term 1 meeting next week? Tuesday after Asr would work best for us.",
-        sent_by: firstParent.id,
-        sent_by_role: "parent",
-      })
-      .select("id").single();
-    if (t2) {
-      await sb.from("parent_message").update({ thread_id: (t2 as any).id }).eq("id", (t2 as any).id);
-      messageCount += 1;
-    }
-    console.log(`  ✓ ${messageCount} parent messages (2 threads, 1 unread)`);
-  }
+  // Thread 1: parent → school, with a school reply (resolved).
+  const { data: t1, error: t1Err } = await sb
+    .from("parent_message")
+    .insert({
+      org_id: orgId,
+      thread_id: "00000000-0000-0000-0000-000000000000",
+      parent_user_id: firstParent.id,
+      student_id: studentId,
+      subject: "Picking up early on Friday",
+      body: "As-salāmu ʿalaykum. We have a family appointment on Friday, can my child be ready for pick-up at 12:30 pm instead of the usual time?",
+      sent_by: firstParent.id,
+      sent_by_role: "parent",
+    })
+    .select("id").single();
+  if (t1Err || !t1) throw new Error(`thread 1 open: ${t1Err?.message ?? "no data returned"}`);
+  const t1Id = (t1 as any).id;
+  const { error: t1UpdErr } = await sb.from("parent_message").update({ thread_id: t1Id }).eq("id", t1Id);
+  if (t1UpdErr) throw new Error(`thread 1 fold: ${t1UpdErr.message}`);
+  const { error: t1RepErr } = await sb.from("parent_message").insert({
+    org_id: orgId,
+    thread_id: t1Id,
+    parent_user_id: firstParent.id,
+    student_id: studentId,
+    body: "Walaikum salām. Noted — please send a brief note with the student in the morning so the gate has it on record. JazakAllāhu khairan.",
+    sent_by: rabiaUid,
+    sent_by_role: "school",
+  });
+  if (t1RepErr) throw new Error(`thread 1 reply: ${t1RepErr.message}`);
+  messageCount += 2;
+
+  // Thread 2: parent → school, awaiting reply (unread for admin demo).
+  const { data: t2, error: t2Err } = await sb
+    .from("parent_message")
+    .insert({
+      org_id: orgId,
+      thread_id: "00000000-0000-0000-0000-000000000000",
+      parent_user_id: firstParent.id,
+      student_id: studentId,
+      subject: "Report card meeting time",
+      body: "Could we schedule the Term 1 meeting next week? Tuesday after Asr would work best for us.",
+      sent_by: firstParent.id,
+      sent_by_role: "parent",
+    })
+    .select("id").single();
+  if (t2Err || !t2) throw new Error(`thread 2 open: ${t2Err?.message ?? "no data returned"}`);
+  const t2Id = (t2 as any).id;
+  const { error: t2UpdErr } = await sb.from("parent_message").update({ thread_id: t2Id }).eq("id", t2Id);
+  if (t2UpdErr) throw new Error(`thread 2 fold: ${t2UpdErr.message}`);
+  messageCount += 1;
+
+  console.log(`  ✓ ${messageCount} parent messages (2 threads, 1 unread)`);
 } catch (e) {
   console.log(`  ⚠ parent messages skipped: ${(e as Error).message}`);
 }
