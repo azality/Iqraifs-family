@@ -1174,6 +1174,11 @@ export interface AdminSection {
   class_id: string;
   name: string;
   class_teacher_user_id: string | null;
+  /** PR feat/hifz-trends-missed-teacher — dedicated Hifz teacher,
+   *  distinct from the academic class teacher. Hifz schools commonly
+   *  run two teachers per section; this column lets us model that
+   *  cleanly. Null = no separate Hifz teacher assigned. */
+  hifz_teacher_user_id?: string | null;
 }
 
 export interface AdminClass {
@@ -1215,7 +1220,11 @@ export const deleteClass = (orgId: string, classId: string): Promise<void> =>
 export const createSection = (
   orgId: string,
   classId: string,
-  body: { name: string; classTeacherUserId?: string },
+  body: {
+    name: string;
+    classTeacherUserId?: string;
+    hifzTeacherUserId?: string;
+  },
 ): Promise<AdminSection> =>
   apiCall(`/school/orgs/${orgId}/classes/${classId}/sections`, {
     method: "POST",
@@ -1225,7 +1234,11 @@ export const createSection = (
 export const updateSection = (
   orgId: string,
   sectionId: string,
-  partial: Partial<{ name: string; classTeacherUserId: string | null }>,
+  partial: Partial<{
+    name: string;
+    classTeacherUserId: string | null;
+    hifzTeacherUserId: string | null;
+  }>,
 ): Promise<AdminSection> =>
   apiCall(`/school/orgs/${orgId}/sections/${sectionId}`, {
     method: "PATCH",
@@ -2265,6 +2278,10 @@ export interface HifzEntry {
   recorded_by: string | null;
   recorded_by_name?: string | null;
   recorded_at: string;
+  // PR feat/hifz-trends-missed-teacher — explicit "missed sabaq" marker.
+  // Trend grid renders these days as red and the summary aggregator
+  // excludes them so a missed day doesn't count toward ayahs memorized.
+  missed?: boolean;
   // Full-module fields (PR feat/hifz-full-module). Backend returns
   // camelCase keys via hifzToJson; legacy rows arrive with null.
   juzNumber?: number | null;
@@ -2288,6 +2305,10 @@ export interface HifzEntryInput {
   kind: HifzKind;
   quality?: HifzQuality;
   notes?: string;
+  /** When true, the entry is a placeholder for "missed sabaq today" and
+   *  isn't counted toward ayahs memorized. Pass any ayahFrom/ayahTo
+   *  (the form sends 1/1 by convention). */
+  missed?: boolean;
   // Full-module optional fields. Numeric ones server-validates; text
   // ones get trimmed and stored as-is.
   juzNumber?: number;

@@ -26,6 +26,7 @@ import {
   getMyStudentHifz,
   type MyStudentHifzResponse,
   type MyStudentHifzToday,
+  type MyStudentHifzDayCell,
   type HifzEntry,
 } from "../../../utils/schoolPortalApi";
 
@@ -72,6 +73,89 @@ function QualityBadge({ quality }: { quality: string | null | undefined }) {
       <meta.Icon className="h-3 w-3" />
       {meta.label}
     </span>
+  );
+}
+
+/** 14-day trend strip. Each cell:
+ *    green   = logged + quality excellent/good
+ *    amber   = logged + quality needs_practice
+ *    rose    = logged + quality weak
+ *    indigo  = logged but no quality recorded
+ *    red ❌  = explicitly marked "missed sabaq"
+ *    slate ◌ = no entry at all (likely weekend / off-day)
+ *
+ *  We also compute a mini "mistakes" sparkline (text-based, no SVG
+ *  library) so the parent gets the trend in the same row of cells. */
+function TrendStrip({ days }: { days: MyStudentHifzDayCell[] }) {
+  const fmt = (d: string) => {
+    const dt = new Date(d);
+    return dt.toLocaleDateString(undefined, { day: "numeric" });
+  };
+  // Color matrix — first match wins.
+  const cellClass = (c: MyStudentHifzDayCell) => {
+    if (c.missed) return "bg-rose-500 text-white";
+    if (!c.logged) return "bg-slate-100 text-slate-400";
+    switch (c.quality) {
+      case "excellent": return "bg-emerald-500 text-white";
+      case "good":      return "bg-emerald-400 text-white";
+      case "needs_practice": return "bg-amber-400 text-white";
+      case "weak":      return "bg-rose-400 text-white";
+      default:          return "bg-indigo-400 text-white";
+    }
+  };
+  const cellTitle = (c: MyStudentHifzDayCell) => {
+    if (c.missed) return `${c.date} — missed sabaq`;
+    if (!c.logged) return `${c.date} — no entry`;
+    return `${c.date} — ${c.quality ?? "logged"}${c.mistakesCount != null ? ` · ${c.mistakesCount} mistakes` : ""}`;
+  };
+  // Mistakes summary — just totals over the window, no chart lib.
+  const totalMistakes = days.reduce(
+    (n, d) => n + (typeof d.mistakesCount === "number" ? d.mistakesCount : 0),
+    0,
+  );
+  const loggedDays = days.filter((d) => d.logged).length;
+  const missedDays = days.filter((d) => d.missed).length;
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4">
+      <div className="flex items-baseline justify-between mb-3">
+        <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+          Last 14 days
+        </div>
+        <div className="text-[11px] text-slate-500 flex gap-3">
+          <span><span className="font-semibold text-slate-700">{loggedDays}</span> logged</span>
+          {missedDays > 0 && (
+            <span className="text-rose-700">
+              <span className="font-semibold">{missedDays}</span> missed
+            </span>
+          )}
+          {totalMistakes > 0 && (
+            <span><span className="font-semibold text-slate-700">{totalMistakes}</span> mistakes</span>
+          )}
+        </div>
+      </div>
+      <div className="grid grid-cols-7 sm:grid-cols-14 gap-1.5">
+        {days.map((c) => (
+          <div
+            key={c.date}
+            title={cellTitle(c)}
+            className={
+              "h-9 rounded-md flex flex-col items-center justify-center text-[10px] font-medium " +
+              cellClass(c)
+            }
+          >
+            <span>{fmt(c.date)}</span>
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-500">
+        <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-emerald-500" /> Excellent / Good</span>
+        <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-amber-400" /> Needs practice</span>
+        <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-rose-400" /> Weak</span>
+        <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-rose-500" /> Missed</span>
+        <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-slate-200" /> No entry</span>
+      </div>
+    </div>
   );
 }
 
@@ -220,6 +304,13 @@ export function StudentHifz() {
         <div className="rounded-xl border border-slate-200 bg-white p-5 text-center text-sm text-slate-500">
           No Hifz entries yet. The teacher will start logging soon.
         </div>
+      )}
+
+      {/* 14-day trend strip — shown when we have any data at all. The
+          strip itself handles the "no entry" case per cell so a partial
+          history (4 logged days + 10 empty) still renders meaningfully. */}
+      {data.last14Days && data.last14Days.length > 0 && (
+        <TrendStrip days={data.last14Days} />
       )}
 
       {/* Full log — collapsed by default. Keeps the entries searchable

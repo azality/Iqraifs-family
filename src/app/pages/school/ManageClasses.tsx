@@ -228,6 +228,32 @@ export function ManageClasses() {
                           ))}
                         </SelectContent>
                       </Select>
+                      {/* PR feat/hifz-trends-missed-teacher — separate Hifz
+                          teacher dropdown. A Hifz school commonly runs two
+                          teachers per section; this sets the one who owns
+                          the memorization log. Whoever's picked here can
+                          POST to /hifz-progress for the section's students
+                          even without a class_teacher role. */}
+                      <Select
+                        value={(sec.hifz_teacher_user_id as string) || "__none__"}
+                        onValueChange={(v) =>
+                          updateSection(orgId, sec.id, {
+                            hifzTeacherUserId: v === "__none__" ? null : v,
+                          }).then(refresh)
+                        }
+                      >
+                        <SelectTrigger className="h-8 text-xs w-48">
+                          <SelectValue placeholder="No Hifz teacher" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">No Hifz teacher</SelectItem>
+                          {teachers.map((t) => (
+                            <SelectItem key={`hifz-${t.user_id}`} value={t.user_id}>
+                              {t.full_name} (Hifz)
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       {/* Phase B/C per-section quick-links — compact icon buttons. */}
                       <div className="inline-flex items-center gap-1">
                         <Link to={`/school/orgs/${orgId}/sections/${sec.id}/attendance`}>

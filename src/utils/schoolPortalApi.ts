@@ -285,10 +285,24 @@ export interface MyStudentHifzToday {
   mistakesCount: number | null;
 }
 
+/** One day in the 14-day trend strip the portal Hifz card renders.
+ *  date = ISO YYYY-MM-DD (UTC midnight); the grid renders the slot in
+ *  display TZ. logged + missed are mutually exclusive (backend already
+ *  enforces). */
+export interface MyStudentHifzDayCell {
+  date: string;
+  logged: boolean;
+  missed: boolean;
+  quality: string | null;
+  mistakesCount: number | null;
+}
+
 export interface MyStudentHifzResponse {
   entries: HifzEntry[];
   summary: MyStudentHifzSummary;
   today: MyStudentHifzToday | null;
+  /** Most-recent-day-last; always 14 entries. */
+  last14Days: MyStudentHifzDayCell[];
 }
 
 export const getMyStudentHifz = (studentId: string): Promise<MyStudentHifzResponse> =>

@@ -76,6 +76,10 @@ export function HifzLogEntry({
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  // PR feat/hifz-trends-missed-teacher — explicit miss toggle. When
+  // checked we send missed=true; the form's other fields stay
+  // optional but the parent grid sees a red square for that day.
+  const [missed, setMissed] = useState(false);
   // Full-module fields (PR feat/hifz-full-module). All optional —
   // teachers don't have to fill every one for a single sabaq entry, but
   // they're available when they want to capture richer context.
@@ -116,6 +120,7 @@ export function HifzLogEntry({
       setMissedTargetReason("");
       setParentAction("");
       setAdvancedOpen(false);
+      setMissed(false);
     }
   }, [open]);
 
@@ -157,6 +162,7 @@ export function HifzLogEntry({
         nextTarget: nextTarget.trim() || undefined,
         missedTargetReason: missedTargetReason.trim() || undefined,
         parentAction: parentAction.trim() || undefined,
+        missed: missed || undefined,
       });
       toast.success("Hifz entry logged");
       onOpenChange(false);
@@ -179,6 +185,25 @@ export function HifzLogEntry({
         </DialogHeader>
 
         <div className="space-y-4">
+          {/* Missed-sabaq quick switch. When on, the rest of the form
+              still works for capturing the reason but ayah/quality
+              feel optional; on the parent portal grid the day shows
+              red. Defaults the kind hint to "sabaq" for analytics
+              consistency. */}
+          <label className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50/60 px-3 py-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={missed}
+              onChange={(e) => setMissed(e.target.checked)}
+            />
+            <span className="text-sm text-rose-900">
+              <span className="font-medium">Missed sabaq today</span>
+              <span className="ml-1 text-xs text-rose-700">
+                — record the absence so it shows in the parent's 14-day grid
+              </span>
+            </span>
+          </label>
+
           <div className="space-y-1">
             <Label>Surah</Label>
             <Select
