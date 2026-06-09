@@ -141,15 +141,15 @@ export function installOffice(school: Hono) {
     // ────────────────────────────────────────────────────────────────────
     // 4. Pending parent invites (link codes generated, not yet used).
     // ────────────────────────────────────────────────────────────────────
-    // Schema may use different column names depending on phase — keep
-    // this defensive: count rows where used_at IS NULL on parent_link_code.
+    // Table is `link_code` (phase A migration); open invites have
+    // consumed_at IS NULL.
     let pendingInvitesCount = 0;
     try {
       const { count } = await serviceRoleClient
-        .from("parent_link_code")
+        .from("link_code")
         .select("id", { count: "exact", head: true })
         .eq("org_id", orgId)
-        .is("used_at", null);
+        .is("consumed_at", null);
       pendingInvitesCount = count ?? 0;
     } catch (_) {
       /* table missing / different shape — surface zero */
