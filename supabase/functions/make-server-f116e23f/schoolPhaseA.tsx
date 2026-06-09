@@ -648,6 +648,12 @@ export function installPhaseA(school: Hono) {
         class_id: classId,
         name: body.name.trim(),
         class_teacher_user_id: body.classTeacherUserId ?? null,
+        // Optional separate Hifz teacher (PR feat/hifz-trends-missed-
+        // teacher). Hifz schools commonly run a parallel teacher who
+        // owns the memorization log without touching academic
+        // lessons. Both teachers get teacher-level access to the
+        // section; UIs filter by which side they own.
+        hifz_teacher_user_id: body.hifzTeacherUserId ?? null,
       })
       .select()
       .single();
@@ -681,6 +687,7 @@ export function installPhaseA(school: Hono) {
     const patch: Record<string, unknown> = {};
     if (typeof body.name === "string") patch.name = body.name.trim();
     if ("classTeacherUserId" in body) patch.class_teacher_user_id = body.classTeacherUserId ?? null;
+    if ("hifzTeacherUserId" in body) patch.hifz_teacher_user_id = body.hifzTeacherUserId ?? null;
     if (Object.keys(patch).length === 0) return c.json({ error: "no fields to update" }, 400);
 
     const { data, error } = await serviceRoleClient

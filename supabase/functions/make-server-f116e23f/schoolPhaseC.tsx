@@ -222,6 +222,7 @@ function hifzToJson(r: any) {
     notes: r.notes,
     // Full-module fields (PR feat/hifz-full-module). Null on legacy rows
     // so the UI can fall back to the generic `notes` for old data.
+    missed: !!r.missed,
     juzNumber: r.juz_number ?? null,
     pageNumber: r.page_number ?? null,
     mistakesCount: r.mistakes_count ?? null,
@@ -719,6 +720,20 @@ export function installPhaseC(school: Hono): void {
       const gate = await requireTeacherOfSection(userId, orgId, stu.class_section_id, orgId);
       allowed = gate.ok;
     }
+    // Dedicated Hifz teacher (migration 0030). class_section can carry
+    // a hifz_teacher_user_id distinct from the academic class teacher;
+    // the Hifz teacher should be able to log memorization progress
+    // even if they don't hold a section-level class_teacher / visiting
+    // role. We gate ONLY this endpoint on that field — the rest of the
+    // section surfaces (lessons, gradebook, etc.) remain academic-side.
+    if (!allowed && stu.class_section_id) {
+      const { data: sec } = await serviceRoleClient
+        .from("class_section")
+        .select("hifz_teacher_user_id")
+        .eq("id", stu.class_section_id)
+        .maybeSingle();
+      if (sec && (sec as any).hifz_teacher_user_id === userId) allowed = true;
+    }
     if (!allowed) return c.json({ error: "forbidden" }, 403);
 
     // Full-module fields — all optional. We validate the numeric ones,
@@ -754,6 +769,9 @@ export function installPhaseC(school: Hono): void {
         next_target: safeText(body.nextTarget),
         missed_target_reason: safeText(body.missedTargetReason),
         parent_action: safeText(body.parentAction),
+        // Explicit "missed sabaq today" marker. Surfaces in the parent
+        // portal's 14-day grid as a red dot.
+        missed: body.missed === true,
         recorded_by: userId,
       })
       .select()
@@ -992,12 +1010,22 @@ export function installPhaseC(school: Hono): void {
 //   row. (v1 simplification — not gated on full surah coverage.)
 // -----------------------------------------------------------------------------
 export function computeMemorizedTotals(
-  rows: Array<{ surah_number: number; ayah_from: number; ayah_to: number; kind: string }>,
+  rows: Array<{
+    surah_number: number;
+    ayah_from: number;
+    ayah_to: number;
+    kind: string;
+    missed?: boolean;
+  }>,
 ): { ayahsMemorized: number; surahsCompleted: number } {
   const surahsWithMem = new Set<number>();
   // Map<surah, Set<ayah>> — dedupe ayah units across overlapping ranges.
   const ayahsBySurah = new Map<number, Set<number>>();
   for (const r of rows) {
+    // Missed-day markers don't count toward totals — they exist for the
+    // trend grid only. Skip them BEFORE the kind check so an accidental
+    // "missed memorized" row can't inflate the count.
+    if (r.missed) continue;
     if (r.kind !== "memorized") continue;
     surahsWithMem.add(r.surah_number);
     let set = ayahsBySurah.get(r.surah_number);

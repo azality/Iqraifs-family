@@ -202,6 +202,7 @@ function hifzToJson(r: any) {
     ayahTo: r.ayah_to,
     kind: r.kind,
     quality: r.quality,
+    missed: !!r.missed,
     // Legacy `notes` is preserved for parent display because rows
     // written before the full-module split lived there. New writes go
     // to teacher_remarks (teacher-only, NOT returned) and
@@ -762,10 +763,56 @@ export function installPortal(school: Hono): void {
         }
       : null;
 
+    // 14-day daily snapshot. The parent portal renders this as a row
+    // of colored squares so the family sees streaks + missed days at a
+    // glance. We aggregate per LOCAL day relative to UTC midnight —
+    // good enough at Karachi's UTC+5 since teachers usually log in the
+    // afternoon. A timezone-aware aggregation is a follow-up.
+    type DayCell = {
+      date: string;
+      logged: boolean;
+      missed: boolean;
+      quality: string | null;
+      mistakesCount: number | null;
+    };
+    const last14Days: DayCell[] = [];
+    const today0 = new Date();
+    today0.setUTCHours(0, 0, 0, 0);
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date(today0);
+      d.setUTCDate(today0.getUTCDate() - i);
+      last14Days.push({
+        date: d.toISOString().slice(0, 10),
+        logged: false,
+        missed: false,
+        quality: null,
+        mistakesCount: null,
+      });
+    }
+    const byDate = new Map(last14Days.map((d) => [d.date, d]));
+    // We want the BEST representative entry per day. Most recent first
+    // works because if a teacher logs sabaq, then sabqi later same day,
+    // the latest one is what surfaces in the cell.
+    for (const e of entries) {
+      const dateKey = (e.recorded_at ?? "").slice(0, 10);
+      const cell = byDate.get(dateKey);
+      if (!cell) continue;
+      // Take the FIRST hit per day (entries are recorded_at DESC, so
+      // this is the most recent of that day). The flag we update can
+      // be overridden by an even-more-recent miss / log; loop semantics
+      // already guarantee we win on first match.
+      if (cell.logged || cell.missed) continue;
+      cell.logged = !e.missed;
+      cell.missed = !!e.missed;
+      cell.quality = e.quality ?? null;
+      cell.mistakesCount = e.mistakes_count ?? null;
+    }
+
     return c.json({
       entries: entries.map(hifzToJson),
       summary: { ayahsMemorized, surahsCompleted, lastEntry },
       today,
+      last14Days,
     });
   });
 
