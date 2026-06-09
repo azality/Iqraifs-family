@@ -12,7 +12,12 @@
 // =============================================================================
 
 import type { Hono } from "npm:hono";
-import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
+import {
+  serviceRoleClient,
+  getAuthUserId,
+  createImportBatch,
+  finalizeImportBatch,
+} from "./middleware.tsx";
 import { verifyPinToken } from "./schoolPhaseA.tsx";
 // PR K: migrate fee + grade gates from hasAdminOrPrincipal to userCanInOrg
 // so financial_staff / class_teacher can act per their permission template.
@@ -831,6 +836,8 @@ export function installPhaseCD(school: Hono): void {
     try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
     if (!Array.isArray(body?.rows)) return c.json({ error: "rows[] required" }, 400);
 
+    const batchId = await createImportBatch(orgId, "fees", userId);
+
     // Student GR → id lookup once. Saves N queries.
     const { data: students } = await serviceRoleClient
       .from("student")
@@ -907,6 +914,7 @@ export function installPhaseCD(school: Hono): void {
           paid_date: r.paidDate || null,
           notes: r.notes || null,
           recorded_by: userId,
+          import_batch_id: batchId,
         });
       if (error) {
         const msg = (error as any).code === "23505"
@@ -917,7 +925,8 @@ export function installPhaseCD(school: Hono): void {
         inserted++;
       }
     }
-    return c.json({ inserted, errors });
+    await finalizeImportBatch(batchId, inserted);
+    return c.json({ inserted, errors, batchId });
   });
 
   // GET /school/orgs/:orgId/students/:studentId/fees

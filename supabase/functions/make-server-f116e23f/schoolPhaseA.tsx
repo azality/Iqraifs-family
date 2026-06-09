@@ -27,7 +27,12 @@
 // =============================================================================
 
 import { Hono } from "npm:hono";
-import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
+import {
+  serviceRoleClient,
+  getAuthUserId,
+  createImportBatch,
+  finalizeImportBatch,
+} from "./middleware.tsx";
 import { logAuditWithLookup } from "./schoolAudit.ts";
 // PR K: migrate student-write routes from requireAdminOrPrincipal to
 // userCanInOrg("manage_students") so office_staff can manage students.
@@ -457,7 +462,14 @@ function validStudentRow(r: any, i: number): { ok: true; row: StudentRow } | { o
  *  admission-redesign fields. Centralized so POST / PATCH / bulk all
  *  stay in lockstep. Returns ONLY fields the row actually set; pairs
  *  well with PATCH partial-updates. */
-function studentRowToColumns(row: StudentRow, orgId: string): Record<string, unknown> {
+function studentRowToColumns(
+  row: StudentRow,
+  orgId: string,
+  /** PR feat/import-rollback. Tags the row with the import batch when
+   *  called from a bulk endpoint; single-create writers pass undefined
+   *  so the column stays null. */
+  batchId?: string | null,
+): Record<string, unknown> {
   const out: Record<string, unknown> = {
     org_id: orgId,
     gr_number: row.grNumber,
@@ -490,6 +502,7 @@ function studentRowToColumns(row: StudentRow, orgId: string): Record<string, unk
     fee_submitted_total: row.feeSubmittedTotal ?? null,
     receipt_no: row.receiptNo ?? null,
     admission_date: row.admissionDate ?? null,
+    import_batch_id: batchId ?? null,
   };
   if (row.completenessStatus) out.completeness_status = row.completenessStatus;
   return out;
@@ -579,6 +592,7 @@ export function installPhaseA(school: Hono) {
     try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
     if (!Array.isArray(body?.rows)) return c.json({ error: "rows[] required" }, 400);
 
+    const batchId = await createImportBatch(orgId, "classes", userId);
     const errors: Array<{ rowIndex: number; message: string }> = [];
     let inserted = 0;
     for (let i = 0; i < body.rows.length; i++) {
@@ -590,7 +604,7 @@ export function installPhaseA(school: Hono) {
         : Number(r.displayOrder) || 0;
       const { error } = await serviceRoleClient
         .from("class")
-        .insert({ org_id: orgId, name, display_order: displayOrder });
+        .insert({ org_id: orgId, name, display_order: displayOrder, import_batch_id: batchId });
       if (error) {
         const msg = (error as any).code === "23505"
           ? `class "${name}" already exists`
@@ -600,7 +614,8 @@ export function installPhaseA(school: Hono) {
         inserted++;
       }
     }
-    return c.json({ inserted, errors });
+    await finalizeImportBatch(batchId, inserted);
+    return c.json({ inserted, errors, batchId });
   });
 
   school.post("/orgs/:orgId/sections/bulk", async (c) => {
@@ -623,6 +638,7 @@ export function installPhaseA(school: Hono) {
       classMap.set(String(c.name).toLowerCase().trim(), c.id);
     }
 
+    const batchId = await createImportBatch(orgId, "sections", userId);
     const errors: Array<{ rowIndex: number; message: string }> = [];
     let inserted = 0;
     for (let i = 0; i < body.rows.length; i++) {
@@ -640,7 +656,7 @@ export function installPhaseA(school: Hono) {
       }
       const { error } = await serviceRoleClient
         .from("class_section")
-        .insert({ class_id: classId, name: sectionName });
+        .insert({ class_id: classId, name: sectionName, import_batch_id: batchId });
       if (error) {
         const msg = (error as any).code === "23505"
           ? `section "${sectionName}" already exists for ${className}`
@@ -650,7 +666,8 @@ export function installPhaseA(school: Hono) {
         inserted++;
       }
     }
-    return c.json({ inserted, errors });
+    await finalizeImportBatch(batchId, inserted);
+    return c.json({ inserted, errors, batchId });
   });
 
   school.post("/orgs/:orgId/class-subjects/bulk", async (c) => {
@@ -672,6 +689,7 @@ export function installPhaseA(school: Hono) {
       classMap.set(String(c.name).toLowerCase().trim(), c.id);
     }
 
+    const batchId = await createImportBatch(orgId, "subjects", userId);
     const errors: Array<{ rowIndex: number; message: string }> = [];
     let inserted = 0;
     for (let i = 0; i < body.rows.length; i++) {
@@ -695,6 +713,7 @@ export function installPhaseA(school: Hono) {
           class_id: classId,
           name: subjectName,
           sort_order: sortOrder,
+          import_batch_id: batchId,
         });
       if (error) {
         const msg = (error as any).code === "23505"
@@ -705,7 +724,8 @@ export function installPhaseA(school: Hono) {
         inserted++;
       }
     }
-    return c.json({ inserted, errors });
+    await finalizeImportBatch(batchId, inserted);
+    return c.json({ inserted, errors, batchId });
   });
 
   school.get("/orgs/:orgId/classes", async (c) => {
@@ -889,6 +909,11 @@ export function installPhaseA(school: Hono) {
     orgId: string,
     studentId: string,
     parentInput: InlineParentRow,
+    /** PR feat/import-rollback — when this helper is called from the
+     *  students-bulk path, the same batchId tags any new parent +
+     *  student_parent rows so a rollback of the batch deletes them
+     *  alongside the students. Reused parent rows aren't re-tagged. */
+    batchId?: string | null,
   ): Promise<{ ok: true; parentId: string; reused: boolean } | { ok: false; message: string }> {
     const fullName = (parentInput.fullName ?? "").trim();
     const phone = (parentInput.phone ?? "").trim();
@@ -940,6 +965,7 @@ export function installPhaseA(school: Hono) {
           phone: phone || null,
           email: email || null,
           relationship: relationship || null,
+          import_batch_id: batchId ?? null,
         })
         .select("id")
         .single();
@@ -949,7 +975,12 @@ export function installPhaseA(school: Hono) {
     const { error: linkErr } = await serviceRoleClient
       .from("student_parent")
       .upsert(
-        { student_id: studentId, parent_id: parentId, is_primary: true },
+        {
+          student_id: studentId,
+          parent_id: parentId,
+          is_primary: true,
+          import_batch_id: batchId ?? null,
+        },
         { onConflict: "student_id,parent_id", ignoreDuplicates: false },
       );
     if (linkErr) return { ok: false, message: `link_failed: ${linkErr.message}` };
@@ -1365,7 +1396,8 @@ export function installPhaseA(school: Hono) {
 
     if (validRows.length === 0) return c.json({ inserted: 0, errors });
 
-    const payload = validRows.map(({ row }) => studentRowToColumns(row, orgId));
+    const batchId = await createImportBatch(orgId, "students", userId);
+    const payload = validRows.map(({ row }) => studentRowToColumns(row, orgId, batchId));
 
     // First pass: insert students. We keep a parallel array of original
     // CSV rows so the second pass (inline-parent attach) can look up
@@ -1381,7 +1413,7 @@ export function installPhaseA(school: Hono) {
         const { idx, row } = validRows[i];
         const { data: oneData, error: rowErr } = await serviceRoleClient
           .from("student")
-          .insert(studentRowToColumns(row, orgId))
+          .insert(studentRowToColumns(row, orgId, batchId))
           .select("id, gr_number")
           .single();
         if (rowErr) {
@@ -1422,12 +1454,13 @@ export function installPhaseA(school: Hono) {
             }
           : undefined;
       if (!inlineParent || !(inlineParent.fullName ?? "").trim()) continue;
-      const r = await attachInlineParent(orgId, stu.id, inlineParent);
+      const r = await attachInlineParent(orgId, stu.id, inlineParent, batchId);
       if (r.ok) linkedCount++;
       else errors.push({ rowIndex: stu.idx, message: `student inserted but ${r.message}` });
     }
 
-    return c.json({ inserted: insertedStudents.length, parentsLinked: linkedCount, errors });
+    await finalizeImportBatch(batchId, insertedStudents.length);
+    return c.json({ inserted: insertedStudents.length, parentsLinked: linkedCount, errors, batchId });
   });
 
   // -------------------------------------------------------------------------
@@ -1584,12 +1617,14 @@ export function installPhaseA(school: Hono) {
     }
     if (valid.length === 0) return c.json({ inserted: 0, errors });
 
+    const batchId = await createImportBatch(orgId, "parents", userId);
     const payload = valid.map(({ row }) => ({
       org_id: orgId,
       full_name: row.fullName,
       phone: row.phone ?? null,
       email: row.email ?? null,
       relationship: row.relationship ?? null,
+      import_batch_id: batchId,
     }));
     // Insert pass — collect ids per row so we can link them to students.
     let insertedParents: Array<{ id: string; idx: number }> = [];
@@ -1604,6 +1639,7 @@ export function installPhaseA(school: Hono) {
             phone: row.phone ?? null,
             email: row.email ?? null,
             relationship: row.relationship ?? null,
+            import_batch_id: batchId,
           })
           .select("id")
           .single();
@@ -1635,14 +1671,15 @@ export function installPhaseA(school: Hono) {
       const { error: linkErr } = await serviceRoleClient
         .from("student_parent")
         .upsert(
-          { student_id: (stu as any).id, parent_id: p.id, is_primary: true },
+          { student_id: (stu as any).id, parent_id: p.id, is_primary: true, import_batch_id: batchId },
           { onConflict: "student_id,parent_id", ignoreDuplicates: false },
         );
       if (linkErr) errors.push({ rowIndex: p.idx, message: `parent inserted but link failed: ${linkErr.message}` });
       else linkedCount++;
     }
 
-    return c.json({ inserted: insertedParents.length, studentsLinked: linkedCount, errors });
+    await finalizeImportBatch(batchId, insertedParents.length);
+    return c.json({ inserted: insertedParents.length, studentsLinked: linkedCount, errors, batchId });
   });
 
   school.post("/orgs/:orgId/student-parent", async (c) => {
@@ -2123,6 +2160,7 @@ export function installPhaseA(school: Hono) {
     try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
     if (!Array.isArray(body?.rows)) return c.json({ error: "rows[] required" }, 400);
 
+    const batchId = await createImportBatch(orgId, "teachers", userId);
     const errors: Array<{ rowIndex: number; message: string }> = [];
     let inserted = 0;
     let updated = 0;
@@ -2172,6 +2210,7 @@ export function installPhaseA(school: Hono) {
           scope_type: "organization",
           scope_id: orgId,
           granted_by: userId,
+          import_batch_id: batchId,
         });
         if (roleErr && (roleErr as any).code !== "23505") {
           errors.push({ rowIndex: i, message: roleErr.message });
@@ -2202,7 +2241,8 @@ export function installPhaseA(school: Hono) {
       }
     }
 
-    return c.json({ inserted, updated, invitedCount, errors });
+    await finalizeImportBatch(batchId, inserted + updated);
+    return c.json({ inserted, updated, invitedCount, errors, batchId });
   });
 
   // -------------------------------------------------------------------------
@@ -2970,5 +3010,126 @@ export function installPhaseA(school: Hono) {
       .upsert(rows, { onConflict: "org_id,role_template,permission_key" });
     if (error) return c.json({ error: error.message }, 500);
     return c.json({ ok: true, updated: rows.length });
+  });
+
+  // ─── Import batches: list + rollback ────────────────────────────────────
+  // Drives the "Recent imports" section + Undo button on the Import
+  // Center page. Rollback is gated to admin/principal AND to within 7
+  // days of the import — older batches need manual DB cleanup so a
+  // mistake long after the fact doesn't wipe a term's worth of
+  // attendance.
+  // -------------------------------------------------------------------------
+  school.get("/orgs/:orgId/import-batches", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await requireAdminOrPrincipal(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const { data, error } = await serviceRoleClient
+      .from("import_batch")
+      .select("id, entity_type, created_by, row_count, rolled_back_at, rolled_back_by, created_at, notes")
+      .eq("org_id", orgId)
+      .order("created_at", { ascending: false })
+      .limit(50);
+    if (error) return c.json({ error: error.message }, 500);
+
+    // Hydrate auth names so the UI doesn't need a second round trip.
+    const userIds = Array.from(
+      new Set(
+        ((data ?? []) as any[])
+          .flatMap((r) => [r.created_by, r.rolled_back_by])
+          .filter((x): x is string => !!x),
+      ),
+    );
+    const nameMap = new Map<string, string>();
+    for (const uid of userIds) {
+      try {
+        const { data: u } = await (serviceRoleClient as any).auth.admin.getUserById(uid);
+        const name = u?.user?.user_metadata?.name || u?.user?.email || "";
+        if (name) nameMap.set(uid, name);
+      } catch { /* ignore */ }
+    }
+    const batches = (data ?? []).map((r: any) => ({
+      id: r.id,
+      entityType: r.entity_type,
+      rowCount: r.row_count,
+      createdAt: r.created_at,
+      createdByName: r.created_by ? nameMap.get(r.created_by) ?? null : null,
+      rolledBackAt: r.rolled_back_at,
+      rolledBackByName: r.rolled_back_by ? nameMap.get(r.rolled_back_by) ?? null : null,
+      notes: r.notes,
+    }));
+    return c.json({ batches });
+  });
+
+  school.post("/orgs/:orgId/import-batches/:batchId/rollback", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const batchId = c.req.param("batchId");
+    if (!(await requireAdminOrPrincipal(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+
+    const { data: batch } = await serviceRoleClient
+      .from("import_batch")
+      .select("id, org_id, entity_type, created_at, rolled_back_at")
+      .eq("id", batchId)
+      .maybeSingle();
+    if (!batch) return c.json({ error: "batch not found" }, 404);
+    if ((batch as any).org_id !== orgId) return c.json({ error: "batch not in this org" }, 404);
+    if ((batch as any).rolled_back_at) {
+      return c.json({ error: "batch was already rolled back" }, 409);
+    }
+
+    // Lock rollback to 7 days. After that, the migration data is
+    // probably load-bearing and an undo would be too destructive to
+    // run via a UI button.
+    const ageMs = Date.now() - new Date((batch as any).created_at).getTime();
+    const ROLLBACK_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+    if (ageMs > ROLLBACK_WINDOW_MS) {
+      return c.json(
+        { error: "rollback is locked after 7 days — contact support to remove records older than this" },
+        409,
+      );
+    }
+
+    // Delete leaves-first so FK cascades don't surprise us. Each table
+    // is scoped to org_id as a defense-in-depth check.
+    const tables: Array<{ name: string; orgCol: string | null }> = [
+      { name: "school_attendance", orgCol: "org_id" },
+      { name: "fee_status",        orgCol: "org_id" },
+      { name: "hifz_progress",     orgCol: "org_id" },
+      { name: "user_roles",        orgCol: null },     // org filtered via scope_id
+      { name: "student_parent",    orgCol: null },     // no org_id col; FK cleanup
+      { name: "student",           orgCol: "org_id" },
+      { name: "parent",            orgCol: "org_id" },
+      { name: "class_subject",     orgCol: "org_id" },
+      { name: "class_section",     orgCol: null },     // FK to class restricted to org
+      { name: "class",             orgCol: "org_id" },
+    ];
+    const removedCounts: Record<string, number> = {};
+    for (const t of tables) {
+      try {
+        let q = serviceRoleClient.from(t.name).delete().eq("import_batch_id", batchId);
+        if (t.orgCol) q = q.eq(t.orgCol, orgId);
+        const { count, error: delErr } = await (q as any).select("id", { count: "exact" });
+        if (delErr) {
+          // Don't bail — record and continue. Most likely cause is a
+          // FK that's already removed something we wanted to clean.
+          console.error(`[rollback] ${t.name} failed:`, delErr.message);
+          continue;
+        }
+        if (count) removedCounts[t.name] = count;
+      } catch (e) {
+        console.error(`[rollback] ${t.name} threw:`, e);
+      }
+    }
+
+    await serviceRoleClient
+      .from("import_batch")
+      .update({ rolled_back_at: new Date().toISOString(), rolled_back_by: userId })
+      .eq("id", batchId);
+
+    return c.json({ ok: true, removed: removedCounts });
   });
 }
