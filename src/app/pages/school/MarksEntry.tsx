@@ -86,9 +86,9 @@ export function MarksEntry() {
       .finally(() => setLoading(false));
   }, [orgId, examId, sectionId]);
 
-  if (meLoading) return null;
-  if (!isOrgAdmin(me, orgId)) return <Navigate to={`/school/orgs/${orgId}`} replace />;
-
+  // ⚠️ Hooks (useMemo etc) MUST run on every render — they live above
+  // the early returns so the hook count is stable. React error #310
+  // was the symptom when this was below the guards.
   const sectionOptions = classes.flatMap((c) =>
     (c.sections ?? []).map((s) => ({ id: s.id, label: `${c.name} — ${s.name}` })),
   );
@@ -156,6 +156,10 @@ export function MarksEntry() {
     }
     return m;
   }, [sheet, cells, defaultMax]);
+
+  // Now safe to early-return — every hook has executed.
+  if (meLoading) return null;
+  if (!isOrgAdmin(me, orgId)) return <Navigate to={`/school/orgs/${orgId}`} replace />;
 
   return (
     <div className="space-y-4">
