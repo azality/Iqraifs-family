@@ -394,6 +394,65 @@ export function installTimetable(school: Hono): void {
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
     }
   });
+
+  // ─── Teacher view ───────────────────────────────────────────────────
+  // GET /school/orgs/:orgId/me/timetable?day=N
+  // Returns the caller's own entries (slots where teacher_user_id =
+  // the JWT subject). Optional day param 1..7 narrows to one day for
+  // the "My today's schedule" card; omit for full week.
+  school.get("/orgs/:orgId/me/timetable", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await hasAnyOrgRole(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const dayQ = c.req.query("day");
+    let day: number | null = null;
+    if (dayQ !== undefined) {
+      const n = Number(dayQ);
+      if (!Number.isInteger(n) || n < 1 || n > 7) {
+        return c.json({ error: "day must be 1..7" }, 400);
+      }
+      day = n;
+    }
+
+    // Pull the entries first — we only care about slots tied to one of
+    // them, so joining on the entry side keeps this cheap.
+    const { data: entries, error: entryErr } = await serviceRoleClient
+      .from("timetable_entry")
+      .select(
+        "*, slot:slot_id(*), section_subject:section_subject_id(class_subject:class_subject_id(name)), section:scope_section_id(name, class:class_id(name)), hifz_group:scope_hifz_group_id(name)",
+      )
+      .eq("org_id", orgId)
+      .eq("teacher_user_id", userId);
+    if (entryErr) return c.json({ error: entryErr.message }, 500);
+
+    let rows = ((entries ?? []) as any[]).filter((r) => r.slot && !r.slot.archived_at);
+    if (day !== null) rows = rows.filter((r) => r.slot.day_of_week === day);
+
+    // Sort by (day, start_time). The slot is embedded so we sort
+    // client-side; faster than a SQL join+order with PostgREST quirks.
+    rows.sort((a, b) =>
+      a.slot.day_of_week - b.slot.day_of_week ||
+      a.slot.start_time.localeCompare(b.slot.start_time),
+    );
+
+    const cells = rows.map((r) => ({
+      slot: slotToJson(r.slot),
+      entry: {
+        ...entryToJson(r),
+        subjectName: r.section_subject?.class_subject?.name ?? null,
+        teacherName: null, // it's the caller — UI knows
+      },
+      // Where this entry takes place — section "Grade 3 — A" or Hifz
+      // group "Hifz Group B". One of the two is always set.
+      scopeLabel:
+        r.section
+          ? `${r.section.class?.name ?? "Class"} — ${r.section.name}`
+          : r.hifz_group?.name ?? "—",
+    }));
+    return c.json({ cells });
+  });
 }
 
 export default installTimetable;

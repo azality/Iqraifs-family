@@ -103,6 +103,7 @@ import { StudentDashboard } from "./pages/portal/StudentDashboard";
 import { StudentLessons } from "./pages/portal/StudentLessons";
 import { StudentGrades } from "./pages/portal/StudentGrades";
 import { StudentHifz } from "./pages/portal/StudentHifz";
+import { StudentTimetable } from "./pages/portal/StudentTimetable";
 import { StudentAttendance } from "./pages/portal/StudentAttendance";
 import { StudentBehavior } from "./pages/portal/StudentBehavior";
 import { MyForms } from "./pages/portal/MyForms";
@@ -321,6 +322,7 @@ export const router = createBrowserRouter([
       { path: "students/:studentId/lessons", element: <StudentLessons /> },
       { path: "students/:studentId/grades", element: <StudentGrades /> },
       { path: "students/:studentId/hifz", element: <StudentHifz /> },
+      { path: "students/:studentId/timetable", element: <StudentTimetable /> },
       { path: "students/:studentId/attendance", element: <StudentAttendance /> },
       { path: "students/:studentId/behavior", element: <StudentBehavior /> },
       { path: "students/:studentId/fees", element: <MyStudentFees /> },

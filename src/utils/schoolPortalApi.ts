@@ -416,6 +416,36 @@ export const getMyStudentFees = (
 ): Promise<{ fees: FeeStatus[] }> =>
   pinApiCall(`/school/pin-me/students/${studentId}/fees`);
 
+// ─── Timetable (PR feat/timetable-consumers) ───────────────────────────
+// Parent + student portal weekly view of the student's section
+// timetable. Slots come from the org skeleton; entries fall back to
+// the section + Hifz group attachments.
+export interface MyStudentTimetableCell {
+  slot: {
+    id: string;
+    name: string;
+    dayOfWeek: number;
+    startTime: string;
+    endTime: string;
+    kind: string;
+  };
+  entry: {
+    subjectName: string | null;
+    teacherName: string | null;
+    room: string | null;
+    notes: string | null;
+    scope: "section" | "hifz_group";
+  } | null;
+}
+export interface MyStudentTimetableResponse {
+  cells: MyStudentTimetableCell[];
+}
+
+export const getMyStudentTimetable = (
+  studentId: string,
+): Promise<MyStudentTimetableResponse> =>
+  pinApiCall(`/school/pin-me/students/${studentId}/timetable`);
+
 // ─── Re-exported types from schoolApi ───────────────────────────────────
 
 export type {
