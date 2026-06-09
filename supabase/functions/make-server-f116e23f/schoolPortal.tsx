@@ -1323,6 +1323,183 @@ export function installPortal(school: Hono): void {
       recentActivity,
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // GET /school/pin-me/students/:studentId/today-snapshot
+  //
+  // PR feat/parent-portal-home — small, plain-language summary built from
+  // existing data sources. Powers the multi-child landing page AND the
+  // child dashboard's status pills. Designed to be cheap enough that
+  // multi-child parents can hit it once per kid in parallel without a
+  // batched endpoint.
+  // ---------------------------------------------------------------------------
+  school.get("/pin-me/students/:studentId/today-snapshot", async (c) => {
+    const g = await gatePerStudent(c);
+    if (!g.ok) return g.resp;
+    const { studentId, subject } = g;
+    const stuCtx = await loadStudentWithContext(studentId, subject.orgId);
+    if (!stuCtx) return c.json({ error: "student not found" }, 404);
+
+    const today = new Date().toISOString().slice(0, 10);
+
+    // ── Attendance today ──
+    let attendanceToday: { status: string; takenAt: string | null } | null = null;
+    {
+      const { data: row } = await serviceRoleClient
+        .from("school_attendance")
+        .select("status, created_at")
+        .eq("student_id", studentId)
+        .eq("attendance_date", today)
+        .maybeSingle();
+      if (row) {
+        attendanceToday = {
+          status: (row as any).status,
+          takenAt: (row as any).created_at ?? null,
+        };
+      }
+    }
+
+    // ── Homework pending: assignments past created_at, due in the
+    // future (or today), no grade row for this student yet. Crude but
+    // matches how teachers actually use the gradebook today.
+    let homeworkPending = { count: 0, soonestDueDate: null as string | null };
+    if (stuCtx.sectionId) {
+      const { data: assigns } = await serviceRoleClient
+        .from("assignment")
+        .select(
+          "id, due_date, section_subject:section_subject_id(class_section_id)",
+        )
+        .gte("due_date", today)
+        .limit(50);
+      const mine = ((assigns ?? []) as any[]).filter(
+        (a) => a.section_subject?.class_section_id === stuCtx.sectionId,
+      );
+      if (mine.length > 0) {
+        const assignIds = mine.map((a) => a.id);
+        const { data: gradedRows } = await serviceRoleClient
+          .from("grade")
+          .select("assignment_id")
+          .eq("student_id", studentId)
+          .in("assignment_id", assignIds);
+        const graded = new Set(((gradedRows ?? []) as any[]).map((g) => g.assignment_id));
+        const pending = mine.filter((a) => !graded.has(a.id));
+        homeworkPending.count = pending.length;
+        if (pending.length > 0) {
+          const dates = pending.map((a) => a.due_date).filter(Boolean).sort();
+          homeworkPending.soonestDueDate = dates[0] ?? null;
+        }
+      }
+    }
+
+    // ── Fees due now: any unpaid/partial row in fee_status whose
+    // due_date is on or before today (or has no due_date — treat as
+    // overdue placeholder). Returns just the next-due bill.
+    let feesDueNow: { amount: number; periodLabel: string; dueDate: string | null } | null = null;
+    {
+      const { data: rows } = await serviceRoleClient
+        .from("fee_status")
+        .select("amount_due, amount_paid, period, due_date, status")
+        .eq("student_id", studentId)
+        .in("status", ["unpaid", "partial"])
+        .order("due_date", { ascending: true, nullsFirst: true });
+      const unpaid = ((rows ?? []) as any[]).filter((r) =>
+        !r.due_date || r.due_date <= today,
+      );
+      if (unpaid.length > 0) {
+        const r = unpaid[0];
+        const owed = Math.max(0, Number(r.amount_due ?? 0) - Number(r.amount_paid ?? 0));
+        feesDueNow = {
+          amount: owed,
+          periodLabel: r.period ?? "",
+          dueDate: r.due_date ?? null,
+        };
+      }
+    }
+
+    // ── Hifz revision needed: latest sabqi/manzil entry older than 3
+    // days OR no revision entry in the last 7 days flags revision.
+    let hifzRevisionNeeded: { lastEntryDate: string; daysSince: number } | null = null;
+    {
+      const { data: hifz } = await serviceRoleClient
+        .from("hifz_progress")
+        .select("recorded_at, kind")
+        .eq("student_id", studentId)
+        .order("recorded_at", { ascending: false })
+        .limit(20);
+      const lastRevision = ((hifz ?? []) as any[]).find(
+        (h) => h.kind === "sabqi" || h.kind === "manzil",
+      );
+      if (lastRevision) {
+        const last = new Date(lastRevision.recorded_at);
+        const days = Math.floor((Date.now() - last.getTime()) / (24 * 60 * 60 * 1000));
+        if (days >= 3) {
+          hifzRevisionNeeded = {
+            lastEntryDate: lastRevision.recorded_at,
+            daysSince: days,
+          };
+        }
+      } else if ((hifz ?? []).length > 0) {
+        // Student has Hifz entries but never any revision — flag immediately.
+        const last = (hifz as any)[0].recorded_at;
+        const days = Math.floor((Date.now() - new Date(last).getTime()) / (24 * 60 * 60 * 1000));
+        hifzRevisionNeeded = { lastEntryDate: last, daysSince: days };
+      }
+    }
+
+    // ── Latest teacher note (last 14 days) ──
+    let latestTeacherNote: { kind: string; summary: string; observedAt: string } | null = null;
+    {
+      const cutoff = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
+      const { data: n } = await serviceRoleClient
+        .from("behavior_note")
+        .select("kind, notes, observed_at")
+        .eq("student_id", studentId)
+        .gte("observed_at", cutoff)
+        .order("observed_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (n) {
+        latestTeacherNote = {
+          kind: (n as any).kind,
+          summary: ((n as any).notes ?? "").slice(0, 140),
+          observedAt: (n as any).observed_at,
+        };
+      }
+    }
+
+    // ── Latest published report card term name (just for the chip) ──
+    let publishedReportCardTermName: string | null = null;
+    {
+      const { data: card } = await serviceRoleClient
+        .from("term_report_card")
+        .select("term:term_id(name, end_date, archived_at)")
+        .eq("student_id", studentId)
+        .not("published_at", "is", null)
+        .order("published_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const term = (card as any)?.term;
+      if (term && !term.archived_at) publishedReportCardTermName = term.name;
+    }
+
+    return c.json({
+      student: {
+        id: stuCtx.id,
+        fullName: stuCtx.fullName,
+        grNumber: stuCtx.grNumber,
+        photoUrl: stuCtx.photoUrl,
+        className: stuCtx.className,
+        sectionName: stuCtx.sectionName,
+      },
+      today,
+      attendanceToday,
+      homeworkPending,
+      feesDueNow,
+      hifzRevisionNeeded,
+      latestTeacherNote,
+      publishedReportCardTermName,
+    });
+  });
 }
 
 export default installPortal;
