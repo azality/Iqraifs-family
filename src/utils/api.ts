@@ -436,7 +436,16 @@ export async function apiCall(endpoint: string, options: RequestInit = {}, retry
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Request failed' }));
     console.error('❌ API Error:', { endpoint, status: response.status, error });
-    throw new Error(error.error || `API error: ${response.status}`);
+    // Preserve the full body + status on the Error object so callers
+    // that care (e.g. room-conflict 409s) can introspect, while keeping
+    // the message string ergonomic for the common case.
+    const err = new Error(error.error || `API error: ${response.status}`) as Error & {
+      status?: number;
+      body?: unknown;
+    };
+    err.status = response.status;
+    err.body = error;
+    throw err;
   }
 
   return response.json();
