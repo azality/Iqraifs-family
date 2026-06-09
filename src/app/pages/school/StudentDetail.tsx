@@ -17,6 +17,7 @@ import {
   DialogTitle,
 } from "../../components/ui/dialog";
 import { Users, KeyRound, Plus, Copy, Trash2, Link2, BookMarked, Trophy, ClipboardCheck, Wallet, FileText } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import { HeroCard, sectionTitleClasses } from "../../components/school-ui";
 import { HifzLogEntry } from "./HifzLogEntry";
 import { HifzProgressFeed } from "./HifzProgressFeed";
@@ -252,41 +253,99 @@ export function StudentDetail() {
         </Card>
       </div>
 
-      <div>
-        <div className={sectionTitleClasses + " mb-2"}>Hifz progress</div>
-      </div>
+      {/* Academic / Hifz / Fees as deliberate, separate tracks.
+          Spec explicitly asks: the two progress systems shouldn't be
+          mixed into one generic 'grades' screen. Both stay accessible
+          from the SAME student profile, but each gets its own surface
+          and visual identity (amber for Academic, indigo for Hifz). */}
+      <Tabs defaultValue="academic" className="w-full">
+        <TabsList className="grid w-full grid-cols-3 max-w-md">
+          <TabsTrigger value="academic" className="gap-1.5">
+            <Trophy className="h-3.5 w-3.5" /> Academic
+          </TabsTrigger>
+          <TabsTrigger value="hifz" className="gap-1.5">
+            <BookMarked className="h-3.5 w-3.5" /> Hifz
+          </TabsTrigger>
+          <TabsTrigger value="fees" className="gap-1.5">
+            <Wallet className="h-3.5 w-3.5" /> Fees
+          </TabsTrigger>
+        </TabsList>
 
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Trophy className="h-4 w-4 text-amber-600" /> Grades
-          </CardTitle>
-          {isOrgAdmin(me, orgId) && student.class_section_id && (
-            <Link to={`/school/orgs/${orgId}/sections/${student.class_section_id}/assignments`}>
-              <Button size="sm" variant="outline">
-                <ClipboardCheck className="h-3.5 w-3.5 mr-1" /> Log Grade
-              </Button>
-            </Link>
+        <TabsContent value="academic" className="mt-4 space-y-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Trophy className="h-4 w-4 text-amber-600" /> Grades
+              </CardTitle>
+              {isOrgAdmin(me, orgId) && student.class_section_id && (
+                <Link to={`/school/orgs/${orgId}/sections/${student.class_section_id}/assignments`}>
+                  <Button size="sm" variant="outline">
+                    <ClipboardCheck className="h-3.5 w-3.5 mr-1" /> Log Grade
+                  </Button>
+                </Link>
+              )}
+            </CardHeader>
+            <CardContent>
+              <StudentGradesFeed orgId={orgId} studentId={studentId} />
+            </CardContent>
+          </Card>
+          {/* Deep-links into the section-level surfaces for the
+              remaining academic concerns. We don't embed full
+              attendance / behavior here — they're sized for the
+              section context. The links keep the surface coherent
+              without duplicating heavy lists. */}
+          {student.class_section_id && (
+            <Card>
+              <CardContent className="pt-4 flex flex-wrap gap-2">
+                <Link to={`/school/orgs/${orgId}/sections/${student.class_section_id}/attendance`}>
+                  <Button size="sm" variant="outline">Attendance →</Button>
+                </Link>
+                <Link to={`/school/orgs/${orgId}/sections/${student.class_section_id}/behavior`}>
+                  <Button size="sm" variant="outline">Behavior →</Button>
+                </Link>
+                <Link to={`/school/orgs/${orgId}/sections/${student.class_section_id}/gradebook`}>
+                  <Button size="sm" variant="outline">Section gradebook →</Button>
+                </Link>
+                <Link to={`/school/orgs/${orgId}/sections/${student.class_section_id}/curriculum`}>
+                  <Button size="sm" variant="outline">Curriculum →</Button>
+                </Link>
+              </CardContent>
+            </Card>
           )}
-        </CardHeader>
-        <CardContent>
-          <StudentGradesFeed orgId={orgId} studentId={studentId} />
-        </CardContent>
-      </Card>
+        </TabsContent>
 
-      <Card>
-        <CardContent className="pt-4">
+        <TabsContent value="hifz" className="mt-4 space-y-4">
+          {/* Hifz progress lives on its own tab with its own header so
+              there's no risk of it reading as "yet another grade." */}
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 font-semibold text-slate-900">
-              <Wallet className="h-4 w-4 text-emerald-600" /> Fees
-            </div>
-            <Link to={`/school/orgs/${orgId}/students/${studentId}/fees`}>
-              <Button size="sm" variant="outline">Manage fees →</Button>
-            </Link>
+            <div className={sectionTitleClasses}>Hifz progress</div>
+            <Button size="sm" onClick={() => setHifzOpen(true)}>
+              <BookMarked className="h-3.5 w-3.5 mr-1" /> Log Hifz
+            </Button>
           </div>
-          <p className="text-xs text-slate-500 mt-1">View fee history, mark periods paid, and add new fee periods.</p>
-        </CardContent>
-      </Card>
+          <HifzProgressFeed
+            orgId={orgId}
+            studentId={studentId}
+            reloadKey={hifzReloadKey}
+          />
+        </TabsContent>
+
+        <TabsContent value="fees" className="mt-4">
+          <Card>
+            <CardContent className="pt-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 font-semibold text-slate-900">
+                  <Wallet className="h-4 w-4 text-emerald-600" /> Fees
+                </div>
+                <Link to={`/school/orgs/${orgId}/students/${studentId}/fees`}>
+                  <Button size="sm" variant="outline">Manage fees →</Button>
+                </Link>
+              </div>
+              <p className="text-xs text-slate-500 mt-1">View fee history, mark periods paid, and add new fee periods.</p>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
       {/* Link parent dialog */}
       <Dialog open={linkOpen} onOpenChange={setLinkOpen}>
@@ -367,12 +426,9 @@ export function StudentDetail() {
         </DialogContent>
       </Dialog>
 
-      {/* Phase C.1: Hifz progress feed embed */}
-      <HifzProgressFeed
-        orgId={orgId}
-        studentId={studentId}
-        reloadKey={hifzReloadKey}
-      />
+      {/* HifzProgressFeed moved into the Hifz tab above. Phase C.1's
+          loose embed at the page bottom is gone — the tabbed layout
+          replaces it. */}
 
       <HifzLogEntry
         orgId={orgId}
