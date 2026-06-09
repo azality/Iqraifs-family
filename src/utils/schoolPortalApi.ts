@@ -303,6 +303,9 @@ export interface MyStudentHifzResponse {
   today: MyStudentHifzToday | null;
   /** Most-recent-day-last; always 14 entries. */
   last14Days: MyStudentHifzDayCell[];
+  /** Most-recent-day-last; always 30 entries. Drives the monthly
+   *  calendar view below the weekly strip. */
+  last30Days: MyStudentHifzDayCell[];
 }
 
 export const getMyStudentHifz = (studentId: string): Promise<MyStudentHifzResponse> =>

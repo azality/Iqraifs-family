@@ -76,6 +76,64 @@ function QualityBadge({ quality }: { quality: string | null | undefined }) {
   );
 }
 
+/** Shared color matrix for both the 14-day strip and the 30-day
+ *  monthly grid. Extracted so they look identical and stay in sync. */
+function cellClass(c: MyStudentHifzDayCell): string {
+  if (c.missed) return "bg-rose-500 text-white";
+  if (!c.logged) return "bg-slate-100 text-slate-400";
+  switch (c.quality) {
+    case "excellent": return "bg-emerald-500 text-white";
+    case "good":      return "bg-emerald-400 text-white";
+    case "needs_practice": return "bg-amber-400 text-white";
+    case "weak":      return "bg-rose-400 text-white";
+    default:          return "bg-indigo-400 text-white";
+  }
+}
+function cellTitle(c: MyStudentHifzDayCell): string {
+  if (c.missed) return `${c.date} — missed sabaq`;
+  if (!c.logged) return `${c.date} — no entry`;
+  return `${c.date} — ${c.quality ?? "logged"}${c.mistakesCount != null ? ` · ${c.mistakesCount} mistakes` : ""}`;
+}
+
+/** 30-day calendar grid — aligned to weekday columns starting Sun.
+ *  Renders the same color-coded cells as the weekly strip, but laid out
+ *  as a month-of-30 grid so streaks read at a glance. Days outside the
+ *  window appear as empty placeholders in the first row. */
+function MonthGrid({ days }: { days: MyStudentHifzDayCell[] }) {
+  if (days.length === 0) return null;
+  // Pad the leading row so the first day lands in the right weekday
+  // column (0 = Sun). Calendar conventions vary in PK schools — Sunday
+  // start is the safest neutral.
+  const firstDow = new Date(days[0].date + "T00:00:00Z").getUTCDay();
+  const padCount = firstDow; // 0..6
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-7 gap-1.5 text-[10px] text-slate-500 text-center">
+        {["S","M","T","W","T","F","S"].map((d, i) => (
+          <div key={`hd-${i}`}>{d}</div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7 gap-1.5">
+        {Array.from({ length: padCount }, (_, i) => (
+          <div key={`pad-${i}`} className="h-9" />
+        ))}
+        {days.map((c) => (
+          <div
+            key={c.date}
+            title={cellTitle(c)}
+            className={
+              "h-9 rounded-md flex items-center justify-center text-[10px] font-medium " +
+              cellClass(c)
+            }
+          >
+            {new Date(c.date + "T00:00:00Z").getUTCDate()}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** 14-day trend strip. Each cell:
  *    green   = logged + quality excellent/good
  *    amber   = logged + quality needs_practice
@@ -90,23 +148,6 @@ function TrendStrip({ days }: { days: MyStudentHifzDayCell[] }) {
   const fmt = (d: string) => {
     const dt = new Date(d);
     return dt.toLocaleDateString(undefined, { day: "numeric" });
-  };
-  // Color matrix — first match wins.
-  const cellClass = (c: MyStudentHifzDayCell) => {
-    if (c.missed) return "bg-rose-500 text-white";
-    if (!c.logged) return "bg-slate-100 text-slate-400";
-    switch (c.quality) {
-      case "excellent": return "bg-emerald-500 text-white";
-      case "good":      return "bg-emerald-400 text-white";
-      case "needs_practice": return "bg-amber-400 text-white";
-      case "weak":      return "bg-rose-400 text-white";
-      default:          return "bg-indigo-400 text-white";
-    }
-  };
-  const cellTitle = (c: MyStudentHifzDayCell) => {
-    if (c.missed) return `${c.date} — missed sabaq`;
-    if (!c.logged) return `${c.date} — no entry`;
-    return `${c.date} — ${c.quality ?? "logged"}${c.mistakesCount != null ? ` · ${c.mistakesCount} mistakes` : ""}`;
   };
   // Mistakes summary — just totals over the window, no chart lib.
   const totalMistakes = days.reduce(
@@ -306,11 +347,26 @@ export function StudentHifz() {
         </div>
       )}
 
-      {/* 14-day trend strip — shown when we have any data at all. The
-          strip itself handles the "no entry" case per cell so a partial
-          history (4 logged days + 10 empty) still renders meaningfully. */}
+      {/* Week / Month progress views. Stacked rather than tabbed so the
+          parent sees the week glance + month context together without
+          another tap. Both share the same color matrix + cell tooltip
+          so reading one teaches the other. */}
       {data.last14Days && data.last14Days.length > 0 && (
         <TrendStrip days={data.last14Days} />
+      )}
+      {data.last30Days && data.last30Days.length > 0 && (
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4">
+          <div className="flex items-baseline justify-between mb-3">
+            <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Last 30 days
+            </div>
+            <div className="text-[11px] text-slate-500">
+              {data.last30Days.filter((d) => d.logged).length} logged ·{" "}
+              {data.last30Days.filter((d) => d.missed).length} missed
+            </div>
+          </div>
+          <MonthGrid days={data.last30Days} />
+        </div>
       )}
 
       {/* Full log — collapsed by default. Keeps the entries searchable
