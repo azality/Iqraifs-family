@@ -121,6 +121,19 @@ async function getTeacherSections(userId: string, orgId: string): Promise<string
     }
   }
 
+  // 3) Hifz teacher attachment (PR feat/hifz-teacher-section-listing).
+  //    A teacher attached ONLY via class_section.hifz_teacher_user_id
+  //    still owns those sections for announcement and dashboard purposes.
+  const { data: hifzRows, error: hifzErr } = await serviceRoleClient
+    .from("class_section")
+    .select("id, class:class_id(org_id)")
+    .eq("hifz_teacher_user_id", userId);
+  if (!hifzErr && hifzRows) {
+    for (const r of hifzRows as any[]) {
+      if (r?.class?.org_id === orgId) out.add(r.id);
+    }
+  }
+
   return Array.from(out);
 }
 

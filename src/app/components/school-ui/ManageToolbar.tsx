@@ -71,6 +71,11 @@ function itemsForRole(
   switch (role) {
     case "class_teacher":
     case "visiting_teacher":
+    // PR feat/hifz-teacher-section-listing — Hifz-only teachers see the
+    // same minimal toolbar; TeacherHome is their primary surface and it
+    // already filters to their assigned sections (now including Hifz-
+    // teacher attachments).
+    case "hifz_teacher":
       // Their dashboard (TeacherHome) is the primary navigation surface;
       // toolbar stays minimal so we don't tease admin-only pages.
       return [announcements];

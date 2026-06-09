@@ -3,7 +3,7 @@
 //
 //   principal / admin / org-scoped teacher
 //     → PerformanceDashboard (org-wide KPIs, leaderboard, insights)
-//   class_teacher / visiting_teacher
+//   class_teacher / visiting_teacher / hifz_teacher
 //     → TeacherHome (my sections, roll-call nudge, behavior notes)
 //   office_staff
 //     → redirect to /admin/students (their primary tool)
@@ -60,7 +60,14 @@ export function SchoolHomeRouter() {
 
   const role = viewerRoleForOrg(me, orgId);
 
-  if (role === "class_teacher" || role === "visiting_teacher") {
+  if (
+    role === "class_teacher" ||
+    role === "visiting_teacher" ||
+    // PR feat/hifz-teacher-section-listing — Hifz-only teachers also
+    // land on TeacherHome. Their "my sections" list is populated via
+    // the same backend gates which now include hifz_teacher_user_id.
+    role === "hifz_teacher"
+  ) {
     return <TeacherHome orgId={orgId} me={me!} />;
   }
 

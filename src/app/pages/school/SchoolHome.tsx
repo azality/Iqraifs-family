@@ -30,6 +30,7 @@ const ROLE_LABEL: Record<SchoolViewerRole, string> = {
   admin: "Admin",
   class_teacher: "Class Teacher",
   visiting_teacher: "Visiting Teacher",
+  hifz_teacher: "Hifz Teacher",
   office_staff: "Office Staff",
   financial_staff: "Finance Staff",
   other: "Member",

@@ -1848,6 +1848,7 @@ export type SchoolViewerRole =
   | "admin"
   | "class_teacher"
   | "visiting_teacher"
+  | "hifz_teacher"
   | "office_staff"
   | "financial_staff"
   | "other";
@@ -1881,6 +1882,13 @@ export function viewerRoleForOrg(
     .map((r) => r.role_type as string);
   if (classRoles.includes("class_teacher")) return "class_teacher";
   if (classRoles.includes("visiting_teacher")) return "visiting_teacher";
+  // Synthesized at /school/me from class_section.hifz_teacher_user_id
+  // (PR feat/hifz-teacher-section-listing). A teacher attached ONLY via
+  // the Hifz column resolves to this role; the per-role landing routes
+  // them to TeacherHome with their Hifz sections.
+  if (orgRoles.includes("hifz_teacher") || classRoles.includes("hifz_teacher")) {
+    return "hifz_teacher";
+  }
   // Org-scoped teacher (rare; treat as principal-lite)
   if (orgRoles.includes("teacher")) return "admin";
   return "other";
