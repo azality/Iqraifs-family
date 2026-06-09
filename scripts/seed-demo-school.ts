@@ -983,8 +983,6 @@ if (slotsByDow.size > 0) {
       const teacherKey = grade === 3 ? "ct_zara" : grade === 5 ? "ct_hina" : null;
       const ctUid = teacherKey ? staffByKey.get(teacherKey)!.userId : principalId;
       const gradeSubjects = seededSubjects.filter((s) => s.grade === grade);
-      // Build a Map from class_subject_id → section_subject_id for entry insert.
-      // Pick a stable subject rotation across the week.
       const rotation = ["Math", "English", "Urdu", "Science", "Islamiat", "Quran"];
       for (let dow = 1; dow <= 5; dow++) {
         const slots = slotsByDow.get(dow)!;
@@ -996,16 +994,24 @@ if (slotsByDow.size > 0) {
           const subj = gradeSubjects.find((s) => s.subjectName === subjName);
           if (!subj) continue;
           const teacher = subjName === "Quran" ? sheikhUserId : (subj.teacherUserId || ctUid);
-          await sb
+          // Migration 0033's timetable_entry.section_subject_id FK
+          // actually targets class_subject(id) — see the table DDL.
+          // The backend's PostgREST select string aliases the column as
+          // "section_subject" but the underlying join lands on
+          // class_subject, so we pass classSubjectId here.
+          const { error: entryErr } = await sb
             .from("timetable_entry")
             .insert({
               org_id: orgId,
               slot_id: academicSlots[i].id,
               scope_section_id: classRow.sectionId,
-              section_subject_id: subj.sectionSubjectId,
+              section_subject_id: subj.classSubjectId,
               teacher_user_id: teacher,
               room: `R-${grade}${String.fromCharCode(65 + (i % 3))}`,
             });
+          if (entryErr) {
+            throw new Error(`timetable_entry insert (grade ${grade}, DOW ${dow}, ${subjName}): ${entryErr.message}`);
+          }
           timetableEntryCount++;
         }
       }
@@ -1267,7 +1273,7 @@ try {
     .maybeSingle();
   if (linkErr) throw new Error(`student_parent lookup: ${linkErr.message}`);
   const studentId = (link as any)?.student_id ?? null;
-  const rabiaUid = staffByKey.get("os_rabia")!.userId;
+  const rabiaUid = staffByKey.get("office")!.userId;
 
   // Thread 1: parent → school, with a school reply (resolved).
   const { data: t1, error: t1Err } = await sb
