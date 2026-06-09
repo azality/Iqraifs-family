@@ -1,25 +1,39 @@
-// Landing page for the school surfaces.
+// Landing page for the school surfaces. Lives at /school.
 //
-// Routes the user to the right surface based on /school/me:
-//   - principal of any org → PrincipalDashboard
-//   - teacher of any class but no principal role → TeacherDashboard (placeholder for now)
-//   - neither → "You don't have school access" with a polite explanation
+// Routes the user to the right surface based on /school/me. ANY staff
+// role (principal / admin / class_teacher / visiting_teacher /
+// office_staff / financial_staff) counts as having school access; the
+// per-role dashboard is picked downstream by SchoolHomeRouter once we
+// land on /school/orgs/:orgId.
 //
-// Lives at /school. Other school pages assume a role check has happened
-// somewhere above them and don't repeat it.
+// Bug history: this page used to gate on "isPrincipal || isTeacher"
+// only, so office_staff and financial_staff hit a generic
+// "you don't have a principal or teacher role" card instead of being
+// routed to their dashboard. Now anyone with viewerRoleForOrg !==
+// "other" for any of their organizations is auto-routed (single org)
+// or shown a picker (multiple).
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
-import { School, Lock, GraduationCap, Users } from "lucide-react";
+import { School, Lock, GraduationCap } from "lucide-react";
 import {
   getSchoolMe,
-  isPrincipal,
-  isTeacher,
-  principalOrgIds,
+  viewerRoleForOrg,
   type SchoolMeResponse,
+  type SchoolViewerRole,
 } from "../../../utils/schoolApi";
+
+const ROLE_LABEL: Record<SchoolViewerRole, string> = {
+  principal: "Principal",
+  admin: "Admin",
+  class_teacher: "Class Teacher",
+  visiting_teacher: "Visiting Teacher",
+  office_staff: "Office Staff",
+  financial_staff: "Finance Staff",
+  other: "Member",
+};
 
 export function SchoolHome() {
   const navigate = useNavigate();
@@ -34,21 +48,25 @@ export function SchoolHome() {
       .finally(() => setLoading(false));
   }, []);
 
+  // Orgs the user can actually open — any role other than "other"
+  // counts. me.organizations is server-filtered to undeleted orgs only,
+  // so a soft-deleted org doesn't leak into the picker.
+  const accessibleOrgs = useMemo(() => {
+    if (!me) return [];
+    return me.organizations
+      .map((o) => ({ ...o, role: viewerRoleForOrg(me, o.id) }))
+      .filter((o) => o.role !== "other");
+  }, [me]);
+
   useEffect(() => {
     if (!me) return;
-    // Auto-route principals straight to their dashboard. We match against
-    // me.organizations (which the backend filters to undeleted orgs only)
-    // rather than principalOrgIds(me) (raw role-table count). Otherwise a
-    // principal whose original org was soft-deleted keeps a stale role row
-    // → orgs.length === 2 → no auto-redirect → landing renders blank.
-    if (isPrincipal(me)) {
-      const principalIdSet = new Set(principalOrgIds(me));
-      const activePrincipalOrgs = me.organizations.filter((o) => principalIdSet.has(o.id));
-      if (activePrincipalOrgs.length === 1) {
-        navigate(`/school/orgs/${activePrincipalOrgs[0].id}`, { replace: true });
-      }
+    // Auto-route anyone with exactly one accessible org. Per-role
+    // dashboard selection happens inside SchoolHomeRouter — this page
+    // just gets them to the right org.
+    if (accessibleOrgs.length === 1) {
+      navigate(`/school/orgs/${accessibleOrgs[0].id}`, { replace: true });
     }
-  }, [me, navigate]);
+  }, [me, accessibleOrgs, navigate]);
 
   if (loading) {
     return (
@@ -78,13 +96,11 @@ export function SchoolHome() {
     );
   }
 
-  const principalOrgs = me ? me.organizations.filter((o) =>
-    principalOrgIds(me).includes(o.id),
-  ) : [];
-
-  const hasSchoolRole = me && (isPrincipal(me) || isTeacher(me));
-
-  if (!hasSchoolRole) {
+  // No access — truly no staff role in any org. This is the only branch
+  // that should show the access-denied card. Pre-fix, this branch was
+  // overly aggressive and caught office_staff / financial_staff who DID
+  // have access just not the principal/teacher flavour.
+  if (accessibleOrgs.length === 0) {
     return (
       <div className="max-w-2xl mx-auto mt-12 space-y-6">
         <Card>
@@ -94,17 +110,22 @@ export function SchoolHome() {
               School surfaces
             </CardTitle>
             <CardDescription>
-              You don't currently have a principal or teacher role.
+              You don't currently have a staff role at any school.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 text-sm text-muted-foreground">
             <p>
-              The school side of the app is for principals and teachers at schools
-              that have onboarded. Your family experience is unchanged.
+              The school side of the app is for principals, admins, teachers,
+              office staff, and finance staff at schools that have onboarded.
+              Your family experience is unchanged.
             </p>
             <p>
-              If you're expecting access, ask your school's principal to invite you,
-              or contact <a href="mailto:muneeb@azality.com" className="text-blue-600 underline">muneeb@azality.com</a>.
+              If you're expecting access, ask your school's principal to invite
+              you, or contact{" "}
+              <a href="mailto:muneeb@azality.com" className="text-blue-600 underline">
+                muneeb@azality.com
+              </a>
+              .
             </p>
           </CardContent>
         </Card>
@@ -112,13 +133,14 @@ export function SchoolHome() {
     );
   }
 
-  // Principal of multiple orgs (rare for v1 but supported): show picker.
-  if (principalOrgs.length > 1) {
+  // Multiple accessible orgs — show a picker labelled with the user's
+  // role in each so they understand what they'll land in.
+  if (accessibleOrgs.length > 1) {
     return (
       <div className="max-w-2xl mx-auto mt-12 space-y-4">
         <h1 className="text-2xl font-semibold">Choose a school</h1>
         <div className="grid gap-3">
-          {principalOrgs.map((org) => (
+          {accessibleOrgs.map((org) => (
             <Card
               key={org.id}
               className="cursor-pointer hover:border-blue-400 transition-colors"
@@ -128,7 +150,9 @@ export function SchoolHome() {
                 <GraduationCap className="h-6 w-6 text-blue-600" />
                 <div className="flex-1">
                   <p className="font-medium">{org.name}</p>
-                  <p className="text-xs text-muted-foreground">{org.slug} · {org.plan}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {ROLE_LABEL[org.role]} · {org.slug}
+                  </p>
                 </div>
               </CardContent>
             </Card>
@@ -138,66 +162,18 @@ export function SchoolHome() {
     );
   }
 
-  // Teacher-only: show their classes.
-  if (!isPrincipal(me) && isTeacher(me) && me) {
-    return (
-      <div className="max-w-3xl mx-auto mt-8 space-y-4">
-        <div>
-          <h1 className="text-2xl font-semibold flex items-center gap-2">
-            <Users className="h-6 w-6 text-blue-600" />
-            My classes
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Open a class to log Salah, behavior, attendance, or Hifz progress.
-          </p>
-        </div>
-        <div className="grid gap-3">
-          {me.classes.map((cls) => (
-            <Card
-              key={cls.id}
-              className="cursor-pointer hover:border-blue-400 transition-colors"
-              onClick={() => navigate(`/school/classes/${cls.id}`)}
-            >
-              <CardContent className="py-4">
-                <p className="font-medium">{cls.name}</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Track: <span className="capitalize">{cls.track}</span>
-                  {cls.grade_level !== null && <> · Grade {cls.grade_level}</>}
-                </p>
-              </CardContent>
-            </Card>
-          ))}
-          {me.classes.length === 0 && (
-            <Card>
-              <CardContent className="py-8 text-center text-sm text-muted-foreground">
-                You haven't been assigned to any classes yet. Ask your principal.
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // Fallback. Single-principal-org users hit the auto-redirect above
-  // before reaching here. Anyone else who lands here is either a
-  // principal whose redirect raced the render (in which case the
-  // useEffect will fire on the next tick) or in a state we don't have
-  // an explicit branch for. Render a non-blank "loading" so it's never
-  // a silently blank page.
+  // Single-org users get the auto-redirect above; this is the
+  // intermediate render before the redirect lands. Non-blank by design.
   return (
     <div className="flex items-center justify-center min-h-[40vh]">
       <div className="text-center space-y-2">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto" />
         <p className="text-sm text-muted-foreground">Loading workspace…</p>
-        <Button variant="link" size="sm" onClick={() => {
-          // Last-ditch: send to the first principal org we can find. Beats
-          // a stuck spinner if something downstream gets confused.
-          const firstActive = me?.organizations.find((o) =>
-            principalOrgIds(me).includes(o.id),
-          );
-          if (firstActive) navigate(`/school/orgs/${firstActive.id}`, { replace: true });
-        }}>
+        <Button
+          variant="link"
+          size="sm"
+          onClick={() => navigate(`/school/orgs/${accessibleOrgs[0].id}`, { replace: true })}
+        >
           Click here if this doesn't auto-load
         </Button>
       </div>
