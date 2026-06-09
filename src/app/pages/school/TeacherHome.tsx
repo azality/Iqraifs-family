@@ -258,9 +258,12 @@ export function TeacherHome({ orgId, me }: Props) {
               <Calendar className="h-4 w-4 text-indigo-500" />
               Today's schedule
             </h2>
-            <span className="text-xs text-slate-400">
-              {todayCells.length} slot{todayCells.length === 1 ? "" : "s"}
-            </span>
+            <Link
+              to={`/school/orgs/${orgId}/my-week`}
+              className="text-xs text-indigo-600 hover:text-indigo-800 underline"
+            >
+              See full week →
+            </Link>
           </div>
           <div className="space-y-1.5">
             {todayCells.map((c) => {
