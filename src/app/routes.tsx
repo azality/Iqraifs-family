@@ -54,6 +54,7 @@ import { AdminDashboard } from "./pages/school/AdminDashboard";
 import { ManageClasses } from "./pages/school/ManageClasses";
 import { ManageStudents } from "./pages/school/ManageStudents";
 import { StudentDetail } from "./pages/school/StudentDetail";
+import { StudentReportCard } from "./pages/school/StudentReportCard";
 import { ManageParents } from "./pages/school/ManageParents";
 import { ManageTeachers } from "./pages/school/ManageTeachers";
 import { TeacherDetail } from "./pages/school/TeacherDetail";
@@ -456,6 +457,7 @@ export const router = createBrowserRouter([
               { path: "admin/classes", element: <ManageClasses /> },
               { path: "admin/students", element: <ManageStudents /> },
               { path: "admin/students/:studentId", element: <StudentDetail /> },
+              { path: "admin/students/:studentId/report-card", element: <StudentReportCard /> },
               { path: "admin/parents", element: <ManageParents /> },
               { path: "admin/teachers", element: <ManageTeachers /> },
               { path: "admin/teachers/:userId", element: <TeacherDetail /> },
