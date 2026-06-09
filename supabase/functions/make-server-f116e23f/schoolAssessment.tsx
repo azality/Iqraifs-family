@@ -331,19 +331,23 @@ export function installAssessment(school: Hono): void {
     }
     const classId = (section as any).class.id;
 
-    // Subjects for this class.
+    // Subjects for this class. NB: class_subject's order column is
+    // `sort_order`, not `display_order` — selecting / ordering by a
+    // non-existent column makes the Supabase JS client return null
+    // with an error, which we then silently coerce to [] downstream.
     const { data: subjects } = await serviceRoleClient
       .from("class_subject")
-      .select("id, name, display_order")
+      .select("id, name, sort_order")
       .eq("class_id", classId)
-      .order("display_order", { ascending: true });
+      .order("sort_order", { ascending: true });
 
-    // Students in this section.
+    // Students in this section. The student table has no roll_number
+    // column in this codebase (the original 0007 migration never added
+    // it); ordering by it silently emptied the array. Sort by name only.
     const { data: students } = await serviceRoleClient
       .from("student")
-      .select("id, full_name, gr_number, roll_number")
+      .select("id, full_name, gr_number")
       .eq("class_section_id", sectionId)
-      .order("roll_number", { ascending: true, nullsFirst: false })
       .order("full_name", { ascending: true });
 
     const studentIds = ((students ?? []) as any[]).map((s) => s.id);
@@ -369,7 +373,7 @@ export function installAssessment(school: Hono): void {
         id: s.id,
         fullName: s.full_name,
         grNumber: s.gr_number,
-        rollNumber: s.roll_number,
+        rollNumber: null,  // column doesn't exist in this codebase yet
         scores: ((subjects ?? []) as any[]).map((subj) => {
           const k = `${s.id}:${subj.id}`;
           const sc = scoreMap.get(k);
