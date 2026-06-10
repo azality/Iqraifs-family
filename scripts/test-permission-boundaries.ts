@@ -110,9 +110,9 @@ const CASES: Case[] = [
     },
   },
   {
-    name: "GET principal dashboard snapshot",
+    name: "GET principal dashboard",
     method: "GET",
-    path: `/school/orgs/${ORG_ID}/dashboard-snapshot`,
+    path: `/school/orgs/${ORG_ID}/dashboard`,
     expect: {
       principal: 200, admin: 200, ct_zara: 200, ct_hina: 200,
       vt_sheikh: 200, office: 200, finance: 200,
