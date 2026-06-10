@@ -164,7 +164,7 @@ export function PortalLayout() {
           <div className="flex items-center gap-3">
             {subject?.subjectType === "parent" && subject.students && subject.students.length > 1 && (
               <select
-                className="text-sm border border-slate-300 rounded-md px-2 py-1 bg-white"
+                className="text-sm border border-slate-300 rounded-md px-2 py-1.5 bg-white max-w-[140px] sm:max-w-none truncate"
                 value={activeStudentId ?? ""}
                 onChange={(e) => navigate(`/school-portal/students/${e.target.value}`)}
               >
@@ -198,7 +198,7 @@ export function PortalLayout() {
             // overflow-x-auto lets the menu scroll horizontally on narrow
             // viewports. Without explicit overflow-y-hidden some browsers
             // (Edge / iOS Safari) render a stray vertical scrollbar.
-            className="max-w-6xl mx-auto px-4 -mb-px flex items-center gap-1 overflow-x-auto overflow-y-hidden"
+            className="max-w-6xl mx-auto px-3 sm:px-4 -mb-px flex items-center gap-1 overflow-x-auto overflow-y-hidden"
             data-tour="portal-nav"
           >
             {NAV.map((item) => {
@@ -209,7 +209,7 @@ export function PortalLayout() {
                   to={item.path(activeStudentId)}
                   end={item.labelKey === "dashboard"}
                   className={
-                    "px-3 py-2 text-sm border-b-2 -mb-px whitespace-nowrap " +
+                    "px-3 py-2.5 sm:py-2 text-sm border-b-2 -mb-px whitespace-nowrap " +
                     (active
                       ? "border-indigo-600 text-indigo-700 font-medium"
                       : "border-transparent text-slate-600 hover:text-slate-900")
@@ -222,7 +222,7 @@ export function PortalLayout() {
             <NavLink
               to={ANNOUNCEMENTS_PATH}
               className={
-                "px-3 py-2 text-sm border-b-2 -mb-px whitespace-nowrap " +
+                "px-3 py-2.5 sm:py-2 text-sm border-b-2 -mb-px whitespace-nowrap " +
                 (announcementsActive
                   ? "border-indigo-600 text-indigo-700 font-medium"
                   : "border-transparent text-slate-600 hover:text-slate-900")
@@ -234,7 +234,7 @@ export function PortalLayout() {
               <NavLink
                 to={`/school-portal/students/${activeStudentId}/fees`}
                 className={
-                  "px-3 py-2 text-sm border-b-2 -mb-px whitespace-nowrap " +
+                  "px-3 py-2.5 sm:py-2 text-sm border-b-2 -mb-px whitespace-nowrap " +
                   (feesActive
                     ? "border-indigo-600 text-indigo-700 font-medium"
                     : "border-transparent text-slate-600 hover:text-slate-900")
@@ -247,7 +247,7 @@ export function PortalLayout() {
               <NavLink
                 to="/school-portal/contact-school"
                 className={
-                  "px-3 py-2 text-sm border-b-2 -mb-px whitespace-nowrap " +
+                  "px-3 py-2.5 sm:py-2 text-sm border-b-2 -mb-px whitespace-nowrap " +
                   (location.pathname.startsWith("/school-portal/contact-school")
                     ? "border-indigo-600 text-indigo-700 font-medium"
                     : "border-transparent text-slate-600 hover:text-slate-900")
@@ -278,7 +278,7 @@ export function PortalLayout() {
         )}
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 py-6">
+      <main className="max-w-6xl mx-auto px-3 sm:px-4 py-4 sm:py-6">
         <Outlet />
       </main>
 
