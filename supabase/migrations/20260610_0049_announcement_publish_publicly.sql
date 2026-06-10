@@ -13,7 +13,7 @@ ALTER TABLE announcement
 
 CREATE INDEX IF NOT EXISTS announcement_public
   ON announcement(org_id, created_at DESC)
-  WHERE publish_publicly = true AND archived_at IS NULL;
+  WHERE publish_publicly = true;
 
 -- Verify
 SELECT EXISTS (
