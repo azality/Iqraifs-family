@@ -4083,5 +4083,37 @@ export const updateBehaviorCategory = (
 export const archiveBehaviorCategory = (orgId: string, id: string): Promise<{ ok: true }> =>
   apiCall(`/school/orgs/${orgId}/behavior-categories/${id}`, { method: "DELETE" });
 
+// =============================================================================
+// Cmd-K global search
+// =============================================================================
+export interface SearchStudent {
+  id: string; fullName: string; grNumber: string;
+  className: string | null; sectionName: string | null;
+  path: string;
+}
+export interface SearchParent {
+  id: string; fullName: string; phone: string | null; email: string | null;
+  children: Array<{ id: string; fullName: string }>;
+  path: string;
+}
+export interface SearchThread {
+  id: string; subject: string;
+  studentName: string | null; studentId: string | null;
+  lastMessageAt: string | null;
+  path: string;
+}
+export interface SchoolSearchResponse {
+  query: string;
+  students: SearchStudent[];
+  parents: SearchParent[];
+  threads: SearchThread[];
+}
+export const schoolSearch = (
+  orgId: string,
+  q: string,
+  limit: number = 20,
+): Promise<SchoolSearchResponse> =>
+  apiCall(`/school/orgs/${orgId}/search?q=${encodeURIComponent(q)}&limit=${limit}`);
+
 // Re-export apiCall so callers can hit ad-hoc endpoints without a second import.
 export { apiCall };

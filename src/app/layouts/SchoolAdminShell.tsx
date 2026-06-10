@@ -13,6 +13,7 @@
 
 import { Outlet } from "react-router";
 import { OrgBrandingProvider } from "../contexts/OrgBrandingContext";
+import { CmdKPalette } from "../components/school-ui/CmdKPalette";
 
 // Per user feedback: the ManageToolbar + WorkspaceSwitcher now live inline
 // in RootLayout's top bar (see RootLayout.tsx, "Row 1") so we don't burn a
@@ -23,6 +24,9 @@ export function SchoolAdminShell() {
   return (
     <OrgBrandingProvider>
       <Outlet />
+      {/* Global Cmd-K / Ctrl-K search palette. Self-contained — listens
+          to its own keyboard shortcut and reads :orgId from useParams. */}
+      <CmdKPalette />
     </OrgBrandingProvider>
   );
 }
