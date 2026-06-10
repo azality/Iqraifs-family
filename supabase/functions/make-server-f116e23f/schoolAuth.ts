@@ -258,7 +258,8 @@ export type PermissionKey =
   | "create_forms"
   | "define_curriculum"
   | "manage_teachers"
-  | "view_all_classes";
+  | "view_all_classes"
+  | "manage_public_site";
 
 // Mirror of DEFAULT_PERMISSIONS in schoolPhaseA.tsx. Kept in sync by hand;
 // when you add a new permission, update both places. (Future cleanup: hoist
@@ -268,11 +269,13 @@ const DEFAULT_PERMS: Record<SchoolRole, Partial<Record<PermissionKey, boolean>>>
     manage_students: true, mark_attendance: true, edit_grades: true,
     mark_fees_status: true, create_forms: true, define_curriculum: true,
     manage_teachers: true, view_all_classes: true,
+    manage_public_site: true,
   },
   admin: {
     manage_students: true, mark_attendance: true, edit_grades: true,
     mark_fees_status: true, create_forms: true, define_curriculum: true,
     manage_teachers: true, view_all_classes: true,
+    manage_public_site: true,
   },
   class_teacher: {
     mark_attendance: true, edit_grades: true,

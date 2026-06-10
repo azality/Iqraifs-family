@@ -40,6 +40,7 @@ import { installBehaviorCategories } from "./behaviorCategories.tsx";
 import { installSchoolSearch } from "./schoolSearch.tsx";
 import { installYearRollover } from "./schoolYearRollover.tsx";
 import { installSchoolGroup } from "./schoolGroup.tsx";
+import { installPublicSite } from "./schoolPublicSite.tsx";
 import { installFeePlans } from "./schoolFeePlans.tsx";
 import { installAssessment } from "./schoolAssessment.tsx";
 import { installReportCard } from "./schoolReportCard.tsx";
@@ -93,6 +94,12 @@ school.use("*", async (c, next) => {
   // tail after that is what we want to test.
   const tail = path.replace(/^.*\/school/, "");
   if (PUBLIC_SCHOOL_PATHS.has(tail)) {
+    await next();
+    return;
+  }
+  // Public school site lookup — anyone can fetch a school's marketing
+  // content by slug, no auth.
+  if (/^\/public-site\/[^/]+$/.test(tail)) {
     await next();
     return;
   }
@@ -3117,6 +3124,7 @@ installBehaviorCategories(school);
 installSchoolSearch(school);
 installYearRollover(school);
 installSchoolGroup(school);
+installPublicSite(school);
 installFeePlans(school);
 installAssessment(school);
 installReportCard(school);

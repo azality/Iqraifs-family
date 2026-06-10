@@ -53,6 +53,7 @@ import { HifzProgress } from "./pages/school/HifzProgress";
 import { AdminDashboard } from "./pages/school/AdminDashboard";
 import { ManageClasses } from "./pages/school/ManageClasses";
 import { YearRollover } from "./pages/school/YearRollover";
+import { ManagePublicSite } from "./pages/school/ManagePublicSite";
 import { SchoolGroupDashboard } from "./pages/school/SchoolGroupDashboard";
 import { ManageStudents } from "./pages/school/ManageStudents";
 import { StudentDetail } from "./pages/school/StudentDetail";
@@ -107,6 +108,7 @@ import { PortalRouteGuard } from "./components/PortalRouteGuard";
 import { PortalLayout } from "./layouts/PortalLayout";
 import { PortalLogin } from "./pages/portal/PortalLogin";
 import { SchoolUnifiedLogin } from "./pages/school/SchoolUnifiedLogin";
+import { SchoolSlugEntry } from "./pages/school/SchoolSlugEntry";
 import { PortalChangePin } from "./pages/portal/PortalChangePin";
 import { PortalHome } from "./pages/portal/PortalHome";
 import { StudentDashboard } from "./pages/portal/StudentDashboard";
@@ -353,7 +355,19 @@ export const router = createBrowserRouter([
   // SchoolUnifiedLogin component itself rejects RESERVED_SLUGS as a
   // defense-in-depth check.
   {
+    // SchoolSlugEntry decides: public marketing site (if school turned it
+    // on) or the unified login (default). /:orgSlug/login always goes to
+    // login regardless.
     path: ":orgSlug",
+    element: (
+      <PinAuthProvider>
+        <SchoolSlugEntry />
+      </PinAuthProvider>
+    ),
+    errorElement: <RouterErrorBoundary />,
+  },
+  {
+    path: ":orgSlug/login",
     element: (
       <PinAuthProvider>
         <SchoolUnifiedLogin />
@@ -476,6 +490,7 @@ export const router = createBrowserRouter([
               // Phase A admin
               { path: "admin", element: <AdminDashboard /> },
               { path: "admin/year-rollover", element: <YearRollover /> },
+              { path: "admin/public-site", element: <ManagePublicSite /> },
               { path: "admin/classes", element: <ManageClasses /> },
               { path: "admin/students", element: <ManageStudents /> },
               { path: "admin/students/:studentId", element: <StudentDetail /> },
