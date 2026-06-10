@@ -4155,5 +4155,31 @@ export const executeYearRollover = (
     body: JSON.stringify(body),
   });
 
+// =============================================================================
+// Multi-campus (school_group) — Phase 1
+// =============================================================================
+export interface SchoolGroupSummary { id: string; name: string; slug: string }
+export interface SchoolGroupCampus {
+  orgId: string; name: string; slug: string;
+  themeColor: string | null;
+}
+export interface SchoolGroupResponse {
+  group: SchoolGroupSummary & { settings: Record<string, unknown>; createdAt: string };
+  campuses: SchoolGroupCampus[];
+}
+export interface SchoolGroupSnapshot {
+  totals: { activeStudents: number; campuses: number };
+  perCampus: Array<{ orgId: string; name: string; activeStudents: number }>;
+}
+
+export const listMySchoolGroups = (): Promise<{ groups: SchoolGroupSummary[] }> =>
+  apiCall(`/school/me/school-groups`);
+
+export const getSchoolGroup = (groupId: string): Promise<SchoolGroupResponse> =>
+  apiCall(`/school/school-groups/${groupId}`);
+
+export const getSchoolGroupSnapshot = (groupId: string): Promise<SchoolGroupSnapshot> =>
+  apiCall(`/school/school-groups/${groupId}/snapshot`);
+
 // Re-export apiCall so callers can hit ad-hoc endpoints without a second import.
 export { apiCall };
