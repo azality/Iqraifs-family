@@ -125,6 +125,7 @@ export type Database = {
           expires_at: string | null
           id: string
           org_id: string
+          publish_publicly: boolean
           published_at: string
           title: string
         }
@@ -142,6 +143,7 @@ export type Database = {
           expires_at?: string | null
           id?: string
           org_id: string
+          publish_publicly?: boolean
           published_at?: string
           title: string
         }
@@ -159,6 +161,7 @@ export type Database = {
           expires_at?: string | null
           id?: string
           org_id?: string
+          publish_publicly?: boolean
           published_at?: string
           title?: string
         }
