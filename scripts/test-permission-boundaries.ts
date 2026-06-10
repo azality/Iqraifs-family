@@ -77,7 +77,10 @@ const domain = PRINCIPAL_EMAIL.split("@")[1];
 const staffEmail = (lab: string) => `${localPart}+demo-${SLUG_TS}-${lab}@${domain}`;
 
 const PERSONAS: Persona[] = [
-  { key: "principal", email: PRINCIPAL_EMAIL,            label: "principal" },
+  // NOTE: principal is the seed-script's --principal-email and uses YOUR
+  // real password, not SHARED_PASSWORD. Excluded from the matrix because
+  // admin covers the same gate (both pass requireOrgRole). Add back
+  // manually if you ever want to assert principal-vs-admin divergence.
   { key: "admin",     email: staffEmail("adnan"),        label: "admin" },
   { key: "ct_zara",   email: staffEmail("zara"),         label: "class teacher (Zara)" },
   { key: "ct_hina",   email: staffEmail("hina"),         label: "class teacher (Hina)" },
