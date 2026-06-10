@@ -120,10 +120,26 @@ export function StudentReportCard() {
   return (
     <div className="space-y-4 print:space-y-3">
       <style>{`
+        /* PR feat/report-card-print — A4 print quality */
+        @page { size: A4; margin: 12mm 12mm 14mm 12mm; }
         @media print {
           .no-print, .no-print * { display: none !important; }
           body { background: white !important; }
           .print-card { box-shadow: none !important; border: none !important; }
+          /* Keep each major section together when paginating */
+          .print-keep { break-inside: avoid; page-break-inside: avoid; }
+          /* Body text scales slightly down so the typical card fits one A4 */
+          .print-card, .print-card * { font-size: 10pt; }
+          .print-card table { font-size: 9.5pt; }
+          .print-card .text-xs, .print-card .text-\\[10px\\], .print-card .text-\\[11px\\] {
+            font-size: 9pt !important;
+          }
+          /* Signature block stays at the bottom of the card */
+          .print-signature { break-before: auto; }
+          .print-only { display: block !important; }
+        }
+        @media screen {
+          .print-only { display: none !important; }
         }
       `}</style>
 
@@ -193,7 +209,7 @@ export function StudentReportCard() {
 
           <Card className="print-card">
             <CardContent className="p-6 space-y-5">
-              <div className="flex items-start justify-between gap-4 border-b border-slate-200 pb-3">
+              <div className="flex items-start justify-between gap-4 border-b border-slate-200 pb-3 print-keep">
                 <div className="flex items-center gap-3">
                   {card.school.logoUrl && (
                     <img src={card.school.logoUrl} alt="" className="h-12 w-12 rounded object-cover" />
@@ -204,10 +220,25 @@ export function StudentReportCard() {
                     {card.school.address && <div className="text-[11px] text-slate-500">{card.school.address}</div>}
                   </div>
                 </div>
-                <div className="text-right">
-                  <div className="text-xs font-semibold uppercase tracking-wider text-indigo-700">Report Card</div>
-                  <div className="text-sm font-medium text-slate-900">{card.term.name}</div>
-                  <div className="text-[11px] text-slate-500">{card.term.startDate} → {card.term.endDate}</div>
+                <div className="text-right flex items-start gap-3">
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-wider text-indigo-700">Report Card</div>
+                    <div className="text-sm font-medium text-slate-900">{card.term.name}</div>
+                    <div className="text-[11px] text-slate-500">{card.term.startDate} → {card.term.endDate}</div>
+                  </div>
+                  {/* Print-only QR. Points at the school-portal login page
+                      for this org so a parent can scan and access their
+                      child's full record. Uses a public QR-image API so we
+                      don't carry a generator dep. */}
+                  {card.school.slug && (
+                    <img
+                      className="print-only h-16 w-16"
+                      alt="Scan for portal"
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(
+                        `${window.location.origin}/school-portal/${card.school.slug}/login`,
+                      )}`}
+                    />
+                  )}
                 </div>
               </div>
 
@@ -224,7 +255,7 @@ export function StudentReportCard() {
                 </div>
               </div>
 
-              <section>
+              <section className="print-keep">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-2 flex items-center gap-1">
                   <BookOpen className="h-3.5 w-3.5 text-indigo-500" /> Academic performance
                 </h3>
@@ -285,7 +316,7 @@ export function StudentReportCard() {
                 )}
               </section>
 
-              <section className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <section className="grid grid-cols-1 sm:grid-cols-3 gap-3 print-keep">
                 <div className="rounded-md border border-slate-200 bg-white p-3">
                   <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 flex items-center gap-1">
                     <Calendar className="h-3.5 w-3.5 text-indigo-500" /> Attendance
@@ -328,7 +359,7 @@ export function StudentReportCard() {
                 </div>
               </section>
 
-              <section className="space-y-3 print:break-inside-avoid">
+              <section className="space-y-3 print-keep">
                 <div>
                   <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
                     Subject remarks
@@ -400,10 +431,35 @@ export function StudentReportCard() {
                 </div>
               </section>
 
-              <section className="grid grid-cols-3 gap-6 pt-4 mt-4 border-t border-slate-200 text-[11px] text-slate-500 print:break-inside-avoid">
-                <div className="text-center">________________<div className="mt-1">Class teacher</div></div>
-                <div className="text-center">________________<div className="mt-1">Principal</div></div>
-                <div className="text-center">________________<div className="mt-1">Parent signature</div></div>
+              {/* Signature + stamp block. Stays on the last printed page
+                  thanks to print-keep + print-signature. Stamp box gives
+                  the office a defined area for the rubber stamp so it
+                  doesn't smudge over the text. */}
+              <section className="pt-4 mt-4 border-t border-slate-200 print-keep print-signature">
+                <div className="grid grid-cols-4 gap-6 text-[11px] text-slate-600">
+                  <div className="text-center">
+                    <div className="h-10 border-b border-slate-300"></div>
+                    <div className="mt-1">Class teacher</div>
+                    <div className="text-[10px] text-slate-500">{card.placement.classTeacherName ?? ""}</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="h-10 border-b border-slate-300"></div>
+                    <div className="mt-1">Principal</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="h-10 border-b border-slate-300"></div>
+                    <div className="mt-1">Parent signature</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="h-14 rounded border border-dashed border-slate-300 flex items-center justify-center text-[10px] text-slate-400">
+                      School stamp
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-3 text-[10px] text-slate-400 text-center">
+                  Issued {new Date().toLocaleDateString()} · {card.school.name}
+                  {card.school.slug && ` · Scan the QR on the header to view this card on the parent portal.`}
+                </div>
               </section>
             </CardContent>
           </Card>
