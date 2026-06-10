@@ -8,7 +8,7 @@
 // createStudentTimeOff (PIN); the modal itself is auth-agnostic.
 
 import { useState } from "react";
-import { X } from "lucide-react";
+import { X, CheckCircle2 } from "lucide-react";
 import type { TimeOffCreate, TimeOffKind } from "../../../utils/schoolApi";
 
 const TEACHER_KINDS: { value: TimeOffKind; label: string }[] = [
@@ -53,6 +53,7 @@ export function TimeOffModal({ audience, onClose, onSubmit }: TimeOffModalProps)
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [submitted, setSubmitted] = useState(false);
 
   const headline = audience === "teacher" ? "Request time off" : "Report absence / vacation";
 
@@ -67,12 +68,27 @@ export function TimeOffModal({ audience, onClose, onSubmit }: TimeOffModalProps)
         reason: reason.trim() || null,
       };
       await onSubmit(body);
-      onClose();
+      setSubmitted(true);
+      setTimeout(() => onClose(), 1600);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to submit");
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (submitted) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div className="w-full max-w-md rounded-xl bg-white p-8 shadow-xl text-center">
+          <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-500" />
+          <h2 className="mt-3 text-base font-semibold text-slate-900">Request submitted</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Sent to the admin for review. You'll see the status update once they decide.
+          </p>
+        </div>
+      </div>
+    );
   }
 
   return (

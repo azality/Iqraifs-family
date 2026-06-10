@@ -220,7 +220,7 @@ export function StudentDashboard() {
     .filter(Boolean).join(" · ");
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 pb-12">
       <HeroCard
         title={snapshot.student.fullName}
         subtitle={sectionSubtitle || `GR # ${snapshot.student.grNumber}`}
