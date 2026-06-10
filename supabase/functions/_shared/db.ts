@@ -3867,6 +3867,88 @@ export type Database = {
           },
         ]
       }
+      student_transfer: {
+        Row: {
+          executed_at: string
+          executed_by: string | null
+          from_org_id: string
+          from_section_id: string | null
+          id: string
+          reason: string | null
+          school_group_id: string | null
+          student_id: string
+          to_org_id: string
+          to_section_id: string | null
+        }
+        Insert: {
+          executed_at?: string
+          executed_by?: string | null
+          from_org_id: string
+          from_section_id?: string | null
+          id?: string
+          reason?: string | null
+          school_group_id?: string | null
+          student_id: string
+          to_org_id: string
+          to_section_id?: string | null
+        }
+        Update: {
+          executed_at?: string
+          executed_by?: string | null
+          from_org_id?: string
+          from_section_id?: string | null
+          id?: string
+          reason?: string | null
+          school_group_id?: string | null
+          student_id?: string
+          to_org_id?: string
+          to_section_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "student_transfer_from_org_id_fkey"
+            columns: ["from_org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "student_transfer_from_section_id_fkey"
+            columns: ["from_section_id"]
+            isOneToOne: false
+            referencedRelation: "class_section"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "student_transfer_school_group_id_fkey"
+            columns: ["school_group_id"]
+            isOneToOne: false
+            referencedRelation: "school_group"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "student_transfer_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "student"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "student_transfer_to_org_id_fkey"
+            columns: ["to_org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "student_transfer_to_section_id_fkey"
+            columns: ["to_section_id"]
+            isOneToOne: false
+            referencedRelation: "class_section"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       subjects: {
         Row: {
           class_id: string
