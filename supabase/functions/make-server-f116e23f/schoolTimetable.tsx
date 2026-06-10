@@ -253,6 +253,42 @@ export function installTimetable(school: Hono): void {
       return timesOverlap(slotStart, slotEnd, e.slot.start_time, e.slot.end_time);
     });
   }
+  // ─── Teacher conflict helper ────────────────────────────────────────
+  // Two entries conflict if they share teacher_user_id AND their slots
+  // overlap on the same day. Same shape as room conflicts; we keep them
+  // separate so the UI can label each one accurately ("room conflict" vs
+  // "teacher double-booked").
+  async function findTeacherConflicts(
+    orgId: string,
+    teacherUserId: string,
+    slotDay: number,
+    slotStart: string,
+    slotEnd: string,
+    excludeEntryId: string | null,
+  ): Promise<any[]> {
+    if (!teacherUserId) return [];
+    const { data } = await serviceRoleClient
+      .from("timetable_entry")
+      .select(
+        "id, room, teacher_user_id, scope_section_id, scope_hifz_group_id, slot:slot_id(day_of_week, start_time, end_time, archived_at, name), section_subject:section_subject_id(class_subject:class_subject_id(name)), section:scope_section_id(name, class:class_id(name)), hifz_group:scope_hifz_group_id(name)",
+      )
+      .eq("org_id", orgId)
+      .eq("teacher_user_id", teacherUserId);
+    return ((data ?? []) as any[]).filter((e) => {
+      if (!e.slot || e.slot.archived_at) return false;
+      if (excludeEntryId && e.id === excludeEntryId) return false;
+      if (e.slot.day_of_week !== slotDay) return false;
+      return timesOverlap(slotStart, slotEnd, e.slot.start_time, e.slot.end_time);
+    });
+  }
+  async function resolveTeacherName(uid: string | null): Promise<string | null> {
+    if (!uid) return null;
+    try {
+      const { data: u } = await (serviceRoleClient as any).auth.admin.getUserById(uid);
+      return u?.user?.user_metadata?.name || u?.user?.email || null;
+    } catch { return null; }
+  }
+
   function conflictToJson(e: any) {
     return {
       entryId: e.id,
@@ -310,9 +346,8 @@ export function installTimetable(school: Hono): void {
       return c.json({ error: "slot not in this org" }, 404);
     }
 
-    // PR feat/timetable-room-conflicts — block double-bookings unless
-    // the admin explicitly overrides with ?force=true (joint classes,
-    // intentional same-room cases).
+    // Block double-bookings unless the admin explicitly overrides with
+    // ?force=true (joint classes, intentional shared room/teacher).
     const force = c.req.query("force") === "true";
     if (body?.room && !force) {
       const conflicts = await findRoomConflicts(
@@ -328,6 +363,27 @@ export function installTimetable(school: Hono): void {
           {
             error: "room conflict",
             conflicts: conflicts.map(conflictToJson),
+          },
+          409,
+        );
+      }
+    }
+    if (body?.teacherUserId && !force) {
+      const tConflicts = await findTeacherConflicts(
+        orgId,
+        body.teacherUserId,
+        (slot as any).day_of_week,
+        (slot as any).start_time,
+        (slot as any).end_time,
+        null,
+      );
+      if (tConflicts.length > 0) {
+        const teacherName = await resolveTeacherName(body.teacherUserId);
+        return c.json(
+          {
+            error: "teacher conflict",
+            teacherName,
+            conflicts: tConflicts.map(conflictToJson),
           },
           409,
         );
@@ -381,30 +437,33 @@ export function installTimetable(school: Hono): void {
     if ("notes" in (body ?? {})) patch.notes = body.notes ?? null;
     if (Object.keys(patch).length === 0) return c.json({ error: "nothing to update" }, 400);
 
-    // Room-conflict guard. Only runs if the patch sets a non-null room,
-    // since clearing the room can't create a conflict.
+    // Conflict guards. Only run if the patch is setting a non-null value
+    // for that field — clearing it can't create a conflict.
     const force = c.req.query("force") === "true";
+    const slot = (existing as any).slot;
     const newRoom = "room" in (body ?? {}) ? body.room : undefined;
-    if (newRoom && !force) {
-      const slot = (existing as any).slot;
-      if (slot) {
-        const conflicts = await findRoomConflicts(
-          orgId,
-          newRoom,
-          slot.day_of_week,
-          slot.start_time,
-          slot.end_time,
-          entryId,
+    if (newRoom && !force && slot) {
+      const conflicts = await findRoomConflicts(
+        orgId, newRoom, slot.day_of_week, slot.start_time, slot.end_time, entryId,
+      );
+      if (conflicts.length > 0) {
+        return c.json(
+          { error: "room conflict", conflicts: conflicts.map(conflictToJson) },
+          409,
         );
-        if (conflicts.length > 0) {
-          return c.json(
-            {
-              error: "room conflict",
-              conflicts: conflicts.map(conflictToJson),
-            },
-            409,
-          );
-        }
+      }
+    }
+    const newTeacher = "teacherUserId" in (body ?? {}) ? body.teacherUserId : undefined;
+    if (newTeacher && !force && slot) {
+      const tConflicts = await findTeacherConflicts(
+        orgId, newTeacher, slot.day_of_week, slot.start_time, slot.end_time, entryId,
+      );
+      if (tConflicts.length > 0) {
+        const teacherName = await resolveTeacherName(newTeacher);
+        return c.json(
+          { error: "teacher conflict", teacherName, conflicts: tConflicts.map(conflictToJson) },
+          409,
+        );
       }
     }
 
@@ -457,6 +516,57 @@ export function installTimetable(school: Hono): void {
       }
     }
     return c.json({ conflicts });
+  });
+
+  // ─── Org-wide teacher-conflict scan ─────────────────────────────────
+  // Same shape as room-conflicts. Pairs entries that share a teacher and
+  // overlap on the same day. Includes resolved teacher name per pair so
+  // the banner can say who is double-booked without a second round-trip.
+  school.get("/orgs/:orgId/timetable/teacher-conflicts", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await isAdminOrPrincipal(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const { data } = await serviceRoleClient
+      .from("timetable_entry")
+      .select(
+        "id, room, teacher_user_id, slot:slot_id(day_of_week, start_time, end_time, archived_at, name), section_subject:section_subject_id(class_subject:class_subject_id(name)), section:scope_section_id(name, class:class_id(name)), hifz_group:scope_hifz_group_id(name)",
+      )
+      .eq("org_id", orgId)
+      .not("teacher_user_id", "is", null);
+    const rows = ((data ?? []) as any[]).filter(
+      (e) => e.slot && !e.slot.archived_at && e.teacher_user_id,
+    );
+    const seen = new Set<string>();
+    type Pair = { teacherUserId: string; teacherName: string | null; dayOfWeek: number; a: any; b: any };
+    const pairs: Pair[] = [];
+    for (let i = 0; i < rows.length; i++) {
+      for (let j = i + 1; j < rows.length; j++) {
+        const a = rows[i], b = rows[j];
+        if (a.teacher_user_id !== b.teacher_user_id) continue;
+        if (a.slot.day_of_week !== b.slot.day_of_week) continue;
+        if (!timesOverlap(a.slot.start_time, a.slot.end_time, b.slot.start_time, b.slot.end_time)) continue;
+        const key = a.id < b.id ? `${a.id}:${b.id}` : `${b.id}:${a.id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        pairs.push({
+          teacherUserId: a.teacher_user_id,
+          teacherName: null, // resolved in a batch below
+          dayOfWeek: a.slot.day_of_week,
+          a: conflictToJson(a),
+          b: conflictToJson(b),
+        });
+      }
+    }
+    // Resolve teacher names once per unique uid.
+    const uniqueTeachers = Array.from(new Set(pairs.map((p) => p.teacherUserId)));
+    const nameMap = new Map<string, string | null>();
+    for (const tid of uniqueTeachers) {
+      nameMap.set(tid, await resolveTeacherName(tid));
+    }
+    for (const p of pairs) p.teacherName = nameMap.get(p.teacherUserId) ?? null;
+    return c.json({ conflicts: pairs });
   });
 
   school.delete("/orgs/:orgId/timetable-entries/:entryId", async (c) => {
