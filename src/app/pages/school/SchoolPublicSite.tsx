@@ -11,7 +11,7 @@
 
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
-import { Mail, Phone, MapPin, LogIn, GraduationCap } from "lucide-react";
+import { Mail, Phone, MapPin, LogIn, GraduationCap, Clock, Calendar, Megaphone } from "lucide-react";
 import {
   getPublicSite,
   type PublicSiteResponse,
@@ -106,6 +106,70 @@ export function SchoolPublicSite() {
           </div>
         </div>
       </section>
+
+      {/* Term banner (live from academic_term) */}
+      {site.term && (
+        <section className="max-w-3xl mx-auto px-4 pt-2">
+          <div className="rounded-xl border px-4 py-3 flex items-start gap-3"
+               style={{ borderColor: `${theme}33`, background: `${theme}0a` }}>
+            <Calendar className="h-5 w-5 mt-0.5 shrink-0" style={{ color: theme }} />
+            <div>
+              <div className="text-xs font-bold uppercase tracking-wider" style={{ color: theme }}>
+                Current term
+              </div>
+              <div className="text-sm font-semibold text-slate-900">{site.term.name}</div>
+              <div className="text-xs text-slate-600">{site.term.startDate} → {site.term.endDate}</div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Key announcements (admins flag "Publish publicly") */}
+      {site.announcements && site.announcements.length > 0 && (
+        <section className="max-w-3xl mx-auto px-4 py-6">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3 flex items-center gap-1.5">
+            <Megaphone className="h-3.5 w-3.5" style={{ color: theme }} /> Latest news
+          </h2>
+          <ul className="space-y-2">
+            {site.announcements.map((a) => (
+              <li key={a.id} className="rounded-lg border border-slate-200 bg-white p-3 hover:border-slate-300 transition">
+                <div className="flex items-center justify-between gap-3 mb-1">
+                  <div className="text-sm font-semibold text-slate-900">{a.title}</div>
+                  <div className="text-[11px] text-slate-500 shrink-0">
+                    {new Date(a.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                  </div>
+                </div>
+                <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{a.body}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {/* School timings (live from timetable_slot) */}
+      {site.timings && (site.timings.firstStart || site.timings.lastEnd) && (
+        <section className="max-w-3xl mx-auto px-4 py-6 border-t border-slate-200">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3 flex items-center gap-1.5">
+            <Clock className="h-3.5 w-3.5" style={{ color: theme }} /> School hours
+          </h2>
+          <div className="text-sm text-slate-700">
+            {site.timings.firstStart && site.timings.lastEnd && (
+              <div>
+                <span className="font-semibold">{site.timings.firstStart.slice(0,5)}</span>
+                {" – "}
+                <span className="font-semibold">{site.timings.lastEnd.slice(0,5)}</span>
+              </div>
+            )}
+            {site.timings.daysOfWeek.length > 0 && (
+              <div className="text-xs text-slate-500 mt-1">
+                {site.timings.daysOfWeek
+                  .map((d) => ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"][d - 1])
+                  .join(" · ")}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* About */}
       {site.about && (

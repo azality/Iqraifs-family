@@ -74,7 +74,65 @@ export function installPublicSite(school: Hono): void {
       .eq("slug", slug)
       .maybeSingle();
     if (!org) return c.json({ error: "school not found" }, 404);
-    return c.json(siteToJson(org));
+    const orgId = (org as any).id as string;
+
+    // ── Phase 2 live data ───────────────────────────────────────────
+    // 1. School timings — derive from active timetable_slot rows.
+    //    First academic-kind slot's start, last slot's end, day mask.
+    const { data: slots } = await serviceRoleClient
+      .from("timetable_slot")
+      .select("start_time, end_time, day_of_week, kind")
+      .eq("org_id", orgId)
+      .is("archived_at", null);
+    let timings: { firstStart: string | null; lastEnd: string | null; daysOfWeek: number[] } = {
+      firstStart: null, lastEnd: null, daysOfWeek: [],
+    };
+    if (slots && slots.length > 0) {
+      const days = new Set<number>();
+      let minStart = "99:99";
+      let maxEnd = "00:00";
+      for (const s of slots as any[]) {
+        days.add(s.day_of_week);
+        if (s.start_time && s.start_time < minStart) minStart = s.start_time;
+        if (s.end_time && s.end_time > maxEnd) maxEnd = s.end_time;
+      }
+      timings = {
+        firstStart: minStart === "99:99" ? null : minStart,
+        lastEnd: maxEnd === "00:00" ? null : maxEnd,
+        daysOfWeek: Array.from(days).sort((a, b) => a - b),
+      };
+    }
+
+    // 2. Key announcements flagged publish_publicly.
+    const { data: anns } = await serviceRoleClient
+      .from("announcement")
+      .select("id, title, body, created_at")
+      .eq("org_id", orgId)
+      .eq("publish_publicly", true)
+      .is("archived_at", null)
+      .order("created_at", { ascending: false })
+      .limit(5);
+
+    // 3. Current academic term banner.
+    const { data: term } = await serviceRoleClient
+      .from("academic_term")
+      .select("name, start_date, end_date, is_current")
+      .eq("org_id", orgId)
+      .eq("is_current", true)
+      .maybeSingle();
+
+    return c.json({
+      ...siteToJson(org),
+      timings,
+      announcements: (anns ?? []).map((a: any) => ({
+        id: a.id, title: a.title, body: a.body, createdAt: a.created_at,
+      })),
+      term: term ? {
+        name: (term as any).name,
+        startDate: (term as any).start_date,
+        endDate: (term as any).end_date,
+      } : null,
+    });
   });
 
   // ─── PUT (manage_public_site) ──────────────────────────────────────
