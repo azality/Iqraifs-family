@@ -117,20 +117,39 @@ async function requirePinSubject(
 }
 
 // Helper: returns set of studentIds the subject is allowed to view.
+// Phase 3 multi-campus: when subject is a parent, we walk the canonical_id
+// graph so a parent who has children at multiple campuses sees ALL of them
+// regardless of which campus's parent row they logged in via.
 async function resolveAccessibleStudents(
   subject: PinTokenPayload,
 ): Promise<string[]> {
   if (subject.subjectType === "student") return [subject.subjectId];
-  // parent
+
+  // Resolve the parent's canonical id (the root of the alias chain).
+  const { data: meRow } = await serviceRoleClient
+    .from("parent")
+    .select("id, canonical_id")
+    .eq("id", subject.subjectId)
+    .maybeSingle();
+  const rootId = (meRow as any)?.canonical_id ?? (meRow as any)?.id ?? subject.subjectId;
+
+  // Collect the canonical row + every alias that points at it.
+  const { data: aliasRows } = await serviceRoleClient
+    .from("parent")
+    .select("id")
+    .or(`id.eq.${rootId},canonical_id.eq.${rootId}`);
+  const parentIds = Array.from(new Set((aliasRows ?? []).map((r: any) => r.id)));
+  if (parentIds.length === 0) parentIds.push(subject.subjectId);
+
   const { data, error } = await serviceRoleClient
     .from("student_parent")
     .select("student_id")
-    .eq("parent_id", subject.subjectId);
+    .in("parent_id", parentIds);
   if (error) {
     console.error("[schoolPortal.resolveAccessibleStudents]", error);
     return [];
   }
-  return (data ?? []).map((r: any) => r.student_id);
+  return Array.from(new Set((data ?? []).map((r: any) => r.student_id)));
 }
 
 // -----------------------------------------------------------------------------
