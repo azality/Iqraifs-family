@@ -3116,4 +3116,24 @@ installAssessment(school);
 installReportCard(school);
 installMessages(school);
 
+// ─── Notification queue flush (PR feat/notification-scaffold) ─────────
+// Admin-triggered flush — calls processNotificationQueue. Until an SMS
+// or email provider is wired up, this just runs the log sender against
+// queued rows so operators can see what would have shipped.
+school.post("/orgs/:orgId/notifications/flush", async (c) => {
+  const userId = getAuthUserId(c);
+  const orgId = c.req.param("orgId");
+  const { data: roles } = await serviceRoleClient
+    .from("user_roles").select("role_type")
+    .eq("user_id", userId).eq("scope_type", "organization")
+    .eq("scope_id", orgId).is("revoked_at", null);
+  const ok = (roles ?? []).some(
+    (r: any) => r.role_type === "principal" || r.role_type === "admin",
+  );
+  if (!ok) return c.json({ error: "forbidden" }, 403);
+  const { processNotificationQueue } = await import("./notify.tsx");
+  const result = await processNotificationQueue(100);
+  return c.json(result);
+});
+
 export default school;

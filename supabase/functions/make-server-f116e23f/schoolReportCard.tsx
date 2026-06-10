@@ -500,6 +500,44 @@ export function installReportCard(school: Hono): void {
       })
       .eq("id", id);
     if (error) return c.json({ error: error.message }, 500);
+
+    // Notification trigger (PR feat/notification-scaffold).
+    // Only on the publish→true edge — un-publish, finalize, unfinalize
+    // are admin-side state transitions parents shouldn't be paged about.
+    if (field === "published_at" && set) {
+      try {
+        const { data: stu } = await serviceRoleClient
+          .from("student")
+          .select("full_name")
+          .eq("id", studentId).maybeSingle();
+        const { data: term } = await serviceRoleClient
+          .from("academic_term")
+          .select("name")
+          .eq("id", termId).maybeSingle();
+        const { data: links } = await serviceRoleClient
+          .from("student_parent")
+          .select("parent:parent_id(phone, email, full_name)")
+          .eq("student_id", studentId);
+        const { queueNotification } = await import("./notify.tsx");
+        for (const link of ((links ?? []) as any[])) {
+          const p = link.parent;
+          const recipient = p?.phone || p?.email;
+          if (!recipient) continue;
+          await queueNotification({
+            orgId, channel: "log", recipient,
+            templateKey: "report_card_published",
+            templateVars: {
+              studentName: (stu as any)?.full_name ?? "your child",
+              termName: (term as any)?.name ?? "the latest",
+            },
+            subjectType: "report_card",
+            subjectId: id,
+            dedupKey: `rc:${id}:${termId}`,
+          });
+        }
+      } catch { /* best-effort — don't block publish */ }
+    }
+
     return c.json({ ok: true });
   }
   school.post("/orgs/:orgId/students/:studentId/terms/:termId/report-card/finalize",
