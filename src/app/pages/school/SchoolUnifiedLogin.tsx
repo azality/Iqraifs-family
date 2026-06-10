@@ -124,9 +124,15 @@ export function SchoolUnifiedLogin() {
         // Hard navigation — SchoolUnifiedLogin lives outside
         // ProvidersLayout, so AuthContext isn't mounted here. A full
         // reload remounts the provider tree with the fresh Supabase
-        // session and lets the workspace router send a principal to
-        // /school/orgs/:orgId automatically.
-        window.location.href = "/school";
+        // session and renders the org-scoped admin shell.
+        //
+        // Route directly to /school/orgs/:orgId so a principal with
+        // access to multiple orgs lands in THIS slug's workspace, not
+        // the generic chooser. branding.id was resolved on mount via
+        // getOrgBySlug. Falls back to /school if branding never loaded.
+        window.location.href = branding?.id
+          ? `/school/orgs/${branding.id}`
+          : "/school";
         return;
       } else {
         // PIN auth — backend already accepts whitespace-stripped phone
