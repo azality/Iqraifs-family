@@ -365,7 +365,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (storedUserId && (!session || error) && userMode !== 'kid' && !isOnLoginPage) {
         console.log('🚨 Parent session expired but user_id exists - redirecting to login');
         await clearAllSessions();
-        window.location.replace('/parent-login');
+        // Slug-aware: if the user signed in via /:orgSlug, send them back
+        // there instead of the generic parent login (which makes the
+        // school staff who never knew /parent-login existed lose context).
+        {
+          let target = '/parent-login';
+          try {
+            const last = localStorage.getItem('fgs_last_org_slug');
+            if (last) target = `/${last}`;
+          } catch { /* ignore */ }
+          window.location.replace(target);
+        }
         return;
       }
       
@@ -431,7 +441,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Redirect to login if we're not already there
           if (!window.location.pathname.includes('login') && !window.location.pathname.includes('welcome')) {
             console.log('🚪 Redirecting to login after sign out');
-            window.location.replace('/parent-login');
+            // Slug-aware: if the user signed in via /:orgSlug, send them back
+        // there instead of the generic parent login (which makes the
+        // school staff who never knew /parent-login existed lose context).
+        {
+          let target = '/parent-login';
+          try {
+            const last = localStorage.getItem('fgs_last_org_slug');
+            if (last) target = `/${last}`;
+          } catch { /* ignore */ }
+          window.location.replace(target);
+        }
           }
         }
       }
