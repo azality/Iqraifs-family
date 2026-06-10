@@ -10,8 +10,10 @@ import { useParams } from "react-router";
 import { Award, BookOpen, ClipboardList, Bell } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { DataTable, HeroCard } from "../../components/school-ui";
+import { UpNextCard } from "../../components/school-ui/UpNextCard";
 import {
   getStudentDashboard,
+  getStudentUpcoming,
   getTodaySnapshot,
   getMyStudentDiary,
   type StudentDashboardResponse,
@@ -181,6 +183,7 @@ export function StudentDashboard() {
   const [snapshot, setSnapshot] = useState<TodaySnapshot | null>(null);
   const [data, setData] = useState<StudentDashboardResponse | null>(null);
   const [diary, setDiary] = useState<MyStudentDiaryResponse | null>(null);
+  const [upcoming, setUpcoming] = useState<import("../../../utils/schoolApi").LessonPrepItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -194,6 +197,9 @@ export function StudentDashboard() {
     getMyStudentDiary(studentId)
       .then((d) => { if (!cancelled) setDiary(d); })
       .catch(() => { /* diary is non-fatal — card silently hidden */ });
+    getStudentUpcoming(studentId, 3)
+      .then((r) => { if (!cancelled) setUpcoming(r.upcoming); })
+      .catch(() => { if (!cancelled) setUpcoming([]); });
     return () => { cancelled = true; };
   }, [studentId]);
 
@@ -230,6 +236,13 @@ export function StudentDashboard() {
           variant="expanded"
         />
       </section>
+
+      {/* Up next — smart per-period preview with the topic + resources
+          available so students can prepare ahead. Same component the
+          teacher dashboard uses, just in "student" mode. */}
+      {upcoming !== null && (
+        <UpNextCard items={upcoming} audience="student" studentId={studentId} />
+      )}
 
       {/* Today's Diary — narrative for today (what we did, what to do tonight). */}
       {diary && <DiaryCard diary={diary} />}

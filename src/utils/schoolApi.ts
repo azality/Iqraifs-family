@@ -4282,5 +4282,26 @@ export const savePublicSite = (
     body: JSON.stringify(patch),
   });
 
+// =============================================================================
+// "Up next" lesson-prep nudge
+// =============================================================================
+export type LessonPrepState = "lesson_ready" | "topic_pending" | "no_curriculum" | "no_subject";
+export interface LessonPrepItem {
+  entryId: string;
+  slot: { id: string; name: string; dayOfWeek: number; startTime: string; endTime: string };
+  subjectName: string | null;
+  scopeLabel: string;
+  room: string | null;
+  prepState: LessonPrepState;
+  topic: { id: string; name: string; sequenceNo: number } | null;
+  lesson: { id: string; title: string; lessonDate: string; publishedAt: string | null } | null;
+  resources: { total: number; worksheets: number; videos: number; quizzes: number; pdfs: number; links: number };
+}
+export const getMyUpcoming = (
+  orgId: string,
+  limit: number = 3,
+): Promise<{ upcoming: LessonPrepItem[] }> =>
+  apiCall(`/school/orgs/${orgId}/me/upcoming?limit=${limit}`);
+
 // Re-export apiCall so callers can hit ad-hoc endpoints without a second import.
 export { apiCall };

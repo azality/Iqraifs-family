@@ -11,6 +11,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
+import { UpNextCard } from "../../components/school-ui/UpNextCard";
 import {
   CheckCircle,
   ClipboardList,
@@ -29,6 +30,7 @@ import {
   getMySectionSubjects,
   getMyTeacherSnapshot,
   getMyTeacherTimetable,
+  getMyUpcoming,
   type MySectionSubject,
   type MyTimetableCell,
   type TeacherSnapshot,
@@ -98,6 +100,7 @@ export function TeacherHome({ orgId, me }: Props) {
   const [mySubjects, setMySubjects] = useState<MySectionSubject[]>([]);
   const [snapshot, setSnapshot] = useState<TeacherSnapshot | null>(null);
   const [todayCells, setTodayCells] = useState<MyTimetableCell[]>([]);
+  const [upcoming, setUpcoming] = useState<import("../../../utils/schoolApi").LessonPrepItem[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -134,6 +137,16 @@ export function TeacherHome({ orgId, me }: Props) {
 
   // Phase 2 (timetable consumers): today's slots for the signed-in
   // teacher. Non-blocking widget — hidden silently on error / empty.
+  // Smart "Up next" — backend pulls topic + lesson + resources per entry.
+  useEffect(() => {
+    if (!orgId) return;
+    let cancelled = false;
+    getMyUpcoming(orgId, 3)
+      .then((r) => { if (!cancelled) setUpcoming(r.upcoming); })
+      .catch(() => { if (!cancelled) setUpcoming([]); });
+    return () => { cancelled = true; };
+  }, [orgId]);
+
   useEffect(() => {
     if (!orgId) return;
     let cancelled = false;
@@ -249,24 +262,22 @@ export function TeacherHome({ orgId, me }: Props) {
         </div>
       )}
 
-      {/* Today's schedule — only shown when the school has published
-          a timetable AND this teacher has at least one entry today. */}
-      {todayCells.length > 0 && (
-        <section className="rounded-xl border border-indigo-100 bg-white p-4 shadow-sm">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-slate-700">
-              <Calendar className="h-4 w-4 text-indigo-500" />
-              Today's schedule
-            </h2>
-            <Link
-              to={`/school/orgs/${orgId}/my-week`}
-              className="text-xs text-indigo-600 hover:text-indigo-800 underline"
-            >
-              See full week →
-            </Link>
-          </div>
-          <div className="space-y-1.5">
-            {todayCells.map((c) => {
+      {/* Smart "Up next" — driven by the lesson-prep endpoint. Replaces
+          the old full-day listing. */}
+      {upcoming !== null && (
+        <UpNextCard items={upcoming} audience="teacher" orgId={orgId} />
+      )}
+
+      {/* Legacy: substitutions for today still surface here so the
+          covering / covered teacher can see them without scrolling. */}
+      {todayCells.some((c) => c.substitution) && (
+        <section className="rounded-xl border border-amber-100 bg-amber-50/40 p-4 shadow-sm">
+          <h2 className="inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-amber-900">
+            <Calendar className="h-4 w-4 text-amber-600" />
+            Substitutions today
+          </h2>
+          <div className="mt-2 space-y-1.5">
+            {todayCells.filter((c) => c.substitution).map((c) => {
               const covering = c.substitution?.role === "covering";
               const covered = c.substitution?.role === "covered";
               return (
