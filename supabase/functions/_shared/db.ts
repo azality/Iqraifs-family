@@ -2597,6 +2597,7 @@ export type Database = {
       parent: {
         Row: {
           business_phone: string | null
+          canonical_id: string | null
           cell_phone: string | null
           created_at: string
           email: string | null
@@ -2617,6 +2618,7 @@ export type Database = {
         }
         Insert: {
           business_phone?: string | null
+          canonical_id?: string | null
           cell_phone?: string | null
           created_at?: string
           email?: string | null
@@ -2637,6 +2639,7 @@ export type Database = {
         }
         Update: {
           business_phone?: string | null
+          canonical_id?: string | null
           cell_phone?: string | null
           created_at?: string
           email?: string | null
@@ -2656,6 +2659,13 @@ export type Database = {
           title?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "parent_canonical_id_fkey"
+            columns: ["canonical_id"]
+            isOneToOne: false
+            referencedRelation: "parent"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "parent_import_batch_id_fkey"
             columns: ["import_batch_id"]
@@ -3863,6 +3873,88 @@ export type Database = {
             columns: ["student_id"]
             isOneToOne: false
             referencedRelation: "student"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      student_transfer: {
+        Row: {
+          executed_at: string
+          executed_by: string | null
+          from_org_id: string
+          from_section_id: string | null
+          id: string
+          reason: string | null
+          school_group_id: string | null
+          student_id: string
+          to_org_id: string
+          to_section_id: string | null
+        }
+        Insert: {
+          executed_at?: string
+          executed_by?: string | null
+          from_org_id: string
+          from_section_id?: string | null
+          id?: string
+          reason?: string | null
+          school_group_id?: string | null
+          student_id: string
+          to_org_id: string
+          to_section_id?: string | null
+        }
+        Update: {
+          executed_at?: string
+          executed_by?: string | null
+          from_org_id?: string
+          from_section_id?: string | null
+          id?: string
+          reason?: string | null
+          school_group_id?: string | null
+          student_id?: string
+          to_org_id?: string
+          to_section_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "student_transfer_from_org_id_fkey"
+            columns: ["from_org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "student_transfer_from_section_id_fkey"
+            columns: ["from_section_id"]
+            isOneToOne: false
+            referencedRelation: "class_section"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "student_transfer_school_group_id_fkey"
+            columns: ["school_group_id"]
+            isOneToOne: false
+            referencedRelation: "school_group"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "student_transfer_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "student"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "student_transfer_to_org_id_fkey"
+            columns: ["to_org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "student_transfer_to_section_id_fkey"
+            columns: ["to_section_id"]
+            isOneToOne: false
+            referencedRelation: "class_section"
             referencedColumns: ["id"]
           },
         ]
