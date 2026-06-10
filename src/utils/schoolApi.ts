@@ -1973,6 +1973,32 @@ export const listRoomConflicts = (
 ): Promise<{ conflicts: RoomConflictPair[] }> =>
   apiCall(`/school/orgs/${orgId}/timetable/room-conflicts`);
 
+/** 409 body when the same teacher is double-booked across overlapping slots. */
+export interface TeacherConflictError {
+  error: "teacher conflict";
+  teacherName: string | null;
+  conflicts: RoomConflictEntry[]; // same entry shape as room conflicts
+}
+export function getTeacherConflictPayload(e: unknown): TeacherConflictError | null {
+  if (!e || typeof e !== "object") return null;
+  const body = (e as any).body;
+  if (body && body.error === "teacher conflict" && Array.isArray(body.conflicts)) {
+    return body as TeacherConflictError;
+  }
+  return null;
+}
+export interface TeacherConflictPair {
+  teacherUserId: string;
+  teacherName: string | null;
+  dayOfWeek: number;
+  a: RoomConflictEntry;
+  b: RoomConflictEntry;
+}
+export const listTeacherConflicts = (
+  orgId: string,
+): Promise<{ conflicts: TeacherConflictPair[] }> =>
+  apiCall(`/school/orgs/${orgId}/timetable/teacher-conflicts`);
+
 export const deleteTimetableEntry = (orgId: string, entryId: string): Promise<{ ok: true }> =>
   apiCall(`/school/orgs/${orgId}/timetable-entries/${entryId}`, { method: "DELETE" });
 

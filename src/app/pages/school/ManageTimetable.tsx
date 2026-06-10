@@ -49,9 +49,13 @@ import {
   updateTimetableEntry,
   deleteTimetableEntry,
   listRoomConflicts,
+  listTeacherConflicts,
   getRoomConflictPayload,
+  getTeacherConflictPayload,
   type RoomConflictError,
   type RoomConflictPair,
+  type TeacherConflictError,
+  type TeacherConflictPair,
   type AdminClass,
   type AdminTeacher,
   type ClassSubject,
@@ -127,6 +131,7 @@ export function ManageTimetable() {
   const [slotDialogOpen, setSlotDialogOpen] = useState(false);
   const [slotForm, setSlotForm] = useState<SlotFormState>(emptySlotForm);
   const [conflicts, setConflicts] = useState<RoomConflictPair[]>([]);
+  const [teacherConflicts, setTeacherConflicts] = useState<TeacherConflictPair[]>([]);
   const [conflictModalOpen, setConflictModalOpen] = useState(false);
 
   const refreshConflicts = () => {
@@ -134,6 +139,9 @@ export function ManageTimetable() {
     listRoomConflicts(orgId)
       .then((r) => setConflicts(r.conflicts))
       .catch(() => setConflicts([]));
+    listTeacherConflicts(orgId)
+      .then((r) => setTeacherConflicts(r.conflicts))
+      .catch(() => setTeacherConflicts([]));
   };
   useEffect(() => { refreshConflicts(); /* eslint-disable-next-line */ }, [orgId]);
 
@@ -225,7 +233,7 @@ export function ManageTimetable() {
     cell: TimetableWeekCell,
     patch: { sectionSubjectId?: string | null; teacherUserId?: string | null; room?: string | null; notes?: string | null },
     opts: { force?: boolean } = {},
-  ): Promise<{ ok: true } | { ok: false; conflict?: RoomConflictError; message: string }> => {
+  ): Promise<SaveResult> => {
     try {
       if (cell.entry) {
         await updateTimetableEntry(orgId, cell.entry.id, patch, opts);
@@ -252,9 +260,10 @@ export function ManageTimetable() {
       return { ok: true };
     } catch (e) {
       const conflict = getRoomConflictPayload(e) ?? undefined;
+      const teacherConflict = getTeacherConflictPayload(e) ?? undefined;
       const message = e instanceof Error ? e.message : String(e);
-      if (!conflict) setError(message);
-      return { ok: false, conflict, message };
+      if (!conflict && !teacherConflict) setError(message);
+      return { ok: false, conflict, teacherConflict, message };
     }
   };
 
@@ -299,10 +308,10 @@ export function ManageTimetable() {
         </div>
       )}
 
-      {/* PR feat/timetable-room-conflicts — org-wide banner. Clicking
-          opens a modal listing every (room, day, overlap) collision so
-          the admin can jump straight to fixing them. */}
-      {conflicts.length > 0 && (
+      {/* Org-wide conflict banner — surfaces room and teacher double-books.
+          Clicking opens a modal listing each (room|teacher, day, overlap)
+          collision so the admin can jump straight to fixing them. */}
+      {(conflicts.length > 0 || teacherConflicts.length > 0) && (
         <button
           type="button"
           onClick={() => setConflictModalOpen(true)}
@@ -310,7 +319,13 @@ export function ManageTimetable() {
         >
           <AlertTriangle className="h-4 w-4 text-amber-600" />
           <span className="font-medium">
-            {conflicts.length} room conflict{conflicts.length === 1 ? "" : "s"}
+            {conflicts.length > 0 && (
+              <>{conflicts.length} room conflict{conflicts.length === 1 ? "" : "s"}</>
+            )}
+            {conflicts.length > 0 && teacherConflicts.length > 0 && " · "}
+            {teacherConflicts.length > 0 && (
+              <>{teacherConflicts.length} teacher conflict{teacherConflicts.length === 1 ? "" : "s"}</>
+            )}
           </span>
           <span className="text-xs text-amber-700">— click to review</span>
         </button>
@@ -319,34 +334,66 @@ export function ManageTimetable() {
       <Dialog open={conflictModalOpen} onOpenChange={setConflictModalOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Room conflicts</DialogTitle>
+            <DialogTitle>Timetable conflicts</DialogTitle>
           </DialogHeader>
-          <div className="space-y-2 max-h-[60vh] overflow-y-auto">
-            {conflicts.length === 0 && (
+          <div className="space-y-3 max-h-[60vh] overflow-y-auto">
+            {conflicts.length === 0 && teacherConflicts.length === 0 && (
               <div className="text-sm text-slate-500 italic">No conflicts.</div>
             )}
-            {conflicts.map((p, i) => (
-              <div
-                key={i}
-                className="rounded-md border border-amber-200 bg-amber-50/40 px-3 py-2 text-sm"
-              >
-                <div className="text-xs font-semibold text-amber-900">
-                  Room {p.room} · {DAYS[p.dayOfWeek - 1]}
-                </div>
-                <div className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                  {[p.a, p.b].map((e, j) => (
-                    <div key={j} className="rounded border border-amber-100 bg-white px-2 py-1">
-                      <div className="font-medium text-slate-800">
-                        {e.subjectName ?? "Slot"} — {e.scopeLabel}
-                      </div>
-                      <div className="text-slate-500">
-                        {e.slotName} · {e.startTime}–{e.endTime}
-                      </div>
+            {conflicts.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-xs font-semibold uppercase tracking-wide text-amber-800">Rooms</div>
+                {conflicts.map((p, i) => (
+                  <div
+                    key={i}
+                    className="rounded-md border border-amber-200 bg-amber-50/40 px-3 py-2 text-sm"
+                  >
+                    <div className="text-xs font-semibold text-amber-900">
+                      Room {p.room} · {DAYS[p.dayOfWeek - 1]}
                     </div>
-                  ))}
-                </div>
+                    <div className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                      {[p.a, p.b].map((e, j) => (
+                        <div key={j} className="rounded border border-amber-100 bg-white px-2 py-1">
+                          <div className="font-medium text-slate-800">
+                            {e.subjectName ?? "Slot"} — {e.scopeLabel}
+                          </div>
+                          <div className="text-slate-500">
+                            {e.slotName} · {e.startTime}–{e.endTime}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
+            )}
+            {teacherConflicts.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-xs font-semibold uppercase tracking-wide text-rose-800">Teachers</div>
+                {teacherConflicts.map((p, i) => (
+                  <div
+                    key={i}
+                    className="rounded-md border border-rose-200 bg-rose-50/40 px-3 py-2 text-sm"
+                  >
+                    <div className="text-xs font-semibold text-rose-900">
+                      {p.teacherName ?? "Teacher"} · {DAYS[p.dayOfWeek - 1]}
+                    </div>
+                    <div className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                      {[p.a, p.b].map((e, j) => (
+                        <div key={j} className="rounded border border-rose-100 bg-white px-2 py-1">
+                          <div className="font-medium text-slate-800">
+                            {e.subjectName ?? "Slot"} — {e.scopeLabel}
+                          </div>
+                          <div className="text-slate-500">
+                            {e.slotName} · {e.startTime}–{e.endTime}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>
@@ -538,7 +585,9 @@ export function ManageTimetable() {
 // subject/teacher/room editors. Saves on blur to keep the UX snappy
 // without an explicit save button per cell.
 type SavePatch = { sectionSubjectId?: string | null; teacherUserId?: string | null; room?: string | null; notes?: string | null };
-type SaveResult = { ok: true } | { ok: false; conflict?: RoomConflictError; message: string };
+type SaveResult =
+  | { ok: true }
+  | { ok: false; conflict?: RoomConflictError; teacherConflict?: TeacherConflictError; message: string };
 interface WeekGridProps {
   cells: TimetableWeekCell[];
   scopeKind: "section" | "group";
@@ -618,22 +667,23 @@ function CellRow({ cell, scopeKind, classSubjects, teachers, onSave, onClear }: 
   const [draftTeacher, setDraftTeacher] = useState(cell.entry?.teacherUserId ?? "");
   const [draftRoom, setDraftRoom] = useState(cell.entry?.room ?? "");
 
-  // Room-conflict state. Set when the most recent save was rejected
-  // with a 409 — the row shows an inline warning + "Save anyway"
-  // button that re-issues the same patch with force=true.
+  // Conflict state. Set when the most recent save was rejected with a
+  // 409 — the row shows an inline warning + "Save anyway" button that
+  // re-issues the same patch with force=true.
   const [conflict, setConflict] = useState<RoomConflictError | null>(null);
+  const [teacherConflict, setTeacherConflict] = useState<TeacherConflictError | null>(null);
   const [lastPatch, setLastPatch] = useState<SavePatch | null>(null);
 
   const trySave = async (patch: SavePatch) => {
     setLastPatch(patch);
     const r = await onSave(cell, patch);
-    if (!r.ok && r.conflict) setConflict(r.conflict);
-    else setConflict(null);
+    if (!r.ok && r.conflict) setConflict(r.conflict); else setConflict(null);
+    if (!r.ok && r.teacherConflict) setTeacherConflict(r.teacherConflict); else setTeacherConflict(null);
   };
   const forceSave = async () => {
     if (!lastPatch) return;
     const r = await onSave(cell, lastPatch, { force: true });
-    if (r.ok) setConflict(null);
+    if (r.ok) { setConflict(null); setTeacherConflict(null); }
   };
 
   useEffect(() => {
@@ -758,6 +808,39 @@ function CellRow({ cell, scopeKind, classSubjects, teachers, onSave, onClear }: 
           onClick={() => {
             setConflict(null);
             setDraftRoom(cell.entry?.room ?? "");
+          }}
+        >
+          Cancel
+        </button>
+      </div>
+    )}
+    {teacherConflict && (
+      <div className="rounded-md border border-rose-300 bg-rose-50 px-2 py-1.5 text-xs text-rose-900 flex flex-wrap items-center gap-2">
+        <AlertTriangle className="h-3.5 w-3.5 text-rose-700 shrink-0" />
+        <span>
+          <strong>{teacherConflict.teacherName ?? "This teacher"}</strong> is already booked
+          {teacherConflict.conflicts.map((cf, i) => (
+            <span key={cf.entryId}>
+              {i === 0 ? " for " : i === teacherConflict.conflicts.length - 1 ? " and " : ", "}
+              <strong>{cf.subjectName ?? "another slot"}</strong> ({cf.scopeLabel})
+            </span>
+          ))}
+          {" "}during this period.
+        </span>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-6 text-[11px] px-2"
+          onClick={forceSave}
+        >
+          Save anyway
+        </Button>
+        <button
+          type="button"
+          className="text-rose-700 underline text-[11px]"
+          onClick={() => {
+            setTeacherConflict(null);
+            setDraftTeacher(cell.entry?.teacherUserId ?? "");
           }}
         >
           Cancel
