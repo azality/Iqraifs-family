@@ -52,6 +52,7 @@ import { HifzProgress } from "./pages/school/HifzProgress";
 // the caller has no principal/admin role on the org.
 import { AdminDashboard } from "./pages/school/AdminDashboard";
 import { ManageClasses } from "./pages/school/ManageClasses";
+import { YearRollover } from "./pages/school/YearRollover";
 import { ManageStudents } from "./pages/school/ManageStudents";
 import { StudentDetail } from "./pages/school/StudentDetail";
 import { StudentReportCard } from "./pages/school/StudentReportCard";
@@ -471,6 +472,7 @@ export const router = createBrowserRouter([
               { path: "behavior-catalog", element: <BehaviorCatalog /> },
               // Phase A admin
               { path: "admin", element: <AdminDashboard /> },
+              { path: "admin/year-rollover", element: <YearRollover /> },
               { path: "admin/classes", element: <ManageClasses /> },
               { path: "admin/students", element: <ManageStudents /> },
               { path: "admin/students/:studentId", element: <StudentDetail /> },
