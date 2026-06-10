@@ -16,7 +16,12 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { Textarea } from "../../components/ui/textarea";
-import { postBehaviorNote, type BehaviorNoteKind } from "../../../utils/schoolApi";
+import {
+  postBehaviorNote,
+  listBehaviorCategories,
+  type BehaviorNoteKind,
+  type BehaviorCategory,
+} from "../../../utils/schoolApi";
 
 interface Props {
   orgId: string;
@@ -28,20 +33,11 @@ interface Props {
   onSuccess?: () => void;
 }
 
-const POSITIVE_CATEGORIES = [
-  "Respect",
-  "Effort",
-  "Helpfulness",
-  "Quran Recitation",
-  "Punctuality",
-];
-const CONCERN_CATEGORIES = [
-  "Disruption",
-  "Late Assignment",
-  "Attendance",
-  "Behavior Toward Peers",
-  "Property Damage",
-];
+// Fallback list if the org's behavior_category fetch fails (rare). New
+// orgs lazy-seed an Islamic-context default set on first read; admins can
+// rename / archive via the catalog page.
+const FALLBACK_POSITIVE = ["Adab", "Akhlaq", "Helpfulness", "Effort", "Quran etiquette"];
+const FALLBACK_CONCERN = ["Disruption", "Late assignment", "Attendance", "Behaviour toward peers"];
 
 // datetime-local strings are local-time without timezone. We use this to
 // compute defaults and the "max 14 days back" floor.
@@ -65,6 +61,16 @@ export function BehaviorLogEntry({
   const [observedAt, setObservedAt] = useState<string>(() => toLocalInput(new Date()));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [orgCategories, setOrgCategories] = useState<BehaviorCategory[] | null>(null);
+
+  // Lazy-load the org's configured category list when the dialog opens.
+  // Cached for subsequent opens via state retention.
+  useEffect(() => {
+    if (!open || orgCategories) return;
+    listBehaviorCategories(orgId)
+      .then((r) => setOrgCategories(r.categories))
+      .catch(() => setOrgCategories([]));
+  }, [open, orgId, orgCategories]);
 
   // Whenever the modal opens, reset to a clean positive +1 default.
   useEffect(() => {
@@ -88,7 +94,17 @@ export function BehaviorLogEntry({
     setCategory("");
   }, [kind]);
 
-  const categories = kind === "positive" ? POSITIVE_CATEGORIES : CONCERN_CATEGORIES;
+  // Filter org categories to ones that match this kind ("both" matches either).
+  // Fall back to a static Islamic-context list if the org fetch hasn't
+  // landed yet or returned empty.
+  const categories = (() => {
+    if (orgCategories && orgCategories.length > 0) {
+      return orgCategories
+        .filter((c) => c.kind === kind || c.kind === "both")
+        .map((c) => c.label);
+    }
+    return kind === "positive" ? FALLBACK_POSITIVE : FALLBACK_CONCERN;
+  })();
   const minObserved = (() => {
     const d = new Date();
     d.setDate(d.getDate() - 14);

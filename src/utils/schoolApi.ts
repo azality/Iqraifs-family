@@ -4044,5 +4044,44 @@ export const replyToInboxThread = (
 export const getInboxUnreadCount = (orgId: string): Promise<{ unreadCount: number }> =>
   apiCall(`/school/orgs/${orgId}/inbox-unread-count`);
 
+// =============================================================================
+// Behavior categories (org-configurable; Islamic-context defaults)
+// =============================================================================
+export interface BehaviorCategory {
+  id: string;
+  orgId: string;
+  key: string;
+  label: string;
+  kind: "positive" | "concern" | "both";
+  sortOrder: number;
+  archivedAt: string | null;
+}
+export const listBehaviorCategories = (
+  orgId: string,
+): Promise<{ categories: BehaviorCategory[] }> =>
+  apiCall(`/school/orgs/${orgId}/behavior-categories`);
+
+export const createBehaviorCategory = (
+  orgId: string,
+  body: { label: string; kind: "positive" | "concern" | "both"; key?: string; sortOrder?: number },
+): Promise<BehaviorCategory> =>
+  apiCall(`/school/orgs/${orgId}/behavior-categories`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const updateBehaviorCategory = (
+  orgId: string,
+  id: string,
+  patch: Partial<{ label: string; kind: "positive" | "concern" | "both"; sortOrder: number }>,
+): Promise<BehaviorCategory> =>
+  apiCall(`/school/orgs/${orgId}/behavior-categories/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+
+export const archiveBehaviorCategory = (orgId: string, id: string): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/behavior-categories/${id}`, { method: "DELETE" });
+
 // Re-export apiCall so callers can hit ad-hoc endpoints without a second import.
 export { apiCall };
