@@ -558,6 +558,8 @@ export type TeacherCommentKind =
   | "report_card_subject" | "report_card_class_teacher" | "report_card_principal"
   | "lesson";
 
+export type CommentAckAction = "read" | "thank_you" | "follow_up";
+
 export interface TeacherCommentItem {
   id: string;
   kind: TeacherCommentKind;
@@ -567,12 +569,27 @@ export interface TeacherCommentItem {
   body: string;
   link: string | null;
   tone?: "positive" | "concern" | "neutral";
+  /** This subject's prior one-tap acks on this comment. Always present
+   *  (may be []) so callers don't need a null check. */
+  acks: CommentAckAction[];
 }
 
 export const getTeacherComments = (
   studentId: string,
 ): Promise<{ items: TeacherCommentItem[] }> =>
   pinApiCall(`/school/pin-me/students/${studentId}/teacher-comments`);
+
+/** One-tap acknowledge a teacher comment. Idempotent — re-sending the same
+ *  (commentId, action) is a no-op. Returns the full ack list afterwards. */
+export const ackTeacherComment = (
+  studentId: string,
+  commentId: string,
+  action: CommentAckAction,
+): Promise<{ acks: CommentAckAction[] }> =>
+  pinApiCall(`/school/pin-me/students/${studentId}/teacher-comments/ack`, {
+    method: "POST",
+    body: JSON.stringify({ commentId, action }),
+  });
 
 // ─── Contact school (PR feat/parent-contact-school) ─────────────────
 export interface MyThread {

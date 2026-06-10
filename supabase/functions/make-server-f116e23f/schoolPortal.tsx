@@ -1905,7 +1905,93 @@ export function installPortal(school: Hono): void {
     out.sort((a, b) => (a.at < b.at ? 1 : -1));
     const items = out.slice(0, 200);
 
-    return c.json({ items });
+    // ── Hydrate this subject's prior acks for each surfaced item ──
+    // Composite id is "<kind>:<uuid>" — split, then bulk-query comment_ack
+    // for any row matching (subject, student, [kind, ref] pairs).
+    const refsByKind = new Map<string, string[]>();
+    for (const it of items) {
+      const idx = it.id.indexOf(":");
+      if (idx < 0) continue;
+      const kind = it.id.slice(0, idx);
+      const ref = it.id.slice(idx + 1);
+      const arr = refsByKind.get(kind) ?? [];
+      arr.push(ref);
+      refsByKind.set(kind, arr);
+    }
+    const acksByItemId = new Map<string, string[]>();
+    if (refsByKind.size > 0) {
+      // One query per kind keeps the IN-list scoped + indexed.
+      for (const [kind, refs] of refsByKind) {
+        const { data: ackRows } = await serviceRoleClient
+          .from("comment_ack")
+          .select("comment_ref, action")
+          .eq("subject_type", subject.subjectType)
+          .eq("subject_id", subject.subjectId)
+          .eq("comment_kind", kind)
+          .in("comment_ref", refs);
+        for (const r of (ackRows ?? []) as any[]) {
+          const key = `${kind}:${r.comment_ref}`;
+          const arr = acksByItemId.get(key) ?? [];
+          arr.push(r.action);
+          acksByItemId.set(key, arr);
+        }
+      }
+    }
+    const decorated = items.map((it) => ({ ...it, acks: acksByItemId.get(it.id) ?? [] }));
+
+    return c.json({ items: decorated });
+  });
+
+  // ---------------------------------------------------------------------------
+  // POST /school/pin-me/students/:studentId/teacher-comments/ack
+  // Body: { commentId: "behavior:<uuid>", action: "read"|"thank_you"|"follow_up" }
+  // Returns: { acks: string[] } — full list of actions this subject now
+  //          has on this comment (read/thank_you/follow_up are independent).
+  // Idempotent: re-sending the same (commentId, action) is a no-op.
+  // ---------------------------------------------------------------------------
+  school.post("/pin-me/students/:studentId/teacher-comments/ack", async (c) => {
+    const g = await gatePerStudent(c);
+    if (!g.ok) return g.resp;
+    const { studentId, subject } = g;
+
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    const commentId = typeof body?.commentId === "string" ? body.commentId : "";
+    const action = body?.action;
+    if (!["read", "thank_you", "follow_up"].includes(action)) {
+      return c.json({ error: "action must be read|thank_you|follow_up" }, 400);
+    }
+    const idx = commentId.indexOf(":");
+    if (idx < 0) return c.json({ error: "commentId malformed" }, 400);
+    const kind = commentId.slice(0, idx);
+    const ref = commentId.slice(idx + 1);
+    if (!/^[0-9a-f-]{36}$/i.test(ref)) {
+      return c.json({ error: "commentId must be <kind>:<uuid>" }, 400);
+    }
+    // Insert is idempotent against UNIQUE; ignore 23505.
+    const { error } = await serviceRoleClient
+      .from("comment_ack")
+      .insert({
+        org_id: subject.orgId,
+        student_id: studentId,
+        subject_type: subject.subjectType,
+        subject_id: subject.subjectId,
+        comment_kind: kind,
+        comment_ref: ref,
+        action,
+      });
+    if (error && (error as any).code !== "23505") {
+      return c.json({ error: error.message }, 500);
+    }
+    // Re-query the full set for response.
+    const { data: rows } = await serviceRoleClient
+      .from("comment_ack")
+      .select("action")
+      .eq("subject_type", subject.subjectType)
+      .eq("subject_id", subject.subjectId)
+      .eq("comment_kind", kind)
+      .eq("comment_ref", ref);
+    return c.json({ acks: (rows ?? []).map((r: any) => r.action) });
   });
 }
 
