@@ -13,7 +13,7 @@
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router";
-import { GraduationCap } from "lucide-react";
+import { GraduationCap, Eye, EyeOff } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { usePinAuth } from "../../contexts/PinAuthContext";
 import { LanguageDropdown } from "../../components/LanguageDropdown";
@@ -79,6 +79,7 @@ export function SchoolUnifiedLogin() {
   const [tab, setTab] = useState<Tab>("staff");
   const [identifier, setIdentifier] = useState("");
   const [secret, setSecret] = useState("");
+  const [showSecret, setShowSecret] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -271,16 +272,27 @@ export function SchoolUnifiedLogin() {
               <label className="text-xs font-medium uppercase tracking-wider text-slate-500">
                 {secretLabel}
               </label>
-              <input
-                type={tab === "staff" ? "password" : "text"}
-                inputMode={tab === "staff" ? undefined : "numeric"}
-                value={secret}
-                onChange={(e) => setSecret(e.target.value)}
-                placeholder={tab === "staff" ? "Password" : "4-digit PIN"}
-                maxLength={tab === "staff" ? undefined : 4}
-                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
-                autoComplete={tab === "staff" ? "current-password" : "off"}
-              />
+              <div className="relative mt-1">
+                <input
+                  type={tab === "staff" ? (showSecret ? "text" : "password") : (showSecret ? "text" : "password")}
+                  inputMode={tab === "staff" ? undefined : "numeric"}
+                  value={secret}
+                  onChange={(e) => setSecret(e.target.value)}
+                  placeholder={tab === "staff" ? "Password" : "4-digit PIN"}
+                  maxLength={tab === "staff" ? undefined : 4}
+                  className="w-full rounded-md border border-slate-300 pl-3 pr-10 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+                  autoComplete={tab === "staff" ? "current-password" : "off"}
+                />
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  aria-label={showSecret ? "Hide" : "Show"}
+                  onClick={() => setShowSecret((v) => !v)}
+                  className="absolute inset-y-0 right-0 flex items-center px-2.5 text-slate-400 hover:text-slate-700"
+                >
+                  {showSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
 
             {error && (
