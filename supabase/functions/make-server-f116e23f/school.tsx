@@ -449,6 +449,12 @@ school.patch("/orgs/:orgId", async (c) => {
     "logo_url",
     "theme_color",
     "school_motto",
+    // Office / school hours — drive the calendar time axis. Strings in
+    // "HH:MM" so the client can render without parsing dates.
+    "school_day_start",
+    "school_day_end",
+    "office_day_start",
+    "office_day_end",
   ];
 
   // Load current settings so we merge rather than overwrite.

@@ -52,6 +52,13 @@ interface OrgFormState {
   logo_url: string;
   theme_color: string;
   school_motto: string;
+  // School hours: visible to students/parents. Office hours: staff
+  // attendance window. Calendar uses office_hours to set the time axis;
+  // school_hours is a soft annotation rendered on top.
+  school_day_start: string; // HH:MM
+  school_day_end: string;
+  office_day_start: string;
+  office_day_end: string;
 }
 
 export function OrgSettings() {
@@ -71,6 +78,10 @@ export function OrgSettings() {
     logo_url: "",
     theme_color: "",
     school_motto: "",
+    school_day_start: "",
+    school_day_end: "",
+    office_day_start: "",
+    office_day_end: "",
   });
   const [orgSaving, setOrgSaving] = useState(false);
   const [orgError, setOrgError] = useState<string | null>(null);
@@ -131,6 +142,10 @@ export function OrgSettings() {
           logo_url: (o.organization.settings?.logo_url as string | undefined) ?? "",
           theme_color: (o.organization.settings?.theme_color as string | undefined) ?? "",
           school_motto: (o.organization.settings?.school_motto as string | undefined) ?? "",
+          school_day_start: (o.organization.settings?.school_day_start as string | undefined) ?? "",
+          school_day_end: (o.organization.settings?.school_day_end as string | undefined) ?? "",
+          office_day_start: (o.organization.settings?.office_day_start as string | undefined) ?? "",
+          office_day_end: (o.organization.settings?.office_day_end as string | undefined) ?? "",
         });
         setAcademicYear(
           (o.organization.settings?.academic_year as string | undefined) ?? "",
@@ -159,6 +174,10 @@ export function OrgSettings() {
         logo_url: orgForm.logo_url,
         theme_color: orgForm.theme_color,
         school_motto: orgForm.school_motto,
+        school_day_start: orgForm.school_day_start,
+        school_day_end: orgForm.school_day_end,
+        office_day_start: orgForm.office_day_start,
+        office_day_end: orgForm.office_day_end,
       });
       setOrgSavedAt(Date.now());
     } catch (e) {
@@ -416,6 +435,40 @@ export function OrgSettings() {
               value={orgForm.school_motto}
               onChange={(e) => setOrgForm((s) => ({ ...s, school_motto: e.target.value }))}
             />
+          </div>
+
+          {/* School + office hours. School hours = when students are
+              on campus. Office hours = staff working window (usually
+              wider on both ends). Calendar uses office hours for the
+              time axis; falls back to derived min/max if blank. */}
+          <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-3 space-y-3">
+            <div className="text-xs font-bold uppercase tracking-wider text-slate-700">School & office hours</div>
+            <p className="text-xs text-slate-500 -mt-1">
+              School hours = when students are on campus. Office hours = when staff are expected to be there
+              (usually starts earlier, ends later). The teacher calendar uses office hours for its time axis.
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">School starts</Label>
+                <Input type="time" value={orgForm.school_day_start}
+                       onChange={(e) => setOrgForm((s) => ({ ...s, school_day_start: e.target.value }))} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">School ends</Label>
+                <Input type="time" value={orgForm.school_day_end}
+                       onChange={(e) => setOrgForm((s) => ({ ...s, school_day_end: e.target.value }))} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Office opens</Label>
+                <Input type="time" value={orgForm.office_day_start}
+                       onChange={(e) => setOrgForm((s) => ({ ...s, office_day_start: e.target.value }))} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Office closes</Label>
+                <Input type="time" value={orgForm.office_day_end}
+                       onChange={(e) => setOrgForm((s) => ({ ...s, office_day_end: e.target.value }))} />
+              </div>
+            </div>
           </div>
           {/* Live preview of the hero block as it will appear on dashboards. */}
           <div>
