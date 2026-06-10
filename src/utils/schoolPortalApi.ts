@@ -644,4 +644,12 @@ export type {
   Announcement,
   AnnouncementAudienceKind,
   FeeStatus,
+  LessonPrepItem,
+  LessonPrepState,
 } from "./schoolApi";
+
+export const getStudentUpcoming = (
+  studentId: string,
+  limit: number = 3,
+): Promise<{ upcoming: import("./schoolApi").LessonPrepItem[] }> =>
+  pinApiCall(`/school/pin-me/students/${studentId}/upcoming?limit=${limit}`);
