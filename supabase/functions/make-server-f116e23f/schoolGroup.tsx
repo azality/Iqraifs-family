@@ -68,6 +68,36 @@ async function callerOrgsInGroup(
   return (orgs ?? []).map((o: any) => o.id);
 }
 
+async function isAdminOrPrincipalOrg(userId: string, orgId: string): Promise<boolean> {
+  // Direct org-level admin/principal.
+  const { data } = await serviceRoleClient
+    .from("user_roles")
+    .select("role_type")
+    .eq("user_id", userId)
+    .eq("scope_type", "organization")
+    .eq("scope_id", orgId)
+    .is("revoked_at", null);
+  if ((data ?? []).some((r: any) => r.role_type === "principal" || r.role_type === "admin")) return true;
+  // Group-scoped role on this org's group counts (Phase 4).
+  const { data: org } = await serviceRoleClient
+    .from("organizations")
+    .select("school_group_id")
+    .eq("id", orgId)
+    .maybeSingle();
+  const groupId = (org as any)?.school_group_id;
+  if (!groupId) return false;
+  const { data: g } = await serviceRoleClient
+    .from("user_roles")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("scope_type", "school_group")
+    .eq("scope_id", groupId)
+    .in("role_type", ["principal", "admin"])
+    .is("revoked_at", null)
+    .limit(1);
+  return !!(g && g.length > 0);
+}
+
 export function installSchoolGroup(school: Hono): void {
   // ─── GET /school/school-groups/:groupId ────────────────────────────
   school.get("/school-groups/:groupId", async (c) => {
@@ -233,6 +263,144 @@ export function installSchoolGroup(school: Hono): void {
   // ─── GET /school/me/school-groups ──────────────────────────────────
   // Lists every school_group the caller has admin/principal on at
   // least one member org. Powers the campus-switcher UI.
+  // ─── POST /school/students/:studentId/transfer ─────────────────────
+  // Move a student between two campuses in the same school_group.
+  // Body: { toOrgId, toSectionId, reason? }
+  // Caller must be admin/principal in BOTH the source and target org
+  // (either via direct role or a group-scoped role).
+  school.post("/students/:studentId/transfer", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const studentId = c.req.param("studentId");
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    const toOrgId = typeof body?.toOrgId === "string" ? body.toOrgId : "";
+    const toSectionId = typeof body?.toSectionId === "string" ? body.toSectionId : "";
+    const reason = typeof body?.reason === "string" ? body.reason.trim() : null;
+    if (!toOrgId || !toSectionId) {
+      return c.json({ error: "toOrgId and toSectionId required" }, 400);
+    }
+
+    // Load student + current org.
+    const { data: stu } = await serviceRoleClient
+      .from("student")
+      .select("id, org_id, class_section_id")
+      .eq("id", studentId)
+      .maybeSingle();
+    if (!stu) return c.json({ error: "student not found" }, 404);
+    const fromOrgId = (stu as any).org_id as string;
+    if (fromOrgId === toOrgId) {
+      return c.json({ error: "student already at target campus" }, 400);
+    }
+
+    // Both orgs must be in the same school_group.
+    const { data: orgs } = await serviceRoleClient
+      .from("organizations")
+      .select("id, school_group_id")
+      .in("id", [fromOrgId, toOrgId]);
+    const fromOrg = (orgs ?? []).find((o: any) => o.id === fromOrgId);
+    const toOrg = (orgs ?? []).find((o: any) => o.id === toOrgId);
+    if (!fromOrg || !toOrg) return c.json({ error: "org not found" }, 404);
+    if (!(fromOrg as any).school_group_id ||
+        (fromOrg as any).school_group_id !== (toOrg as any).school_group_id) {
+      return c.json({ error: "orgs are not in the same school group" }, 400);
+    }
+    const groupId = (fromOrg as any).school_group_id as string;
+
+    // Caller must have admin/principal in both.
+    if (!(await isAdminOrPrincipalOrg(userId, fromOrgId))) {
+      return c.json({ error: "forbidden at source campus" }, 403);
+    }
+    if (!(await isAdminOrPrincipalOrg(userId, toOrgId))) {
+      return c.json({ error: "forbidden at target campus" }, 403);
+    }
+
+    // Target section must belong to the target org.
+    const { data: sec } = await serviceRoleClient
+      .from("class_section")
+      .select("id, class:class_id(org_id)")
+      .eq("id", toSectionId)
+      .maybeSingle();
+    if (!sec || (sec as any).class?.org_id !== toOrgId) {
+      return c.json({ error: "target section not in target org" }, 400);
+    }
+
+    // Hard move: update student row.
+    const nowIso = new Date().toISOString();
+    const { error: updErr } = await serviceRoleClient
+      .from("student")
+      .update({
+        org_id: toOrgId,
+        class_section_id: toSectionId,
+        updated_at: nowIso,
+      })
+      .eq("id", studentId);
+    if (updErr) return c.json({ error: updErr.message }, 500);
+
+    const { data: ins, error: auditErr } = await serviceRoleClient
+      .from("student_transfer")
+      .insert({
+        student_id: studentId,
+        school_group_id: groupId,
+        from_org_id: fromOrgId,
+        to_org_id: toOrgId,
+        from_section_id: (stu as any).class_section_id ?? null,
+        to_section_id: toSectionId,
+        reason,
+        executed_by: userId,
+      })
+      .select("id, executed_at")
+      .single();
+    if (auditErr) {
+      // Move already happened; surface as a soft warning rather than failure.
+      return c.json({
+        ok: true,
+        warning: `transfer succeeded but audit insert failed: ${auditErr.message}`,
+      });
+    }
+    return c.json({
+      ok: true,
+      transferId: (ins as any).id,
+      executedAt: (ins as any).executed_at,
+    });
+  });
+
+  // ─── GET /school/students/:studentId/transfers ─────────────────────
+  // Audit trail for one student. Returns ordered list newest-first.
+  school.get("/students/:studentId/transfers", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const studentId = c.req.param("studentId");
+    const { data: stu } = await serviceRoleClient
+      .from("student")
+      .select("org_id")
+      .eq("id", studentId)
+      .maybeSingle();
+    if (!stu) return c.json({ error: "student not found" }, 404);
+    if (!(await isAdminOrPrincipalOrg(userId, (stu as any).org_id))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const { data } = await serviceRoleClient
+      .from("student_transfer")
+      .select(
+        "id, executed_at, reason, from_org_id, to_org_id, from_section_id, to_section_id, " +
+          "from_org:from_org_id(name, slug), to_org:to_org_id(name, slug)",
+      )
+      .eq("student_id", studentId)
+      .order("executed_at", { ascending: false });
+    return c.json({
+      transfers: (data ?? []).map((r: any) => ({
+        id: r.id,
+        executedAt: r.executed_at,
+        reason: r.reason,
+        fromOrg: { id: r.from_org_id, name: r.from_org?.name ?? null, slug: r.from_org?.slug ?? null },
+        toOrg: { id: r.to_org_id, name: r.to_org?.name ?? null, slug: r.to_org?.slug ?? null },
+        fromSectionId: r.from_section_id,
+        toSectionId: r.to_section_id,
+      })),
+    });
+  });
+
   school.get("/me/school-groups", async (c) => {
     const userId = getAuthUserId(c);
     if (!userId) return c.json({ error: "unauthenticated" }, 401);
