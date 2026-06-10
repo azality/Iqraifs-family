@@ -1028,6 +1028,57 @@ export type Database = {
           },
         ]
       }
+      comment_ack: {
+        Row: {
+          action: string
+          comment_kind: string
+          comment_ref: string
+          created_at: string
+          id: string
+          org_id: string
+          student_id: string
+          subject_id: string
+          subject_type: string
+        }
+        Insert: {
+          action: string
+          comment_kind: string
+          comment_ref: string
+          created_at?: string
+          id?: string
+          org_id: string
+          student_id: string
+          subject_id: string
+          subject_type: string
+        }
+        Update: {
+          action?: string
+          comment_kind?: string
+          comment_ref?: string
+          created_at?: string
+          id?: string
+          org_id?: string
+          student_id?: string
+          subject_id?: string
+          subject_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "comment_ack_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "comment_ack_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "student"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       curriculum: {
         Row: {
           academic_year: string

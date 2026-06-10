@@ -15,8 +15,10 @@ import {
 import { HeroCard } from "../../components/school-ui";
 import {
   getTeacherComments,
+  ackTeacherComment,
   type TeacherCommentItem,
   type TeacherCommentKind,
+  type CommentAckAction,
 } from "../../../utils/schoolPortalApi";
 
 const KIND_LABEL: Record<TeacherCommentKind, string> = {
@@ -73,6 +75,27 @@ export function StudentTeacherComments() {
       .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load"); });
     return () => { cancelled = true; };
   }, [studentId]);
+
+  // One-tap acknowledge. Optimistically marks the comment locally then
+  // confirms server-side. On failure we revert + surface a toast-less
+  // inline indicator (kept simple — this isn't a destructive action).
+  const onAck = async (commentId: string, action: CommentAckAction) => {
+    if (!items) return;
+    const prev = items;
+    setItems(items.map((it) =>
+      it.id === commentId && !it.acks.includes(action)
+        ? { ...it, acks: [...it.acks, action] }
+        : it,
+    ));
+    try {
+      const r = await ackTeacherComment(studentId, commentId, action);
+      setItems((cur) =>
+        cur ? cur.map((it) => (it.id === commentId ? { ...it, acks: r.acks } : it)) : cur,
+      );
+    } catch {
+      setItems(prev);
+    }
+  };
 
   const filtered = useMemo(() => {
     if (!items) return [];
@@ -164,6 +187,36 @@ export function StudentTeacherComments() {
                     </div>
                     <div className="text-sm font-medium text-slate-900 mt-0.5">{it.title}</div>
                     <div className="text-sm text-slate-700 mt-1 whitespace-pre-wrap">{it.body}</div>
+                    {/* One-tap acknowledge row. Tapped state shows a filled
+                        check; tapping again is a no-op (idempotent server-side). */}
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {(
+                        [
+                          { key: "read",       label: "Read"        },
+                          { key: "thank_you",  label: "Thank you"   },
+                          { key: "follow_up",  label: "Follow up"   },
+                        ] as Array<{ key: CommentAckAction; label: string }>
+                      ).map(({ key, label }) => {
+                        const active = it.acks.includes(key);
+                        return (
+                          <button
+                            key={key}
+                            type="button"
+                            disabled={active}
+                            onClick={() => onAck(it.id, key)}
+                            className={
+                              "inline-flex items-center gap-1 rounded-full text-[11px] px-2 py-0.5 border " +
+                              (active
+                                ? "bg-indigo-50 border-indigo-200 text-indigo-700 cursor-default"
+                                : "bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:text-slate-800")
+                            }
+                          >
+                            {active ? <CheckCircle2 className="h-3 w-3 text-indigo-600" /> : null}
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                   {it.link && (
                     <Link
