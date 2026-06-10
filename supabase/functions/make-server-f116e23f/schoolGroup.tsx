@@ -263,6 +263,95 @@ export function installSchoolGroup(school: Hono): void {
   // ─── GET /school/me/school-groups ──────────────────────────────────
   // Lists every school_group the caller has admin/principal on at
   // least one member org. Powers the campus-switcher UI.
+  // ─── POST /school/parents/:parentId/canonical ─────────────────────
+  // Mark `parentId` as an alias of `canonicalParentId`. After this, any
+  // PIN login as either row sees children from both (via
+  // resolveAccessibleStudents walking the alias graph).
+  //
+  // Both parent rows must be in the same school_group. Caller must hold
+  // admin/principal at one of the two orgs (or via group role).
+  school.post("/parents/:parentId/canonical", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const aliasId = c.req.param("parentId");
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    const canonicalId = typeof body?.canonicalParentId === "string" ? body.canonicalParentId : "";
+    if (!canonicalId) return c.json({ error: "canonicalParentId required" }, 400);
+    if (canonicalId === aliasId) return c.json({ error: "cannot alias a row to itself" }, 400);
+
+    const { data: rows } = await serviceRoleClient
+      .from("parent")
+      .select("id, org_id, school_group_id, canonical_id, full_name")
+      .in("id", [aliasId, canonicalId]);
+    const alias = (rows ?? []).find((r: any) => r.id === aliasId);
+    const canonical = (rows ?? []).find((r: any) => r.id === canonicalId);
+    if (!alias || !canonical) return c.json({ error: "parent not found" }, 404);
+    if ((canonical as any).canonical_id) {
+      return c.json({
+        error: "canonical target is itself an alias — link to its root instead",
+      }, 400);
+    }
+
+    // Same school_group required so the alias chain stays inside the chain.
+    const { data: orgs } = await serviceRoleClient
+      .from("organizations")
+      .select("id, school_group_id")
+      .in("id", [(alias as any).org_id, (canonical as any).org_id]);
+    const groupOf = new Map<string, string | null>();
+    for (const o of (orgs ?? []) as any[]) groupOf.set(o.id, o.school_group_id ?? null);
+    const aliasGroup = groupOf.get((alias as any).org_id);
+    const canonicalGroup = groupOf.get((canonical as any).org_id);
+    if (!aliasGroup || aliasGroup !== canonicalGroup) {
+      return c.json({ error: "orgs are not in the same school group" }, 400);
+    }
+
+    // Permission: admin/principal at either org.
+    const canAlias = await isAdminOrPrincipalOrg(userId, (alias as any).org_id);
+    const canCanonical = await isAdminOrPrincipalOrg(userId, (canonical as any).org_id);
+    if (!canAlias && !canCanonical) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+
+    const { error: updErr } = await serviceRoleClient
+      .from("parent")
+      .update({ canonical_id: canonicalId })
+      .eq("id", aliasId);
+    if (updErr) return c.json({ error: updErr.message }, 500);
+
+    return c.json({
+      ok: true,
+      alias: { id: aliasId, name: (alias as any).full_name },
+      canonical: { id: canonicalId, name: (canonical as any).full_name },
+    });
+  });
+
+  // ─── DELETE /school/parents/:parentId/canonical ───────────────────
+  // Break the alias link; the row reverts to being its own canonical.
+  school.delete("/parents/:parentId/canonical", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const aliasId = c.req.param("parentId");
+    const { data: row } = await serviceRoleClient
+      .from("parent")
+      .select("org_id, canonical_id")
+      .eq("id", aliasId)
+      .maybeSingle();
+    if (!row) return c.json({ error: "parent not found" }, 404);
+    if (!(row as any).canonical_id) {
+      return c.json({ ok: true, note: "row was already canonical" });
+    }
+    if (!(await isAdminOrPrincipalOrg(userId, (row as any).org_id))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const { error } = await serviceRoleClient
+      .from("parent")
+      .update({ canonical_id: null })
+      .eq("id", aliasId);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ ok: true });
+  });
+
   // ─── POST /school/students/:studentId/transfer ─────────────────────
   // Move a student between two campuses in the same school_group.
   // Body: { toOrgId, toSectionId, reason? }
