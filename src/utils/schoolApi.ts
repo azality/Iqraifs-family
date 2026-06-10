@@ -4198,5 +4198,28 @@ export const getSchoolGroup = (groupId: string): Promise<SchoolGroupResponse> =>
 export const getSchoolGroupSnapshot = (groupId: string): Promise<SchoolGroupSnapshot> =>
   apiCall(`/school/school-groups/${groupId}/snapshot`);
 
+// ── Student transfer between sibling campuses (Phase 2) ───────────
+export interface StudentTransferAudit {
+  id: string;
+  executedAt: string;
+  reason: string | null;
+  fromOrg: { id: string; name: string | null; slug: string | null };
+  toOrg: { id: string; name: string | null; slug: string | null };
+  fromSectionId: string | null;
+  toSectionId: string | null;
+}
+export const transferStudent = (
+  studentId: string,
+  body: { toOrgId: string; toSectionId: string; reason?: string },
+): Promise<{ ok: true; transferId?: string; executedAt?: string; warning?: string }> =>
+  apiCall(`/school/students/${studentId}/transfer`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+export const listStudentTransfers = (
+  studentId: string,
+): Promise<{ transfers: StudentTransferAudit[] }> =>
+  apiCall(`/school/students/${studentId}/transfers`);
+
 // Re-export apiCall so callers can hit ad-hoc endpoints without a second import.
 export { apiCall };
