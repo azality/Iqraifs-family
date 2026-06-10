@@ -5,6 +5,8 @@
 // uses, just hitting a different path prefix.
 
 import { apiCall } from "./api";
+import { projectId as _projectId, publicAnonKey as _publicAnonKey } from "/utils/supabase/info.tsx";
+const PUBLIC_INFO = { projectId: _projectId, publicAnonKey: _publicAnonKey };
 
 // ─── /me ─────────────────────────────────────────────────────────────────
 
@@ -4241,10 +4243,15 @@ export interface PublicSiteResponse {
 // No-auth fetch — public site is reachable without a session, so we can't
 // use apiCall (which redirects to login on missing access token).
 export async function getPublicSite(slug: string): Promise<PublicSiteResponse> {
-  const { projectId, publicAnonKey } = await import("/utils/supabase/info.tsx");
-  const url = `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f/school/public-site/${encodeURIComponent(slug)}`;
+  // Use the same supabase info module the rest of the codebase imports.
+  // Dynamic import had a bug in production builds where the relative path
+  // resolved to /utils/supabase/info.tsx as a top-level URL and 404'd.
+  const url = `https://${PUBLIC_INFO.projectId}.supabase.co/functions/v1/make-server-f116e23f/school/public-site/${encodeURIComponent(slug)}`;
   const res = await fetch(url, {
-    headers: { apikey: publicAnonKey, Authorization: `Bearer ${publicAnonKey}` },
+    headers: {
+      apikey: PUBLIC_INFO.publicAnonKey,
+      Authorization: `Bearer ${PUBLIC_INFO.publicAnonKey}`,
+    },
   });
   if (!res.ok) throw new Error(`getPublicSite failed: ${res.status}`);
   return res.json();
