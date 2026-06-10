@@ -38,7 +38,9 @@ import {
   type LeaderboardRow,
   type BehaviorNote,
   type SchoolMeResponse,
+  createMyTimeOff,
 } from "../../../utils/schoolApi";
+import { TimeOffModal } from "../../components/school-ui";
 
 function todayDow(): number {
   // ISO day: Mon=1 ... Sun=7. JS getDay(): Sun=0.
@@ -101,6 +103,7 @@ export function TeacherHome({ orgId, me }: Props) {
   const [snapshot, setSnapshot] = useState<TeacherSnapshot | null>(null);
   const [todayCells, setTodayCells] = useState<MyTimetableCell[]>([]);
   const [upcoming, setUpcoming] = useState<import("../../../utils/schoolApi").LessonPrepItem[] | null>(null);
+  const [showTimeOff, setShowTimeOff] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -243,13 +246,28 @@ export function TeacherHome({ orgId, me }: Props) {
           </h1>
           <p className="mt-0.5 text-sm text-slate-500">{todayLabel()}</p>
         </div>
-        {sections && sections.length > 0 && (
-          <div className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600">
-            <ClipboardList className="h-3.5 w-3.5 text-indigo-500" />
-            {sections.length} {sections.length === 1 ? "section" : "sections"}
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          {sections && sections.length > 0 && (
+            <div className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600">
+              <ClipboardList className="h-3.5 w-3.5 text-indigo-500" />
+              {sections.length} {sections.length === 1 ? "section" : "sections"}
+            </div>
+          )}
+          <button
+            onClick={() => setShowTimeOff(true)}
+            className="inline-flex items-center gap-1.5 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+          >
+            Request time off
+          </button>
+        </div>
       </div>
+      {showTimeOff && (
+        <TimeOffModal
+          audience="teacher"
+          onClose={() => setShowTimeOff(false)}
+          onSubmit={(body) => createMyTimeOff(orgId, body)}
+        />
+      )}
 
       {loading && (
         <div className="rounded-xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">

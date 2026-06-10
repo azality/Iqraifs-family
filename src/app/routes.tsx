@@ -55,6 +55,7 @@ import { ManageClasses } from "./pages/school/ManageClasses";
 import { YearRollover } from "./pages/school/YearRollover";
 import { TeacherCalendar } from "./pages/school/TeacherCalendar";
 import { AdminTeacherSchedule } from "./pages/school/AdminTeacherSchedule";
+import { AdminTimeOff } from "./pages/school/AdminTimeOff";
 import { ManagePublicSite } from "./pages/school/ManagePublicSite";
 import { SchoolGroupDashboard } from "./pages/school/SchoolGroupDashboard";
 import { ManageStudents } from "./pages/school/ManageStudents";
@@ -509,6 +510,7 @@ export const router = createBrowserRouter([
               { path: "admin/import", element: <ImportCenter /> },
               { path: "admin/hifz-groups", element: <ManageHifzGroups /> },
               { path: "admin/timetable", element: <ManageTimetable /> },
+              { path: "admin/time-off", element: <AdminTimeOff /> },
               { path: "my-week", element: <TeacherWeekView /> },
               { path: "admin/roster-requests", element: <RosterReviewQueue /> },
               { path: "admin/announcements", element: <AnnouncementsList /> },

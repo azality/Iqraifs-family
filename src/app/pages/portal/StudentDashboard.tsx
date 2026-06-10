@@ -9,13 +9,14 @@ import { useEffect, useState } from "react";
 import { useParams } from "react-router";
 import { Award, BookOpen, ClipboardList, Bell } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { DataTable, HeroCard } from "../../components/school-ui";
+import { DataTable, HeroCard, TimeOffModal } from "../../components/school-ui";
 import { UpNextCard } from "../../components/school-ui/UpNextCard";
 import {
   getStudentDashboard,
   getStudentUpcoming,
   getTodaySnapshot,
   getMyStudentDiary,
+  createStudentTimeOff,
   type StudentDashboardResponse,
   type DashboardActivityItem,
   type TodaySnapshot,
@@ -184,6 +185,7 @@ export function StudentDashboard() {
   const [data, setData] = useState<StudentDashboardResponse | null>(null);
   const [diary, setDiary] = useState<MyStudentDiaryResponse | null>(null);
   const [upcoming, setUpcoming] = useState<import("../../../utils/schoolApi").LessonPrepItem[] | null>(null);
+  const [showTimeOff, setShowTimeOff] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -224,6 +226,22 @@ export function StudentDashboard() {
         subtitle={sectionSubtitle || `GR # ${snapshot.student.grNumber}`}
         asOf={`As of ${new Date().toLocaleDateString()}`}
       />
+
+      <div className="flex justify-end">
+        <button
+          onClick={() => setShowTimeOff(true)}
+          className="inline-flex items-center gap-1.5 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+        >
+          Report absence / vacation
+        </button>
+      </div>
+      {showTimeOff && (
+        <TimeOffModal
+          audience="student"
+          onClose={() => setShowTimeOff(false)}
+          onSubmit={(body) => createStudentTimeOff(studentId, body)}
+        />
+      )}
 
       {/* Today's plain-language status cards. */}
       <section>

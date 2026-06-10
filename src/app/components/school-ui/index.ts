@@ -22,6 +22,9 @@ export type { DataTableProps, DataTableColumn } from "./DataTable";
 export { ManageToolbar } from "./ManageToolbar";
 export type { ManageToolbarProps } from "./ManageToolbar";
 
+export { TimeOffModal } from "./TimeOffModal";
+export type { TimeOffModalProps } from "./TimeOffModal";
+
 export { SetupChecklist, setupChecklistDismissed } from "./SetupChecklist";
 export type { SetupChecklistProps } from "./SetupChecklist";
 
