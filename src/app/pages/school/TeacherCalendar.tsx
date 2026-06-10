@@ -46,19 +46,35 @@ function hueFor(s: string | null | undefined): number {
 
 type ViewMode = "day" | "week";
 
-export function TeacherCalendar() {
+interface TeacherCalendarProps {
+  /** Optional: pre-loaded cells (admin viewing someone else's calendar).
+   *  Omit for "my schedule" self-fetch. */
+  cellsOverride?: MyTimetableCell[];
+  /** Custom title for admin-viewing-someone-else mode. */
+  title?: string;
+  /** Custom subtitle / lead. */
+  subtitle?: string;
+  /** Where the back arrow links. */
+  backTo?: string;
+  /** Used when an admin views a teacher — drops the "My" framing. */
+  ownership?: "self" | "other";
+}
+
+export function TeacherCalendar(props: TeacherCalendarProps = {}) {
+  const { cellsOverride, title, subtitle, backTo, ownership = "self" } = props;
   const { orgId = "" } = useParams<{ orgId: string }>();
-  const [cells, setCells] = useState<MyTimetableCell[] | null>(null);
+  const [cells, setCells] = useState<MyTimetableCell[] | null>(cellsOverride ?? null);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<ViewMode>("week");
 
   useEffect(() => {
+    if (cellsOverride !== undefined) { setCells(cellsOverride); return; }
     if (!orgId) return;
     // No `day` filter — backend returns the whole week.
     getMyTeacherTimetable(orgId)
       .then((r) => setCells(r.cells))
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load"));
-  }, [orgId]);
+  }, [orgId, cellsOverride]);
 
   // Group entries by day (1..6). Compute total grid bounds so the time
   // axis only spans the actual school day, not a fixed 8am–5pm window.
@@ -169,8 +185,8 @@ export function TeacherCalendar() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <Link to={`/school/orgs/${orgId}`}>
-          <Button variant="outline" size="sm"><ArrowLeft className="h-3.5 w-3.5 mr-1" /> Home</Button>
+        <Link to={backTo ?? `/school/orgs/${orgId}`}>
+          <Button variant="outline" size="sm"><ArrowLeft className="h-3.5 w-3.5 mr-1" /> Back</Button>
         </Link>
         <div className="flex items-center gap-2">
           {/* Today / Week toggle */}
@@ -229,10 +245,12 @@ export function TeacherCalendar() {
 
       <div>
         <h1 className={sectionTitleClasses + " flex items-center gap-2"}>
-          <Calendar className="h-6 w-6 text-indigo-500" /> My schedule
+          <Calendar className="h-6 w-6 text-indigo-500" /> {title ?? "My schedule"}
         </h1>
         <p className="mt-1 text-sm text-slate-600">
-          Your weekly teaching grid. Overlapping entries are outlined in red — talk to the admin to resolve.
+          {subtitle ?? (ownership === "self"
+            ? "Your weekly teaching grid. Overlapping entries are outlined in red — talk to the admin to resolve."
+            : "Weekly teaching grid. Overlapping entries are outlined in red.")}
         </p>
       </div>
 
@@ -300,6 +318,32 @@ export function TeacherCalendar() {
                       <div className="absolute -left-1 -top-1 h-2 w-2 rounded-full bg-rose-500" />
                     </div>
                   )}
+                  {/* Prep-time gap labels — gaps between consecutive
+                      entries of 20+ min are surfaced as "Prep · X min".
+                      Visible only on the day column to keep the week
+                      view from looking busy. */}
+                  {view === "day" && (() => {
+                    const sorted = [...dayCells].sort((a, b) =>
+                      toMin(a.slot.startTime) - toMin(b.slot.startTime));
+                    const pills: Array<{ key: string; top: number; height: number; mins: number }> = [];
+                    for (let i = 0; i < sorted.length - 1; i++) {
+                      const aEnd = toMin(sorted[i].slot.endTime);
+                      const bStart = toMin(sorted[i + 1].slot.startTime);
+                      const gap = bStart - aEnd;
+                      if (gap >= 20) {
+                        const gapTop = ((aEnd - minMin) / Math.max(1, maxMin - minMin)) * (endHour - startHour) * 48;
+                        const gapH = (gap / Math.max(1, maxMin - minMin)) * (endHour - startHour) * 48;
+                        pills.push({ key: `gap-${i}`, top: gapTop, height: gapH, mins: gap });
+                      }
+                    }
+                    return pills.map((p) => (
+                      <div key={p.key}
+                           className="absolute left-1 right-1 rounded border border-dashed border-emerald-300 bg-emerald-50/60 flex items-center justify-center text-[10px] font-semibold text-emerald-800"
+                           style={{ top: `${p.top}px`, height: `${p.height}px` }}>
+                        ☕ Prep · {p.mins} min
+                      </div>
+                    ));
+                  })()}
                   {/* Entry blocks */}
                   {dayCells.map((c) => {
                     const startM = toMin(c.slot.startTime);

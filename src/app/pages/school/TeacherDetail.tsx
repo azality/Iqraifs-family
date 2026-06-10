@@ -161,12 +161,20 @@ export function TeacherDetail() {
         ignoreBranding
       />
 
-      <Link
-        to={`/school/orgs/${orgId}/admin/teachers`}
-        className="inline-flex items-center gap-1 text-sm text-indigo-700 hover:underline"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" /> Back to staff list
-      </Link>
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <Link
+          to={`/school/orgs/${orgId}/admin/teachers`}
+          className="inline-flex items-center gap-1 text-sm text-indigo-700 hover:underline"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" /> Back to staff list
+        </Link>
+        <Link
+          to={`/school/orgs/${orgId}/admin/teachers/${userId}/schedule`}
+          className="inline-flex items-center gap-1.5 text-sm font-medium rounded-md border border-indigo-200 bg-indigo-50 text-indigo-800 px-3 py-1.5 hover:bg-indigo-100"
+        >
+          View weekly schedule →
+        </Link>
+      </div>
 
       {notice && (
         <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
