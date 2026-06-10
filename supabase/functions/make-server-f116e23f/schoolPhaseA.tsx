@@ -2677,6 +2677,11 @@ export function installPhaseA(school: Hono) {
       logoUrl: (settings.logo_url as string | undefined) ?? null,
       themeColor: (settings.theme_color as string | undefined) ?? null,
       motto: (settings.school_motto as string | undefined) ?? null,
+      // School hours are public info — parents already know them.
+      // Used by the student timetable to set the time-axis bounds so
+      // every kid sees the same school day, not their own slot range.
+      schoolDayStart: (settings.school_day_start as string | undefined) ?? null,
+      schoolDayEnd: (settings.school_day_end as string | undefined) ?? null,
     });
   });
 

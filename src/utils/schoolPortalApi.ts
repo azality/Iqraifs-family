@@ -110,6 +110,8 @@ export interface PortalOrgBranding {
   logoUrl: string | null;
   themeColor: string | null;
   motto: string | null;
+  schoolDayStart?: string | null;
+  schoolDayEnd?: string | null;
 }
 
 export async function getOrgBySlug(
