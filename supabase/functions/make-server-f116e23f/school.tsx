@@ -36,6 +36,7 @@ import { installFinance } from "./schoolFinance.tsx";
 import { installPortal } from "./schoolPortal.tsx";
 import { installAnnounce } from "./schoolAnnounce.tsx";
 import { installTimetable } from "./schoolTimetable.tsx";
+import { installBehaviorCategories } from "./behaviorCategories.tsx";
 import { installFeePlans } from "./schoolFeePlans.tsx";
 import { installAssessment } from "./schoolAssessment.tsx";
 import { installReportCard } from "./schoolReportCard.tsx";
@@ -3109,6 +3110,7 @@ installPortal(school);
 // -----------------------------------------------------------------------------
 installAnnounce(school);
 installTimetable(school);
+installBehaviorCategories(school);
 installFeePlans(school);
 installAssessment(school);
 installReportCard(school);
