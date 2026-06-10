@@ -249,24 +249,51 @@ export function TeacherHome({ orgId, me }: Props) {
         </div>
       )}
 
-      {/* Today's schedule — only shown when the school has published
-          a timetable AND this teacher has at least one entry today. */}
-      {todayCells.length > 0 && (
+      {/* Up next — proactive view of the next 2 periods, not the whole
+          day. Anything that ended already gets dropped. "See full week"
+          links to the dedicated calendar page. */}
+      {todayCells.length > 0 && (() => {
+        const nowM = new Date().getHours() * 60 + new Date().getMinutes();
+        const toMin = (t: string | undefined): number => {
+          if (!t) return 0;
+          const [h, m] = t.split(":").map((n) => parseInt(n, 10) || 0);
+          return h * 60 + m;
+        };
+        const upcoming = todayCells
+          .filter((c) => toMin(c.slot.endTime) > nowM)
+          .slice(0, 2);
+        if (upcoming.length === 0) {
+          return (
+            <section className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-4 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-sm text-emerald-900 inline-flex items-center gap-2">
+                  <Calendar className="h-4 w-4 text-emerald-600" />
+                  All done for today — {todayCells.length} period{todayCells.length === 1 ? "" : "s"} taught.
+                </div>
+                <Link to={`/school/orgs/${orgId}/my-schedule`}
+                      className="text-xs text-indigo-600 hover:text-indigo-800 underline">
+                  See full week →
+                </Link>
+              </div>
+            </section>
+          );
+        }
+        return (
         <section className="rounded-xl border border-indigo-100 bg-white p-4 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-slate-700">
               <Calendar className="h-4 w-4 text-indigo-500" />
-              Today's schedule
+              Up next ({upcoming.length} of {todayCells.length} today)
             </h2>
             <Link
-              to={`/school/orgs/${orgId}/my-week`}
+              to={`/school/orgs/${orgId}/my-schedule`}
               className="text-xs text-indigo-600 hover:text-indigo-800 underline"
             >
               See full week →
             </Link>
           </div>
           <div className="space-y-1.5">
-            {todayCells.map((c) => {
+            {upcoming.map((c) => {
               const covering = c.substitution?.role === "covering";
               const covered = c.substitution?.role === "covered";
               return (
@@ -316,7 +343,8 @@ export function TeacherHome({ orgId, me }: Props) {
             })}
           </div>
         </section>
-      )}
+        );
+      })()}
 
       {/* Roll-call nudge */}
       {!loading && needRollCall.length > 0 && (
