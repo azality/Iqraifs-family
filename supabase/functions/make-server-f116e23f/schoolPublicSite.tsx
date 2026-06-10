@@ -109,7 +109,6 @@ export function installPublicSite(school: Hono): void {
       .select("id, title, body, created_at")
       .eq("org_id", orgId)
       .eq("publish_publicly", true)
-      .is("archived_at", null)
       .order("created_at", { ascending: false })
       .limit(5);
 
