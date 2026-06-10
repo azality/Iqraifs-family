@@ -53,6 +53,7 @@ import { HifzProgress } from "./pages/school/HifzProgress";
 import { AdminDashboard } from "./pages/school/AdminDashboard";
 import { ManageClasses } from "./pages/school/ManageClasses";
 import { YearRollover } from "./pages/school/YearRollover";
+import { SchoolGroupDashboard } from "./pages/school/SchoolGroupDashboard";
 import { ManageStudents } from "./pages/school/ManageStudents";
 import { StudentDetail } from "./pages/school/StudentDetail";
 import { StudentReportCard } from "./pages/school/StudentReportCard";
@@ -454,6 +455,8 @@ export const router = createBrowserRouter([
           // "no school access" if the user has neither principal nor
           // teacher rows in user_roles.
           { path: "school", element: <RequireParentRole><SchoolHome /></RequireParentRole> },
+          // Multi-campus (school_group) dashboard — chain principal lands here.
+          { path: "school/school-groups/:groupId", element: <RequireParentRole><SchoolGroupDashboard /></RequireParentRole> },
           { path: "school/_design", element: <RequireParentRole><_DesignSystemPreview /></RequireParentRole> },
           { path: "school/classes/:classId", element: <RequireParentRole><ClassDetail /></RequireParentRole> },
           { path: "school/children/:childId/hifz", element: <RequireParentRole><HifzProgress /></RequireParentRole> },
