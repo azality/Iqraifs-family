@@ -4115,5 +4115,45 @@ export const schoolSearch = (
 ): Promise<SchoolSearchResponse> =>
   apiCall(`/school/orgs/${orgId}/search?q=${encodeURIComponent(q)}&limit=${limit}`);
 
+// =============================================================================
+// Year rollover (#9)
+// =============================================================================
+export type RolloverAction = "promote" | "repeat" | "graduate" | "transferred" | "withdrawn";
+
+export interface RolloverPreviewStudent {
+  id: string; fullName: string; grNumber: string;
+  currentSection: { id: string; name: string };
+}
+export interface RolloverPreviewClass {
+  class: { id: string; name: string; displayOrder: number };
+  nextClass: { id: string; name: string } | null;
+  nextSections: Array<{ id: string; name: string }>;
+  students: RolloverPreviewStudent[];
+}
+export interface RolloverPreview { classes: RolloverPreviewClass[] }
+
+export const getYearRolloverPreview = (orgId: string): Promise<RolloverPreview> =>
+  apiCall(`/school/orgs/${orgId}/year-rollover/preview`);
+
+export interface RolloverDecision {
+  studentId: string;
+  action: RolloverAction;
+  toSectionId?: string | null;
+}
+export interface RolloverSummary {
+  counts: Record<"promoted"|"repeated"|"graduated"|"transferred"|"withdrawn"|"skipped"|"errored", number>;
+  errors: Array<{ studentId: string; reason: string }>;
+  feePlansCloned?: number;
+  feePlanError?: string;
+}
+export const executeYearRollover = (
+  orgId: string,
+  body: { fromYear: string; toYear: string; decisions: RolloverDecision[] },
+): Promise<{ ok: true; summary: RolloverSummary }> =>
+  apiCall(`/school/orgs/${orgId}/year-rollover/execute`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
 // Re-export apiCall so callers can hit ad-hoc endpoints without a second import.
 export { apiCall };
