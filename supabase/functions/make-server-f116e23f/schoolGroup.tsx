@@ -20,6 +20,7 @@
 
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
+import { todayInOrgTz } from "./tz.ts";
 
 async function callerOrgsInGroup(
   userId: string,
@@ -125,23 +126,106 @@ export function installSchoolGroup(school: Hono): void {
     if (orgIds.length === 0) {
       return c.json({ totals: { activeStudents: 0, campuses: 0 }, perCampus: [] });
     }
-    // Per-campus active student counts. One COUNT per org keeps it
-    // simple and Postgres-cached.
-    const perCampus: Array<{ orgId: string; name: string; activeStudents: number }> = [];
-    let totalActive = 0;
+    // Per-campus metrics (Phase 5). Each campus contributes:
+    //   activeStudents — non-archived, status='active' student count
+    //   attendancePct  — today's present rate (school-day tz)
+    //   feesCollected  — sum(amount_paid) for current period
+    //   feesInvoiced   — sum(amount_due) for current period
+    //   behavior       — positive vs concern this calendar month
+    //
+    // One pass per metric keeps the SQL simple; the count is small
+    // (Iqra's 4 campuses) so we don't bother batching.
+    const today = todayInOrgTz();
+    const period = today.slice(0, 7); // YYYY-MM
+    const monthStart = `${period}-01T00:00:00Z`;
+
+    type Campus = {
+      orgId: string; name: string;
+      activeStudents: number;
+      attendancePct: number | null;
+      feesCollected: number; feesInvoiced: number;
+      behavior: { positive: number; concern: number };
+    };
+    const perCampus: Campus[] = [];
+
+    let chainActive = 0;
+    let chainPresent = 0, chainAttRows = 0;
+    let chainCollected = 0, chainInvoiced = 0;
+    let chainPositive = 0, chainConcern = 0;
+
     for (const o of orgs ?? []) {
-      const { count } = await serviceRoleClient
+      const orgId = (o as any).id as string;
+
+      // Active students
+      const { count: activeCount } = await serviceRoleClient
         .from("student")
         .select("id", { count: "exact", head: true })
-        .eq("org_id", (o as any).id)
+        .eq("org_id", orgId)
         .eq("status", "active")
         .is("archived_at", null);
-      const n = count ?? 0;
-      totalActive += n;
-      perCampus.push({ orgId: (o as any).id, name: (o as any).name, activeStudents: n });
+      const activeStudents = activeCount ?? 0;
+      chainActive += activeStudents;
+
+      // Attendance today — present / total
+      const { data: attRows } = await serviceRoleClient
+        .from("school_attendance")
+        .select("status")
+        .eq("org_id", orgId)
+        .eq("attendance_date", today);
+      const total = (attRows ?? []).length;
+      const present = (attRows ?? []).filter((r: any) => r.status === "present").length;
+      const attendancePct = total > 0 ? (present / total) * 100 : null;
+      chainPresent += present;
+      chainAttRows += total;
+
+      // Fees for current period
+      const { data: feeRows } = await serviceRoleClient
+        .from("fee_status")
+        .select("amount_due, amount_paid")
+        .eq("org_id", orgId)
+        .eq("period", period);
+      let collected = 0, invoiced = 0;
+      for (const f of (feeRows ?? []) as any[]) {
+        collected += Number(f.amount_paid ?? 0);
+        invoiced += Number(f.amount_due ?? 0);
+      }
+      chainCollected += collected;
+      chainInvoiced += invoiced;
+
+      // Behavior this month
+      const { data: behRows } = await serviceRoleClient
+        .from("behavior_note")
+        .select("kind")
+        .eq("org_id", orgId)
+        .gte("observed_at", monthStart);
+      let positive = 0, concern = 0;
+      for (const b of (behRows ?? []) as any[]) {
+        if (b.kind === "positive") positive++;
+        else if (b.kind === "concern") concern++;
+      }
+      chainPositive += positive;
+      chainConcern += concern;
+
+      perCampus.push({
+        orgId, name: (o as any).name,
+        activeStudents,
+        attendancePct,
+        feesCollected: collected, feesInvoiced: invoiced,
+        behavior: { positive, concern },
+      });
     }
+
     return c.json({
-      totals: { activeStudents: totalActive, campuses: perCampus.length },
+      totals: {
+        activeStudents: chainActive,
+        campuses: perCampus.length,
+        attendancePct: chainAttRows > 0 ? (chainPresent / chainAttRows) * 100 : null,
+        feesCollected: chainCollected,
+        feesInvoiced: chainInvoiced,
+        behavior: { positive: chainPositive, concern: chainConcern },
+      },
+      period,
+      attendanceDate: today,
       perCampus,
     });
   });

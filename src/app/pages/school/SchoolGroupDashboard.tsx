@@ -15,7 +15,7 @@
 
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
-import { Building2, Users, ArrowRight } from "lucide-react";
+import { Building2, Users, ArrowRight, CheckCircle2, DollarSign, TrendingUp, AlertTriangle } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
 import {
   getSchoolGroup, getSchoolGroupSnapshot,
@@ -36,8 +36,13 @@ export function SchoolGroupDashboard() {
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load"));
   }, [groupId]);
 
-  const studentsByOrg = new Map<string, number>();
-  for (const c of snap?.perCampus ?? []) studentsByOrg.set(c.orgId, c.activeStudents);
+  const metricsByOrg = new Map<string, typeof snap extends null ? never : (NonNullable<typeof snap>)["perCampus"][number]>();
+  for (const c of snap?.perCampus ?? []) metricsByOrg.set(c.orgId, c);
+  const fmtPct = (n: number | null) => n === null ? "—" : `${n.toFixed(0)}%`;
+  const fmtMoney = (n: number) => n === 0 ? "—" : new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(n);
+  const collectionRate = snap && snap.totals.feesInvoiced > 0
+    ? (snap.totals.feesCollected / snap.totals.feesInvoiced) * 100
+    : null;
 
   return (
     <div className="space-y-4 p-4">
@@ -55,7 +60,7 @@ export function SchoolGroupDashboard() {
       )}
 
       {snap && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           <Card>
             <CardContent className="p-4">
               <div className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1">
@@ -67,9 +72,42 @@ export function SchoolGroupDashboard() {
           <Card>
             <CardContent className="p-4">
               <div className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1">
-                <Users className="h-3.5 w-3.5 text-emerald-500" /> Active students (chain)
+                <Users className="h-3.5 w-3.5 text-emerald-500" /> Students
               </div>
               <div className="text-2xl font-semibold mt-1">{snap.totals.activeStudents}</div>
+              <div className="text-[11px] text-slate-500 mt-0.5">Active across chain</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <div className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1">
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> Attendance today
+              </div>
+              <div className="text-2xl font-semibold mt-1">{fmtPct(snap.totals.attendancePct)}</div>
+              <div className="text-[11px] text-slate-500 mt-0.5">{snap.attendanceDate}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <div className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1">
+                <DollarSign className="h-3.5 w-3.5 text-amber-500" /> Fees this period
+              </div>
+              <div className="text-2xl font-semibold mt-1">{fmtMoney(snap.totals.feesCollected)}</div>
+              <div className="text-[11px] text-slate-500 mt-0.5">
+                {collectionRate === null ? "of —" : `${collectionRate.toFixed(0)}% of ${fmtMoney(snap.totals.feesInvoiced)}`}
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <div className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1">
+                <TrendingUp className="h-3.5 w-3.5 text-indigo-500" /> Behavior this month
+              </div>
+              <div className="text-sm font-semibold mt-1 flex items-baseline gap-2">
+                <span className="text-emerald-700">+{snap.totals.behavior.positive}</span>
+                <span className="text-amber-700">−{snap.totals.behavior.concern}</span>
+              </div>
+              <div className="text-[11px] text-slate-500 mt-0.5">positive · concern</div>
             </CardContent>
           </Card>
         </div>
@@ -100,9 +138,40 @@ export function SchoolGroupDashboard() {
                   </div>
                   <div className="text-sm font-semibold text-slate-900">{c.name}</div>
                   <div className="text-[11px] text-slate-500 mt-0.5">{c.slug}</div>
-                  <div className="text-xs text-slate-600 mt-2">
-                    <span className="font-medium">{studentsByOrg.get(c.orgId) ?? 0}</span> active students
-                  </div>
+                  {(() => {
+                    const m = metricsByOrg.get(c.orgId);
+                    if (!m) return (
+                      <div className="text-xs text-slate-400 mt-2">No data yet</div>
+                    );
+                    const collected = m.feesInvoiced > 0
+                      ? (m.feesCollected / m.feesInvoiced) * 100 : null;
+                    return (
+                      <div className="mt-2 space-y-1 text-xs text-slate-600">
+                        <div className="flex items-center justify-between">
+                          <span>Students</span>
+                          <span className="font-medium">{m.activeStudents}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span>Attendance</span>
+                          <span className="font-medium">{fmtPct(m.attendancePct)}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span>Fees</span>
+                          <span className="font-medium">
+                            {collected === null ? "—" : `${collected.toFixed(0)}%`}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span>Behavior</span>
+                          <span className="font-medium">
+                            <span className="text-emerald-700">+{m.behavior.positive}</span>
+                            {" / "}
+                            <span className="text-amber-700">−{m.behavior.concern}</span>
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </CardContent>
               </Card>
             </Link>
