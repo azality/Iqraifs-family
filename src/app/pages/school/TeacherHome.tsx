@@ -237,7 +237,7 @@ export function TeacherHome({ orgId, me }: Props) {
   }, [sections]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-12">
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
@@ -284,6 +284,45 @@ export function TeacherHome({ orgId, me }: Props) {
           the old full-day listing. */}
       {upcoming !== null && (
         <UpNextCard items={upcoming} audience="teacher" orgId={orgId} />
+      )}
+
+      {/* Sections needing attention — surfaced near the top so a teacher
+          sees what's slipping before scrolling past today's plan. */}
+      {sectionsToWatch.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
+            Needs attention
+          </h2>
+          <div className="rounded-xl border border-slate-200 bg-white">
+            <ul className="divide-y divide-slate-100">
+              {sectionsToWatch.map((s) => (
+                <li key={s.sectionId}>
+                  <Link
+                    to={`/school/orgs/${orgId}/sections/${s.sectionId}`}
+                    className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-slate-900">
+                        {s.className} · {s.sectionName}
+                      </div>
+                      <div className="mt-0.5 text-xs text-slate-500">
+                        {s.status === "flagged"
+                          ? "Attendance below 60% this period"
+                          : "Attendance trending down"}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className={"text-sm font-semibold " + pctTone(s.attendancePct)}>
+                        {Math.round(s.attendancePct)}%
+                      </span>
+                      <ChevronRight className="h-4 w-4 text-slate-400" />
+                    </div>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
       )}
 
       {/* Legacy: substitutions for today still surface here so the
@@ -400,7 +439,7 @@ export function TeacherHome({ orgId, me }: Props) {
       )}
 
       {sections && sections.length > 0 && (
-        <section className="space-y-3">
+        <section id="my-classes" className="space-y-3 scroll-mt-20">
           <div className="flex items-end justify-between">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
               My classes
@@ -492,7 +531,7 @@ export function TeacherHome({ orgId, me }: Props) {
           same subject across sections) see the academic-content view of
           their workload rather than only the homeroom view above. */}
       {mySubjects.length > 0 && (
-        <section className="space-y-3">
+        <section id="my-subjects" className="space-y-3 scroll-mt-20">
           <div className="flex items-end justify-between">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
               My subjects
@@ -783,44 +822,6 @@ export function TeacherHome({ orgId, me }: Props) {
             </div>
           </section>
         )}
-
-      {/* Sections needing attention */}
-      {sectionsToWatch.length > 0 && (
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
-            Needs attention
-          </h2>
-          <div className="rounded-xl border border-slate-200 bg-white">
-            <ul className="divide-y divide-slate-100">
-              {sectionsToWatch.map((s) => (
-                <li key={s.sectionId}>
-                  <Link
-                    to={`/school/orgs/${orgId}/sections/${s.sectionId}`}
-                    className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50"
-                  >
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium text-slate-900">
-                        {s.className} · {s.sectionName}
-                      </div>
-                      <div className="mt-0.5 text-xs text-slate-500">
-                        {s.status === "flagged"
-                          ? "Attendance below 60% this period"
-                          : "Attendance trending down"}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className={"text-sm font-semibold " + pctTone(s.attendancePct)}>
-                        {Math.round(s.attendancePct)}%
-                      </span>
-                      <ChevronRight className="h-4 w-4 text-slate-400" />
-                    </div>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </section>
-      )}
 
       {/* Recent behavior notes */}
       {notes.length > 0 && (

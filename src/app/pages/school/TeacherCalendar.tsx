@@ -17,9 +17,11 @@ import { Button } from "../../components/ui/button";
 import {
   getMyTeacherTimetable,
   getOrganization,
+  createMyTimeOff,
   type MyTimetableCell,
 } from "../../../utils/schoolApi";
-import { sectionTitleClasses } from "../../components/school-ui";
+import { sectionTitleClasses, TimeOffModal } from "../../components/school-ui";
+import { Home, BookOpen, Users, CalendarOff } from "lucide-react";
 
 const DAYS = [
   { num: 1, short: "Mon", long: "Monday" },
@@ -68,6 +70,7 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<ViewMode>("week");
   const [showConflicts, setShowConflicts] = useState(false);
+  const [showTimeOff, setShowTimeOff] = useState(false);
   /** Office hours from org settings — used to anchor the time axis so
    *  staff see the whole working day even when slots cluster mid-day. */
   const [officeRange, setOfficeRange] = useState<{ start: string | null; end: string | null }>({ start: null, end: null });
@@ -209,11 +212,32 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
   for (let h = startHour; h <= endHour; h++) hours.push(h);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 pb-12">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <Link to={backTo ?? `/school/orgs/${orgId}`}>
-          <Button variant="outline" size="sm"><ArrowLeft className="h-3.5 w-3.5 mr-1" /> Back</Button>
-        </Link>
+        {ownership === "self" ? (
+          <nav className="flex flex-wrap items-center gap-1">
+            <Link to={`/school/orgs/${orgId}`}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">
+              <Home className="h-3 w-3" /> Dashboard
+            </Link>
+            <Link to={`/school/orgs/${orgId}#my-classes`}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">
+              <Users className="h-3 w-3" /> My classes
+            </Link>
+            <Link to={`/school/orgs/${orgId}#my-subjects`}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">
+              <BookOpen className="h-3 w-3" /> My subjects
+            </Link>
+            <button onClick={() => setShowTimeOff(true)}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100">
+              <CalendarOff className="h-3 w-3" /> Request time off
+            </button>
+          </nav>
+        ) : (
+          <Link to={backTo ?? `/school/orgs/${orgId}`}>
+            <Button variant="outline" size="sm"><ArrowLeft className="h-3.5 w-3.5 mr-1" /> Back</Button>
+          </Link>
+        )}
         <div className="flex items-center gap-2">
           {/* Today / Week toggle */}
           <div className="inline-flex items-center rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
@@ -450,6 +474,14 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
           ownership={ownership}
           orgId={orgId}
           onClose={() => setShowConflicts(false)}
+        />
+      )}
+
+      {showTimeOff && (
+        <TimeOffModal
+          audience="teacher"
+          onClose={() => setShowTimeOff(false)}
+          onSubmit={(body) => createMyTimeOff(orgId, body)}
         />
       )}
     </div>
