@@ -25,8 +25,31 @@ async function callerOrgsInGroup(
   userId: string,
   groupId: string,
 ): Promise<string[]> {
-  // The orgs the caller has admin/principal on, intersected with the
-  // orgs that belong to this group. Returns the list (possibly empty).
+  // Two paths to access:
+  //   1. group-scoped role — admin/principal directly on the school_group.
+  //      Grants access to every member org in one row.
+  //   2. org-scoped role — admin/principal on at least one member org.
+  //      Limited access; only the orgs they hold a role in count.
+  // Either path returns the full member-org list (the dashboard shows
+  // all campuses regardless of per-org admin coverage; per-campus deep-
+  // links re-check org-level access on landing).
+  const { data: groupRoles } = await serviceRoleClient
+    .from("user_roles")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("scope_type", "school_group")
+    .eq("scope_id", groupId)
+    .in("role_type", ["principal", "admin"])
+    .is("revoked_at", null)
+    .limit(1);
+  if (groupRoles && groupRoles.length > 0) {
+    const { data: orgs } = await serviceRoleClient
+      .from("organizations")
+      .select("id")
+      .eq("school_group_id", groupId);
+    return (orgs ?? []).map((o: any) => o.id);
+  }
+  // Org-scoped fallback.
   const { data: roleRows } = await serviceRoleClient
     .from("user_roles")
     .select("scope_id, role_type")
@@ -129,6 +152,16 @@ export function installSchoolGroup(school: Hono): void {
   school.get("/me/school-groups", async (c) => {
     const userId = getAuthUserId(c);
     if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    // Group-scoped roles count directly.
+    const { data: directGroupRoles } = await serviceRoleClient
+      .from("user_roles")
+      .select("scope_id")
+      .eq("user_id", userId)
+      .eq("scope_type", "school_group")
+      .in("role_type", ["principal", "admin"])
+      .is("revoked_at", null);
+    const directGroupIds = (directGroupRoles ?? []).map((r: any) => r.scope_id);
+    // Plus any group reachable via an org-scoped role.
     const { data: roleRows } = await serviceRoleClient
       .from("user_roles")
       .select("scope_id")
@@ -137,13 +170,16 @@ export function installSchoolGroup(school: Hono): void {
       .in("role_type", ["principal", "admin"])
       .is("revoked_at", null);
     const orgIds = Array.from(new Set((roleRows ?? []).map((r: any) => r.scope_id)));
-    if (orgIds.length === 0) return c.json({ groups: [] });
-    const { data: orgs } = await serviceRoleClient
-      .from("organizations")
-      .select("school_group_id")
-      .in("id", orgIds)
-      .not("school_group_id", "is", null);
-    const groupIds = Array.from(new Set((orgs ?? []).map((o: any) => o.school_group_id).filter(Boolean)));
+    let viaOrgGroupIds: string[] = [];
+    if (orgIds.length > 0) {
+      const { data: orgs } = await serviceRoleClient
+        .from("organizations")
+        .select("school_group_id")
+        .in("id", orgIds)
+        .not("school_group_id", "is", null);
+      viaOrgGroupIds = (orgs ?? []).map((o: any) => o.school_group_id).filter(Boolean);
+    }
+    const groupIds = Array.from(new Set([...directGroupIds, ...viaOrgGroupIds]));
     if (groupIds.length === 0) return c.json({ groups: [] });
     const { data: groups } = await serviceRoleClient
       .from("school_group")
