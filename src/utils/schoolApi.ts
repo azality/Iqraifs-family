@@ -132,6 +132,10 @@ export const updateOrganization = (
     logo_url: string;
     theme_color: string;
     school_motto: string;
+    school_day_start: string;  // HH:MM
+    school_day_end: string;    // HH:MM
+    office_day_start: string;  // HH:MM
+    office_day_end: string;    // HH:MM
   }>,
 ): Promise<OrganizationDetail> =>
   apiCall(`/school/orgs/${orgId}`, {

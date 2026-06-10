@@ -16,6 +16,7 @@ import { Calendar, AlertTriangle, ArrowLeft } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import {
   getMyTeacherTimetable,
+  getOrganization,
   type MyTimetableCell,
 } from "../../../utils/schoolApi";
 import { sectionTitleClasses } from "../../components/school-ui";
@@ -66,15 +67,36 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
   const [cells, setCells] = useState<MyTimetableCell[] | null>(cellsOverride ?? null);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<ViewMode>("week");
+  const [showConflicts, setShowConflicts] = useState(false);
+  /** Office hours from org settings — used to anchor the time axis so
+   *  staff see the whole working day even when slots cluster mid-day. */
+  const [officeRange, setOfficeRange] = useState<{ start: string | null; end: string | null }>({ start: null, end: null });
+  const [schoolRange, setSchoolRange] = useState<{ start: string | null; end: string | null }>({ start: null, end: null });
 
   useEffect(() => {
     if (cellsOverride !== undefined) { setCells(cellsOverride); return; }
     if (!orgId) return;
-    // No `day` filter — backend returns the whole week.
     getMyTeacherTimetable(orgId)
       .then((r) => setCells(r.cells))
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load"));
   }, [orgId, cellsOverride]);
+
+  useEffect(() => {
+    if (!orgId) return;
+    getOrganization(orgId)
+      .then((r) => {
+        const s: any = r.organization.settings ?? {};
+        setOfficeRange({
+          start: typeof s.office_day_start === "string" ? s.office_day_start : null,
+          end: typeof s.office_day_end === "string" ? s.office_day_end : null,
+        });
+        setSchoolRange({
+          start: typeof s.school_day_start === "string" ? s.school_day_start : null,
+          end: typeof s.school_day_end === "string" ? s.school_day_end : null,
+        });
+      })
+      .catch(() => { /* keep defaults */ });
+  }, [orgId]);
 
   // Group entries by day (1..6). Compute total grid bounds so the time
   // axis only spans the actual school day, not a fixed 8am–5pm window.
@@ -107,8 +129,12 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
     }
     if (lo === 24 * 60) lo = 8 * 60;
     if (hi === 0) hi = 17 * 60;
+    // Office hours extend the axis (so the early-arrival and after-school
+    // prep windows are visible even when no slot lives there).
+    if (officeRange.start) lo = Math.min(lo, toMin(officeRange.start));
+    if (officeRange.end)   hi = Math.max(hi, toMin(officeRange.end));
     return { byDay: out, minMin: lo, maxMin: hi, conflicts: conf };
-  }, [cells]);
+  }, [cells, officeRange.start, officeRange.end]);
 
   // Today (1..7).
   const todayDow = ((new Date().getDay() + 6) % 7) + 1;
@@ -203,10 +229,14 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
             ))}
           </div>
           {conflicts.size > 0 && (
-            <div className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
+            <button
+              type="button"
+              onClick={() => setShowConflicts(true)}
+              className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100"
+            >
               <AlertTriangle className="h-3.5 w-3.5" />
-              {conflicts.size / 2} conflict{conflicts.size / 2 === 1 ? "" : "s"}
-            </div>
+              {conflicts.size / 2} conflict{conflicts.size / 2 === 1 ? "" : "s"} — review
+            </button>
           )}
         </div>
       </div>
@@ -300,12 +330,41 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
               const dayCells = byDay[d.num] ?? [];
               return (
                 <div key={d.num} className="relative border-l border-slate-200">
-                  {/* Horizontal hour grid lines */}
-                  {hours.map((h, i) => (
-                    <div key={h}
+                  {/* Horizontal hour grid lines + lighter 30-min lines.
+                      30-min ticks make short periods readable without
+                      losing the hour rhythm. */}
+                  {hours.map((h) => (
+                    <div key={`h-${h}`}
                          className="absolute inset-x-0 border-t border-slate-100"
                          style={{ top: `${(h - startHour) * 48}px`, height: "0" }} />
                   ))}
+                  {hours.slice(0, -1).map((h) => (
+                    <div key={`h30-${h}`}
+                         className="absolute inset-x-0 border-t border-slate-50"
+                         style={{ top: `${(h - startHour) * 48 + 24}px`, height: "0" }} />
+                  ))}
+                  {/* School-hours shading — outside of school hours is
+                      faintly grey so the office-only window stands out. */}
+                  {schoolRange.start && schoolRange.end && (() => {
+                    const sStart = toMin(schoolRange.start);
+                    const sEnd = toMin(schoolRange.end);
+                    const before = ((sStart - minMin) / Math.max(1, maxMin - minMin)) * (endHour - startHour) * 48;
+                    const after = ((maxMin - sEnd) / Math.max(1, maxMin - minMin)) * (endHour - startHour) * 48;
+                    return (
+                      <>
+                        {before > 0 && (
+                          <div className="absolute inset-x-0 top-0 bg-slate-100/60 pointer-events-none"
+                               style={{ height: `${before}px` }}
+                               title={`Before school hours (${schoolRange.start})`} />
+                        )}
+                        {after > 0 && (
+                          <div className="absolute inset-x-0 bottom-0 bg-slate-100/60 pointer-events-none"
+                               style={{ height: `${after}px` }}
+                               title={`After school hours (${schoolRange.end})`} />
+                        )}
+                      </>
+                    );
+                  })()}
                   {/* Today highlight */}
                   {d.num === todayDow && (
                     <div className="absolute inset-0 bg-indigo-50/40 pointer-events-none" />
@@ -382,6 +441,97 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
           </div>
         </div>
       )}
+
+      {/* Conflicts dialog */}
+      {showConflicts && cells && (
+        <ConflictsDialog
+          cells={cells}
+          conflicts={conflicts}
+          ownership={ownership}
+          orgId={orgId}
+          onClose={() => setShowConflicts(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function ConflictsDialog({
+  cells, conflicts, ownership, orgId, onClose,
+}: {
+  cells: MyTimetableCell[];
+  conflicts: Set<string>;
+  ownership: "self" | "other";
+  orgId: string;
+  onClose: () => void;
+}) {
+  // Re-build pair list grouped by (day, time).
+  const pairs: Array<{ a: MyTimetableCell; b: MyTimetableCell; dayLabel: string }> = [];
+  const byDay = new Map<number, MyTimetableCell[]>();
+  for (const c of cells) {
+    if (!conflicts.has(c.entry.id)) continue;
+    const arr = byDay.get(c.slot.dayOfWeek) ?? [];
+    arr.push(c);
+    byDay.set(c.slot.dayOfWeek, arr);
+  }
+  const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const toM = (t: string) => { const [h, m] = t.split(":").map((n) => parseInt(n, 10) || 0); return h * 60 + m; };
+  for (const [day, list] of byDay) {
+    for (let i = 0; i < list.length; i++) {
+      for (let j = i + 1; j < list.length; j++) {
+        const a = list[i], b = list[j];
+        if (toM(a.slot.startTime) < toM(b.slot.endTime) && toM(b.slot.startTime) < toM(a.slot.endTime)) {
+          pairs.push({ a, b, dayLabel: dayNames[day - 1] ?? `Day ${day}` });
+        }
+      }
+    }
+  }
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[80vh] overflow-y-auto"
+           onClick={(e) => e.stopPropagation()}>
+        <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-slate-900 inline-flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-rose-600" />
+            {pairs.length} conflict{pairs.length === 1 ? "" : "s"} this week
+          </h3>
+          <button type="button" onClick={onClose}
+                  className="text-slate-400 hover:text-slate-700 text-xl leading-none">×</button>
+        </div>
+        <div className="p-4 space-y-3">
+          {pairs.length === 0 ? (
+            <div className="text-sm text-slate-500 italic">No conflicts.</div>
+          ) : pairs.map((p, i) => (
+            <div key={i} className="rounded-lg border border-rose-200 bg-rose-50/40 p-3">
+              <div className="text-xs font-semibold text-rose-900 mb-1.5">
+                {p.dayLabel} · {p.a.slot.startTime}–{p.a.slot.endTime}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                {[p.a, p.b].map((c, k) => (
+                  <div key={k} className="rounded border border-rose-100 bg-white px-2 py-1.5">
+                    <div className="font-medium text-slate-900">{c.entry.subjectName ?? "Slot"}</div>
+                    <div className="text-slate-500">{c.scopeLabel}</div>
+                    {c.entry.room && <div className="text-slate-500">Room {c.entry.room}</div>}
+                  </div>
+                ))}
+              </div>
+              {ownership === "self" ? (
+                <div className="mt-2 text-[11px] text-rose-700">
+                  Talk to the admin to resolve this clash.
+                </div>
+              ) : (
+                <div className="mt-2 text-right">
+                  <Link to={`/school/orgs/${orgId}/admin/timetable`}
+                        onClick={onClose}
+                        className="text-xs font-medium text-rose-700 hover:text-rose-900 underline">
+                    Open in Timetable editor →
+                  </Link>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
