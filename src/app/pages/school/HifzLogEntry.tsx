@@ -301,38 +301,27 @@ export function HifzLogEntry({
             </Select>
           </div>
 
-          {/* Mistakes count + tajweed note — the two highest-signal
-              quick-entry fields. Parents and head teachers both glance
-              at "how many mistakes today" trends. */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label>Mistakes today</Label>
-              <Input
-                type="number"
-                min={0}
-                value={mistakesCount === "" ? "" : mistakesCount}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setMistakesCount(v === "" ? "" : Math.max(0, Number(v) || 0));
-                }}
-                placeholder="0"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label>Tajweed note</Label>
-              <Input
-                value={tajweedNotes}
-                onChange={(e) => setTajweedNotes(e.target.value)}
-                placeholder="e.g. madd-letter weak"
-              />
-            </div>
+          {/* PR feat/hifz-collapse-fields:
+              Default form collapsed to one main remark + one optional action.
+              Power-user fields (mistakes, tajweed/fluency, juz/page, internal
+              note, targets, missed reason, parent_comments) live in Advanced.
+              All previous fields still send — backend/storage unchanged. */}
+          <div className="space-y-1">
+            <Label>Note (parent-visible)</Label>
+            <Textarea
+              value={teacherRemarks}
+              onChange={(e) => setTeacherRemarks(e.target.value)}
+              rows={3}
+              placeholder="One short summary the parent will read"
+            />
+            <p className="text-[11px] text-slate-500">
+              Replaces the old separate tajweed / fluency / internal note fields.
+              Use Advanced below if you need them.
+            </p>
           </div>
 
-          {/* Parent-facing fields. The point of separating them from
-              teacher notes: the parent app only ever sees what the
-              teacher consciously chose to share. */}
           <div className="space-y-1 rounded-lg border border-emerald-200 bg-emerald-50/40 p-3">
-            <Label className="text-emerald-900">What should the parent do tonight?</Label>
+            <Label className="text-emerald-900">What should the parent do tonight? (optional)</Label>
             <Input
               value={parentAction}
               onChange={(e) => setParentAction(e.target.value)}
@@ -344,33 +333,43 @@ export function HifzLogEntry({
             </p>
           </div>
 
-          {/* Notes — internal teacher note. Kept as the bottom field of
-              the always-visible section because the existing form
-              shipped with it. */}
-          <div className="space-y-1">
-            <Label>Internal notes (teacher only)</Label>
-            <Textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              rows={2}
-              placeholder="Notes only staff see"
-            />
-          </div>
-
           {/* Advanced — collapsed by default. Holds the longer-form
-              fields most teachers don't need every day: juz/page
-              anchors, fluency notes, teacher remarks, targets,
-              missed-target reason, parent comments. */}
+              fields most teachers don't need every day: mistakes count,
+              juz/page anchors, tajweed/fluency notes, internal note,
+              targets, missed-target reason, parent_comments. */}
           <button
             type="button"
             onClick={() => setAdvancedOpen((v) => !v)}
             className="w-full text-left text-xs font-medium text-indigo-700 hover:underline"
           >
-            {advancedOpen ? "− Hide" : "+ Show"} additional fields (juz / page / fluency / targets)
+            {advancedOpen ? "− Hide" : "+ Show"} advanced fields (mistakes / juz / tajweed / targets)
           </button>
 
           {advancedOpen && (
             <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-3 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label>Mistakes today</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={mistakesCount === "" ? "" : mistakesCount}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setMistakesCount(v === "" ? "" : Math.max(0, Number(v) || 0));
+                    }}
+                    placeholder="0"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>Tajweed note</Label>
+                  <Input
+                    value={tajweedNotes}
+                    onChange={(e) => setTajweedNotes(e.target.value)}
+                    placeholder="e.g. madd-letter weak"
+                  />
+                </div>
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label>Juz / Para</Label>
@@ -409,16 +408,16 @@ export function HifzLogEntry({
                 />
               </div>
               <div className="space-y-1">
-                <Label>Teacher remarks (parent-visible)</Label>
+                <Label>Internal note (teacher only)</Label>
                 <Textarea
-                  value={teacherRemarks}
-                  onChange={(e) => setTeacherRemarks(e.target.value)}
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
                   rows={2}
-                  placeholder="Free-form summary the parent sees"
+                  placeholder="Not shown to the parent"
                 />
               </div>
               <div className="space-y-1">
-                <Label>Parent-facing comments</Label>
+                <Label>Parent-facing extra comment</Label>
                 <Textarea
                   value={parentComments}
                   onChange={(e) => setParentComments(e.target.value)}
