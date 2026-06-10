@@ -2548,6 +2548,7 @@ export type Database = {
           org_type: string
           plan: string
           purge_after: string | null
+          school_group_id: string | null
           settings: Json
           slug: string
           trial_ends_at: string | null
@@ -2562,6 +2563,7 @@ export type Database = {
           org_type?: string
           plan?: string
           purge_after?: string | null
+          school_group_id?: string | null
           settings?: Json
           slug: string
           trial_ends_at?: string | null
@@ -2576,12 +2578,21 @@ export type Database = {
           org_type?: string
           plan?: string
           purge_after?: string | null
+          school_group_id?: string | null
           settings?: Json
           slug?: string
           trial_ends_at?: string | null
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "organizations_school_group_id_fkey"
+            columns: ["school_group_id"]
+            isOneToOne: false
+            referencedRelation: "school_group"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       parent: {
         Row: {
@@ -2601,6 +2612,7 @@ export type Database = {
           org_id: string
           phone: string | null
           relationship: string | null
+          school_group_id: string | null
           title: string | null
         }
         Insert: {
@@ -2620,6 +2632,7 @@ export type Database = {
           org_id: string
           phone?: string | null
           relationship?: string | null
+          school_group_id?: string | null
           title?: string | null
         }
         Update: {
@@ -2639,6 +2652,7 @@ export type Database = {
           org_id?: string
           phone?: string | null
           relationship?: string | null
+          school_group_id?: string | null
           title?: string | null
         }
         Relationships: [
@@ -2654,6 +2668,13 @@ export type Database = {
             columns: ["org_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parent_school_group_id_fkey"
+            columns: ["school_group_id"]
+            isOneToOne: false
+            referencedRelation: "school_group"
             referencedColumns: ["id"]
           },
         ]
@@ -3396,6 +3417,30 @@ export type Database = {
           },
         ]
       }
+      school_group: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          settings: Json
+          slug: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          settings?: Json
+          slug: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          settings?: Json
+          slug?: string
+        }
+        Relationships: []
+      }
       section_subject: {
         Row: {
           archived_at: string | null
@@ -3466,6 +3511,7 @@ export type Database = {
           accountant_signed_by: string | null
           admission_date: string | null
           applying_for_grade: string | null
+          archived_at: string | null
           avail_transport: boolean | null
           blood_group: string | null
           class_section_id: string | null
@@ -3497,6 +3543,7 @@ export type Database = {
           referral_source: string | null
           registration_no: string | null
           religion: string | null
+          status: string
           student_gmail: string | null
           suspension_details: string | null
           updated_at: string
@@ -3507,6 +3554,7 @@ export type Database = {
           accountant_signed_by?: string | null
           admission_date?: string | null
           applying_for_grade?: string | null
+          archived_at?: string | null
           avail_transport?: boolean | null
           blood_group?: string | null
           class_section_id?: string | null
@@ -3538,6 +3586,7 @@ export type Database = {
           referral_source?: string | null
           registration_no?: string | null
           religion?: string | null
+          status?: string
           student_gmail?: string | null
           suspension_details?: string | null
           updated_at?: string
@@ -3548,6 +3597,7 @@ export type Database = {
           accountant_signed_by?: string | null
           admission_date?: string | null
           applying_for_grade?: string | null
+          archived_at?: string | null
           avail_transport?: boolean | null
           blood_group?: string | null
           class_section_id?: string | null
@@ -3579,6 +3629,7 @@ export type Database = {
           referral_source?: string | null
           registration_no?: string | null
           religion?: string | null
+          status?: string
           student_gmail?: string | null
           suspension_details?: string | null
           updated_at?: string
@@ -4331,6 +4382,44 @@ export type Database = {
             columns: ["subject_id"]
             isOneToOne: false
             referencedRelation: "section_subject"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      year_rollover: {
+        Row: {
+          executed_at: string
+          executed_by: string | null
+          from_year: string
+          id: string
+          org_id: string
+          summary: Json
+          to_year: string
+        }
+        Insert: {
+          executed_at?: string
+          executed_by?: string | null
+          from_year: string
+          id?: string
+          org_id: string
+          summary?: Json
+          to_year: string
+        }
+        Update: {
+          executed_at?: string
+          executed_by?: string | null
+          from_year?: string
+          id?: string
+          org_id?: string
+          summary?: Json
+          to_year?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "year_rollover_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
             referencedColumns: ["id"]
           },
         ]
