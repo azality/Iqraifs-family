@@ -4239,6 +4239,10 @@ export interface PublicSiteResponse {
     id: string; name: string; slug: string;
     logoUrl: string | null; themeColor: string | null; motto: string | null;
   };
+  // Phase 2 live data — optional so old responses still parse.
+  timings?: { firstStart: string | null; lastEnd: string | null; daysOfWeek: number[] };
+  announcements?: Array<{ id: string; title: string; body: string; createdAt: string }>;
+  term?: { name: string; startDate: string; endDate: string } | null;
 }
 // No-auth fetch — public site is reachable without a session, so we can't
 // use apiCall (which redirects to login on missing access token).

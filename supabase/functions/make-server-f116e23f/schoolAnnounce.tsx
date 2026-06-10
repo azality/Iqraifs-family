@@ -410,6 +410,7 @@ export function installAnnounce(school: Hono): void {
       body: bodyText,
       attachments,
       expires_at: expiresAt,
+      publish_publicly: !!body?.publishPublicly,
     };
 
     const { data: ins, error: insErr } = await serviceRoleClient

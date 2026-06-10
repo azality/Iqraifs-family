@@ -89,6 +89,7 @@ interface FormState {
   audienceStudentIds: string[];
   expiresAt: string;
   attachments: Array<{ label: string; url: string }>;
+  publishPublicly: boolean;
 }
 
 const EMPTY_FORM: FormState = {
@@ -102,6 +103,7 @@ const EMPTY_FORM: FormState = {
   audienceStudentIds: [],
   expiresAt: "",
   attachments: [],
+  publishPublicly: false,
 };
 
 export function AnnouncementComposer() {
@@ -228,6 +230,7 @@ export function AnnouncementComposer() {
         (a) => a.label.trim() && a.url.trim(),
       );
     }
+    (payload as any).publishPublicly = form.publishPublicly;
     setSubmitting(true);
     try {
       await postAnnouncement(orgId, payload);
@@ -561,6 +564,25 @@ export function AnnouncementComposer() {
             value={form.expiresAt}
             onChange={(e) => setForm({ ...form, expiresAt: e.target.value })}
           />
+        </div>
+
+        {/* Public-site visibility (Phase 2 of the public school site). */}
+        <div className="rounded-md border border-slate-200 bg-white px-3 py-2.5">
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={form.publishPublicly}
+              onChange={(e) => setForm({ ...form, publishPublicly: e.target.checked })}
+            />
+            <div>
+              <div className="text-sm font-medium text-slate-900">Also publish on the public school site</div>
+              <div className="text-xs text-slate-500">
+                Visitors at /your-slug will see this in the "Latest news" section.
+                Use for admissions / events / closures.
+              </div>
+            </div>
+          </label>
         </div>
 
         <div className="space-y-2">
