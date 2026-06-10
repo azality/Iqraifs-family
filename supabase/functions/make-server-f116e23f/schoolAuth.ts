@@ -63,12 +63,46 @@ export async function userHasRoleRow(
   return data.some((r: any) => isRoleActiveNow({ revoked_at: null, valid_from: r.valid_from ?? null, valid_until: r.valid_until ?? null }, today));
 }
 
+/** Phase 4 multi-campus: a school_group-scoped role grants that role on
+ *  every member organization. Returns true when the user holds the given
+ *  role at the group that contains this org. */
+async function hasGroupRoleForOrg(
+  userId: string,
+  roleType: SchoolRole,
+  orgId: string,
+): Promise<boolean> {
+  const { data: org } = await serviceRoleClient
+    .from("organizations")
+    .select("school_group_id")
+    .eq("id", orgId)
+    .maybeSingle();
+  const groupId = (org as any)?.school_group_id;
+  if (!groupId) return false;
+  const today = todayUtcDate();
+  const { data } = await serviceRoleClient
+    .from("user_roles")
+    .select("id, valid_from, valid_until")
+    .eq("user_id", userId)
+    .eq("role_type", roleType)
+    .eq("scope_type", "school_group")
+    .eq("scope_id", groupId)
+    .is("revoked_at", null);
+  if (!data || data.length === 0) return false;
+  return (data as any[]).some((r) => isRoleActiveNow({
+    revoked_at: null,
+    valid_from: r.valid_from ?? null,
+    valid_until: r.valid_until ?? null,
+  }, today));
+}
+
 export async function isPrincipalOf(userId: string, orgId: string): Promise<boolean> {
-  return userHasRoleRow(userId, "principal", "organization", orgId);
+  if (await userHasRoleRow(userId, "principal", "organization", orgId)) return true;
+  return hasGroupRoleForOrg(userId, "principal", orgId);
 }
 
 export async function isAdminOf(userId: string, orgId: string): Promise<boolean> {
-  return userHasRoleRow(userId, "admin", "organization", orgId);
+  if (await userHasRoleRow(userId, "admin", "organization", orgId)) return true;
+  return hasGroupRoleForOrg(userId, "admin", orgId);
 }
 
 export async function hasAdminOrPrincipal(userId: string, orgId: string): Promise<boolean> {
@@ -103,6 +137,28 @@ export async function getOrgRoles(userId: string, orgId: string): Promise<Set<Sc
     .is("revoked_at", null);
   for (const r of orgRoles ?? []) {
     if (inWindow(r)) out.add((r as any).role_type as SchoolRole);
+  }
+
+  // Phase 4 multi-campus: school_group-scoped roles count for every org
+  // in the group. Look up this org's group, then pull any group-scoped
+  // role rows the user has.
+  const { data: org } = await serviceRoleClient
+    .from("organizations")
+    .select("school_group_id")
+    .eq("id", orgId)
+    .maybeSingle();
+  const groupId = (org as any)?.school_group_id;
+  if (groupId) {
+    const { data: groupRoles } = await serviceRoleClient
+      .from("user_roles")
+      .select("role_type, valid_from, valid_until")
+      .eq("user_id", userId)
+      .eq("scope_type", "school_group")
+      .eq("scope_id", groupId)
+      .is("revoked_at", null);
+    for (const r of groupRoles ?? []) {
+      if (inWindow(r)) out.add((r as any).role_type as SchoolRole);
+    }
   }
 
   // Class-scoped roles — need to verify the class belongs to this org. We
