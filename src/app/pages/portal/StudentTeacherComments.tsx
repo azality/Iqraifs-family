@@ -205,7 +205,7 @@ export function StudentTeacherComments() {
                             disabled={active}
                             onClick={() => onAck(it.id, key)}
                             className={
-                              "inline-flex items-center gap-1 rounded-full text-[11px] px-2 py-0.5 border " +
+                              "inline-flex items-center gap-1 rounded-full text-[11px] px-2.5 py-1 border " +
                               (active
                                 ? "bg-indigo-50 border-indigo-200 text-indigo-700 cursor-default"
                                 : "bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:text-slate-800")
