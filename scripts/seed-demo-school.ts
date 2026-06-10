@@ -26,11 +26,15 @@
 // muneeb@azality.com (or whatever email you pass via --principal-email).
 //
 // Usage:
+//   # Fresh org each run (default — multi-tester safe)
 //   npx deno run --allow-net --allow-env --env=.env scripts/seed-demo-school.ts \
 //     --principal-email muneeb@azality.com
 //
-// Idempotent? No. Each run creates a NEW org (with a unique slug). Delete
-// the old demo org via Settings → Danger Zone, then re-seed.
+//   # Idempotent: re-seed in place. Tears down the prior org at this slug
+//   # (CASCADE handles children) and re-creates with the same slug, so the
+//   # login URL and staff emails stay stable across runs.
+//   npx deno run --allow-net --allow-env --env=.env scripts/seed-demo-school.ts \
+//     --principal-email muneeb@azality.com --reuse-slug iqra-demo
 
 // deno-lint-ignore-file no-explicit-any
 
@@ -152,10 +156,34 @@ console.log("\n🌱 Seeding Iqra Demo Academy…\n");
 const principalId = await findOrCreateUser(PRINCIPAL_EMAIL, "Principal Muneeb");
 console.log(`  principal user id   → ${principalId}`);
 
-// Org with full branding.
-const slugTs = Date.now().toString(36);
+// Slug + email-disambiguator. With --reuse-slug <slug>, the slug stays
+// pinned across runs (so the login URL doesn't change every time) and
+// any existing org with that slug is torn down first. Without it, every
+// run picks a fresh timestamp slug — keeps multi-tester environments
+// from stomping on each other.
+const REUSE_SLUG = args.get("reuse-slug");
+const slugTs = REUSE_SLUG ?? Date.now().toString(36);
 const orgName = `Iqra Demo Academy`;
-const orgSlug = `iqra-demo-${slugTs}`;
+const orgSlug = REUSE_SLUG ? REUSE_SLUG : `iqra-demo-${slugTs}`;
+
+if (REUSE_SLUG) {
+  // Tear down any prior org at this slug. ON DELETE CASCADE handles all
+  // dependent rows (sections, students, fees, etc.). We don't bother
+  // deleting the auth.users — they'll be reused via findOrCreateUser
+  // when the same email comes up again, which keeps the seed idempotent.
+  const { data: existing } = await sb
+    .from("organizations").select("id").eq("slug", orgSlug).maybeSingle();
+  if (existing) {
+    console.log(`  found existing org ${orgSlug} (${(existing as any).id}) — deleting…`);
+    const { error: delErr } = await sb
+      .from("organizations").delete().eq("id", (existing as any).id);
+    if (delErr) { console.error("Teardown failed:", delErr); Deno.exit(1); }
+    console.log(`  ✓ tore down existing org`);
+  } else {
+    console.log(`  no existing org at slug ${orgSlug}; will create fresh`);
+  }
+}
+
 const { data: org, error: orgErr } = await sb.from("organizations").insert({
   name: orgName,
   slug: orgSlug,
