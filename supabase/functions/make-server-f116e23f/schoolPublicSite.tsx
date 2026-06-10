@@ -38,6 +38,10 @@ type PublicSiteSettings = {
   contact_email?: string;
   contact_phone?: string;
   contact_address?: string;
+  // Phase 3: faculty wall + photo gallery + visual chrome
+  highlights?: Array<{ label: string; value: string }>; // stat strip
+  gallery?: Array<{ url: string; caption?: string }>;
+  faculty?: Array<{ name: string; role?: string; bio?: string; photoUrl?: string }>;
 };
 
 function siteToJson(orgRow: any) {
@@ -51,6 +55,9 @@ function siteToJson(orgRow: any) {
     contactEmail: ps.contact_email ?? null,
     contactPhone: ps.contact_phone ?? null,
     contactAddress: ps.contact_address ?? null,
+    highlights: Array.isArray(ps.highlights) ? ps.highlights : [],
+    gallery: Array.isArray(ps.gallery) ? ps.gallery : [],
+    faculty: Array.isArray(ps.faculty) ? ps.faculty : [],
     org: {
       id: orgRow.id,
       name: orgRow.name,
@@ -155,6 +162,36 @@ export function installPublicSite(school: Hono): void {
     if (typeof body?.contactEmail === "string") next.contact_email = body.contactEmail.trim().slice(0, 200);
     if (typeof body?.contactPhone === "string") next.contact_phone = body.contactPhone.trim().slice(0, 50);
     if (typeof body?.contactAddress === "string") next.contact_address = body.contactAddress.trim().slice(0, 500);
+    // Phase 3 collections — bounded array sizes to keep the JSONB sane.
+    if (Array.isArray(body?.highlights)) {
+      next.highlights = (body.highlights as any[])
+        .slice(0, 6)
+        .map((h) => ({
+          label: String(h?.label ?? "").trim().slice(0, 60),
+          value: String(h?.value ?? "").trim().slice(0, 30),
+        }))
+        .filter((h) => h.label && h.value);
+    }
+    if (Array.isArray(body?.gallery)) {
+      next.gallery = (body.gallery as any[])
+        .slice(0, 24)
+        .map((g) => ({
+          url: String(g?.url ?? "").trim().slice(0, 500),
+          caption: g?.caption ? String(g.caption).trim().slice(0, 140) : undefined,
+        }))
+        .filter((g) => g.url);
+    }
+    if (Array.isArray(body?.faculty)) {
+      next.faculty = (body.faculty as any[])
+        .slice(0, 24)
+        .map((f) => ({
+          name: String(f?.name ?? "").trim().slice(0, 100),
+          role: f?.role ? String(f.role).trim().slice(0, 100) : undefined,
+          bio: f?.bio ? String(f.bio).trim().slice(0, 600) : undefined,
+          photoUrl: f?.photoUrl ? String(f.photoUrl).trim().slice(0, 500) : undefined,
+        }))
+        .filter((f) => f.name);
+    }
 
     // Merge into existing settings.public_site, leaving unrelated
     // settings (logo_url, theme_color, etc.) untouched.

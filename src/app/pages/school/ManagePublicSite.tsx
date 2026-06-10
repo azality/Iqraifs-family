@@ -39,6 +39,9 @@ export function ManagePublicSite() {
   const [heroTagline, setHeroTagline] = useState("");
   const [heroImageUrl, setHeroImageUrl] = useState("");
   const [about, setAbout] = useState("");
+  const [highlights, setHighlights] = useState<Array<{ label: string; value: string }>>([]);
+  const [gallery, setGallery] = useState<Array<{ url: string; caption?: string }>>([]);
+  const [faculty, setFaculty] = useState<Array<{ name: string; role?: string; bio?: string; photoUrl?: string }>>([]);
   const [contactEmail, setContactEmail] = useState("");
   const [contactPhone, setContactPhone] = useState("");
   const [contactAddress, setContactAddress] = useState("");
@@ -65,6 +68,9 @@ export function ManagePublicSite() {
         setContactEmail(s.contactEmail ?? "");
         setContactPhone(s.contactPhone ?? "");
         setContactAddress(s.contactAddress ?? "");
+        setHighlights(s.highlights ?? []);
+        setGallery(s.gallery ?? []);
+        setFaculty(s.faculty ?? []);
         setError(null);
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load"))
@@ -86,6 +92,9 @@ export function ManagePublicSite() {
         heroTitle, heroTagline, heroImageUrl,
         about,
         contactEmail, contactPhone, contactAddress,
+        highlights: highlights.filter((h) => h.label && h.value),
+        gallery: gallery.filter((g) => g.url),
+        faculty: faculty.filter((f) => f.name),
       });
       setSite(r);
       setSavedAt(new Date().toLocaleTimeString());
@@ -210,6 +219,86 @@ export function ManagePublicSite() {
                 <Label className="text-xs">Address</Label>
                 <Textarea value={contactAddress} onChange={(e) => setContactAddress(e.target.value)}
                           rows={2} placeholder="Block 4, Clifton, Karachi, Pakistan" />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Highlights strip (up to 4 stat tiles) */}
+          <Card>
+            <CardContent className="p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="text-xs font-bold uppercase tracking-wider text-slate-700">Highlights strip</div>
+                <Button variant="outline" size="sm" onClick={() => setHighlights([...highlights, { label: "", value: "" }])}
+                        disabled={highlights.length >= 6}>+ Add</Button>
+              </div>
+              <p className="text-[11px] text-slate-500 -mt-1">Up to 4 short stats shown across the top of the public site (e.g. "350 Students", "Est. 2018").</p>
+              <div className="space-y-2">
+                {highlights.map((h, i) => (
+                  <div key={i} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-center">
+                    <Input value={h.label} placeholder="Label (e.g. Students)"
+                           onChange={(e) => setHighlights(highlights.map((x, j) => j === i ? { ...x, label: e.target.value } : x))} />
+                    <Input value={h.value} placeholder="Value (e.g. 350)"
+                           onChange={(e) => setHighlights(highlights.map((x, j) => j === i ? { ...x, value: e.target.value } : x))} />
+                    <Button variant="outline" size="sm"
+                            onClick={() => setHighlights(highlights.filter((_, j) => j !== i))}>×</Button>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Faculty wall */}
+          <Card>
+            <CardContent className="p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="text-xs font-bold uppercase tracking-wider text-slate-700">Faculty wall</div>
+                <Button variant="outline" size="sm" onClick={() => setFaculty([...faculty, { name: "", role: "", bio: "", photoUrl: "" }])}
+                        disabled={faculty.length >= 24}>+ Add</Button>
+              </div>
+              <p className="text-[11px] text-slate-500 -mt-1">Curated list of staff to feature. Visitors see name, role, photo, and a short bio.</p>
+              <div className="space-y-3">
+                {faculty.map((f, i) => (
+                  <div key={i} className="rounded-md border border-slate-200 p-3 space-y-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <Input value={f.name} placeholder="Name (e.g. Sheikh Abdullah)"
+                             onChange={(e) => setFaculty(faculty.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} />
+                      <Input value={f.role ?? ""} placeholder="Role (e.g. Head of Quran)"
+                             onChange={(e) => setFaculty(faculty.map((x, j) => j === i ? { ...x, role: e.target.value } : x))} />
+                    </div>
+                    <Input value={f.photoUrl ?? ""} placeholder="Photo URL (optional)"
+                           onChange={(e) => setFaculty(faculty.map((x, j) => j === i ? { ...x, photoUrl: e.target.value } : x))} />
+                    <Textarea value={f.bio ?? ""} rows={2} placeholder="Short bio (optional)"
+                              onChange={(e) => setFaculty(faculty.map((x, j) => j === i ? { ...x, bio: e.target.value } : x))} />
+                    <div className="text-right">
+                      <Button variant="outline" size="sm"
+                              onClick={() => setFaculty(faculty.filter((_, j) => j !== i))}>Remove</Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Photo gallery */}
+          <Card>
+            <CardContent className="p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="text-xs font-bold uppercase tracking-wider text-slate-700">Photo gallery</div>
+                <Button variant="outline" size="sm" onClick={() => setGallery([...gallery, { url: "", caption: "" }])}
+                        disabled={gallery.length >= 24}>+ Add</Button>
+              </div>
+              <p className="text-[11px] text-slate-500 -mt-1">Paste image URLs (Cloudinary, Imgur, your own hosting). Direct upload coming in a follow-up.</p>
+              <div className="space-y-2">
+                {gallery.map((g, i) => (
+                  <div key={i} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-center">
+                    <Input value={g.url} placeholder="https://image.url/photo.jpg"
+                           onChange={(e) => setGallery(gallery.map((x, j) => j === i ? { ...x, url: e.target.value } : x))} />
+                    <Input value={g.caption ?? ""} placeholder="Caption (optional)"
+                           onChange={(e) => setGallery(gallery.map((x, j) => j === i ? { ...x, caption: e.target.value } : x))} />
+                    <Button variant="outline" size="sm"
+                            onClick={() => setGallery(gallery.filter((_, j) => j !== i))}>×</Button>
+                  </div>
+                ))}
               </div>
             </CardContent>
           </Card>
