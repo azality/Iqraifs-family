@@ -29,6 +29,7 @@ import {
   createImportBatch,
   finalizeImportBatch,
 } from "./middleware.tsx";
+import { todayInOrgTz } from "./tz.ts";
 
 // -----------------------------------------------------------------------------
 // Permission helpers (mirrors schoolPhaseB.tsx — kept self-contained so this
@@ -329,7 +330,7 @@ export function installPhaseC(school: Hono): void {
     //   'hidden'    → set a sentinel far in the future so it stays hidden
     //                until the teacher explicitly republishes.
     // Default: 'now' when lessonDate <= today, 'on_date' when future.
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayStr = todayInOrgTz();
     const lessonInFuture = body.lessonDate > todayStr;
     let publishMode: string = body?.visibility;
     if (!publishMode) publishMode = lessonInFuture ? "on_date" : "now";

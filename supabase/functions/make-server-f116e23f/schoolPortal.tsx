@@ -27,6 +27,7 @@
 import type { Hono, Context } from "npm:hono";
 import { serviceRoleClient } from "./middleware.tsx";
 import { computeMemorizedTotals } from "./schoolPhaseC.tsx";
+import { todayInOrgTz } from "./tz.ts";
 
 // -----------------------------------------------------------------------------
 // PIN token verification — same algorithm as schoolPhaseA.tsx. Duplicated here
@@ -476,7 +477,7 @@ export function installPortal(school: Hono): void {
     //   - published_at IS NULL AND lesson_date <= today (UTC)
     //     (legacy / auto-publish on the lesson date)
     // PostgREST .or() takes a comma-separated string of conditions.
-    const todayIso = new Date().toISOString().slice(0, 10);
+    const todayIso = todayInOrgTz();
     const nowIso = new Date().toISOString();
     let q = serviceRoleClient
       .from("lesson")
@@ -551,7 +552,7 @@ export function installPortal(school: Hono): void {
     if (dateQ && !isIsoDate(dateQ)) {
       return c.json({ error: "date must be YYYY-MM-DD" }, 400);
     }
-    const today = dateQ ?? new Date().toISOString().slice(0, 10);
+    const today = dateQ ?? todayInOrgTz();
     const tomorrow = new Date(today + "T00:00:00Z");
     tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
     const tomorrowIso = tomorrow.toISOString().slice(0, 10);
@@ -782,7 +783,7 @@ export function installPortal(school: Hono): void {
     const today =
       dateQ && /^\d{4}-\d{2}-\d{2}$/.test(dateQ)
         ? dateQ
-        : new Date().toISOString().slice(0, 10);
+        : todayInOrgTz();
     const entryIdsForSub = all.map((e) => e.id);
     const { data: subsToday } = entryIdsForSub.length
       ? await serviceRoleClient
@@ -1513,7 +1514,7 @@ export function installPortal(school: Hono): void {
     const stuCtx = await loadStudentWithContext(studentId, subject.orgId);
     if (!stuCtx) return c.json({ error: "student not found" }, 404);
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayInOrgTz();
 
     // ── Attendance today ──
     let attendanceToday: { status: string; takenAt: string | null } | null = null;

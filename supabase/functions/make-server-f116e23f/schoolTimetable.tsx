@@ -27,6 +27,7 @@
 
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
+import { todayInOrgTz } from "./tz.ts";
 
 const SLOT_KINDS = new Set([
   "academic", "break", "prayer", "hifz", "assembly", "other",
@@ -606,7 +607,7 @@ export function installTimetable(school: Hono): void {
     const today =
       dateQ && /^\d{4}-\d{2}-\d{2}$/.test(dateQ)
         ? dateQ
-        : new Date().toISOString().slice(0, 10);
+        : todayInOrgTz();
 
     // Subbing IN — entries where I'm the substitute for today.
     const { data: subbingIn } = await serviceRoleClient

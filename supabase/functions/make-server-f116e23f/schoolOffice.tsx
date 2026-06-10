@@ -15,6 +15,7 @@
 
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
+import { todayInOrgTz } from "./tz.ts";
 
 async function hasAnyOrgRole(userId: string, orgId: string): Promise<boolean> {
   const { data } = await serviceRoleClient
@@ -110,7 +111,7 @@ export function installOffice(school: Hono) {
     // 3. Attendance gaps today — sections that haven't recorded any
     //    attendance row for today's date.
     // ────────────────────────────────────────────────────────────────────
-    const todayIso = new Date().toISOString().slice(0, 10);
+    const todayIso = todayInOrgTz();
     const { data: allSections } = await serviceRoleClient
       .from("class_section")
       .select("id, name, class:class_id(name, org_id)")
