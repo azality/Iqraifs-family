@@ -4243,6 +4243,10 @@ export interface PublicSiteResponse {
   timings?: { firstStart: string | null; lastEnd: string | null; daysOfWeek: number[] };
   announcements?: Array<{ id: string; title: string; body: string; createdAt: string }>;
   term?: { name: string; startDate: string; endDate: string } | null;
+  // Phase 3
+  highlights?: Array<{ label: string; value: string }>;
+  gallery?: Array<{ url: string; caption?: string }>;
+  faculty?: Array<{ name: string; role?: string; bio?: string; photoUrl?: string }>;
 }
 // No-auth fetch — public site is reachable without a session, so we can't
 // use apiCall (which redirects to login on missing access token).
@@ -4268,6 +4272,9 @@ export const savePublicSite = (
     heroTitle: string; heroTagline: string; heroImageUrl: string;
     about: string;
     contactEmail: string; contactPhone: string; contactAddress: string;
+    highlights: Array<{ label: string; value: string }>;
+    gallery: Array<{ url: string; caption?: string }>;
+    faculty: Array<{ name: string; role?: string; bio?: string; photoUrl?: string }>;
   }>,
 ): Promise<PublicSiteResponse> =>
   apiCall(`/school/orgs/${orgId}/public-site`, {
