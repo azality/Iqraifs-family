@@ -29,6 +29,7 @@
 
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
+import { todayInOrgTz } from "./tz.ts";
 
 // -----------------------------------------------------------------------------
 // Auth helpers
@@ -275,7 +276,7 @@ export function installSubjects(school: Hono) {
     const now = new Date();
     const horizon = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
     const horizonIso = horizon.toISOString().slice(0, 10);
-    const nowIso = now.toISOString().slice(0, 10);
+    const nowIso = todayInOrgTz(); // school-day-relative gating, not UTC
 
     const classSubjectIds = Array.from(
       new Set(mySubjects.map((s: any) => s.classSubjectId).filter(Boolean)),
@@ -378,7 +379,7 @@ export function installSubjects(school: Hono) {
     // (a) graded rows for that assignment, (b) section roster size.
     // If graded < roster, surface the gap.
     // ────────────────────────────────────────────────────────────────────
-    const todayIso = now.toISOString().slice(0, 10);
+    const todayIso = todayInOrgTz(); // school-day, not UTC
     const { data: myAssignments } = await serviceRoleClient
       .from("assignment")
       .select(

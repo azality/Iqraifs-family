@@ -19,6 +19,7 @@ import {
   finalizeImportBatch,
 } from "./middleware.tsx";
 import { verifyPinToken } from "./schoolPhaseA.tsx";
+import { todayInOrgTz } from "./tz.ts";
 // PR K: migrate fee + grade gates from hasAdminOrPrincipal to userCanInOrg
 // so financial_staff / class_teacher can act per their permission template.
 import { userCanInOrg } from "./schoolAuth.ts";
@@ -1242,7 +1243,7 @@ ${status === "paid" ? `<div class="stamp">PAID</div>` : ""}
 </div>
 
 <footer>
-  Generated ${new Date().toISOString().slice(0, 10)} · This receipt is computer-generated and does not require a signature.
+  Generated ${todayInOrgTz()} · This receipt is computer-generated and does not require a signature.
 </footer>
 </body>
 </html>`;

@@ -11,6 +11,7 @@
 
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
+import { todayInOrgTz } from "./tz.ts";
 
 async function hasAnyOrgRole(userId: string, orgId: string): Promise<boolean> {
   const { data } = await serviceRoleClient
@@ -40,7 +41,7 @@ export function installFinance(school: Hono) {
     }
 
     const period = c.req.query("period") || currentPeriod();
-    const todayIso = new Date().toISOString().slice(0, 10);
+    const todayIso = todayInOrgTz();
 
     // ────────────────────────────────────────────────────────────────────
     // 1. This-period collection summary.
