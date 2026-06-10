@@ -8,7 +8,7 @@
 // the manage_public_site key without granting them anything else.
 
 import { useEffect, useState } from "react";
-import { Link, Navigate, useParams } from "react-router";
+import { Link, useParams } from "react-router";
 import { ArrowLeft, Eye, Save, CheckCircle2 } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -16,7 +16,8 @@ import { Label } from "../../components/ui/label";
 import { Textarea } from "../../components/ui/textarea";
 import { Card, CardContent } from "../../components/ui/card";
 import {
-  getSchoolMe, isOrgAdmin,
+  getSchoolMe,
+  getOrganization,
   getPublicSite, savePublicSite,
   type PublicSiteResponse, type SchoolMeResponse,
 } from "../../../utils/schoolApi";
@@ -47,13 +48,13 @@ export function ManagePublicSite() {
   }, []);
 
   useEffect(() => {
-    if (!orgId || !me) return;
-    // Resolve the slug from the org membership in the me payload, then
-    // fetch the public site via its public endpoint.
-    const org = (me.organizations ?? []).find((o: any) => o.id === orgId);
-    if (!org) return;
+    if (!orgId) return;
     setLoading(true);
-    getPublicSite(org.slug)
+    // Look up the slug from the org directly — me.organizations may not
+    // be populated, and even chain principals (school_group scope) can
+    // be missing the org from the list while still having authority.
+    getOrganization(orgId)
+      .then((org) => getPublicSite(org.slug))
       .then((s) => {
         setSite(s);
         setEnabled(s.enabled);
@@ -68,16 +69,12 @@ export function ManagePublicSite() {
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load"))
       .finally(() => setLoading(false));
-  }, [orgId, me]);
+  }, [orgId]);
 
   if (meLoading) return null;
-  // Use isOrgAdmin as a rough gate; the backend re-enforces the
-  // manage_public_site permission on PUT. Class teachers etc with the
-  // permission would still be blocked here — accept that until we plumb
-  // userCanInOrg client-side.
-  if (!isOrgAdmin(me, orgId)) {
-    return <Navigate to={`/school/orgs/${orgId}`} replace />;
-  }
+  // No client-side role gate — the backend PUT re-enforces the
+  // manage_public_site permission. RequireParentRole on the parent
+  // route already keeps unauthenticated users out.
 
   const handleSave = async () => {
     if (!orgId) return;
