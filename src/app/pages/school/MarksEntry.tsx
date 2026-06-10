@@ -7,12 +7,20 @@
 // most subjects are 100). An "A" checkbox marks the student absent
 // for that subject (clears the marks).
 //
-// Save sends the whole sheet in one POST. Empty cells without max
-// override clear any prior score row server-side.
+// Ergonomics (PR feat/marks-entry-ergonomics):
+//   - Tab / Shift-Tab moves between obtained-marks inputs in row-major
+//     order. Enter moves down a row, Shift-Enter moves up. Arrows give
+//     2D navigation. Skips max-override and absent checkbox — those
+//     are still reachable by mouse / explicit tabindex when needed.
+//   - Paste from Excel: copy a (rows × cols) block from a spreadsheet,
+//     focus the top-left target cell, paste — values fill into the
+//     range. Newlines split rows; tabs split columns. Cells past the
+//     edge are ignored.
+//   - Auto-save: 1500 ms after the last edit; visible status pill.
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useParams } from "react-router";
-import { ArrowLeft, Save, ClipboardList } from "lucide-react";
+import { ArrowLeft, Save, ClipboardList, Loader2 } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
@@ -39,6 +47,9 @@ function pct(obt: number | null, max: number | null): number | null {
   return (obt / max) * 100;
 }
 
+const AUTOSAVE_DELAY_MS = 1500;
+type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "error";
+
 export function MarksEntry() {
   const { orgId = "", examId = "" } = useParams<{ orgId: string; examId: string }>();
   const [me, setMe] = useState<SchoolMeResponse | null>(null);
@@ -50,8 +61,8 @@ export function MarksEntry() {
   // Map of `${studentId}:${classSubjectId}` → cell.
   const [cells, setCells] = useState<Map<string, CellState>>(new Map());
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [savedAt, setSavedAt] = useState<string | null>(null);
 
   useEffect(() => {
@@ -81,14 +92,16 @@ export function MarksEntry() {
         }
         setCells(next);
         setError(null);
+        setSaveStatus("idle");
+        setSavedAt(null);
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load"))
       .finally(() => setLoading(false));
   }, [orgId, examId, sectionId]);
 
-  // ⚠️ Hooks (useMemo etc) MUST run on every render — they live above
-  // the early returns so the hook count is stable. React error #310
-  // was the symptom when this was below the guards.
+  // ⚠️ Hooks MUST run on every render — they live above the early returns
+  // so the hook count is stable. React error #310 was the symptom when
+  // this was below the guards.
   const sectionOptions = classes.flatMap((c) =>
     (c.sections ?? []).map((s) => ({ id: s.id, label: `${c.name} — ${s.name}` })),
   );
@@ -100,17 +113,26 @@ export function MarksEntry() {
       next.set(key, { ...cur, ...patch });
       return next;
     });
+    setSaveStatus((s) => (s === "saving" ? s : "dirty"));
   };
 
-  const handleSave = async () => {
-    if (!sheet) return;
-    setSaving(true); setError(null);
+  // ─── Save (manual + debounced auto-save) ─────────────────────────
+  // Latest-state ref so the debounced callback sees the freshest data
+  // without re-creating itself every keystroke.
+  const stateRef = useRef({ sheet, cells, defaultMax, sectionId });
+  stateRef.current = { sheet, cells, defaultMax, sectionId };
+
+  const doSave = useCallback(async () => {
+    const { sheet: s, cells: cs, defaultMax: dm, sectionId: sid } = stateRef.current;
+    if (!s || !sid) return;
+    setSaveStatus("saving");
+    setError(null);
     try {
       const rows: any[] = [];
-      for (const stu of sheet.students) {
-        for (const subj of sheet.subjects) {
+      for (const stu of s.students) {
+        for (const subj of s.subjects) {
           const key = `${stu.id}:${subj.id}`;
-          const c = cells.get(key) ?? { obtained: "", maxOverride: "", absent: false };
+          const c = cs.get(key) ?? { obtained: "", maxOverride: "", absent: false };
           rows.push({
             studentId: stu.id,
             classSubjectId: subj.id,
@@ -120,22 +142,112 @@ export function MarksEntry() {
           });
         }
       }
-      const def = Number(defaultMax);
-      const r = await saveMarksSheet(orgId, examId, {
-        sectionId,
+      const def = Number(dm);
+      await saveMarksSheet(orgId, examId, {
+        sectionId: sid,
         defaults: Number.isFinite(def) && def > 0 ? { maxMarks: def } : undefined,
         rows,
       });
       setSavedAt(new Date().toLocaleTimeString());
-      void r;
+      setSaveStatus("saved");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
+      setSaveStatus("error");
     }
-  };
+  }, [orgId, examId]);
 
-  // Per-student row total + percentage (informational; uses only filled cells).
+  // Debounced auto-save. Fires AUTOSAVE_DELAY_MS after the last edit
+  // when saveStatus is "dirty".
+  useEffect(() => {
+    if (saveStatus !== "dirty") return;
+    const handle = setTimeout(() => { void doSave(); }, AUTOSAVE_DELAY_MS);
+    return () => clearTimeout(handle);
+  }, [saveStatus, doSave, cells, defaultMax]);
+
+  // ─── Grid navigation (Tab / arrows / Enter) ──────────────────────
+  // We register every obtained-input via a ref keyed by (rowIdx, colIdx),
+  // then a single keyDown handler does the focus math.
+  const inputRefs = useRef(new Map<string, HTMLInputElement>());
+  const setInputRef = (rowIdx: number, colIdx: number) => (el: HTMLInputElement | null) => {
+    const k = `${rowIdx}:${colIdx}`;
+    if (el) inputRefs.current.set(k, el); else inputRefs.current.delete(k);
+  };
+  const focusCell = (rowIdx: number, colIdx: number) => {
+    if (!sheet) return;
+    const r = Math.max(0, Math.min(sheet.students.length - 1, rowIdx));
+    const c = Math.max(0, Math.min(sheet.subjects.length - 1, colIdx));
+    const el = inputRefs.current.get(`${r}:${c}`);
+    if (el) { el.focus(); el.select(); }
+  };
+  const onCellKeyDown = (rowIdx: number, colIdx: number) =>
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (!sheet) return;
+      const lastCol = sheet.subjects.length - 1;
+      const lastRow = sheet.students.length - 1;
+      if (e.key === "Tab") {
+        e.preventDefault();
+        if (e.shiftKey) {
+          if (colIdx > 0) focusCell(rowIdx, colIdx - 1);
+          else if (rowIdx > 0) focusCell(rowIdx - 1, lastCol);
+        } else {
+          if (colIdx < lastCol) focusCell(rowIdx, colIdx + 1);
+          else if (rowIdx < lastRow) focusCell(rowIdx + 1, 0);
+        }
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        if (e.shiftKey) { if (rowIdx > 0) focusCell(rowIdx - 1, colIdx); }
+        else            { if (rowIdx < lastRow) focusCell(rowIdx + 1, colIdx); }
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault(); focusCell(rowIdx + 1, colIdx);
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault(); focusCell(rowIdx - 1, colIdx);
+      } else if (e.key === "ArrowLeft" && (e.currentTarget.selectionStart ?? 0) === 0) {
+        e.preventDefault(); focusCell(rowIdx, colIdx - 1);
+      } else if (e.key === "ArrowRight" && (e.currentTarget.selectionEnd ?? 0) === e.currentTarget.value.length) {
+        e.preventDefault(); focusCell(rowIdx, colIdx + 1);
+      }
+    };
+
+  // ─── Paste from Excel ───────────────────────────────────────────
+  // If clipboard text is a single value, fall through to default browser
+  // paste behavior (so a single-cell paste behaves normally). If it's
+  // multi-cell, fill the rectangle starting at the focused cell.
+  const onCellPaste = (rowIdx: number, colIdx: number) =>
+    (e: React.ClipboardEvent<HTMLInputElement>) => {
+      if (!sheet) return;
+      const text = e.clipboardData.getData("text");
+      // Quick reject: no tabs and no newlines → single cell.
+      if (!/\t|\n/.test(text)) return;
+      e.preventDefault();
+      const rows = text.replace(/\r\n/g, "\n").replace(/\n$/, "").split("\n");
+      const grid = rows.map((r) => r.split("\t"));
+      setCells((prev) => {
+        const next = new Map(prev);
+        for (let ri = 0; ri < grid.length; ri++) {
+          for (let ci = 0; ci < grid[ri].length; ci++) {
+            const targetRow = rowIdx + ri;
+            const targetCol = colIdx + ci;
+            if (targetRow > sheet.students.length - 1) continue;
+            if (targetCol > sheet.subjects.length - 1) continue;
+            const stuId = sheet.students[targetRow].id;
+            const subjId = sheet.subjects[targetCol].id;
+            const k = `${stuId}:${subjId}`;
+            const cur = next.get(k) ?? { obtained: "", maxOverride: "", absent: false };
+            const raw = grid[ri][ci].trim();
+            // Recognise an "A" / "absent" cell — flip the absent flag.
+            if (/^a(bsent)?$/i.test(raw)) {
+              next.set(k, { ...cur, absent: true, obtained: "" });
+            } else {
+              next.set(k, { ...cur, obtained: raw, absent: false });
+            }
+          }
+        }
+        return next;
+      });
+      setSaveStatus("dirty");
+    };
+
+  // Per-student row total + percentage.
   const studentTotals = useMemo(() => {
     if (!sheet) return new Map<string, { obtained: number; max: number; pct: number | null }>();
     const m = new Map<string, { obtained: number; max: number; pct: number | null }>();
@@ -149,17 +261,31 @@ export function MarksEntry() {
         if (!Number.isFinite(o) || !Number.isFinite(mx) || mx <= 0) continue;
         obt += o; max += mx; any = true;
       }
-      m.set(stu.id, {
-        obtained: obt, max,
-        pct: any && max > 0 ? (obt / max) * 100 : null,
-      });
+      m.set(stu.id, { obtained: obt, max, pct: any && max > 0 ? (obt / max) * 100 : null });
     }
     return m;
   }, [sheet, cells, defaultMax]);
 
-  // Now safe to early-return — every hook has executed.
   if (meLoading) return null;
   if (!isOrgAdmin(me, orgId)) return <Navigate to={`/school/orgs/${orgId}`} replace />;
+
+  const statusPill = () => {
+    if (saveStatus === "saving") {
+      return <span className="text-xs inline-flex items-center gap-1 text-slate-600">
+        <Loader2 className="h-3 w-3 animate-spin" /> Saving…
+      </span>;
+    }
+    if (saveStatus === "dirty") {
+      return <span className="text-xs text-amber-700">Unsaved changes</span>;
+    }
+    if (saveStatus === "saved" && savedAt) {
+      return <span className="text-xs text-emerald-700">Saved at {savedAt}</span>;
+    }
+    if (saveStatus === "error") {
+      return <span className="text-xs text-rose-700">Save failed — try again</span>;
+    }
+    return null;
+  };
 
   return (
     <div className="space-y-4">
@@ -170,9 +296,9 @@ export function MarksEntry() {
           </Button>
         </Link>
         <div className="flex items-center gap-2">
-          {savedAt && <span className="text-xs text-emerald-700">Saved at {savedAt}</span>}
-          <Button size="sm" onClick={handleSave} disabled={saving || !sheet}>
-            <Save className="h-3.5 w-3.5 mr-1" /> {saving ? "Saving…" : "Save sheet"}
+          {statusPill()}
+          <Button size="sm" onClick={() => void doSave()} disabled={saveStatus === "saving" || !sheet}>
+            <Save className="h-3.5 w-3.5 mr-1" /> Save now
           </Button>
         </div>
       </div>
@@ -180,8 +306,8 @@ export function MarksEntry() {
       <div>
         <h1 className={sectionTitleClasses}>Marks entry</h1>
         <p className="mt-1 text-sm text-slate-600">
-          Pick a section to load its students. Default Max applies to any cell
-          without an override. Absent toggles clear obtained marks.
+          Tab / arrow-keys move between cells. Paste a block from Excel to fill
+          a rectangle. Sheet auto-saves {AUTOSAVE_DELAY_MS / 1000}s after the last edit.
         </p>
       </div>
 
@@ -199,7 +325,8 @@ export function MarksEntry() {
         <div>
           <Label className="text-xs">Default Max</Label>
           <Input type="number" inputMode="numeric" value={defaultMax}
-            onChange={(e) => setDefaultMax(e.target.value)} className="h-9 text-sm w-24" />
+            onChange={(e) => { setDefaultMax(e.target.value); setSaveStatus("dirty"); }}
+            className="h-9 text-sm w-24" />
         </div>
       </div>
 
@@ -235,7 +362,7 @@ export function MarksEntry() {
               </tr>
             </thead>
             <tbody>
-              {sheet.students.map((stu) => {
+              {sheet.students.map((stu, rowIdx) => {
                 const t = studentTotals.get(stu.id);
                 return (
                   <tr key={stu.id} className="border-t border-slate-100">
@@ -245,7 +372,7 @@ export function MarksEntry() {
                         {stu.rollNumber ? `Roll ${stu.rollNumber} · ` : ""}{stu.grNumber}
                       </div>
                     </td>
-                    {sheet.subjects.map((subj) => {
+                    {sheet.subjects.map((subj, colIdx) => {
                       const key = `${stu.id}:${subj.id}`;
                       const c = cells.get(key) ?? { obtained: "", maxOverride: "", absent: false };
                       const mx = Number(c.maxOverride || defaultMax);
@@ -254,13 +381,21 @@ export function MarksEntry() {
                       return (
                         <td key={subj.id} className="px-1 py-1 align-top">
                           <div className="flex items-center gap-1">
-                            <Input
+                            {/* Raw <input> instead of <Input> so we get a stable ref handler. */}
+                            <input
+                              ref={setInputRef(rowIdx, colIdx)}
                               value={c.obtained}
                               onChange={(e) => setCell(key, { obtained: e.target.value })}
+                              onKeyDown={onCellKeyDown(rowIdx, colIdx)}
+                              onPaste={onCellPaste(rowIdx, colIdx)}
                               disabled={c.absent}
                               placeholder="—"
-                              className="h-7 w-14 text-center text-xs"
+                              className="h-7 w-14 text-center text-xs rounded-md border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-400 disabled:bg-slate-50 disabled:text-slate-400"
                               type="number" inputMode="numeric"
+                              // Block default Tab order from reaching the
+                              // max-override + absent checkbox so the
+                              // sheet feels Excel-like.
+                              tabIndex={0}
                             />
                             <span className="text-[10px] text-slate-400">/</span>
                             <Input
@@ -269,12 +404,16 @@ export function MarksEntry() {
                               placeholder={defaultMax}
                               className="h-7 w-12 text-center text-xs text-slate-500"
                               type="number" inputMode="numeric"
+                              tabIndex={-1}
                             />
                           </div>
                           <div className="flex items-center justify-between mt-0.5 px-0.5">
                             <label className="text-[10px] text-slate-500 inline-flex items-center gap-0.5">
-                              <input type="checkbox" checked={c.absent}
-                                onChange={(e) => setCell(key, { absent: e.target.checked, obtained: e.target.checked ? "" : c.obtained })} />
+                              <input
+                                type="checkbox" checked={c.absent}
+                                tabIndex={-1}
+                                onChange={(e) => setCell(key, { absent: e.target.checked, obtained: e.target.checked ? "" : c.obtained })}
+                              />
                               A
                             </label>
                             <span className="text-[10px] text-slate-500">
