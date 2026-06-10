@@ -53,6 +53,7 @@ import { HifzProgress } from "./pages/school/HifzProgress";
 import { AdminDashboard } from "./pages/school/AdminDashboard";
 import { ManageClasses } from "./pages/school/ManageClasses";
 import { YearRollover } from "./pages/school/YearRollover";
+import { TeacherCalendar } from "./pages/school/TeacherCalendar";
 import { ManagePublicSite } from "./pages/school/ManagePublicSite";
 import { SchoolGroupDashboard } from "./pages/school/SchoolGroupDashboard";
 import { ManageStudents } from "./pages/school/ManageStudents";
@@ -491,6 +492,7 @@ export const router = createBrowserRouter([
               { path: "admin", element: <AdminDashboard /> },
               { path: "admin/year-rollover", element: <YearRollover /> },
               { path: "admin/public-site", element: <ManagePublicSite /> },
+              { path: "my-schedule", element: <TeacherCalendar /> },
               { path: "admin/classes", element: <ManageClasses /> },
               { path: "admin/students", element: <ManageStudents /> },
               { path: "admin/students/:studentId", element: <StudentDetail /> },
