@@ -4221,5 +4221,48 @@ export const listStudentTransfers = (
 ): Promise<{ transfers: StudentTransferAudit[] }> =>
   apiCall(`/school/students/${studentId}/transfers`);
 
+// =============================================================================
+// Public school site (Phase 1)
+// =============================================================================
+export interface PublicSiteResponse {
+  enabled: boolean;
+  heroTitle: string | null;
+  heroTagline: string | null;
+  heroImageUrl: string | null;
+  about: string | null;
+  contactEmail: string | null;
+  contactPhone: string | null;
+  contactAddress: string | null;
+  org: {
+    id: string; name: string; slug: string;
+    logoUrl: string | null; themeColor: string | null; motto: string | null;
+  };
+}
+// No-auth fetch — public site is reachable without a session, so we can't
+// use apiCall (which redirects to login on missing access token).
+export async function getPublicSite(slug: string): Promise<PublicSiteResponse> {
+  const { projectId, publicAnonKey } = await import("/utils/supabase/info.tsx");
+  const url = `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f/school/public-site/${encodeURIComponent(slug)}`;
+  const res = await fetch(url, {
+    headers: { apikey: publicAnonKey, Authorization: `Bearer ${publicAnonKey}` },
+  });
+  if (!res.ok) throw new Error(`getPublicSite failed: ${res.status}`);
+  return res.json();
+}
+
+export const savePublicSite = (
+  orgId: string,
+  patch: Partial<{
+    enabled: boolean;
+    heroTitle: string; heroTagline: string; heroImageUrl: string;
+    about: string;
+    contactEmail: string; contactPhone: string; contactAddress: string;
+  }>,
+): Promise<PublicSiteResponse> =>
+  apiCall(`/school/orgs/${orgId}/public-site`, {
+    method: "PUT",
+    body: JSON.stringify(patch),
+  });
+
 // Re-export apiCall so callers can hit ad-hoc endpoints without a second import.
 export { apiCall };
