@@ -54,7 +54,7 @@ export function ManagePublicSite() {
     // be populated, and even chain principals (school_group scope) can
     // be missing the org from the list while still having authority.
     getOrganization(orgId)
-      .then((org) => getPublicSite(org.slug))
+      .then((r) => getPublicSite(r.organization.slug))
       .then((s) => {
         setSite(s);
         setEnabled(s.enabled);
