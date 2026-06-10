@@ -80,9 +80,13 @@ function itemsForRole(
     // already filters to their assigned sections (now including Hifz-
     // teacher attachments).
     case "hifz_teacher":
-      // Their dashboard (TeacherHome) is the primary navigation surface;
-      // toolbar stays minimal so we don't tease admin-only pages.
-      return [announcements];
+      // Their dashboard (TeacherHome) is the primary surface; we now
+      // also surface "My schedule" so the teacher's calendar is one
+      // click from anywhere.
+      return [
+        I("my-schedule", "My schedule", `/school/orgs/${orgId}/my-schedule`, Calendar),
+        announcements,
+      ];
 
     case "office_staff":
       return [
@@ -121,6 +125,7 @@ function itemsForRole(
         // Org-wide weekly schedule. Admin sets slots once; per-section
         // / per-Hifz-group assignments stack onto them.
         I("timetable", "Timetable", `/school/orgs/${orgId}/admin/timetable`, Calendar),
+        I("my-schedule", "My schedule", `/school/orgs/${orgId}/my-schedule`, Calendar),
         // Term + exam + marks structure that feeds report cards.
         I("assessment", "Assessment", `/school/orgs/${orgId}/admin/assessment`, ClipboardList),
         // Parent ↔ school messaging inbox.
