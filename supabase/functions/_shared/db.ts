@@ -467,6 +467,47 @@ export type Database = {
           },
         ]
       }
+      behavior_category: {
+        Row: {
+          archived_at: string | null
+          created_at: string
+          id: string
+          key: string
+          kind: string
+          label: string
+          org_id: string
+          sort_order: number
+        }
+        Insert: {
+          archived_at?: string | null
+          created_at?: string
+          id?: string
+          key: string
+          kind: string
+          label: string
+          org_id: string
+          sort_order?: number
+        }
+        Update: {
+          archived_at?: string | null
+          created_at?: string
+          id?: string
+          key?: string
+          kind?: string
+          label?: string
+          org_id?: string
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "behavior_category_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       behavior_note: {
         Row: {
           category: string | null
