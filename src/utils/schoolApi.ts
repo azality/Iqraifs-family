@@ -4168,8 +4168,25 @@ export interface SchoolGroupResponse {
   campuses: SchoolGroupCampus[];
 }
 export interface SchoolGroupSnapshot {
-  totals: { activeStudents: number; campuses: number };
-  perCampus: Array<{ orgId: string; name: string; activeStudents: number }>;
+  totals: {
+    activeStudents: number;
+    campuses: number;
+    /** Today's present rate across the chain, null if no attendance taken. */
+    attendancePct: number | null;
+    feesCollected: number;
+    feesInvoiced: number;
+    behavior: { positive: number; concern: number };
+  };
+  period: string;
+  attendanceDate: string;
+  perCampus: Array<{
+    orgId: string; name: string;
+    activeStudents: number;
+    attendancePct: number | null;
+    feesCollected: number;
+    feesInvoiced: number;
+    behavior: { positive: number; concern: number };
+  }>;
 }
 
 export const listMySchoolGroups = (): Promise<{ groups: SchoolGroupSummary[] }> =>
