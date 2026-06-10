@@ -35,6 +35,7 @@ import {
   UploadCloud,
   BookMarked,
   Calendar,
+  CalendarOff,
   Inbox,
 } from "lucide-react";
 import type { SchoolViewerRole } from "../../../utils/schoolApi";
@@ -126,6 +127,7 @@ function itemsForRole(
         // / per-Hifz-group assignments stack onto them.
         I("timetable", "Timetable", `/school/orgs/${orgId}/admin/timetable`, Calendar),
         I("my-schedule", "My schedule", `/school/orgs/${orgId}/my-schedule`, Calendar),
+        I("time-off", "Time off", `/school/orgs/${orgId}/admin/time-off`, CalendarOff),
         // Term + exam + marks structure that feeds report cards.
         I("assessment", "Assessment", `/school/orgs/${orgId}/admin/assessment`, ClipboardList),
         // Parent ↔ school messaging inbox.

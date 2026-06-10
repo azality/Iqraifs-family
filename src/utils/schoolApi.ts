@@ -4307,5 +4307,62 @@ export const getMyUpcoming = (
 ): Promise<{ upcoming: LessonPrepItem[] }> =>
   apiCall(`/school/orgs/${orgId}/me/upcoming?limit=${limit}`);
 
+// =============================================================================
+// Time-off / absence requests
+// =============================================================================
+export type TimeOffKind =
+  | "vacation" | "sick" | "personal" | "short_break"
+  | "family_emergency" | "medical" | "other";
+export type TimeOffStatus = "pending" | "approved" | "rejected" | "cancelled";
+export type TimeOffSubjectType = "teacher" | "student";
+
+export interface TimeOffRequest {
+  id: string;
+  orgId: string;
+  subjectType: TimeOffSubjectType;
+  subjectId: string;
+  subjectName: string | null;
+  kind: TimeOffKind;
+  startDate: string;
+  endDate: string;
+  startTime: string | null;
+  endTime: string | null;
+  reason: string | null;
+  status: TimeOffStatus;
+  reviewedAt: string | null;
+  reviewerNotes: string | null;
+  createdAt: string;
+}
+
+export interface TimeOffCreate {
+  kind: TimeOffKind;
+  startDate: string;
+  endDate: string;
+  startTime?: string | null;
+  endTime?: string | null;
+  reason?: string | null;
+}
+
+export const createMyTimeOff = (orgId: string, body: TimeOffCreate): Promise<TimeOffRequest> =>
+  apiCall(`/school/orgs/${orgId}/me/time-off`, { method: "POST", body: JSON.stringify(body) });
+
+export const listMyTimeOff = (orgId: string): Promise<{ requests: TimeOffRequest[] }> =>
+  apiCall(`/school/orgs/${orgId}/me/time-off`);
+
+export const cancelMyTimeOff = (orgId: string, id: string): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/me/time-off/${id}/cancel`, { method: "PATCH" });
+
+export const listOrgTimeOff = (
+  orgId: string, status?: TimeOffStatus,
+): Promise<{ requests: TimeOffRequest[] }> =>
+  apiCall(`/school/orgs/${orgId}/time-off${status ? `?status=${status}` : ""}`);
+
+export const decideTimeOff = (
+  orgId: string, id: string, decision: "approved" | "rejected", notes?: string,
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/time-off/${id}/decide`, {
+    method: "PATCH", body: JSON.stringify({ decision, notes }),
+  });
+
 // Re-export apiCall so callers can hit ad-hoc endpoints without a second import.
 export { apiCall };

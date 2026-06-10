@@ -655,3 +655,14 @@ export const getStudentUpcoming = (
   limit: number = 3,
 ): Promise<{ upcoming: import("./schoolApi").LessonPrepItem[] }> =>
   pinApiCall(`/school/pin-me/students/${studentId}/upcoming?limit=${limit}`);
+
+export const createStudentTimeOff = (
+  studentId: string, body: import("./schoolApi").TimeOffCreate,
+): Promise<import("./schoolApi").TimeOffRequest> =>
+  pinApiCall(`/school/pin-me/students/${studentId}/time-off`, {
+    method: "POST", body: JSON.stringify(body),
+  });
+export const listStudentTimeOff = (
+  studentId: string,
+): Promise<{ requests: import("./schoolApi").TimeOffRequest[] }> =>
+  pinApiCall(`/school/pin-me/students/${studentId}/time-off`);
