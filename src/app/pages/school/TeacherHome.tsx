@@ -10,7 +10,7 @@
 // teacher-relevant pieces and links into existing per-section pages.
 
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useParams, useLocation } from "react-router";
 import { UpNextCard } from "../../components/school-ui/UpNextCard";
 import {
   CheckCircle,
@@ -106,6 +106,26 @@ export function TeacherHome({ orgId, me }: Props) {
   const [showTimeOff, setShowTimeOff] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const location = useLocation();
+
+  // Toolbar "My classes" / "My subjects" deep-link via hash anchors
+  // (#my-classes / #my-subjects). React Router doesn't auto-scroll to
+  // hashes, and the target sections render conditionally once data
+  // loads — so we wait for the relevant content, THEN scroll. Re-run
+  // when `sections` / `mySubjects` change so the scroll lands after
+  // the section actually exists in the DOM.
+  useEffect(() => {
+    if (!location.hash) return;
+    const id = location.hash.replace(/^#/, "");
+    if (!id) return;
+    const el = document.getElementById(id);
+    if (el) {
+      // requestAnimationFrame so the scroll happens after the current
+      // render tick — the section's scroll-mt-20 keeps it below the
+      // sticky toolbar.
+      requestAnimationFrame(() => el.scrollIntoView({ behavior: "smooth", block: "start" }));
+    }
+  }, [location.hash, sections, mySubjects.length]);
 
   // Phase 4a: section_subjects this teacher owns, with curriculum progress.
   useEffect(() => {
