@@ -66,6 +66,7 @@ import {
   type TimetableWeekCell,
 } from "../../../utils/schoolApi";
 import { sectionTitleClasses } from "../../components/school-ui";
+import { TimetableSectionsChecklist } from "./TimetableSectionsChecklist";
 import { TimetableWeekTemplate } from "./TimetableWeekTemplate";
 import { SubstitutionsPanel } from "./SubstitutionsPanel";
 
@@ -291,13 +292,19 @@ export function ManageTimetable() {
         <div>
           <h1 className={sectionTitleClasses}>Timetable</h1>
           <p className="mt-1 text-sm text-slate-600 max-w-2xl">
-            Build the weekly schedule for one class section (or Hifz group) at a time.
-            For each period in the week, pick the subject and the teacher who'll teach it.
-            Once you've done this for every section, every teacher sees their own week in their
-            dashboard.
+            {scopeId
+              ? "Fill the weekly grid for this class — pick a subject and teacher for each period. Times are set on the School schedule page."
+              : "Each class needs a weekly schedule. Pick one below to start, and the page tracks how many periods you've filled in for each."}
           </p>
         </div>
         <div className="flex gap-2 shrink-0">
+          {scopeId && (
+            <Link to={`/school/orgs/${orgId}/admin/timetable`}>
+              <Button variant="outline" size="sm">
+                <ArrowLeft className="h-3.5 w-3.5 mr-1" /> All classes
+              </Button>
+            </Link>
+          )}
           <Link to={`/school/orgs/${orgId}/admin/timetable/substitutions`}>
             <Button variant="outline" size="sm">Substitutions</Button>
           </Link>
@@ -313,6 +320,14 @@ export function ManageTimetable() {
         </div>
       )}
 
+      {/* No scope picked → show the sections checklist (the page's
+          new home view). Once the admin clicks a section, the URL
+          gets ?scope=…&id=… and we fall through to the existing
+          per-section fill-in flow. */}
+      {!scopeId && <TimetableSectionsChecklist />}
+      {!scopeId && null /* hide everything below until a section is picked */}
+      {scopeId && (
+        <>
       {/* Org-wide conflict banner — surfaces room and teacher double-books.
           Clicking opens a modal listing each (room|teacher, day, overlap)
           collision so the admin can jump straight to fixing them. */}
@@ -540,8 +555,9 @@ export function ManageTimetable() {
         </DialogContent>
       </Dialog>
 
-      {/* Substitutions moved to /admin/timetable/substitutions as part
-          of the timetable IA split — see TimetableHub. */}
+      {/* Substitutions moved to /admin/timetable/substitutions. */}
+        </>
+      )}
     </div>
   );
 }

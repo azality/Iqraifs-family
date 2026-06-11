@@ -137,6 +137,7 @@ export const updateOrganization = (
     office_day_start: string;  // HH:MM
     office_day_end: string;    // HH:MM
     school_year: SchoolYear;
+    substitute_teacher_ids: string[];
   }>,
 ): Promise<OrganizationDetail> =>
   apiCall(`/school/orgs/${orgId}`, {
@@ -4439,6 +4440,26 @@ export interface SchoolYear {
   schoolDays?: number[];
   holidays?: SchoolYearHoliday[];
 }
+
+// =============================================================================
+// Timetable section-progress checklist
+// =============================================================================
+export interface TimetableSectionProgressSection {
+  id: string; name: string;
+  classId: string | null; className: string | null;
+  filledSlots: number;
+}
+export interface TimetableSectionProgressGroup {
+  id: string; name: string; filledSlots: number;
+}
+export interface TimetableSectionProgress {
+  totalSlots: number;
+  academicSlots: number;
+  sections: TimetableSectionProgressSection[];
+  hifzGroups: TimetableSectionProgressGroup[];
+}
+export const getTimetableSectionProgress = (orgId: string): Promise<TimetableSectionProgress> =>
+  apiCall(`/school/orgs/${orgId}/timetable/section-progress`);
 
 // Re-export apiCall so callers can hit ad-hoc endpoints without a second import.
 export { apiCall };

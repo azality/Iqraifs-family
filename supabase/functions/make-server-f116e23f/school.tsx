@@ -462,6 +462,11 @@ school.patch("/orgs/:orgId", async (c) => {
     // break / etc). Stored as a single JSON blob to keep the
     // settings shape flat.
     "school_year",
+    // Substitute teacher pool — user_ids on staff who are available
+    // as substitutes. The substitution picker filters to this list
+    // so the admin isn't scrolling through every teacher every time
+    // someone needs covering.
+    "substitute_teacher_ids",
   ];
 
   // Load current settings so we merge rather than overwrite.

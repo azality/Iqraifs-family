@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../components/ui/select";
-import { Plus, Upload, Trash2, ShieldCheck, Mail, AlertTriangle } from "lucide-react";
+import { Plus, Upload, Trash2, ShieldCheck, Mail, AlertTriangle, Star } from "lucide-react";
 import {
   HeroCard,
   DataTable,
@@ -40,6 +40,8 @@ import {
   removeAdmin,
   resendInvite,
   deleteTeacher,
+  getOrganization,
+  updateOrganization,
   type AdminTeacher,
   type OrgAdmin,
   type RoleTemplate,
@@ -71,6 +73,7 @@ export function ManageTeachers() {
   const [adminForm, setAdminForm] = useState({ email: "", fullName: "" });
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [substitutePool, setSubstitutePool] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
@@ -80,9 +83,28 @@ export function ManageTeachers() {
     if (!orgId) return;
     listAdminTeachers(orgId).then(setTeachers).catch((e) => setError(e?.message || "Failed"));
     if (isOrgPrincipal(me, orgId)) listAdmins(orgId).then(setAdmins).catch(() => {});
+    getOrganization(orgId)
+      .then((r) => {
+        const ids = (r.organization as any).settings?.substitute_teacher_ids;
+        setSubstitutePool(new Set(Array.isArray(ids) ? ids : []));
+      })
+      .catch(() => {});
   };
 
   useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [orgId, me]);
+
+  async function toggleSubstitutePool(userId: string) {
+    const next = new Set(substitutePool);
+    if (next.has(userId)) next.delete(userId); else next.add(userId);
+    setSubstitutePool(next);
+    try {
+      await updateOrganization(orgId, { substitute_teacher_ids: Array.from(next) });
+    } catch (e) {
+      // Roll back on error.
+      setSubstitutePool(substitutePool);
+      setError(e instanceof Error ? e.message : "Failed to update substitute pool");
+    }
+  }
 
   if (meLoading) return null;
   if (!isOrgAdmin(me, orgId)) return <Navigate to="/school" replace />;
@@ -269,7 +291,9 @@ export function ManageTeachers() {
       header: "",
       align: "right",
       width: "w-44",
-      cell: (t) => (
+      cell: (t) => {
+        const inPool = substitutePool.has(t.user_id);
+        return (
         <div className="flex justify-end gap-1">
           <Link
             to={`/school/orgs/${orgId}/admin/teachers/${t.user_id}/schedule`}
@@ -279,6 +303,14 @@ export function ManageTeachers() {
           >
             Schedule
           </Link>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => toggleSubstitutePool(t.user_id)}
+            title={inPool ? "Remove from substitute pool" : "Add to substitute pool"}
+          >
+            <Star className={"h-3.5 w-3.5 " + (inPool ? "fill-amber-400 text-amber-500" : "text-slate-400")} />
+          </Button>
           <Button
             variant="ghost"
             size="sm"
@@ -296,7 +328,8 @@ export function ManageTeachers() {
             <Trash2 className="h-3.5 w-3.5 text-rose-600" />
           </Button>
         </div>
-      ),
+        );
+      },
     },
   ];
 
