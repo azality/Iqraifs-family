@@ -287,20 +287,24 @@ export function ManageTimetable() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <Link to={`/school/orgs/${orgId}/admin/timetable`}>
-          <Button variant="outline" size="sm">
-            <ArrowLeft className="h-3.5 w-3.5 mr-1" /> Timetable
-          </Button>
-        </Link>
-      </div>
-
-      <div>
-        <h1 className={sectionTitleClasses}>Section schedules</h1>
-        <p className="mt-1 text-sm text-slate-600">
-          Pick a section or Hifz group below and fill in who teaches what at each period.
-          The empty grid (days × periods) is set on the <Link to={`/school/orgs/${orgId}/admin/timetable/schedule`} className="underline text-indigo-700">School schedule</Link> page.
-        </p>
+      <div className="flex items-end justify-between flex-wrap gap-3">
+        <div>
+          <h1 className={sectionTitleClasses}>Timetable</h1>
+          <p className="mt-1 text-sm text-slate-600 max-w-2xl">
+            Build the weekly schedule for one class section (or Hifz group) at a time.
+            For each period in the week, pick the subject and the teacher who'll teach it.
+            Once you've done this for every section, every teacher sees their own week in their
+            dashboard.
+          </p>
+        </div>
+        <div className="flex gap-2 shrink-0">
+          <Link to={`/school/orgs/${orgId}/admin/timetable/substitutions`}>
+            <Button variant="outline" size="sm">Substitutions</Button>
+          </Link>
+          <Link to={`/school/orgs/${orgId}/admin/settings/school-schedule`}>
+            <Button variant="outline" size="sm">School schedule</Button>
+          </Link>
+        </div>
       </div>
 
       {error && (
@@ -312,7 +316,11 @@ export function ManageTimetable() {
       {/* Org-wide conflict banner — surfaces room and teacher double-books.
           Clicking opens a modal listing each (room|teacher, day, overlap)
           collision so the admin can jump straight to fixing them. */}
-      {(conflicts.length > 0 || teacherConflicts.length > 0) && (
+      {/* Conflict banner only appears once a section/group is picked.
+          Showing the org-wide count on the bare empty page was
+          confusing — the user lands on this page, sees "132 teacher
+          conflicts" with no assignments visible, and can't act on it. */}
+      {scopeId && (conflicts.length > 0 || teacherConflicts.length > 0) && (
         <button
           type="button"
           onClick={() => setConflictModalOpen(true)}

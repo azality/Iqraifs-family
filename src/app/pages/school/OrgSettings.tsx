@@ -419,6 +419,22 @@ export function OrgSettings() {
         </div>
       </section>
 
+      {/* Section: School schedule editor — one-time year-start setup
+          that defines when each period happens. Lives here under
+          Settings because it's not something anyone touches monthly. */}
+      <section className={`${cardBase} ${cardElev} p-5`}>
+        <h3 className={sectionTitleClasses}>School schedule</h3>
+        <p className="mt-1 text-sm text-slate-600">
+          Define when periods happen across the school day, and mark the year's holidays.
+          Set this once at year-start; the daily timetable builds on top.
+        </p>
+        <div className="mt-4">
+          <Link to={`/school/orgs/${orgId}/admin/settings/school-schedule`}>
+            <Button>Open schedule editor</Button>
+          </Link>
+        </div>
+      </section>
+
       {/* Section: School calendar — week + year + holidays. */}
       <section className={`${cardBase} ${cardElev} p-5`}>
         <h3 className={sectionTitleClasses}>School calendar</h3>

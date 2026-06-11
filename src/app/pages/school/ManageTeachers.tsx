@@ -268,9 +268,17 @@ export function ManageTeachers() {
       key: "actions",
       header: "",
       align: "right",
-      width: "w-32",
+      width: "w-44",
       cell: (t) => (
         <div className="flex justify-end gap-1">
+          <Link
+            to={`/school/orgs/${orgId}/admin/teachers/${t.user_id}/schedule`}
+            onClick={(e) => e.stopPropagation()}
+            title="View weekly schedule"
+            className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Schedule
+          </Link>
           <Button
             variant="ghost"
             size="sm"
