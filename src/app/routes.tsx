@@ -64,7 +64,6 @@ import { StudentReportCard } from "./pages/school/StudentReportCard";
 import { ImportCenter } from "./pages/school/ImportCenter";
 import { ManageHifzGroups } from "./pages/school/ManageHifzGroups";
 import { ManageTimetable } from "./pages/school/ManageTimetable";
-import { TimetableHub } from "./pages/school/TimetableHub";
 import { TimetableSchedulePage } from "./pages/school/TimetableSchedulePage";
 import { TimetableSubstitutionsPage } from "./pages/school/TimetableSubstitutionsPage";
 import { TeacherWeekView } from "./pages/school/TeacherWeekView";
@@ -512,10 +511,11 @@ export const router = createBrowserRouter([
               { path: "admin/audit", element: <AuditLog /> },
               { path: "admin/import", element: <ImportCenter /> },
               { path: "admin/hifz-groups", element: <ManageHifzGroups /> },
-              { path: "admin/timetable", element: <TimetableHub /> },
-              { path: "admin/timetable/schedule", element: <TimetableSchedulePage /> },
-              { path: "admin/timetable/sections", element: <ManageTimetable /> },
+              { path: "admin/timetable", element: <ManageTimetable /> },
               { path: "admin/timetable/substitutions", element: <TimetableSubstitutionsPage /> },
+              // School schedule editor (one-time setup) lives under
+              // Settings since principals only touch it at year-start.
+              { path: "admin/settings/school-schedule", element: <TimetableSchedulePage /> },
               { path: "admin/time-off", element: <AdminTimeOff /> },
               { path: "my-week", element: <TeacherWeekView /> },
               { path: "admin/roster-requests", element: <RosterReviewQueue /> },
