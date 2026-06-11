@@ -67,6 +67,7 @@ import {
 } from "../../../utils/schoolApi";
 import { sectionTitleClasses } from "../../components/school-ui";
 import { TimetableSectionsChecklist } from "./TimetableSectionsChecklist";
+import { SectionTimetableGrid } from "./SectionTimetableGrid";
 import { TimetableWeekTemplate } from "./TimetableWeekTemplate";
 import { SubstitutionsPanel } from "./SubstitutionsPanel";
 
@@ -477,14 +478,35 @@ export function ManageTimetable() {
             </CardContent>
           </Card>
         ) : (
-          <WeekGrid
-            cells={cells}
-            scopeKind={scopeKind}
-            classSubjects={classSubjects}
-            teachers={teachers}
-            onSave={saveCell}
-            onClear={clearCell}
-          />
+          <>
+            {/* At-a-glance calendar view above the editing cards.
+                Click any block → scroll the matching row into view
+                and pulse it briefly so the admin sees the edit
+                affordance without losing the calendar context. */}
+            <SectionTimetableGrid
+              cells={cells}
+              onSlotClick={(slotId) => {
+                const el = document.getElementById(`slot-row-${slotId}`);
+                if (!el) return;
+                el.scrollIntoView({ behavior: "smooth", block: "center" });
+                el.classList.add("ring-2", "ring-indigo-400");
+                setTimeout(() => el.classList.remove("ring-2", "ring-indigo-400"), 1600);
+              }}
+            />
+
+            <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mt-4">
+              Edit
+            </div>
+
+            <WeekGrid
+              cells={cells}
+              scopeKind={scopeKind}
+              classSubjects={classSubjects}
+              teachers={teachers}
+              onSave={saveCell}
+              onClear={clearCell}
+            />
+          </>
         )}
       </section>
 
@@ -679,8 +701,8 @@ function CellRow({ cell, scopeKind, classSubjects, teachers, onSave, onClear }: 
   const isInformational = cell.slot.kind === "break" || cell.slot.kind === "prayer" || cell.slot.kind === "assembly";
 
   return (
-    <div className="space-y-1">
-    <div className={"rounded-lg border p-2 flex flex-wrap items-center gap-2 " + KIND_TONE[cell.slot.kind]}>
+    <div className="space-y-1" id={`slot-row-${cell.slot.id}`}>
+    <div className={"rounded-lg border p-2 flex flex-wrap items-center gap-2 transition-shadow " + KIND_TONE[cell.slot.kind]}>
       <div className="min-w-0 flex-shrink-0 w-32">
         <div className="text-xs font-semibold">{cell.slot.name}</div>
         <div className="text-[10px] opacity-80">
