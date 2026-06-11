@@ -11,7 +11,7 @@
 //   - Today's column is highlighted, "now" line drawn across all days.
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams, Link } from "react-router";
+import { useParams, Link, useSearchParams } from "react-router";
 import { Calendar, AlertTriangle, ArrowLeft } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import {
@@ -71,6 +71,19 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
   const [view, setView] = useState<ViewMode>("week");
   const [showConflicts, setShowConflicts] = useState(false);
   const [showTimeOff, setShowTimeOff] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Toolbar "Request time off" link navigates here with
+  // ?action=time-off. Open the modal once and strip the param so a
+  // back/forward doesn't re-open it.
+  useEffect(() => {
+    if (searchParams.get("action") === "time-off") {
+      setShowTimeOff(true);
+      const next = new URLSearchParams(searchParams);
+      next.delete("action");
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
   /** Office hours from org settings — used to anchor the time axis so
    *  staff see the whole working day even when slots cluster mid-day. */
   const [officeRange, setOfficeRange] = useState<{ start: string | null; end: string | null }>({ start: null, end: null });
@@ -215,24 +228,11 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
     <div className="space-y-4 pb-12">
       <div className="flex items-center justify-between flex-wrap gap-2">
         {ownership === "self" ? (
-          <nav className="flex flex-wrap items-center gap-1">
-            <Link to={`/school/orgs/${orgId}`}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">
-              <Home className="h-3 w-3" /> Dashboard
-            </Link>
-            <Link to={`/school/orgs/${orgId}#my-classes`}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">
-              <Users className="h-3 w-3" /> My classes
-            </Link>
-            <Link to={`/school/orgs/${orgId}#my-subjects`}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">
-              <BookOpen className="h-3 w-3" /> My subjects
-            </Link>
-            <button onClick={() => setShowTimeOff(true)}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100">
-              <CalendarOff className="h-3 w-3" /> Request time off
-            </button>
-          </nav>
+          // The page-local nav strip moved into the top toolbar so the
+          // teacher's primary actions live in one row. Only Today/Week
+          // toggle + conflicts stay page-local since they're calendar-
+          // specific controls.
+          <div />
         ) : (
           <Link to={backTo ?? `/school/orgs/${orgId}`}>
             <Button variant="outline" size="sm"><ArrowLeft className="h-3.5 w-3.5 mr-1" /> Back</Button>
