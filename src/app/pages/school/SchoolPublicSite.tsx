@@ -87,6 +87,25 @@ export function SchoolPublicSite() {
     });
   }, [site?.highlights, statProgress]);
 
+  // Group faculty by department. Must sit above the early returns so
+  // hook order stays stable across renders (React #310).
+  const facultyGroups = useMemo(() => {
+    const groups = new Map<string, NonNullable<PublicSiteResponse["faculty"]>>();
+    for (const f of (site?.faculty ?? [])) {
+      const key = f.department?.trim() || "Faculty";
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(f);
+    }
+    return Array.from(groups.entries()).map(([name, members]) => ({ name, members }));
+  }, [site?.faculty]);
+
+  const days = useMemo(() => {
+    const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const order = [1, 2, 3, 4, 5, 6, 0];
+    const set = new Set(site?.timings?.daysOfWeek ?? []);
+    return order.map((i) => ({ label: dayNames[i], active: set.has(i) }));
+  }, [site?.timings?.daysOfWeek]);
+
   if (error) {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: PALETTE.cream, color: PALETTE.muted, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
@@ -111,24 +130,6 @@ export function SchoolPublicSite() {
   const whatsappHref = whatsappDigits ? `https://wa.me/${whatsappDigits}` : undefined;
   const programs = (site.programs && site.programs.length > 0) ? site.programs : DEFAULTS.programs;
   const ayah = site.ayah && (site.ayah.arabic || site.ayah.translation) ? site.ayah : null;
-
-  // Group faculty by department for the wall.
-  const facultyGroups = useMemo(() => {
-    const groups = new Map<string, typeof site.faculty>();
-    for (const f of (site.faculty ?? [])) {
-      const key = f.department?.trim() || "Faculty";
-      if (!groups.has(key)) groups.set(key, [] as any);
-      (groups.get(key) as any).push(f);
-    }
-    return Array.from(groups.entries()).map(([name, members]) => ({ name, members: members ?? [] }));
-  }, [site.faculty]);
-
-  const days = useMemo(() => {
-    const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const order = [1, 2, 3, 4, 5, 6, 0];
-    const set = new Set(site.timings?.daysOfWeek ?? []);
-    return order.map((i) => ({ label: dayNames[i], active: set.has(i) }));
-  }, [site.timings?.daysOfWeek]);
 
   const termDates = site.term ? formatTermDates(site.term.startDate, site.term.endDate) : null;
 
