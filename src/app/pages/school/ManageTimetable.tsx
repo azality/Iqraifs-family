@@ -288,18 +288,18 @@ export function ManageTimetable() {
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <Link to={`/school/orgs/${orgId}/admin`}>
+        <Link to={`/school/orgs/${orgId}/admin/timetable`}>
           <Button variant="outline" size="sm">
-            <ArrowLeft className="h-3.5 w-3.5 mr-1" /> Admin
+            <ArrowLeft className="h-3.5 w-3.5 mr-1" /> Timetable
           </Button>
         </Link>
       </div>
 
       <div>
-        <h1 className={sectionTitleClasses}>Timetable</h1>
+        <h1 className={sectionTitleClasses}>Section schedules</h1>
         <p className="mt-1 text-sm text-slate-600">
-          The skeleton (days × periods) is org-wide. Each section and Hifz group
-          fills in its own subject + teacher per slot.
+          Pick a section or Hifz group below and fill in who teaches what at each period.
+          The empty grid (days × periods) is set on the <Link to={`/school/orgs/${orgId}/admin/timetable/schedule`} className="underline text-indigo-700">School schedule</Link> page.
         </p>
       </div>
 
@@ -398,9 +398,6 @@ export function ManageTimetable() {
           </div>
         </DialogContent>
       </Dialog>
-
-      {/* ─── Week template — the easy path ─── */}
-      <TimetableWeekTemplate />
 
       {/* Per-day "Time slots" list removed — the template editor above
           owns slot generation, and per-day one-off variations (Friday
@@ -535,8 +532,8 @@ export function ManageTimetable() {
         </DialogContent>
       </Dialog>
 
-      {/* ─── Substitutions (PR feat/timetable-substitutions) ─── */}
-      <SubstitutionsPanel orgId={orgId} teachers={teachers} />
+      {/* Substitutions moved to /admin/timetable/substitutions as part
+          of the timetable IA split — see TimetableHub. */}
     </div>
   );
 }
