@@ -34,14 +34,22 @@ type PublicSiteSettings = {
   hero_title?: string;
   hero_tagline?: string;
   hero_image_url?: string;
+  hero_kicker?: string;
   about?: string;
   contact_email?: string;
   contact_phone?: string;
   contact_address?: string;
-  // Phase 3: faculty wall + photo gallery + visual chrome
-  highlights?: Array<{ label: string; value: string }>; // stat strip
+  // Phase 3
+  highlights?: Array<{ label: string; value: string }>;
   gallery?: Array<{ url: string; caption?: string }>;
-  faculty?: Array<{ name: string; role?: string; bio?: string; photoUrl?: string }>;
+  faculty?: Array<{ name: string; role?: string; bio?: string; photoUrl?: string; department?: string }>;
+  // Phase 4 (design handoff)
+  whatsapp_phone?: string;
+  visit_hours?: string;
+  ayah_arabic?: string;
+  ayah_translation?: string;
+  ayah_reference?: string;
+  programs?: Array<{ name: string; summary: string; kind?: "primary" | "secondary" }>;
 };
 
 function siteToJson(orgRow: any) {
@@ -51,10 +59,21 @@ function siteToJson(orgRow: any) {
     heroTitle: ps.hero_title ?? null,
     heroTagline: ps.hero_tagline ?? null,
     heroImageUrl: ps.hero_image_url ?? null,
+    heroKicker: ps.hero_kicker ?? null,
     about: ps.about ?? null,
     contactEmail: ps.contact_email ?? null,
     contactPhone: ps.contact_phone ?? null,
     contactAddress: ps.contact_address ?? null,
+    whatsappPhone: ps.whatsapp_phone ?? null,
+    visitHours: ps.visit_hours ?? null,
+    ayah: (ps.ayah_arabic || ps.ayah_translation)
+      ? {
+          arabic: ps.ayah_arabic ?? null,
+          translation: ps.ayah_translation ?? null,
+          reference: ps.ayah_reference ?? null,
+        }
+      : null,
+    programs: Array.isArray(ps.programs) ? ps.programs : [],
     highlights: Array.isArray(ps.highlights) ? ps.highlights : [],
     gallery: Array.isArray(ps.gallery) ? ps.gallery : [],
     faculty: Array.isArray(ps.faculty) ? ps.faculty : [],
@@ -158,10 +177,29 @@ export function installPublicSite(school: Hono): void {
     if (typeof body?.heroTitle === "string") next.hero_title = body.heroTitle.trim().slice(0, 120);
     if (typeof body?.heroTagline === "string") next.hero_tagline = body.heroTagline.trim().slice(0, 240);
     if (typeof body?.heroImageUrl === "string") next.hero_image_url = body.heroImageUrl.trim().slice(0, 500);
+    if (typeof body?.heroKicker === "string") next.hero_kicker = body.heroKicker.trim().slice(0, 120);
     if (typeof body?.about === "string") next.about = body.about.trim().slice(0, 4000);
     if (typeof body?.contactEmail === "string") next.contact_email = body.contactEmail.trim().slice(0, 200);
     if (typeof body?.contactPhone === "string") next.contact_phone = body.contactPhone.trim().slice(0, 50);
     if (typeof body?.contactAddress === "string") next.contact_address = body.contactAddress.trim().slice(0, 500);
+    if (typeof body?.whatsappPhone === "string") next.whatsapp_phone = body.whatsappPhone.trim().slice(0, 50);
+    if (typeof body?.visitHours === "string") next.visit_hours = body.visitHours.trim().slice(0, 500);
+    if (body?.ayah && typeof body.ayah === "object") {
+      const a: any = body.ayah;
+      if (typeof a.arabic === "string") next.ayah_arabic = a.arabic.trim().slice(0, 500);
+      if (typeof a.translation === "string") next.ayah_translation = a.translation.trim().slice(0, 500);
+      if (typeof a.reference === "string") next.ayah_reference = a.reference.trim().slice(0, 120);
+    }
+    if (Array.isArray(body?.programs)) {
+      next.programs = (body.programs as any[])
+        .slice(0, 4)
+        .map((p) => ({
+          name: String(p?.name ?? "").trim().slice(0, 80),
+          summary: String(p?.summary ?? "").trim().slice(0, 300),
+          kind: p?.kind === "primary" ? "primary" : "secondary",
+        }))
+        .filter((p) => p.name && p.summary);
+    }
     // Phase 3 collections — bounded array sizes to keep the JSONB sane.
     if (Array.isArray(body?.highlights)) {
       next.highlights = (body.highlights as any[])
@@ -189,6 +227,7 @@ export function installPublicSite(school: Hono): void {
           role: f?.role ? String(f.role).trim().slice(0, 100) : undefined,
           bio: f?.bio ? String(f.bio).trim().slice(0, 600) : undefined,
           photoUrl: f?.photoUrl ? String(f.photoUrl).trim().slice(0, 500) : undefined,
+          department: f?.department ? String(f.department).trim().slice(0, 60) : undefined,
         }))
         .filter((f) => f.name);
     }

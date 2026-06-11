@@ -38,13 +38,20 @@ export function ManagePublicSite() {
   const [heroTitle, setHeroTitle] = useState("");
   const [heroTagline, setHeroTagline] = useState("");
   const [heroImageUrl, setHeroImageUrl] = useState("");
+  const [heroKicker, setHeroKicker] = useState("");
   const [about, setAbout] = useState("");
   const [highlights, setHighlights] = useState<Array<{ label: string; value: string }>>([]);
   const [gallery, setGallery] = useState<Array<{ url: string; caption?: string }>>([]);
-  const [faculty, setFaculty] = useState<Array<{ name: string; role?: string; bio?: string; photoUrl?: string }>>([]);
+  const [faculty, setFaculty] = useState<Array<{ name: string; role?: string; bio?: string; photoUrl?: string; department?: string }>>([]);
   const [contactEmail, setContactEmail] = useState("");
   const [contactPhone, setContactPhone] = useState("");
   const [contactAddress, setContactAddress] = useState("");
+  const [whatsappPhone, setWhatsappPhone] = useState("");
+  const [visitHours, setVisitHours] = useState("");
+  const [ayahArabic, setAyahArabic] = useState("");
+  const [ayahTranslation, setAyahTranslation] = useState("");
+  const [ayahReference, setAyahReference] = useState("");
+  const [programs, setPrograms] = useState<Array<{ name: string; summary: string; kind?: "primary" | "secondary" }>>([]);
 
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
@@ -64,10 +71,17 @@ export function ManagePublicSite() {
         setHeroTitle(s.heroTitle ?? "");
         setHeroTagline(s.heroTagline ?? "");
         setHeroImageUrl(s.heroImageUrl ?? "");
+        setHeroKicker(s.heroKicker ?? "");
         setAbout(s.about ?? "");
         setContactEmail(s.contactEmail ?? "");
         setContactPhone(s.contactPhone ?? "");
         setContactAddress(s.contactAddress ?? "");
+        setWhatsappPhone(s.whatsappPhone ?? "");
+        setVisitHours(s.visitHours ?? "");
+        setAyahArabic(s.ayah?.arabic ?? "");
+        setAyahTranslation(s.ayah?.translation ?? "");
+        setAyahReference(s.ayah?.reference ?? "");
+        setPrograms(s.programs ?? []);
         setHighlights(s.highlights ?? []);
         setGallery(s.gallery ?? []);
         setFaculty(s.faculty ?? []);
@@ -89,9 +103,16 @@ export function ManagePublicSite() {
     try {
       const r = await savePublicSite(orgId, {
         enabled,
-        heroTitle, heroTagline, heroImageUrl,
+        heroTitle, heroTagline, heroImageUrl, heroKicker,
         about,
         contactEmail, contactPhone, contactAddress,
+        whatsappPhone, visitHours,
+        ayah: {
+          arabic: ayahArabic.trim() || undefined,
+          translation: ayahTranslation.trim() || undefined,
+          reference: ayahReference.trim() || undefined,
+        },
+        programs: programs.filter((p) => p.name && p.summary),
         highlights: highlights.filter((h) => h.label && h.value),
         gallery: gallery.filter((g) => g.url),
         faculty: faculty.filter((f) => f.name),
@@ -185,6 +206,12 @@ export function ManagePublicSite() {
                 <Input value={heroImageUrl} onChange={(e) => setHeroImageUrl(e.target.value)}
                        placeholder="https://…" />
               </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Kicker line above the hero title (optional)</Label>
+                <Input value={heroKicker} onChange={(e) => setHeroKicker(e.target.value)}
+                       placeholder="e.g. iqraifs.com/your-slug · live from app" />
+                <p className="text-[11px] text-slate-500">Small pill text above the headline. Leave blank for the default.</p>
+              </div>
             </CardContent>
           </Card>
 
@@ -202,6 +229,61 @@ export function ManagePublicSite() {
 
           <Card>
             <CardContent className="p-4 space-y-3">
+              <div className="text-xs font-bold uppercase tracking-wider text-slate-700">Quran callout (ayah / quote)</div>
+              <p className="text-[11px] text-slate-500 -mt-1">Optional. Renders alongside the About section as a dark quote block. Leave blank to hide.</p>
+              <div className="space-y-1">
+                <Label className="text-xs">Arabic text</Label>
+                <Input dir="rtl" lang="ar" value={ayahArabic} onChange={(e) => setAyahArabic(e.target.value)}
+                       placeholder="اقْرَأْ بِاسْمِ رَبِّكَ الَّذِي خَلَقَ" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Translation</Label>
+                <Input value={ayahTranslation} onChange={(e) => setAyahTranslation(e.target.value)}
+                       placeholder='e.g. "Read, in the name of your Lord who created."' />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Reference</Label>
+                <Input value={ayahReference} onChange={(e) => setAyahReference(e.target.value)}
+                       placeholder="Surah Al-'Alaq · 96:1" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="text-xs font-bold uppercase tracking-wider text-slate-700">Programs</div>
+                <Button variant="outline" size="sm" onClick={() => setPrograms([...programs, { name: "", summary: "", kind: "primary" }])}
+                        disabled={programs.length >= 4}>+ Add</Button>
+              </div>
+              <p className="text-[11px] text-slate-500 -mt-1">Up to 4 program cards. Leave blank to use platform defaults (Hifz / Mainstream / Hybrid).</p>
+              <div className="space-y-2">
+                {programs.map((p, i) => (
+                  <div key={i} className="rounded-md border border-slate-200 p-3 space-y-2">
+                    <div className="grid grid-cols-[1fr_auto] gap-2">
+                      <Input value={p.name} placeholder="Program name (e.g. Hifz Program)"
+                             onChange={(e) => setPrograms(programs.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} />
+                      <select value={p.kind ?? "primary"}
+                              onChange={(e) => setPrograms(programs.map((x, j) => j === i ? { ...x, kind: e.target.value as any } : x))}
+                              className="border border-slate-300 rounded px-2 text-xs">
+                        <option value="primary">Gold icon</option>
+                        <option value="secondary">Green icon</option>
+                      </select>
+                    </div>
+                    <Textarea value={p.summary} rows={2} placeholder="One-sentence summary"
+                              onChange={(e) => setPrograms(programs.map((x, j) => j === i ? { ...x, summary: e.target.value } : x))} />
+                    <div className="text-right">
+                      <Button variant="outline" size="sm"
+                              onClick={() => setPrograms(programs.filter((_, j) => j !== i))}>Remove</Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-4 space-y-3">
               <div className="text-xs font-bold uppercase tracking-wider text-slate-700">Contact</div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
@@ -210,9 +292,19 @@ export function ManagePublicSite() {
                          placeholder="+92 21 1234 5678" />
                 </div>
                 <div className="space-y-1">
+                  <Label className="text-xs">WhatsApp number (optional)</Label>
+                  <Input value={whatsappPhone} onChange={(e) => setWhatsappPhone(e.target.value)}
+                         placeholder="+92 300 1234 567" />
+                </div>
+                <div className="space-y-1">
                   <Label className="text-xs">Email</Label>
                   <Input value={contactEmail} onChange={(e) => setContactEmail(e.target.value)}
                          placeholder="hello@school.edu" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Visit hours (optional)</Label>
+                  <Input value={visitHours} onChange={(e) => setVisitHours(e.target.value)}
+                         placeholder="Mon–Fri 9 AM – 1 PM. Pause for Zuhr." />
                 </div>
               </div>
               <div className="space-y-1">
@@ -265,6 +357,8 @@ export function ManagePublicSite() {
                       <Input value={f.role ?? ""} placeholder="Role (e.g. Head of Quran)"
                              onChange={(e) => setFaculty(faculty.map((x, j) => j === i ? { ...x, role: e.target.value } : x))} />
                     </div>
+                    <Input value={f.department ?? ""} placeholder="Department / group label (e.g. Leadership & Quran)"
+                           onChange={(e) => setFaculty(faculty.map((x, j) => j === i ? { ...x, department: e.target.value } : x))} />
                     <Input value={f.photoUrl ?? ""} placeholder="Photo URL (optional)"
                            onChange={(e) => setFaculty(faculty.map((x, j) => j === i ? { ...x, photoUrl: e.target.value } : x))} />
                     <Textarea value={f.bio ?? ""} rows={2} placeholder="Short bio (optional)"

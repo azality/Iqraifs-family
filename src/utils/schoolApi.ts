@@ -4230,15 +4230,28 @@ export const listStudentTransfers = (
 // =============================================================================
 // Public school site (Phase 1)
 // =============================================================================
+export interface PublicSiteFaculty {
+  name: string; role?: string; bio?: string; photoUrl?: string; department?: string;
+}
+export interface PublicSiteProgram {
+  name: string; summary: string; kind?: "primary" | "secondary";
+}
+export interface PublicSiteAyah {
+  arabic: string | null; translation: string | null; reference: string | null;
+}
 export interface PublicSiteResponse {
   enabled: boolean;
   heroTitle: string | null;
   heroTagline: string | null;
   heroImageUrl: string | null;
+  heroKicker: string | null;
   about: string | null;
   contactEmail: string | null;
   contactPhone: string | null;
   contactAddress: string | null;
+  whatsappPhone: string | null;
+  visitHours: string | null;
+  ayah: PublicSiteAyah | null;
   org: {
     id: string; name: string; slug: string;
     logoUrl: string | null; themeColor: string | null; motto: string | null;
@@ -4247,10 +4260,11 @@ export interface PublicSiteResponse {
   timings?: { firstStart: string | null; lastEnd: string | null; daysOfWeek: number[] };
   announcements?: Array<{ id: string; title: string; body: string; createdAt: string }>;
   term?: { name: string; startDate: string; endDate: string } | null;
-  // Phase 3
+  // Phase 3+
   highlights?: Array<{ label: string; value: string }>;
   gallery?: Array<{ url: string; caption?: string }>;
-  faculty?: Array<{ name: string; role?: string; bio?: string; photoUrl?: string }>;
+  faculty?: PublicSiteFaculty[];
+  programs?: PublicSiteProgram[];
 }
 // No-auth fetch — public site is reachable without a session, so we can't
 // use apiCall (which redirects to login on missing access token).
@@ -4273,12 +4287,15 @@ export const savePublicSite = (
   orgId: string,
   patch: Partial<{
     enabled: boolean;
-    heroTitle: string; heroTagline: string; heroImageUrl: string;
+    heroTitle: string; heroTagline: string; heroImageUrl: string; heroKicker: string;
     about: string;
     contactEmail: string; contactPhone: string; contactAddress: string;
+    whatsappPhone: string; visitHours: string;
+    ayah: { arabic?: string; translation?: string; reference?: string };
+    programs: PublicSiteProgram[];
     highlights: Array<{ label: string; value: string }>;
     gallery: Array<{ url: string; caption?: string }>;
-    faculty: Array<{ name: string; role?: string; bio?: string; photoUrl?: string }>;
+    faculty: PublicSiteFaculty[];
   }>,
 ): Promise<PublicSiteResponse> =>
   apiCall(`/school/orgs/${orgId}/public-site`, {
