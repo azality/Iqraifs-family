@@ -592,13 +592,27 @@ export function SchoolPublicSite() {
                   )}
                 </div>
                 {site.contactAddress && (
-                  <div style={{ background: "#E8E2D2", border: "1px solid rgba(201,162,74,0.35)", borderRadius: 20, minHeight: 340, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12 }}>
-                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke={PALETTE.goldDark} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                      <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z" />
-                      <circle cx="12" cy="10" r="3" />
-                    </svg>
-                    <span style={{ font: `600 15px/1.3 ${fontSans}`, color: PALETTE.muted }}>Embedded map</span>
-                    <span style={{ font: `400 12px/1.3 ${fontSans}`, color: PALETTE.mutedLight }}>Google Maps embed goes here</span>
+                  <div style={{ border: "1px solid rgba(201,162,74,0.35)", borderRadius: 20, minHeight: 340, overflow: "hidden", position: "relative", background: "#E8E2D2" }}>
+                    {/* Keyless Google Maps embed — works without an API
+                        key for basic address search. If the school later
+                        sets a place_id, we can switch to the Maps Embed
+                        API for a more accurate pin. */}
+                    <iframe
+                      title={`Map of ${site.org.name}`}
+                      src={`https://www.google.com/maps?q=${encodeURIComponent(firstAddressLine(site.contactAddress))}&output=embed`}
+                      loading="lazy"
+                      referrerPolicy="no-referrer-when-downgrade"
+                      style={{ width: "100%", height: "100%", minHeight: 340, border: 0, display: "block" }}
+                      allowFullScreen
+                    />
+                    <a
+                      href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(firstAddressLine(site.contactAddress))}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ position: "absolute", insetInlineEnd: 12, insetBlockEnd: 12, font: `600 12px/1 ${fontSans}`, background: PALETTE.cream, color: PALETTE.emerald, textDecoration: "none", padding: "8px 12px", borderRadius: 999, boxShadow: "0 4px 12px rgba(0,0,0,0.15)" }}
+                    >
+                      Open in Maps
+                    </a>
                   </div>
                 )}
               </div>
@@ -784,6 +798,16 @@ function formatTermDates(startIso: string, endIso: string): string {
   } catch {
     return `${startIso} – ${endIso}`;
   }
+}
+
+// First line of a multi-line/multi-campus address — what Google Maps
+// should search for. Multi-campus schools cram all their branches into
+// one textarea ("Main: ...; Branch 2: ..."), but the map can only show
+// one location at a time, so we take the first line.
+function firstAddressLine(addr: string): string {
+  const first = addr.split(/[\n;]/)[0]?.trim() ?? addr;
+  // Strip leading labels like "Main campus:" or "Bahadurabad:".
+  return first.replace(/^[^:]{1,30}:\s*/, "");
 }
 
 function shortAddress(addr: string): string {
