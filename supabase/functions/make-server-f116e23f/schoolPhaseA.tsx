@@ -1277,7 +1277,13 @@ export function installPhaseA(school: Hono) {
     const search = c.req.query("search");
     let q = serviceRoleClient.from("student").select("*").eq("org_id", orgId);
     if (classSectionId) q = q.eq("class_section_id", classSectionId);
-    if (search) q = q.ilike("full_name", `%${search}%`);
+    if (search) {
+      // Search across full_name AND gr_number — the input placeholder
+      // promises both. Strip PostgREST `or()` metacharacters so a user
+      // typing "," or ")" doesn't break the filter.
+      const escaped = search.replace(/[(),]/g, " ").trim();
+      if (escaped) q = q.or(`full_name.ilike.%${escaped}%,gr_number.ilike.%${escaped}%`);
+    }
     const { data, error } = await q.order("full_name").limit(500);
     if (error) return c.json({ error: error.message }, 500);
     return c.json({ students: data ?? [] });
