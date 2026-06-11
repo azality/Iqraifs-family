@@ -402,57 +402,10 @@ export function ManageTimetable() {
       {/* ─── Week template — the easy path ─── */}
       <TimetableWeekTemplate />
 
-      {/* ─── Slots panel (advanced / fine-tuning) ─── */}
-      <section className="space-y-2">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700">
-            Time slots <span className="ml-1 text-[10px] font-normal text-slate-500">(advanced)</span>
-          </h2>
-          <Button
-            size="sm" variant="outline"
-            onClick={() => { setSlotForm(emptySlotForm); setSlotDialogOpen(true); }}
-          >
-            <Plus className="h-4 w-4 mr-1" /> Add slot manually
-          </Button>
-        </div>
-        <p className="text-[11px] text-slate-500 -mt-1">
-          Use the template above for the common case. Use this list to tweak individual slots
-          (e.g. a one-off Friday early-close).
-        </p>
-        {slots.length === 0 ? (
-          <Card>
-            <CardContent className="p-4 text-sm text-slate-500 italic">
-              No slots yet. Add one per period for each weekday — P1 / Break / Zuhr /
-              Hifz block / etc.
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-            {slots.map((s) => (
-              <div
-                key={s.id}
-                className={"rounded-lg border px-3 py-2 text-xs flex items-center justify-between gap-2 " + KIND_TONE[s.kind]}
-              >
-                <div className="min-w-0">
-                  <div className="font-medium">{s.name}</div>
-                  <div className="text-[11px] opacity-80">
-                    {DAYS[s.dayOfWeek - 1]} · {s.startTime}–{s.endTime} ·{" "}
-                    <span className="italic">{KIND_LABEL[s.kind]}</span>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => handleDeleteSlot(s)}
-                  className="opacity-50 hover:opacity-100 text-rose-700 shrink-0"
-                  title="Remove slot"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
+      {/* Per-day "Time slots" list removed — the template editor above
+          owns slot generation, and per-day one-off variations (Friday
+          early-close etc.) belong in a future per-day override feature
+          on the template, not a fallback. */}
 
       {/* ─── Scope picker + weekly grid ─── */}
       <section className="space-y-2">
