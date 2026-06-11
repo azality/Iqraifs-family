@@ -20,6 +20,24 @@ import type { Hono, Context } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { verifyPinToken } from "./schoolPhaseA.tsx";
 
+// Inclusive list of ISO dates between start and end (YYYY-MM-DD).
+// Capped at 60 days so a runaway "vacation for the next decade"
+// request can't blow up the coverage query.
+function enumerateDates(startIso: string, endIso: string): string[] {
+  const out: string[] = [];
+  const s = new Date(`${startIso}T00:00:00Z`);
+  const e = new Date(`${endIso}T00:00:00Z`);
+  if (isNaN(s.getTime()) || isNaN(e.getTime())) return out;
+  const cur = new Date(s);
+  let count = 0;
+  while (cur <= e && count < 60) {
+    out.push(cur.toISOString().slice(0, 10));
+    cur.setUTCDate(cur.getUTCDate() + 1);
+    count++;
+  }
+  return out;
+}
+
 const VALID_KINDS = new Set([
   "vacation", "sick", "personal", "short_break",
   "family_emergency", "medical", "other",
@@ -274,8 +292,60 @@ export function installTimeOff(school: Hono): void {
       } catch { /* ignore */ }
     }
 
+    // Coverage info — for each teacher request, list the classes /
+    // subjects they teach on each affected day so the admin can plan
+    // substitutes without bouncing to the timetable page.
+    const coverageById = new Map<string, any[]>();
+    const teacherRequestRows = (data ?? []).filter((r: any) => r.subject_type === "teacher");
+    if (teacherRequestRows.length > 0) {
+      // Pull every entry for the affected teachers in one query; we'll
+      // filter per-row by date range in JS. Cheap enough — a teacher's
+      // weekly entry count is tiny.
+      const uniqueTeacherIds = Array.from(new Set(teacherRequestRows.map((r: any) => r.subject_id)));
+      const { data: entries } = await serviceRoleClient
+        .from("timetable_entry")
+        .select("teacher_user_id, room, slot:slot_id(day_of_week, start_time, end_time, name), section_subject:section_subject_id(class_subject:class_subject_id(name)), section:scope_section_id(name, class:class_id(name)), hifz_group:scope_hifz_group_id(name)")
+        .eq("org_id", orgId)
+        .in("teacher_user_id", uniqueTeacherIds);
+
+      const byTeacher = new Map<string, any[]>();
+      for (const e of (entries ?? []) as any[]) {
+        if (!byTeacher.has(e.teacher_user_id)) byTeacher.set(e.teacher_user_id, []);
+        byTeacher.get(e.teacher_user_id)!.push(e);
+      }
+
+      for (const r of teacherRequestRows) {
+        const days = enumerateDates(r.start_date, r.end_date);
+        const teacherEntries = byTeacher.get(r.subject_id) ?? [];
+        const coverage: any[] = [];
+        for (const d of days) {
+          const dow = new Date(`${d}T12:00:00Z`).getUTCDay(); // 0=Sun..6=Sat
+          const matched = teacherEntries.filter((e: any) => e.slot?.day_of_week === dow);
+          if (matched.length === 0) continue;
+          coverage.push({
+            date: d,
+            dayOfWeek: dow,
+            entries: matched.map((e: any) => ({
+              slotName: e.slot?.name ?? null,
+              startTime: e.slot?.start_time ?? null,
+              endTime: e.slot?.end_time ?? null,
+              subjectName: e.section_subject?.class_subject?.name ?? null,
+              sectionLabel: e.section
+                ? `${e.section.class?.name ?? ""} · ${e.section.name ?? ""}`.trim()
+                : e.hifz_group?.name ?? null,
+              room: e.room ?? null,
+            })).sort((a: any, b: any) => (a.startTime ?? "").localeCompare(b.startTime ?? "")),
+          });
+        }
+        coverageById.set(r.id, coverage);
+      }
+    }
+
     return c.json({
-      requests: (data ?? []).map((r: any) => toJson({ ...r, subject_name: nameById.get(r.subject_id) ?? null })),
+      requests: (data ?? []).map((r: any) => ({
+        ...toJson({ ...r, subject_name: nameById.get(r.subject_id) ?? null }),
+        coverage: coverageById.get(r.id) ?? null,
+      })),
     });
   });
 

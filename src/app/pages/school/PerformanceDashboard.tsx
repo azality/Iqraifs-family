@@ -65,7 +65,7 @@ import {
   type AcademicsResponse,
   type SchoolMeResponse,
 } from "../../../utils/schoolApi";
-import { SetupChecklist, setupChecklistDismissed } from "../../components/school-ui";
+import { SetupChecklist, setupChecklistDismissed, PendingTimeOffWidget } from "../../components/school-ui";
 import { RoleTour } from "../../components/RoleTour";
 import { pickTourForUser } from "../../../utils/tours";
 
@@ -773,6 +773,11 @@ export function PerformanceDashboard() {
       {/* ManageToolbar is now rendered by SchoolAdminShell, which wraps
           every /school/orgs/:orgId/* route. */}
       {tourRole && me?.userId && <RoleTour role={tourRole} userId={me.userId} />}
+
+      {/* Pending time-off requests — surfaces at the top so the
+          principal sees what needs review without scrolling. The
+          widget hides itself when the queue is empty. */}
+      <PendingTimeOffWidget orgId={orgId} />
 
       {/* Setup checklist — only for fresh schools with at least one
           incomplete actionable step and no prior dismissal. */}

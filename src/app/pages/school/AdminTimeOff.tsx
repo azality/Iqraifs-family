@@ -27,6 +27,12 @@ function statusKind(s: TimeOffStatus): Status {
   return "watch";
 }
 
+function formatDay(iso: string): string {
+  try {
+    return new Date(`${iso}T12:00:00`).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  } catch { return iso; }
+}
+
 function dateRange(r: TimeOffRequest): string {
   if (r.startDate === r.endDate) {
     if (r.startTime && r.endTime) return `${r.startDate} · ${r.startTime}–${r.endTime}`;
@@ -93,6 +99,39 @@ export function AdminTimeOff() {
           {r.reason && <div className="mt-1 text-xs text-slate-700">"{r.reason}"</div>}
           {r.reviewerNotes && (
             <div className="mt-1 text-xs italic text-slate-500">Reviewer: {r.reviewerNotes}</div>
+          )}
+          {/* Coverage info — teacher requests only. Helps the admin
+              see at a glance which classes/subjects need a substitute
+              on each affected day. */}
+          {r.subjectType === "teacher" && r.coverage && r.coverage.length > 0 && (
+            <div className="mt-2 rounded-md border border-amber-200 bg-amber-50/60 px-2.5 py-2">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-amber-900">
+                Coverage needed
+              </div>
+              <div className="mt-1 space-y-1.5">
+                {r.coverage.map((day) => (
+                  <div key={day.date} className="text-xs">
+                    <div className="font-medium text-slate-800">
+                      {formatDay(day.date)} — {day.entries.length} period{day.entries.length === 1 ? "" : "s"}
+                    </div>
+                    <ul className="ml-3 mt-0.5 list-disc text-[11px] text-slate-700">
+                      {day.entries.map((e, i) => (
+                        <li key={i}>
+                          <span className="text-slate-500">{e.startTime?.slice(0, 5)}–{e.endTime?.slice(0, 5)}</span>
+                          {" · "}
+                          <span className="font-medium">{e.subjectName ?? "—"}</span>
+                          {e.sectionLabel && <span className="text-slate-500"> · {e.sectionLabel}</span>}
+                          {e.room && <span className="text-slate-500"> · Room {e.room}</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {r.subjectType === "teacher" && r.coverage && r.coverage.length === 0 && (
+            <div className="mt-1 text-[11px] text-emerald-700">No teaching periods affected — no substitute needed.</div>
           )}
         </div>
         {showActions && (

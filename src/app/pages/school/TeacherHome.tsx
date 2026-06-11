@@ -40,7 +40,7 @@ import {
   type SchoolMeResponse,
   createMyTimeOff,
 } from "../../../utils/schoolApi";
-import { TimeOffModal } from "../../components/school-ui";
+import { TimeOffModal, TeacherTimeOffWidget } from "../../components/school-ui";
 
 function todayDow(): number {
   // ISO day: Mon=1 ... Sun=7. JS getDay(): Sun=0.
@@ -305,6 +305,9 @@ export function TeacherHome({ orgId, me }: Props) {
       {upcoming !== null && (
         <UpNextCard items={upcoming} audience="teacher" orgId={orgId} />
       )}
+
+      {/* My upcoming time off — pending + approved future-dated. */}
+      <TeacherTimeOffWidget orgId={orgId} />
 
       {/* Sections needing attention — surfaced near the top so a teacher
           sees what's slipping before scrolling past today's plan. */}
