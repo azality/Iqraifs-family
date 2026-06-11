@@ -92,6 +92,17 @@ export function OrgSettings() {
   const [yearError, setYearError] = useState<string | null>(null);
   const [yearSavedAt, setYearSavedAt] = useState<number | null>(null);
 
+  // School year + holidays. Lives under settings.school_year as a
+  // single JSON blob. Drives working-day calc + future attendance pre-
+  // fill (no system today reads it, so saving is non-destructive).
+  const [yearStartDate, setYearStartDate] = useState("");
+  const [yearEndDate, setYearEndDate] = useState("");
+  const [yearSchoolDays, setYearSchoolDays] = useState<number[]>([1, 2, 3, 4, 5]);
+  const [yearHolidays, setYearHolidays] = useState<Array<{ name: string; startDate: string; endDate: string }>>([]);
+  const [syearSaving, setSyearSaving] = useState(false);
+  const [syearError, setSyearError] = useState<string | null>(null);
+  const [syearSavedAt, setSyearSavedAt] = useState<number | null>(null);
+
   // Custom URL slug — drives iqraifs.com/:slug as the school's unified
   // login URL. We keep it in its own form section (separate Save) so a
   // typo in the org name can't accidentally orphan an active slug.
@@ -150,6 +161,11 @@ export function OrgSettings() {
         setAcademicYear(
           (o.organization.settings?.academic_year as string | undefined) ?? "",
         );
+        const sy: any = (o.organization.settings as any)?.school_year ?? {};
+        setYearStartDate(typeof sy.startDate === "string" ? sy.startDate : "");
+        setYearEndDate(typeof sy.endDate === "string" ? sy.endDate : "");
+        setYearSchoolDays(Array.isArray(sy.schoolDays) && sy.schoolDays.length > 0 ? sy.schoolDays : [1, 2, 3, 4, 5]);
+        setYearHolidays(Array.isArray(sy.holidays) ? sy.holidays : []);
         setSlugInput((o.organization as any).slug ?? "");
       })
       .catch((e) => setOrgError(e instanceof Error ? e.message : String(e)))
@@ -216,6 +232,37 @@ export function OrgSettings() {
       setYearSaving(false);
     }
   };
+
+  const handleSchoolYearSave = async () => {
+    setSyearSaving(true);
+    setSyearError(null);
+    try {
+      const holidays = yearHolidays
+        .map((h) => ({
+          name: (h.name ?? "").trim().slice(0, 80),
+          startDate: h.startDate,
+          endDate: h.endDate || h.startDate,
+        }))
+        .filter((h) => h.name && /^\d{4}-\d{2}-\d{2}$/.test(h.startDate));
+      await updateOrganization(orgId, {
+        school_year: {
+          startDate: yearStartDate || undefined,
+          endDate: yearEndDate || undefined,
+          schoolDays: yearSchoolDays,
+          holidays,
+        },
+      });
+      setSyearSavedAt(Date.now());
+    } catch (e) {
+      setSyearError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSyearSaving(false);
+    }
+  };
+
+  function toggleSchoolDay(d: number) {
+    setYearSchoolDays((s) => s.includes(d) ? s.filter((x) => x !== d) : [...s, d].sort((a, b) => a - b));
+  }
 
   return (
     <div className="space-y-5">
@@ -368,6 +415,94 @@ export function OrgSettings() {
             {yearError && (
               <span className="text-xs text-rose-700">{yearError}</span>
             )}
+          </div>
+        </div>
+      </section>
+
+      {/* Section: School calendar — week + year + holidays. */}
+      <section className={`${cardBase} ${cardElev} p-5`}>
+        <h3 className={sectionTitleClasses}>School calendar</h3>
+        <p className="mt-1 text-sm text-slate-600">
+          Which days are school days, when the academic year runs, and any holidays (Eid, Dec 25,
+          Ramadan break, etc).
+        </p>
+
+        <div className="mt-4 space-y-4">
+          <div className="space-y-1.5">
+            <Label className="text-xs uppercase tracking-wider text-slate-500">School days</Label>
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                { num: 1, short: "Mon" }, { num: 2, short: "Tue" }, { num: 3, short: "Wed" },
+                { num: 4, short: "Thu" }, { num: 5, short: "Fri" }, { num: 6, short: "Sat" },
+                { num: 7, short: "Sun" },
+              ].map((d) => {
+                const on = yearSchoolDays.includes(d.num);
+                return (
+                  <button
+                    key={d.num} type="button" onClick={() => toggleSchoolDay(d.num)}
+                    className={
+                      "rounded-full px-3 py-1 text-xs font-medium border " +
+                      (on
+                        ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
+                        : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50")
+                    }
+                  >
+                    {d.short}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label htmlFor="syear-start" className="text-xs">Year starts</Label>
+              <Input id="syear-start" type="date" value={yearStartDate}
+                     onChange={(e) => setYearStartDate(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="syear-end" className="text-xs">Year ends</Label>
+              <Input id="syear-end" type="date" value={yearEndDate}
+                     onChange={(e) => setYearEndDate(e.target.value)} />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs uppercase tracking-wider text-slate-500">Holidays</Label>
+              <Button variant="outline" size="sm"
+                      onClick={() => setYearHolidays([...yearHolidays, { name: "", startDate: "", endDate: "" }])}>
+                + Add holiday
+              </Button>
+            </div>
+            {yearHolidays.length === 0 ? (
+              <div className="rounded-md border border-dashed border-slate-300 px-3 py-3 text-xs text-slate-500">
+                No holidays added. Examples: Eid al-Fitr (3 days), Eid al-Adha, Independence Day (Aug 14), Ramadan break.
+              </div>
+            ) : (
+              <ul className="space-y-2">
+                {yearHolidays.map((h, i) => (
+                  <li key={i} className="grid grid-cols-[1fr_140px_140px_auto] gap-2 items-center">
+                    <Input value={h.name} placeholder="Name (e.g. Eid al-Fitr)"
+                           onChange={(e) => setYearHolidays(yearHolidays.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} />
+                    <Input type="date" value={h.startDate}
+                           onChange={(e) => setYearHolidays(yearHolidays.map((x, j) => j === i ? { ...x, startDate: e.target.value } : x))} />
+                    <Input type="date" value={h.endDate}
+                           onChange={(e) => setYearHolidays(yearHolidays.map((x, j) => j === i ? { ...x, endDate: e.target.value } : x))} />
+                    <Button variant="outline" size="sm"
+                            onClick={() => setYearHolidays(yearHolidays.filter((_, j) => j !== i))}>×</Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="flex items-center gap-3 pt-1">
+            <Button onClick={handleSchoolYearSave} disabled={syearSaving || orgLoading}>
+              {syearSaving ? "Saving…" : "Save calendar"}
+            </Button>
+            {syearSavedAt && !syearSaving && <span className="text-xs text-emerald-700">Saved.</span>}
+            {syearError && <span className="text-xs text-rose-700">{syearError}</span>}
           </div>
         </div>
       </section>
