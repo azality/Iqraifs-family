@@ -213,7 +213,17 @@ function groupsForAdmin(
 }
 
 function isActive(pathname: string, to: string): boolean {
-  return pathname === to || pathname.startsWith(to + "/");
+  // Dashboard's `to` is the org root (e.g. /school/orgs/:orgId). A
+  // plain startsWith check matches every sub-page (My schedule,
+  // Students, …), which would highlight Dashboard everywhere. For
+  // org-root paths require an exact match. Strip ?query / #hash off
+  // both sides before comparing so query params (e.g. ?action=time-off)
+  // don't break the highlight.
+  const cleanPath = pathname.split(/[?#]/)[0];
+  const cleanTo = to.split(/[?#]/)[0];
+  const isOrgRoot = /^\/school\/orgs\/[^/]+$/.test(cleanTo);
+  if (isOrgRoot) return cleanPath === cleanTo;
+  return cleanPath === cleanTo || cleanPath.startsWith(cleanTo + "/");
 }
 
 export function ManageToolbar({ orgId, viewerRole }: ManageToolbarProps) {
