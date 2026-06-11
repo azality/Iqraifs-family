@@ -23,6 +23,7 @@ export { ManageToolbar } from "./ManageToolbar";
 export type { ManageToolbarProps } from "./ManageToolbar";
 
 export { TimeOffModal } from "./TimeOffModal";
+export { TeacherTimeOffWidget, PendingTimeOffWidget } from "./TimeOffWidgets";
 export type { TimeOffModalProps } from "./TimeOffModal";
 
 export { SetupChecklist, setupChecklistDismissed } from "./SetupChecklist";

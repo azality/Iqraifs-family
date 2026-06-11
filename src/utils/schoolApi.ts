@@ -4333,6 +4333,19 @@ export type TimeOffKind =
 export type TimeOffStatus = "pending" | "approved" | "rejected" | "cancelled";
 export type TimeOffSubjectType = "teacher" | "student";
 
+export interface TimeOffCoverageEntry {
+  slotName: string | null;
+  startTime: string | null;
+  endTime: string | null;
+  subjectName: string | null;
+  sectionLabel: string | null;
+  room: string | null;
+}
+export interface TimeOffCoverageDay {
+  date: string;
+  dayOfWeek: number; // 0=Sun..6=Sat
+  entries: TimeOffCoverageEntry[];
+}
 export interface TimeOffRequest {
   id: string;
   orgId: string;
@@ -4349,6 +4362,10 @@ export interface TimeOffRequest {
   reviewedAt: string | null;
   reviewerNotes: string | null;
   createdAt: string;
+  // Only set on the admin queue response, only for teacher requests.
+  // Lists the teacher's classes/subjects on each affected weekday so
+  // the admin can plan substitutes.
+  coverage?: TimeOffCoverageDay[] | null;
 }
 
 export interface TimeOffCreate {
