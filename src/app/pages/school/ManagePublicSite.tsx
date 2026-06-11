@@ -285,6 +285,9 @@ export function ManagePublicSite() {
           <Card>
             <CardContent className="p-4 space-y-3">
               <div className="text-xs font-bold uppercase tracking-wider text-slate-700">Contact</div>
+              <p className="text-[11px] text-slate-500 -mt-1">
+                Leave blank to use the values from <Link to={`/school/orgs/${orgId}/admin/settings`} className="underline">Admin → Settings → Organization</Link>. Fill these in only if you want the public site to show a different phone / email / address than the internal org defaults.
+              </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label className="text-xs">Phone</Label>

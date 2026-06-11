@@ -54,6 +54,12 @@ type PublicSiteSettings = {
 
 function siteToJson(orgRow: any) {
   const ps: PublicSiteSettings = orgRow?.settings?.public_site ?? {};
+  // Org-level settings act as the source of truth for contact info.
+  // Public-site overrides win if set, but if a principal leaves those
+  // fields blank we fall back to the org's contact_email / contact_phone
+  // / address from Admin → Settings so they don't have to type the same
+  // address twice.
+  const orgSettings = orgRow?.settings ?? {};
   return {
     enabled: !!ps.enabled,
     heroTitle: ps.hero_title ?? null,
@@ -61,9 +67,9 @@ function siteToJson(orgRow: any) {
     heroImageUrl: ps.hero_image_url ?? null,
     heroKicker: ps.hero_kicker ?? null,
     about: ps.about ?? null,
-    contactEmail: ps.contact_email ?? null,
-    contactPhone: ps.contact_phone ?? null,
-    contactAddress: ps.contact_address ?? null,
+    contactEmail: ps.contact_email || orgSettings.contact_email || null,
+    contactPhone: ps.contact_phone || orgSettings.contact_phone || null,
+    contactAddress: ps.contact_address || orgSettings.address || null,
     whatsappPhone: ps.whatsapp_phone ?? null,
     visitHours: ps.visit_hours ?? null,
     ayah: (ps.ayah_arabic || ps.ayah_translation)
