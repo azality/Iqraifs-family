@@ -101,6 +101,70 @@ function entryToJson(r: any) {
 }
 
 export function installTimetable(school: Hono): void {
+  // ─── Section-progress checklist ─────────────────────────────────────
+  // Powers the /admin/timetable home view — every section + Hifz group
+  // with its filled-vs-total period count, so the admin sees what's
+  // left to schedule without picking each one from a dropdown.
+  school.get("/orgs/:orgId/timetable/section-progress", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await isAdminOrPrincipal(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+
+    const [slotsRes, sectionsRes, groupsRes, entriesRes] = await Promise.all([
+      serviceRoleClient
+        .from("timetable_slot")
+        .select("id, kind")
+        .eq("org_id", orgId)
+        .is("archived_at", null),
+      serviceRoleClient
+        .from("class_section")
+        .select("id, name, class:class_id(id, name)")
+        .eq("org_id", orgId),
+      serviceRoleClient
+        .from("hifz_group")
+        .select("id, name")
+        .eq("org_id", orgId),
+      serviceRoleClient
+        .from("timetable_entry")
+        .select("scope_section_id, scope_hifz_group_id")
+        .eq("org_id", orgId),
+    ]);
+
+    const slots = slotsRes.data ?? [];
+    const totalSlots = slots.length;
+    // Academic-only count gives a "useful" denominator (people don't
+    // assign teachers to Break / Prayer). Total stays in the response
+    // for transparency.
+    const academicSlots = slots.filter((s: any) => s.kind === "academic").length;
+
+    const filledBySection = new Map<string, number>();
+    const filledByGroup = new Map<string, number>();
+    for (const e of (entriesRes.data ?? []) as any[]) {
+      if (e.scope_section_id) {
+        filledBySection.set(e.scope_section_id, (filledBySection.get(e.scope_section_id) ?? 0) + 1);
+      } else if (e.scope_hifz_group_id) {
+        filledByGroup.set(e.scope_hifz_group_id, (filledByGroup.get(e.scope_hifz_group_id) ?? 0) + 1);
+      }
+    }
+
+    const sections = (sectionsRes.data ?? []).map((s: any) => ({
+      id: s.id,
+      name: s.name,
+      classId: s.class?.id ?? null,
+      className: s.class?.name ?? null,
+      filledSlots: filledBySection.get(s.id) ?? 0,
+    }));
+    const hifzGroups = (groupsRes.data ?? []).map((g: any) => ({
+      id: g.id,
+      name: g.name,
+      filledSlots: filledByGroup.get(g.id) ?? 0,
+    }));
+
+    return c.json({ totalSlots, academicSlots, sections, hifzGroups });
+  });
+
   // ─── Slots ──────────────────────────────────────────────────────────
   school.get("/orgs/:orgId/timetable-slots", async (c) => {
     const userId = getAuthUserId(c);

@@ -26,6 +26,7 @@ import {
   createTimetableSubstitution,
   deleteTimetableSubstitution,
   listTeacherEntries,
+  getOrganization,
   type AdminTeacher,
   type TimetableSubstitution,
   type TeacherEntrySummary,
@@ -56,6 +57,7 @@ function isoDow(yyyymmdd: string): number {
 export function SubstitutionsPanel({ orgId, teachers }: Props) {
   const [date, setDate] = useState<string>(todayIso());
   const [subs, setSubs] = useState<TimetableSubstitution[]>([]);
+  const [poolIds, setPoolIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -77,6 +79,20 @@ export function SubstitutionsPanel({ orgId, teachers }: Props) {
       .finally(() => setLoading(false));
   };
   useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [orgId, date]);
+
+  // Substitute pool — admin marks specific teachers as available for
+  // subbing in People > Teachers. The picker below filters to this
+  // list so the admin isn't scrolling through every teacher every
+  // time they need to cover a class.
+  useEffect(() => {
+    if (!orgId) return;
+    getOrganization(orgId)
+      .then((r) => {
+        const ids = (r.organization as any).settings?.substitute_teacher_ids;
+        setPoolIds(new Set(Array.isArray(ids) ? ids : []));
+      })
+      .catch(() => {});
+  }, [orgId]);
 
   const dow = useMemo(() => isoDow(date), [date]);
 
@@ -270,17 +286,38 @@ export function SubstitutionsPanel({ orgId, teachers }: Props) {
             <div>
               <Label className="text-xs">Substitute teacher</Label>
               <Select value={substituteId} onValueChange={setSubstituteId}>
-                <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Pick substitute…" /></SelectTrigger>
+                <SelectTrigger className="h-9 text-sm">
+                  <SelectValue placeholder={poolIds.size > 0 ? "Pick from substitute pool…" : "Pick substitute…"} />
+                </SelectTrigger>
                 <SelectContent>
-                  {teachers
-                    .filter((t) => t.user_id !== originalTeacherId)
-                    .map((t) => (
+                  {(() => {
+                    const candidates = teachers.filter((t) => t.user_id !== originalTeacherId);
+                    // If the school has defined a substitute pool, only
+                    // surface those teachers; otherwise show all (back-
+                    // compat for schools that haven't set up the pool).
+                    const filtered = poolIds.size > 0
+                      ? candidates.filter((t) => poolIds.has(t.user_id))
+                      : candidates;
+                    if (filtered.length === 0 && poolIds.size > 0) {
+                      return (
+                        <div className="px-3 py-2 text-xs text-slate-500">
+                          No teachers in the substitute pool yet. Mark someone as a substitute on the Teachers page (star icon).
+                        </div>
+                      );
+                    }
+                    return filtered.map((t) => (
                       <SelectItem key={t.user_id} value={t.user_id}>
                         {t.full_name || t.email}
                       </SelectItem>
-                    ))}
+                    ));
+                  })()}
                 </SelectContent>
               </Select>
+              {poolIds.size > 0 && (
+                <p className="mt-1 text-[10px] text-slate-500">
+                  Filtered to {poolIds.size} teacher{poolIds.size === 1 ? "" : "s"} in the substitute pool.
+                </p>
+              )}
             </div>
             <div>
               <Label className="text-xs">Reason (optional)</Label>
