@@ -112,16 +112,29 @@ export function installTimetable(school: Hono): void {
       return c.json({ error: "forbidden" }, 403);
     }
 
+    // class_section has no direct org_id — it lives on the parent
+    // class. Fetch classes first, then sections by class_id IN list.
+    const { data: classes } = await serviceRoleClient
+      .from("class")
+      .select("id, name")
+      .eq("org_id", orgId);
+    const classIds = (classes ?? []).map((c: any) => c.id);
+    const classNameById = new Map<string, string>(
+      (classes ?? []).map((c: any) => [c.id, c.name]),
+    );
+
     const [slotsRes, sectionsRes, groupsRes, entriesRes] = await Promise.all([
       serviceRoleClient
         .from("timetable_slot")
         .select("id, kind")
         .eq("org_id", orgId)
         .is("archived_at", null),
-      serviceRoleClient
-        .from("class_section")
-        .select("id, name, class:class_id(id, name)")
-        .eq("org_id", orgId),
+      classIds.length > 0
+        ? serviceRoleClient
+            .from("class_section")
+            .select("id, name, class_id")
+            .in("class_id", classIds)
+        : Promise.resolve({ data: [] as any[] }),
       serviceRoleClient
         .from("hifz_group")
         .select("id, name")
@@ -152,8 +165,8 @@ export function installTimetable(school: Hono): void {
     const sections = (sectionsRes.data ?? []).map((s: any) => ({
       id: s.id,
       name: s.name,
-      classId: s.class?.id ?? null,
-      className: s.class?.name ?? null,
+      classId: s.class_id ?? null,
+      className: s.class_id ? classNameById.get(s.class_id) ?? null : null,
       filledSlots: filledBySection.get(s.id) ?? 0,
     }));
     const hifzGroups = (groupsRes.data ?? []).map((g: any) => ({
