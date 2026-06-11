@@ -160,7 +160,8 @@ export function SchoolPublicSite() {
         .sps-nav a:hover { color: ${PALETTE.cream}; background: rgba(250,246,238,0.08); }
         .sps-card-hover:hover { border-color: ${PALETTE.gold}; box-shadow: 0 12px 32px -16px rgba(8,42,31,0.25); }
         .sps-prog:hover { transform: translateY(-4px); box-shadow: 0 20px 44px -20px rgba(8,42,31,0.3); border-color: ${PALETTE.gold}; }
-        .sps-fac:hover .sps-fac-bio, .sps-fac:focus-within .sps-fac-bio { opacity: 1; }
+        .sps-fac:hover .sps-fac-bio, .sps-fac:focus-within .sps-fac-bio, .sps-fac.is-open .sps-fac-bio { opacity: 1 !important; }
+        @media (hover: none) { .sps-fac-bio { opacity: 1 !important; background: linear-gradient(to top, rgba(8,42,31,0.92) 0%, rgba(8,42,31,0.6) 60%, transparent 100%) !important; } }
         @media (max-width: 720px) {
           .sps-hide-mob { display: none !important; }
           .sps-nav { display: none !important; }
@@ -186,10 +187,13 @@ export function SchoolPublicSite() {
             </span>
           </Link>
           <nav aria-label="Main" className="sps-nav" style={{ display: "flex", alignItems: "center", gap: 4, marginInlineStart: "auto", flexWrap: "wrap" }}>
-            {[
-              ["#about", "About"], ["#programs", "Programs"], ["#faculty", "Faculty"],
-              ["#campuses", "Campuses"], ["#contact", "Contact"],
-            ].map(([href, label]) => (
+            {([
+              site.about && ["#about", "About"] as const,
+              ["#programs", "Programs"] as const,
+              facultyGroups.length > 0 && ["#faculty", "Faculty"] as const,
+              (site.gallery?.length ?? 0) > 0 && ["#campuses", "Gallery"] as const,
+              ["#contact", "Contact"] as const,
+            ].filter(Boolean) as Array<readonly [string, string]>).map(([href, label]) => (
               <a key={href} href={href} style={{ color: "rgba(250,246,238,0.85)", textDecoration: "none", font: `500 14px/1 ${fontSans}`, padding: "10px 12px", borderRadius: 8 }}>{label}</a>
             ))}
           </nav>
@@ -615,7 +619,12 @@ export function SchoolPublicSite() {
               {site.org.motto && <p style={{ font: `400 13px/1.65 ${fontSans}`, color: "rgba(250,246,238,0.55)", margin: 0 }}>{site.org.motto}</p>}
             </div>
             <nav aria-label="Footer" style={{ display: "flex", gap: 56, flexWrap: "wrap" }}>
-              <FooterGroup title="School" links={[["About", "#about"], ["Programs", "#programs"], ["Faculty", "#faculty"], ["Campuses", "#campuses"]]} />
+              <FooterGroup title="School" links={[
+                ...(site.about ? [["About", "#about"] as [string, string]] : []),
+                ["Programs", "#programs"],
+                ...(facultyGroups.length > 0 ? [["Faculty", "#faculty"] as [string, string]] : []),
+                ...((site.gallery?.length ?? 0) > 0 ? [["Gallery", "#campuses"] as [string, string]] : []),
+              ]} />
               <FooterGroup title="Parents" links={[["Admissions", "#admissions"], ["Contact", "#contact"], ...(whatsappHref ? [["WhatsApp", whatsappHref] as [string, string]] : [])]} />
             </nav>
           </div>
