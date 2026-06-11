@@ -66,6 +66,7 @@ import {
   type TimetableWeekCell,
 } from "../../../utils/schoolApi";
 import { sectionTitleClasses } from "../../components/school-ui";
+import { TimetableWeekTemplate } from "./TimetableWeekTemplate";
 import { SubstitutionsPanel } from "./SubstitutionsPanel";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -398,19 +399,26 @@ export function ManageTimetable() {
         </DialogContent>
       </Dialog>
 
-      {/* ─── Slots panel ─── */}
+      {/* ─── Week template — the easy path ─── */}
+      <TimetableWeekTemplate />
+
+      {/* ─── Slots panel (advanced / fine-tuning) ─── */}
       <section className="space-y-2">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700">
-            Time slots
+            Time slots <span className="ml-1 text-[10px] font-normal text-slate-500">(advanced)</span>
           </h2>
           <Button
-            size="sm"
+            size="sm" variant="outline"
             onClick={() => { setSlotForm(emptySlotForm); setSlotDialogOpen(true); }}
           >
-            <Plus className="h-4 w-4 mr-1" /> Add slot
+            <Plus className="h-4 w-4 mr-1" /> Add slot manually
           </Button>
         </div>
+        <p className="text-[11px] text-slate-500 -mt-1">
+          Use the template above for the common case. Use this list to tweak individual slots
+          (e.g. a one-off Friday early-close).
+        </p>
         {slots.length === 0 ? (
           <Card>
             <CardContent className="p-4 text-sm text-slate-500 italic">

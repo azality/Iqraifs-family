@@ -136,6 +136,7 @@ export const updateOrganization = (
     school_day_end: string;    // HH:MM
     office_day_start: string;  // HH:MM
     office_day_end: string;    // HH:MM
+    school_year: SchoolYear;
   }>,
 ): Promise<OrganizationDetail> =>
   apiCall(`/school/orgs/${orgId}`, {
@@ -4397,6 +4398,47 @@ export const decideTimeOff = (
   apiCall(`/school/orgs/${orgId}/time-off/${id}/decide`, {
     method: "PATCH", body: JSON.stringify({ decision, notes }),
   });
+
+// =============================================================================
+// Timetable week template
+// =============================================================================
+export interface TimetableTemplatePeriod {
+  name: string;
+  durationMinutes: number;
+  gapBefore?: number;
+  kind: "academic" | "break" | "prayer" | "other";
+}
+export interface TimetableTemplate {
+  days: number[];
+  periods: TimetableTemplatePeriod[];
+  startTime: string;
+  updatedAt?: string;
+}
+
+export const getTimetableTemplate = (orgId: string): Promise<{ template: TimetableTemplate | null }> =>
+  apiCall(`/school/orgs/${orgId}/timetable/template`);
+
+export const applyTimetableTemplate = (
+  orgId: string, body: TimetableTemplate,
+): Promise<{ created: number; preserved: number; deleted: number }> =>
+  apiCall(`/school/orgs/${orgId}/timetable/apply-template`, {
+    method: "POST", body: JSON.stringify(body),
+  });
+
+// =============================================================================
+// School year + holidays
+// =============================================================================
+export interface SchoolYearHoliday {
+  name: string;
+  startDate: string;
+  endDate: string;
+}
+export interface SchoolYear {
+  startDate?: string;
+  endDate?: string;
+  schoolDays?: number[];
+  holidays?: SchoolYearHoliday[];
+}
 
 // Re-export apiCall so callers can hit ad-hoc endpoints without a second import.
 export { apiCall };

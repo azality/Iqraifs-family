@@ -456,6 +456,12 @@ school.patch("/orgs/:orgId", async (c) => {
     "school_day_end",
     "office_day_start",
     "office_day_end",
+    // Academic year — startDate, endDate, schoolDays (array of ISO
+    // 1..7 weekday numbers Mon=1..Sun=7), and holidays (array of
+    // { name, startDate, endDate } ranges for Eid / Dec 25 / Ramadan
+    // break / etc). Stored as a single JSON blob to keep the
+    // settings shape flat.
+    "school_year",
   ];
 
   // Load current settings so we merge rather than overwrite.

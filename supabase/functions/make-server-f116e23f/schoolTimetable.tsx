@@ -190,6 +190,129 @@ export function installTimetable(school: Hono): void {
     return c.json(slotToJson(data));
   });
 
+  // ─── Week template — generate slots from a single period list ─────
+  // A school's week is normally identical Mon–Fri: P1 always 08:00–08:45,
+  // P2 always 08:50–09:35, etc. Defining 30 slots one-by-one is the
+  // single biggest UX wart on the admin side. This endpoint takes a
+  // template { days: [1..7], periods: [{name, durationMinutes,
+  // gapBefore?, kind}], startTime } and writes one timetable_slot per
+  // (day, period). It DELETES existing slots that don't have any
+  // timetable_entry attached, then inserts the new ones; slots with
+  // entries are left in place to avoid silently breaking a populated
+  // timetable. The template itself is persisted under
+  // organizations.settings.timetable_template so the editor can
+  // re-render it on reload.
+  school.post("/orgs/:orgId/timetable/apply-template", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await isAdminOrPrincipal(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+
+    const days = Array.isArray(body?.days) ? body.days.filter((d: any) => Number.isInteger(d) && d >= 1 && d <= 7) : [];
+    const periods = Array.isArray(body?.periods) ? body.periods : [];
+    const startTime = typeof body?.startTime === "string" && /^\d{2}:\d{2}/.test(body.startTime) ? body.startTime : "08:00";
+
+    if (days.length === 0) return c.json({ error: "select at least one school day" }, 400);
+    if (periods.length === 0) return c.json({ error: "add at least one period" }, 400);
+    if (periods.length > 20) return c.json({ error: "max 20 periods per day" }, 400);
+
+    // Validate + compute per-period times from cumulative durations.
+    type ParsedPeriod = { name: string; durationMinutes: number; gapBefore: number; kind: string };
+    const parsed: ParsedPeriod[] = [];
+    for (const p of periods) {
+      const name = typeof p?.name === "string" ? p.name.trim().slice(0, 60) : "";
+      const dur = Number(p?.durationMinutes);
+      const gap = Number(p?.gapBefore ?? 0);
+      const kind = typeof p?.kind === "string" && SLOT_KINDS.has(p.kind) ? p.kind : "academic";
+      if (!name) return c.json({ error: "every period needs a name" }, 400);
+      if (!Number.isFinite(dur) || dur < 1 || dur > 240) return c.json({ error: `bad duration for ${name}` }, 400);
+      if (!Number.isFinite(gap) || gap < 0 || gap > 240) return c.json({ error: `bad gap for ${name}` }, 400);
+      parsed.push({ name, durationMinutes: dur, gapBefore: gap, kind });
+    }
+
+    // Build (startTime, endTime) per period.
+    const [h0, m0] = startTime.split(":").map((s) => parseInt(s, 10));
+    let cursor = h0 * 60 + m0;
+    const timed: Array<ParsedPeriod & { start: string; end: string }> = parsed.map((p) => {
+      cursor += p.gapBefore;
+      const start = toHM(cursor);
+      cursor += p.durationMinutes;
+      const end = toHM(cursor);
+      return { ...p, start, end };
+    });
+
+    // Find existing slots with entries — preserve them.
+    const { data: usedSlotRows } = await serviceRoleClient
+      .from("timetable_entry")
+      .select("slot_id")
+      .eq("org_id", orgId);
+    const usedSlotIds = new Set((usedSlotRows ?? []).map((r: any) => r.slot_id).filter(Boolean));
+
+    const { data: existingSlots } = await serviceRoleClient
+      .from("timetable_slot")
+      .select("id")
+      .eq("org_id", orgId);
+    const safeToDeleteIds = (existingSlots ?? [])
+      .map((s: any) => s.id)
+      .filter((id: string) => !usedSlotIds.has(id));
+
+    if (safeToDeleteIds.length > 0) {
+      await serviceRoleClient.from("timetable_slot").delete().in("id", safeToDeleteIds);
+    }
+
+    // Insert one row per (day, period).
+    const rows: any[] = [];
+    for (const day of days) {
+      timed.forEach((p, i) => {
+        rows.push({
+          org_id: orgId,
+          name: p.name,
+          day_of_week: day,
+          start_time: p.start,
+          end_time: p.end,
+          kind: p.kind,
+          display_order: i,
+        });
+      });
+    }
+    const { error: insErr } = await serviceRoleClient.from("timetable_slot").insert(rows);
+    if (insErr) return c.json({ error: insErr.message }, 500);
+
+    // Persist the template so the editor can render it back on reload.
+    const { data: cur } = await serviceRoleClient
+      .from("organizations").select("settings").eq("id", orgId).maybeSingle();
+    const settings = (cur as any)?.settings ?? {};
+    settings.timetable_template = { days, periods: parsed, startTime, updatedAt: new Date().toISOString() };
+    await serviceRoleClient.from("organizations").update({ settings }).eq("id", orgId);
+
+    return c.json({
+      created: rows.length,
+      preserved: usedSlotIds.size,
+      deleted: safeToDeleteIds.length,
+    });
+  });
+
+  // Helper for template — minutes since midnight → "HH:MM".
+  function toHM(mins: number): string {
+    const h = Math.floor(mins / 60) % 24;
+    const m = mins % 60;
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  }
+
+  school.get("/orgs/:orgId/timetable/template", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await isAdminOrPrincipal(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const { data: cur } = await serviceRoleClient
+      .from("organizations").select("settings").eq("id", orgId).maybeSingle();
+    return c.json({ template: (cur as any)?.settings?.timetable_template ?? null });
+  });
+
   school.delete("/orgs/:orgId/timetable-slots/:slotId", async (c) => {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
