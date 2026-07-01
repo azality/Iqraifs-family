@@ -32,6 +32,11 @@ const MAX_GUESSES_PER_ROUND = 3;
 const DEFAULT_POINTS_AWARD_WIN = 3;
 // Don't repeat a Prophet for the same child within this window.
 const NO_REPEAT_DAYS = 30;
+// Second layer of protection against point farming: even if the same
+// Prophet somehow comes up again (e.g. a parent voided the earlier
+// round, which resets the pick lock), we won't award points a second
+// time within this window.
+const POINTS_COOLDOWN_DAYS = 7;
 // We trim the per-child rounds index to this many entries to keep KV reads cheap.
 const ROUNDS_INDEX_CAP = 50;
 
@@ -66,6 +71,17 @@ interface Round {
   questionsAsked: Array<{ questionId: string; answer: "yes" | "no" | "unknown"; askedAt: string }>;
   guessAttempts: Array<{ prophetId: string; correct: boolean; attemptedAt: string }>;
   pointsAwarded: number;
+  // Shuffled question ordering — the catalog returns questions in a
+  // stable order (grouped by category) which kids memorize after a few
+  // rounds. Each new round shuffles the question ids once at start,
+  // stores the sequence here, and the client renders in this order.
+  // Optional so pre-existing rounds without it still work.
+  questionOrder?: string[];
+  // Set when a correct guess didn't award points because the child had
+  // already won on this Prophet within POINTS_COOLDOWN_DAYS. The round
+  // still counts as won; pointsAwarded is 0 and the client shows a
+  // "no points this time — try a different Prophet" message.
+  pointsSkippedReason?: "recent_win_same_prophet";
 }
 
 function roundKey(roundId: string) { return `prophet-round:${roundId}`; }
@@ -83,6 +99,11 @@ function redactRound(r: Round) {
     questionsAsked: r.questionsAsked,
     guessAttempts: r.guessAttempts,
     pointsAwarded: r.pointsAwarded,
+    pointsSkippedReason: r.pointsSkippedReason ?? null,
+    // Client uses this to render questions in shuffled order so the
+    // kid can't memorize the sequence. Safe to expose — knowing the
+    // order of yes/no questions doesn't leak the answer.
+    questionOrder: r.questionOrder ?? null,
     // Only reveal the prophet when the round is over (kid won or lost).
     prophetId: r.status === "in-progress" ? null : r.prophetId,
     prophet:
@@ -90,6 +111,48 @@ function redactRound(r: Round) {
         ? null
         : PROPHETS_BY_ID.get(r.prophetId) ?? null,
   };
+}
+
+// Fisher–Yates shuffle. Returns a new array so callers don't mutate
+// their source. Deno/Node both give Math.random enough entropy for
+// per-round shuffling — no need for crypto here.
+function shuffled<T>(arr: readonly T[]): T[] {
+  const out = arr.slice();
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+// Weekly points-cooldown check. Returns true if the child has already
+// won on THIS Prophet within POINTS_COOLDOWN_DAYS and got real points
+// for it — meaning we should skip awarding again.
+async function recentlyWonOnProphet(childId: string, prophetId: string): Promise<boolean> {
+  const ids: string[] = (await kv.get(indexKey(childId))) ?? [];
+  const cutoff = Date.now() - POINTS_COOLDOWN_DAYS * 24 * 60 * 60 * 1000;
+  // Only need to look at the most recent handful — the index is
+  // newest-first. Loading in parallel keeps this a single sequential
+  // KV round-trip for the batch.
+  const recent = await Promise.all(
+    ids.slice(0, 20).map((rid) => kv.get(roundKey(rid)).catch(() => null)),
+  );
+  for (const r of recent) {
+    if (!r) continue;
+    if (r.childId !== childId) continue;
+    if (r.status !== "won") continue;
+    if (r.prophetId !== prophetId) continue;
+    // Skip voided rounds — a voided win doesn't count against the
+    // kid's ability to earn points on that Prophet again.
+    if ((r as any).voided) continue;
+    // Only rounds that actually awarded points count. If we skipped
+    // points last time for the same reason, this time should be free
+    // to award (otherwise the kid could be stuck forever).
+    if (!r.pointsAwarded || r.pointsAwarded <= 0) continue;
+    const endedAt = r.endedAt ? new Date(r.endedAt).getTime() : 0;
+    if (endedAt >= cutoff) return true;
+  }
+  return false;
 }
 
 // Pick a Prophet for a new round, excluding any played in the last
@@ -224,6 +287,7 @@ app.get("/catalog", async (c) => {
       // even mid-round changes by the parent are honored.
       pointsPerWin: DEFAULT_POINTS_AWARD_WIN,
       noRepeatDays: NO_REPEAT_DAYS,
+      pointsCooldownDays: POINTS_COOLDOWN_DAYS,
     },
   });
 });
@@ -275,6 +339,10 @@ app.post("/start", async (c) => {
     questionsAsked: [],
     guessAttempts: [],
     pointsAwarded: 0,
+    // Shuffle the full question list once, at start. Client renders in
+    // this order so the kid can't memorize "always tap the third card
+    // in Era first" between rounds.
+    questionOrder: shuffled(QUESTIONS.map((q) => q.id)),
   };
   await kv.set(roundKey(roundId), round);
 
@@ -349,20 +417,30 @@ app.post("/:roundId/guess", async (c) => {
   if (correct) {
     round.status = "won";
     round.endedAt = new Date().toISOString();
-    // Resolve points-per-win from family game settings at win time, so
-    // a parent who tunes the value while a round is in progress sees
-    // the new amount honored.
-    const pointsAward = await pointsPerWinFor(r.childId!);
-    round.pointsAwarded = pointsAward;
-    const userId = getAuthUserId(c);
-    await awardPoints({
-      childId: r.childId!,
-      points: pointsAward,
-      loggedBy: userId,
-      loggedByName: "Prophet Guess Game",
-      itemName: "Guess the Prophet — round won",
-      notes: `Guessed ${PROPHETS_BY_ID.get(round.prophetId)?.name} after ${round.questionsAsked.length} question${round.questionsAsked.length === 1 ? "" : "s"}`,
-    });
+    // Weekly cooldown per (child, Prophet). Even if the kid manages to
+    // land on the same Prophet again inside the window (parent void,
+    // edge race, whatever), we don't credit points twice — keeps the
+    // game about learning, not point farming.
+    const onCooldown = await recentlyWonOnProphet(r.childId!, round.prophetId);
+    if (onCooldown) {
+      round.pointsAwarded = 0;
+      round.pointsSkippedReason = "recent_win_same_prophet";
+    } else {
+      // Resolve points-per-win from family game settings at win time, so
+      // a parent who tunes the value while a round is in progress sees
+      // the new amount honored.
+      const pointsAward = await pointsPerWinFor(r.childId!);
+      round.pointsAwarded = pointsAward;
+      const userId = getAuthUserId(c);
+      await awardPoints({
+        childId: r.childId!,
+        points: pointsAward,
+        loggedBy: userId,
+        loggedByName: "Prophet Guess Game",
+        itemName: "Guess the Prophet — round won",
+        notes: `Guessed ${PROPHETS_BY_ID.get(round.prophetId)?.name} after ${round.questionsAsked.length} question${round.questionsAsked.length === 1 ? "" : "s"}`,
+      });
+    }
   } else if (round.guessAttempts.length >= MAX_GUESSES_PER_ROUND) {
     round.status = "lost";
     round.endedAt = new Date().toISOString();
