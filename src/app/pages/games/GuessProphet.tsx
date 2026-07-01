@@ -91,7 +91,13 @@ export function GuessProphet() {
       setRound(r.round);
       setGuessOpen(false);
       if (r.correct) {
-        toast.success(`🎉 +${r.round.pointsAwarded} points! Mashallah!`);
+        // Kid re-guessed a Prophet they already won on this week —
+        // still a win, still shows the description, but no points.
+        if (r.round.pointsSkippedReason === "recent_win_same_prophet") {
+          toast.success("Mashallah! You already earned points for this Prophet this week — try a different one for more points.");
+        } else {
+          toast.success(`🎉 +${r.round.pointsAwarded} points! Mashallah!`);
+        }
       } else if (r.round.status === "lost") {
         toast.error("Out of guesses — see the answer below");
       } else {
@@ -123,6 +129,23 @@ export function GuessProphet() {
     () => new Set((round?.questionsAsked ?? []).map((q) => q.questionId)),
     [round],
   );
+
+  // Sorted question list — every round gets a fresh shuffle from the
+  // backend (round.questionOrder). Fall back to catalog order if a
+  // pre-shuffle round is loaded (e.g. mid-migration).
+  const orderedQuestions = useMemo(() => {
+    if (!catalog) return [];
+    const order = round?.questionOrder;
+    if (!order || order.length === 0) return catalog.questions;
+    const rank = new Map(order.map((id, i) => [id, i]));
+    // Sort by shuffle position; questions missing from the map (schema
+    // drift) fall to the end in their catalog order.
+    return catalog.questions.slice().sort((a, b) => {
+      const ra = rank.has(a.id) ? (rank.get(a.id) as number) : Number.MAX_SAFE_INTEGER;
+      const rb = rank.has(b.id) ? (rank.get(b.id) as number) : Number.MAX_SAFE_INTEGER;
+      return ra - rb;
+    });
+  }, [catalog, round?.questionOrder]);
 
   if (loading) {
     return (
@@ -225,7 +248,7 @@ export function GuessProphet() {
                 ))}
               </TabsList>
               {catalog.categories.map((cat) => {
-                const items = catalog.questions.filter(
+                const items = orderedQuestions.filter(
                   (q) => q.category === cat.id && !askedIds.has(q.id),
                 );
                 return (
@@ -310,10 +333,15 @@ export function GuessProphet() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              {round.status === "won" && (
+              {round.status === "won" && round.pointsAwarded > 0 && (
                 <div className="flex items-center gap-2 text-sm">
                   <Award className="h-5 w-5 text-amber-500" />
                   <span>+{round.pointsAwarded} points earned!</span>
+                </div>
+              )}
+              {round.status === "won" && round.pointsSkippedReason === "recent_win_same_prophet" && (
+                <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  You already earned points for this Prophet in the last week — great memory! Guess a different Prophet next round to earn points again.
                 </div>
               )}
               {/* Learn-about-the-Prophet card — shows whether kid won or

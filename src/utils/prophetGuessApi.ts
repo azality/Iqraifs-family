@@ -35,7 +35,13 @@ export interface CatalogResponse {
   categories: CategoryRecord[];
   questions: QuestionRecord[];
   prophets: ProphetSummary[];
-  rules: { maxQuestions: number; maxGuesses: number; pointsPerWin: number; noRepeatDays: number };
+  rules: {
+    maxQuestions: number;
+    maxGuesses: number;
+    pointsPerWin: number;
+    noRepeatDays: number;
+    pointsCooldownDays?: number;
+  };
 }
 
 export interface RoundShape {
@@ -49,6 +55,13 @@ export interface RoundShape {
   pointsAwarded: number;
   prophetId: string | null;          // null during play
   prophet: ProphetSummary | null;    // null during play
+  // Shuffled question order for this round. Client should render
+  // questions in this sequence (within each category filter) so the
+  // kid can't memorize positions across rounds.
+  questionOrder?: string[] | null;
+  // Populated on a won round when the same Prophet was already won in
+  // the last week — points intentionally skipped.
+  pointsSkippedReason?: "recent_win_same_prophet" | null;
 }
 
 const BASE = "/games/prophet-guess";
