@@ -59,9 +59,18 @@ export interface RoundShape {
   // questions in this sequence (within each category filter) so the
   // kid can't memorize positions across rounds.
   questionOrder?: string[] | null;
+  // Same for the Prophet picker in the guess modal.
+  prophetOrder?: string[] | null;
   // Populated on a won round when the same Prophet was already won in
   // the last week — points intentionally skipped.
   pointsSkippedReason?: "recent_win_same_prophet" | null;
+}
+
+export interface WeeklyProgress {
+  prophetsEarnedThisWeek: number;
+  totalProphets: number;
+  allProphetsCompleted: boolean;
+  nextResetAt: string | null;
 }
 
 const BASE = "/games/prophet-guess";
@@ -69,12 +78,16 @@ const BASE = "/games/prophet-guess";
 export const getProphetGuessCatalog = (): Promise<CatalogResponse> =>
   apiCall(`${BASE}/catalog`);
 
-export const getCurrentRound = (childId?: string): Promise<{ round: RoundShape | null }> => {
+export const getCurrentRound = (
+  childId?: string,
+): Promise<{ round: RoundShape | null; progress?: WeeklyProgress }> => {
   const qs = childId ? `?childId=${encodeURIComponent(childId)}` : "";
   return apiCall(`${BASE}/current${qs}`);
 };
 
-export const startRound = (childId?: string): Promise<{ round: RoundShape; resumed: boolean }> =>
+export const startRound = (
+  childId?: string,
+): Promise<{ round: RoundShape; resumed: boolean; progress?: WeeklyProgress }> =>
   apiCall(`${BASE}/start`, {
     method: "POST",
     body: JSON.stringify(childId ? { childId } : {}),

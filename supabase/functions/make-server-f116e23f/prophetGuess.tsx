@@ -77,6 +77,10 @@ interface Round {
   // stores the sequence here, and the client renders in this order.
   // Optional so pre-existing rounds without it still work.
   questionOrder?: string[];
+  // Same idea for the Prophet picker in the guess modal — the catalog
+  // returns Prophets in canonical chronological order (Adam → …
+  // → Muhammad ﷺ) which is easy to memorize. Shuffle per round.
+  prophetOrder?: string[];
   // Set when a correct guess didn't award points because the child had
   // already won on this Prophet within POINTS_COOLDOWN_DAYS. The round
   // still counts as won; pointsAwarded is 0 and the client shows a
@@ -104,6 +108,7 @@ function redactRound(r: Round) {
     // kid can't memorize the sequence. Safe to expose — knowing the
     // order of yes/no questions doesn't leak the answer.
     questionOrder: r.questionOrder ?? null,
+    prophetOrder: r.prophetOrder ?? null,
     // Only reveal the prophet when the round is over (kid won or lost).
     prophetId: r.status === "in-progress" ? null : r.prophetId,
     prophet:
@@ -123,6 +128,40 @@ function shuffled<T>(arr: readonly T[]): T[] {
     [out[i], out[j]] = [out[j], out[i]];
   }
   return out;
+}
+
+// Snapshot of which Prophets the child earned points on within the
+// cooldown window. Used both by the /guess route (single-Prophet
+// lookup) and /start (overall "have you mastered all 25 this week?").
+async function pointsCooldownSnapshot(childId: string): Promise<{
+  cooldownProphetIds: Set<string>;
+  earliestCooldownEndsAt: string | null;
+}> {
+  const ids: string[] = (await kv.get(indexKey(childId))) ?? [];
+  const cutoff = Date.now() - POINTS_COOLDOWN_DAYS * 24 * 60 * 60 * 1000;
+  const recent = await Promise.all(
+    ids.slice(0, 50).map((rid) => kv.get(roundKey(rid)).catch(() => null)),
+  );
+  const cooldown = new Set<string>();
+  let earliestEnd: number | null = null;
+  for (const r of recent) {
+    if (!r || r.childId !== childId) continue;
+    if (r.status !== "won") continue;
+    if ((r as any).voided) continue;
+    if (!r.pointsAwarded || r.pointsAwarded <= 0) continue;
+    const endedAt = r.endedAt ? new Date(r.endedAt).getTime() : 0;
+    if (endedAt < cutoff) continue;
+    cooldown.add(r.prophetId);
+    // Track the OLDEST win still within the window — that's the one
+    // that'll roll off first, letting the child earn points on that
+    // Prophet again. We surface this to the client as "come back on X".
+    const rollsOffAt = endedAt + POINTS_COOLDOWN_DAYS * 24 * 60 * 60 * 1000;
+    if (earliestEnd === null || rollsOffAt < earliestEnd) earliestEnd = rollsOffAt;
+  }
+  return {
+    cooldownProphetIds: cooldown,
+    earliestCooldownEndsAt: earliestEnd ? new Date(earliestEnd).toISOString() : null,
+  };
 }
 
 // Weekly points-cooldown check. Returns true if the child has already
@@ -293,19 +332,29 @@ app.get("/catalog", async (c) => {
 });
 
 // GET /games/prophet-guess/current
-// Returns the kid's most recent in-progress round, or null.
+// Returns the kid's most recent in-progress round + weekly progress.
 app.get("/current", async (c) => {
   const r = await resolveChildId(c);
   if (r.error) return c.json({ error: r.error }, 401);
+
+  const snapshot = await pointsCooldownSnapshot(r.childId!);
+  const totalProphets = PROPHETS.length;
+  const cooldownCount = snapshot.cooldownProphetIds.size;
+  const progress = {
+    prophetsEarnedThisWeek: cooldownCount,
+    totalProphets,
+    allProphetsCompleted: cooldownCount >= totalProphets,
+    nextResetAt: snapshot.earliestCooldownEndsAt,
+  };
 
   const ids: string[] = (await kv.get(indexKey(r.childId!))) ?? [];
   for (const id of ids.slice(0, 5)) {
     const round = await kv.get(roundKey(id));
     if (round && round.status === "in-progress") {
-      return c.json({ round: redactRound(round) });
+      return c.json({ round: redactRound(round), progress });
     }
   }
-  return c.json({ round: null });
+  return c.json({ round: null, progress });
 });
 
 // POST /games/prophet-guess/start
@@ -318,12 +367,38 @@ app.post("/start", async (c) => {
   if (r.error) return c.json({ error: r.error }, 401);
   const childId = r.childId!;
 
+  // Snapshot the child's current cooldown state so we can attach it to
+  // whatever we return — the client uses this to show a "X of Y
+  // Prophets earned points this week" progress line, and the
+  // "you've mastered all 25 this week" celebratory state.
+  const snapshot = await pointsCooldownSnapshot(childId);
+  const totalProphets = PROPHETS.length;
+  const cooldownCount = snapshot.cooldownProphetIds.size;
+  const progress = {
+    prophetsEarnedThisWeek: cooldownCount,
+    totalProphets,
+    allProphetsCompleted: cooldownCount >= totalProphets,
+    nextResetAt: snapshot.earliestCooldownEndsAt,
+  };
+
   // Resume any in-progress round rather than starting a new one
   const ids: string[] = (await kv.get(indexKey(childId))) ?? [];
   for (const id of ids.slice(0, 5)) {
     const existing = await kv.get(roundKey(id));
     if (existing && existing.status === "in-progress") {
-      return c.json({ round: redactRound(existing), resumed: true });
+      // Back-fill shuffled orders on legacy rounds so a resume post-
+      // deploy still gets the anti-memorization behavior.
+      let mutated = false;
+      if (!existing.questionOrder) {
+        existing.questionOrder = shuffled(QUESTIONS.map((q) => q.id));
+        mutated = true;
+      }
+      if (!existing.prophetOrder) {
+        existing.prophetOrder = shuffled(PROPHETS.map((p) => p.id));
+        mutated = true;
+      }
+      if (mutated) await kv.set(roundKey(id), existing);
+      return c.json({ round: redactRound(existing), resumed: true, progress });
     }
   }
 
@@ -343,6 +418,8 @@ app.post("/start", async (c) => {
     // this order so the kid can't memorize "always tap the third card
     // in Era first" between rounds.
     questionOrder: shuffled(QUESTIONS.map((q) => q.id)),
+    // Same for the Prophet picker.
+    prophetOrder: shuffled(PROPHETS.map((p) => p.id)),
   };
   await kv.set(roundKey(roundId), round);
 
@@ -350,7 +427,7 @@ app.post("/start", async (c) => {
   const nextIndex = [roundId, ...ids].slice(0, ROUNDS_INDEX_CAP);
   await kv.set(indexKey(childId), nextIndex);
 
-  return c.json({ round: redactRound(round), resumed: false });
+  return c.json({ round: redactRound(round), resumed: false, progress });
 });
 
 // POST /games/prophet-guess/:roundId/ask
