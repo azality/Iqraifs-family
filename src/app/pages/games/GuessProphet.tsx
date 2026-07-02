@@ -41,6 +41,9 @@ export function GuessProphet() {
   const [busy, setBusy] = useState(false);
   const [guessOpen, setGuessOpen] = useState(false);
   const [lastAnswer, setLastAnswer] = useState<{ questionId: string; answer: Answer } | null>(null);
+  // Weekly progress snapshot returned by /start — how many Prophets
+  // the kid has already earned points on this week.
+  const [progress, setProgress] = useState<import("../../../utils/prophetGuessApi").WeeklyProgress | null>(null);
 
   // Initial load: catalog + any in-progress round
   useEffect(() => {
@@ -50,6 +53,7 @@ export function GuessProphet() {
         if (cancelled) return;
         setCatalog(cat);
         setRound(cur.round);
+        if (cur.progress) setProgress(cur.progress);
       })
       .catch((e) => toast.error(e?.message || "Could not load game"))
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -61,6 +65,7 @@ export function GuessProphet() {
     try {
       const r = await startRound(child?.id);
       setRound(r.round);
+      if (r.progress) setProgress(r.progress);
       setLastAnswer(null);
     } catch (e: any) {
       toast.error(e?.message || "Could not start round");
@@ -98,6 +103,11 @@ export function GuessProphet() {
         } else {
           toast.success(`🎉 +${r.round.pointsAwarded} points! Mashallah!`);
         }
+        // Refresh progress — a new Prophet just moved into the
+        // cooldown bucket, or the total went up.
+        getCurrentRound(child?.id).then((cur) => {
+          if (cur.progress) setProgress(cur.progress);
+        }).catch(() => { /* non-fatal */ });
       } else if (r.round.status === "lost") {
         toast.error("Out of guesses — see the answer below");
       } else {
@@ -147,6 +157,21 @@ export function GuessProphet() {
     });
   }, [catalog, round?.questionOrder]);
 
+  // Same treatment for the Prophet picker — the catalog list is in
+  // canonical chronological order (Adam → Muhammad ﷺ), easy to
+  // memorize with a wraparound. Backend shuffles per round.
+  const orderedProphets = useMemo(() => {
+    if (!catalog) return [];
+    const order = round?.prophetOrder;
+    if (!order || order.length === 0) return catalog.prophets;
+    const rank = new Map(order.map((id, i) => [id, i]));
+    return catalog.prophets.slice().sort((a, b) => {
+      const ra = rank.has(a.id) ? (rank.get(a.id) as number) : Number.MAX_SAFE_INTEGER;
+      const rb = rank.has(b.id) ? (rank.get(b.id) as number) : Number.MAX_SAFE_INTEGER;
+      return ra - rb;
+    });
+  }, [catalog, round?.prophetOrder]);
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -193,6 +218,40 @@ export function GuessProphet() {
       </div>
 
       <div className="max-w-3xl mx-auto px-4 mt-6 space-y-4">
+        {/* Weekly progress + "all Prophets mastered" celebration.
+            Surfaces on the start screen so the kid understands why
+            they're not earning points on a familiar Prophet, and gets
+            a clear picture of what's left to unlock. */}
+        {progress && (
+          progress.allProphetsCompleted ? (
+            <Card className="border-2 border-emerald-300 bg-gradient-to-br from-emerald-50 to-teal-50">
+              <CardContent className="py-4 space-y-2">
+                <p className="text-base font-bold text-emerald-800">
+                  🏆 Mashallah! You've earned points on all {progress.totalProphets} Prophets this week.
+                </p>
+                <p className="text-sm text-emerald-900/80">
+                  You can still play to learn more — the points will reset {progress.nextResetAt ? `on ${new Date(progress.nextResetAt).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}` : "in a week"} so you can earn on your favorite Prophets again.
+                </p>
+              </CardContent>
+            </Card>
+          ) : progress.prophetsEarnedThisWeek > 0 && (
+            <Card className="border border-amber-200 bg-amber-50/60">
+              <CardContent className="py-3 flex items-center gap-3">
+                <div className="flex-1">
+                  <p className="text-xs uppercase tracking-wide text-amber-800 font-semibold">This week</p>
+                  <p className="text-sm text-amber-900">
+                    Points earned on <strong>{progress.prophetsEarnedThisWeek}</strong> of <strong>{progress.totalProphets}</strong> Prophets.
+                    Guess a new Prophet to earn more!
+                  </p>
+                </div>
+                <div className="text-2xl font-bold text-amber-700 tabular-nums">
+                  {progress.prophetsEarnedThisWeek}/{progress.totalProphets}
+                </div>
+              </CardContent>
+            </Card>
+          )
+        )}
+
         {/* Last answer toast */}
         {lastAnswer && round && (
           <Card className="border-2 border-purple-200">
@@ -384,7 +443,7 @@ export function GuessProphet() {
             </DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 py-2 max-h-[60vh] overflow-y-auto">
-            {catalog.prophets.map((p) => {
+            {orderedProphets.map((p) => {
               const alreadyGuessed = round?.guessAttempts.some((g) => g.prophetId === p.id);
               return (
                 <button
