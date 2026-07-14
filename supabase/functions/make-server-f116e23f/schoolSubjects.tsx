@@ -30,6 +30,7 @@
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { todayInOrgTz } from "./tz.ts";
+import { userCanInOrg } from "./schoolAuth.ts";
 
 // -----------------------------------------------------------------------------
 // Auth helpers
@@ -655,7 +656,7 @@ export function installSubjects(school: Hono) {
     const classId = c.req.param("classId");
     const orgId = await classOrgId(classId);
     if (!orgId) return c.json({ error: "class not found" }, 404);
-    if (!(await isPrincipalOrAdmin(userId, orgId))) {
+    if (!(await userCanInOrg(userId, orgId, "define_curriculum"))) {
       return c.json({ error: "forbidden" }, 403);
     }
 
@@ -714,7 +715,7 @@ export function installSubjects(school: Hono) {
     const id = c.req.param("id");
     const ctx = await classSubjectCtx(id);
     if (!ctx) return c.json({ error: "subject not found" }, 404);
-    if (!(await isPrincipalOrAdmin(userId, ctx.orgId))) {
+    if (!(await userCanInOrg(userId, ctx.orgId, "define_curriculum"))) {
       return c.json({ error: "forbidden" }, 403);
     }
 
@@ -778,7 +779,7 @@ export function installSubjects(school: Hono) {
     const id = c.req.param("id");
     const ctx = await classSubjectCtx(id);
     if (!ctx) return c.json({ error: "subject not found" }, 404);
-    if (!(await isPrincipalOrAdmin(userId, ctx.orgId))) {
+    if (!(await userCanInOrg(userId, ctx.orgId, "define_curriculum"))) {
       return c.json({ error: "forbidden" }, 403);
     }
 
@@ -865,7 +866,7 @@ export function installSubjects(school: Hono) {
     const id = c.req.param("id");
     const ctx = await sectionSubjectCtx(id);
     if (!ctx) return c.json({ error: "section subject not found" }, 404);
-    if (!(await isPrincipalOrAdmin(userId, ctx.orgId))) {
+    if (!(await userCanInOrg(userId, ctx.orgId, "define_curriculum"))) {
       return c.json({ error: "forbidden" }, 403);
     }
 
