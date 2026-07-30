@@ -116,6 +116,15 @@ export async function hasAdminOrPrincipal(userId: string, orgId: string): Promis
  * to render UI state or make multi-role decisions; for a single allow/deny
  * check, prefer `requireOrgRole` below.
  */
+/** Convenience wrapper: does the user hold ANY active role in this org
+ *  (org- or class-scoped, validity window enforced)? The 15 hand-rolled
+ *  copies of this check queried scope_type=organization only and skipped
+ *  the valid_from/valid_until window — expired visiting-teacher roles
+ *  passed those gates. This version closes both gaps. */
+export async function hasAnyRoleInOrg(userId: string, orgId: string): Promise<boolean> {
+  return (await getOrgRoles(userId, orgId)).size > 0;
+}
+
 export async function getOrgRoles(userId: string, orgId: string): Promise<Set<SchoolRole>> {
   const out = new Set<SchoolRole>();
   const today = todayUtcDate();

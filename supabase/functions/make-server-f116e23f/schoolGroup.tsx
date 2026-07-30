@@ -20,6 +20,7 @@
 
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
+import { hasAdminOrPrincipal as isAdminOrPrincipalOrg } from "./schoolAuth.ts";
 import { todayInOrgTz } from "./tz.ts";
 
 async function callerOrgsInGroup(
@@ -50,36 +51,6 @@ async function callerOrgsInGroup(
     return (orgs ?? []).map((o: any) => o.id);
   }
   return [];
-}
-
-async function isAdminOrPrincipalOrg(userId: string, orgId: string): Promise<boolean> {
-  // Direct org-level admin/principal.
-  const { data } = await serviceRoleClient
-    .from("user_roles")
-    .select("role_type")
-    .eq("user_id", userId)
-    .eq("scope_type", "organization")
-    .eq("scope_id", orgId)
-    .is("revoked_at", null);
-  if ((data ?? []).some((r: any) => r.role_type === "principal" || r.role_type === "admin")) return true;
-  // Group-scoped role on this org's group counts (Phase 4).
-  const { data: org } = await serviceRoleClient
-    .from("organizations")
-    .select("school_group_id")
-    .eq("id", orgId)
-    .maybeSingle();
-  const groupId = (org as any)?.school_group_id;
-  if (!groupId) return false;
-  const { data: g } = await serviceRoleClient
-    .from("user_roles")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("scope_type", "school_group")
-    .eq("scope_id", groupId)
-    .in("role_type", ["principal", "admin"])
-    .is("revoked_at", null)
-    .limit(1);
-  return !!(g && g.length > 0);
 }
 
 export function installSchoolGroup(school: Hono): void {

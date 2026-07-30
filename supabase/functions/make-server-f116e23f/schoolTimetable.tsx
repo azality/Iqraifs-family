@@ -27,39 +27,12 @@
 
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
+import { hasAnyRoleInOrg as hasAnyOrgRole, hasAdminOrPrincipal as isAdminOrPrincipal } from "./schoolAuth.ts";
 import { todayInOrgTz } from "./tz.ts";
 
 const SLOT_KINDS = new Set([
   "academic", "break", "prayer", "hifz", "assembly", "other",
 ]);
-
-// Local copies of role helpers — duplicating these is cheaper than
-// pulling them out into a shared module mid-PR. Mirrors the pattern
-// used in other schoolPhase* files.
-async function hasAnyOrgRole(userId: string, orgId: string): Promise<boolean> {
-  const { data } = await serviceRoleClient
-    .from("user_roles")
-    .select("user_id")
-    .eq("user_id", userId)
-    .eq("scope_type", "organization")
-    .eq("scope_id", orgId)
-    .is("revoked_at", null)
-    .limit(1)
-    .maybeSingle();
-  return !!data;
-}
-async function isAdminOrPrincipal(userId: string, orgId: string): Promise<boolean> {
-  const { data } = await serviceRoleClient
-    .from("user_roles")
-    .select("role_type")
-    .eq("user_id", userId)
-    .eq("scope_type", "organization")
-    .eq("scope_id", orgId)
-    .is("revoked_at", null);
-  return (data ?? []).some(
-    (r: any) => r.role_type === "principal" || r.role_type === "admin",
-  );
-}
 
 function slotToJson(r: any) {
   return {

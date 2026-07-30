@@ -18,6 +18,7 @@
 
 import type { Hono, Context } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
+import { hasAdminOrPrincipal as isAdminOrPrincipal } from "./schoolAuth.ts";
 import { verifyPinToken } from "./schoolPhaseA.tsx";
 
 // Inclusive list of ISO dates between start and end (YYYY-MM-DD).
@@ -42,19 +43,6 @@ const VALID_KINDS = new Set([
   "vacation", "sick", "personal", "short_break",
   "family_emergency", "medical", "other",
 ]);
-
-async function isAdminOrPrincipal(userId: string, orgId: string): Promise<boolean> {
-  const { data } = await serviceRoleClient
-    .from("user_roles")
-    .select("role_type")
-    .eq("user_id", userId)
-    .eq("scope_type", "organization")
-    .eq("scope_id", orgId)
-    .is("revoked_at", null);
-  return (data ?? []).some(
-    (r: any) => r.role_type === "principal" || r.role_type === "admin",
-  );
-}
 
 function toJson(r: any) {
   return {
