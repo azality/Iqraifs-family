@@ -152,89 +152,18 @@ export interface TeacherRow {
 // Permission defaults — defaults that apply unless role_template_override
 // stores a deviating row for (org, role_template, permission_key).
 // ---------------------------------------------------------------------------
-type RoleTemplate = "admin" | "class_teacher" | "visiting_teacher" | "financial_staff" | "office_staff";
-type PermissionKey =
-  | "manage_students"
-  | "mark_attendance"
-  | "edit_grades"
-  | "mark_fees_status"
-  | "create_forms"
-  | "define_curriculum"
-  | "manage_teachers"
-  | "view_all_classes"
-  | "manage_public_site";
-
-const PERMISSION_KEYS: PermissionKey[] = [
-  "manage_students",
-  "mark_attendance",
-  "edit_grades",
-  "mark_fees_status",
-  "create_forms",
-  "define_curriculum",
-  "manage_teachers",
-  "view_all_classes",
-  "manage_public_site",
-];
-
-const DEFAULT_PERMISSIONS: Record<RoleTemplate, Record<PermissionKey, boolean>> = {
-  admin: {
-    manage_students: true,
-    mark_attendance: true,
-    edit_grades: true,
-    mark_fees_status: true,
-    create_forms: true,
-    define_curriculum: true,
-    manage_teachers: true,
-    view_all_classes: true,
-    manage_public_site: true,
-  },
-  class_teacher: {
-    manage_students: false,
-    mark_attendance: true,
-    edit_grades: true,
-    mark_fees_status: false,
-    create_forms: true,
-    define_curriculum: true,
-    manage_teachers: false,
-    view_all_classes: false,
-    manage_public_site: false,
-  },
-  visiting_teacher: {
-    manage_students: false,
-    mark_attendance: true,
-    edit_grades: false,
-    mark_fees_status: false,
-    create_forms: false,
-    define_curriculum: false,
-    manage_teachers: false,
-    view_all_classes: false,
-    manage_public_site: false,
-  },
-  financial_staff: {
-    manage_students: false,
-    mark_attendance: false,
-    edit_grades: false,
-    mark_fees_status: true,
-    create_forms: false,
-    define_curriculum: false,
-    manage_teachers: false,
-    view_all_classes: false,
-    manage_public_site: false,
-  },
-  office_staff: {
-    manage_students: true,
-    // PR C #6: Iqra wants office staff to be able to mark attendance when
-    // the class teacher is absent. Granted org-wide; tighten if needed.
-    mark_attendance: true,
-    edit_grades: false,
-    mark_fees_status: false,
-    create_forms: true,
-    define_curriculum: false,
-    manage_teachers: true,
-    view_all_classes: true,
-    manage_public_site: false,
-  },
-};
+// RoleTemplate / PermissionKey / DEFAULT_PERMISSIONS now come from the
+// shared matrix in rolePermissions.ts (single source of truth, also
+// consumed by schoolAuth.ts and the frontend). RoleTemplate here means
+// "a role whose defaults can be overridden per-org" — i.e. everything
+// except principal.
+import {
+  PERMISSION_KEYS,
+  DEFAULT_PERMISSIONS,
+  OVERRIDABLE_ROLE_TEMPLATES,
+} from "./rolePermissions.ts";
+import type { PermissionKey } from "./rolePermissions.ts";
+type RoleTemplate = (typeof OVERRIDABLE_ROLE_TEMPLATES)[number];
 
 // ---------------------------------------------------------------------------
 // Role helpers
@@ -2992,7 +2921,7 @@ export function installPhaseA(school: Hono) {
       overrideMap.set(`${o.role_template}::${o.permission_key}`, o.allowed);
     }
     const result: Array<{ roleTemplate: RoleTemplate; permissionKey: PermissionKey; allowed: boolean }> = [];
-    for (const rt of Object.keys(DEFAULT_PERMISSIONS) as RoleTemplate[]) {
+    for (const rt of OVERRIDABLE_ROLE_TEMPLATES) {
       for (const pk of PERMISSION_KEYS) {
         const key = `${rt}::${pk}`;
         const allowed = overrideMap.has(key) ? !!overrideMap.get(key) : DEFAULT_PERMISSIONS[rt][pk];
@@ -3010,7 +2939,7 @@ export function installPhaseA(school: Hono) {
     try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
     if (!Array.isArray(body?.overrides)) return c.json({ error: "overrides[] required" }, 400);
 
-    const validTemplates = new Set(Object.keys(DEFAULT_PERMISSIONS));
+    const validTemplates = new Set<string>(OVERRIDABLE_ROLE_TEMPLATES);
     const validKeys = new Set(PERMISSION_KEYS);
     const rows: any[] = [];
     for (const o of body.overrides) {
