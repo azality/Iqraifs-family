@@ -29,6 +29,7 @@ import {
   ArrowUpRight,
   ListChecks,
   Library,
+  Building2,
 } from "lucide-react";
 import {
   LineChart,
@@ -54,6 +55,7 @@ import {
   listAdmins,
   listLinkCodes,
   listAnnouncements,
+  listMySchoolGroups,
   isOrgPrincipal,
   type DashboardAlert,
   type DashboardPeriod,
@@ -64,6 +66,7 @@ import {
   type OrgWithCounts,
   type AcademicsResponse,
   type SchoolMeResponse,
+  type SchoolGroupSummary,
 } from "../../../utils/schoolApi";
 import { SetupChecklist, setupChecklistDismissed, PendingTimeOffWidget } from "../../components/school-ui";
 import { RoleTour } from "../../components/RoleTour";
@@ -654,6 +657,16 @@ export function PerformanceDashboard() {
     getSchoolMe().then(setMe).catch(() => setMe(null));
   }, []);
 
+  // Multi-campus: if this user belongs to any school group (head-office
+  // principal/admin), surface the "All campuses" entry — the group
+  // dashboard route previously had no inbound link anywhere in the app.
+  const [myGroups, setMyGroups] = useState<SchoolGroupSummary[]>([]);
+  useEffect(() => {
+    listMySchoolGroups()
+      .then((r) => setMyGroups(r.groups))
+      .catch(() => setMyGroups([]));
+  }, []);
+
   // Phase 6a: academics fetch. Non-blocking — if it errors, the rest of
   // the dashboard renders fine and we just hide the new tiles/panel.
   useEffect(() => {
@@ -822,7 +835,19 @@ export function PerformanceDashboard() {
             </p>
           )}
         </div>
-        <PeriodSelector value={period} onChange={setPeriod} />
+        <div className="flex items-center gap-2">
+          {myGroups.map((g) => (
+            <Link
+              key={g.id}
+              to={`/school/school-groups/${g.id}`}
+              className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+            >
+              <Building2 className="h-3.5 w-3.5" />
+              {myGroups.length > 1 ? g.name : "All campuses"}
+            </Link>
+          ))}
+          <PeriodSelector value={period} onChange={setPeriod} />
+        </div>
       </div>
 
       {/* Loading + error states (compact, page still renders shell) */}

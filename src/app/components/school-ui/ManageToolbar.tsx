@@ -43,6 +43,9 @@ import {
   GraduationCap,
   Wrench,
   Home,
+  FileText,
+  ListChecks,
+  LayoutGrid,
 } from "lucide-react";
 import type { SchoolViewerRole } from "../../../utils/schoolApi";
 import { accentBg, accentBorder, accentText } from "./tokens";
@@ -105,17 +108,25 @@ function flatItemsForRole(
       ];
     case "office_staff":
       return [
+        // Dashboard first — without it, office staff who navigate anywhere
+        // have no toolbar route back to OfficeStaffHome.
+        I("dashboard", "Dashboard", `/school/orgs/${orgId}`, Home),
         I("students", t("toolbar.students"), `/school/orgs/${orgId}/admin/students`, Users),
         I("parents", t("toolbar.parents"), `/school/orgs/${orgId}/admin/parents`, Heart),
         // office_staff holds manage_teachers by default and the page now
         // honors the permission — give them the nav entry to match.
         I("teachers", t("toolbar.teachers"), `/school/orgs/${orgId}/admin/teachers`, UserCog),
         I("roster-requests", t("toolbar.rosterRequests"), `/school/orgs/${orgId}/admin/roster-requests`, ClipboardList),
+        // office_staff holds view_all_classes + create_forms by default —
+        // give them the doors to match (pages enforce the actual permission).
+        I("classes", t("toolbar.classes"), `/school/orgs/${orgId}/admin/classes`, BookOpen),
+        I("forms", "Forms", `/school/orgs/${orgId}/admin/forms`, FileText),
         I("inbox", "Parent inbox", `/school/orgs/${orgId}/admin/inbox`, Inbox),
         announcements,
       ];
     case "financial_staff":
       return [
+        I("dashboard", "Dashboard", `/school/orgs/${orgId}`, Home),
         I("fees", "Fees", `/school/orgs/${orgId}/admin/fees`, DollarSign),
         announcements,
       ];
@@ -181,31 +192,44 @@ function groupsForAdmin(
       Icon: Megaphone,
       items: [
         I("announcements", t("toolbar.announcements"), `/school/orgs/${orgId}/admin/announcements`, Megaphone),
+        // Forms was only reachable from the AdminDashboard tile grid, which
+        // itself had no toolbar entry — the parent portal's Forms tab had no
+        // producing side. Communications is its home: forms go out to parents.
+        I("forms", "Forms", `/school/orgs/${orgId}/admin/forms`, FileText),
         I("public-site", "Public site", `/school/orgs/${orgId}/admin/public-site`, Globe),
       ],
     },
   ];
 
-  // Admin group — principal only, since it carries Permissions + Settings.
+  // Admin group. "Admin home" (the tile-grid console) leads the group for
+  // everyone — the "← Admin" back-buttons on every admin sub-page land
+  // there, so it must be discoverable from the toolbar too. Permissions +
+  // Settings + Year rollover stay principal-only; behavior categories are
+  // admin-wide.
   if (role === "principal") {
     groups.push({
       key: "admin",
       label: "Admin",
       Icon: Wrench,
       items: [
+        I("admin-home", "Admin home", `/school/orgs/${orgId}/admin`, LayoutGrid),
         I("permissions", t("toolbar.permissions"), `/school/orgs/${orgId}/admin/permissions`, ShieldCheck),
         I("settings", t("toolbar.settings"), `/school/orgs/${orgId}/admin/settings`, SettingsIcon),
+        I("behavior-catalog", "Behavior categories", `/school/orgs/${orgId}/behavior-catalog`, ListChecks),
+        I("year-rollover", "Year rollover", `/school/orgs/${orgId}/admin/year-rollover`, CalendarClock),
         I("import", "Import", `/school/orgs/${orgId}/admin/import`, UploadCloud),
         I("audit", "Audit log", `/school/orgs/${orgId}/admin/audit`, ScrollText),
       ],
     });
   } else {
-    // Admin (non-principal) still gets Import + Audit.
+    // Admin (non-principal): no Permissions/Settings/Year rollover.
     groups.push({
       key: "admin",
       label: "Admin",
       Icon: Wrench,
       items: [
+        I("admin-home", "Admin home", `/school/orgs/${orgId}/admin`, LayoutGrid),
+        I("behavior-catalog", "Behavior categories", `/school/orgs/${orgId}/behavior-catalog`, ListChecks),
         I("import", "Import", `/school/orgs/${orgId}/admin/import`, UploadCloud),
         I("audit", "Audit log", `/school/orgs/${orgId}/admin/audit`, ScrollText),
       ],
@@ -224,8 +248,10 @@ function isActive(pathname: string, to: string): boolean {
   // don't break the highlight.
   const cleanPath = pathname.split(/[?#]/)[0];
   const cleanTo = to.split(/[?#]/)[0];
-  const isOrgRoot = /^\/school\/orgs\/[^/]+$/.test(cleanTo);
-  if (isOrgRoot) return cleanPath === cleanTo;
+  // Org root (Dashboard) and admin root (Admin home) are prefixes of every
+  // other page — require exact match for both, else they highlight always.
+  const isRootLike = /^\/school\/orgs\/[^/]+(\/admin)?$/.test(cleanTo);
+  if (isRootLike) return cleanPath === cleanTo;
   return cleanPath === cleanTo || cleanPath.startsWith(cleanTo + "/");
 }
 
