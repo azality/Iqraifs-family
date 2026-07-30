@@ -2904,11 +2904,32 @@ export function installPhaseA(school: Hono) {
     }
     if (rows.length === 0) return c.json({ ok: true, updated: 0 });
 
-    const { error } = await serviceRoleClient
-      .from("role_template_override")
-      .upsert(rows, { onConflict: "org_id,role_template,permission_key" });
-    if (error) return c.json({ error: error.message }, 500);
-    return c.json({ ok: true, updated: rows.length });
+    // Diff against defaults: a row equal to the default is NOT persisted —
+    // and any existing override for it is deleted. Otherwise one Save
+    // freezes all 54 matrix cells as explicit overrides and future
+    // changes to DEFAULT_PERMISSIONS never reach this org (including for
+    // roles/keys the editor doesn't even display).
+    const deviations = rows.filter((r) => {
+      const def = (DEFAULT_PERMISSIONS as any)[r.role_template]?.[r.permission_key] ?? false;
+      return r.allowed !== def;
+    });
+    const backToDefault = rows.filter((r) => !deviations.includes(r));
+
+    if (deviations.length > 0) {
+      const { error } = await serviceRoleClient
+        .from("role_template_override")
+        .upsert(deviations, { onConflict: "org_id,role_template,permission_key" });
+      if (error) return c.json({ error: error.message }, 500);
+    }
+    for (const r of backToDefault) {
+      await serviceRoleClient
+        .from("role_template_override")
+        .delete()
+        .eq("org_id", orgId)
+        .eq("role_template", r.role_template)
+        .eq("permission_key", r.permission_key);
+    }
+    return c.json({ ok: true, updated: deviations.length, cleared: backToDefault.length });
   });
 
   // ─── Import batches: list + rollback ────────────────────────────────────

@@ -21,6 +21,7 @@
 
 import { Hono } from "npm:hono";
 import { serviceRoleClient, requireAuth, getAuthUserId } from "./middleware.tsx";
+import { isPrincipalOf, todayUtcDate, isRoleActiveNow } from "./schoolAuth.ts";
 import { logAuditWithLookup } from "./schoolAudit.ts";
 import { installPhaseA } from "./schoolPhaseA.tsx";
 import { installPhaseB } from "./schoolPhaseB.tsx";
@@ -155,9 +156,10 @@ async function hasRole(
 }
 
 // Returns true if the user is a principal of the given organization.
-async function isPrincipalOf(userId: string, orgId: string): Promise<boolean> {
-  return hasRole(userId, "principal", "organization", orgId);
-}
+// isPrincipalOf now delegates to the shared schoolAuth helper — the old
+// local copy skipped the valid_from/valid_until window, ignored
+// school_group (multi-campus) roles, and used .maybeSingle() which
+// errors (→ false) when a user has duplicate principal rows.
 
 // Returns the org_id of any organization where this user is principal.
 // For the v1 single-school pilot, every principal has exactly one org.
@@ -215,14 +217,23 @@ school.get("/me", async (c) => {
 
   const { data: roleRows, error: rolesErr } = await serviceRoleClient
     .from("user_roles")
-    .select("role_type, scope_type, scope_id")
+    .select("role_type, scope_type, scope_id, valid_from, valid_until")
     .eq("user_id", userId)
     .is("revoked_at", null);
   if (rolesErr) {
     return c.json({ error: "could not load roles", details: rolesErr.message }, 500);
   }
+  // Enforce the validity window here too — every backend gate now checks
+  // it (schoolAuth), so /me must agree or an expired visiting teacher
+  // keeps their nav and pages, then 403s on every action.
+  const todayStr = todayUtcDate();
   const roles: Array<{ role_type: string; scope_type: string; scope_id: string }> =
-    (roleRows ?? []) as any;
+    ((roleRows ?? []) as any[])
+      .filter((r) => isRoleActiveNow(
+        { revoked_at: null, valid_from: r.valid_from ?? null, valid_until: r.valid_until ?? null },
+        todayStr,
+      ))
+      .map((r) => ({ role_type: r.role_type, scope_type: r.scope_type, scope_id: r.scope_id }));
 
   // SYNTHETIC HIFZ TEACHER ROLES (PR feat/hifz-teacher-section-listing).
   // class_section.hifz_teacher_user_id grants Hifz-log POST access but

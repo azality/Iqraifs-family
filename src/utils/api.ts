@@ -436,10 +436,24 @@ export async function apiCall(endpoint: string, options: RequestInit = {}, retry
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Request failed' }));
     console.error('❌ API Error:', { endpoint, status: response.status, error });
+    // Human-readable message for permission denials. Most backend gates
+    // emit the literal string "forbidden" — surfacing that raw is
+    // useless to a teacher who just needs their principal to flip a
+    // toggle in Role permissions. The code/status are preserved on the
+    // Error object for callers that branch on them.
+    let message = error.error || `API error: ${response.status}`;
+    if (
+      error.code === 'FORBIDDEN_PERMISSION' ||
+      error.code === 'FORBIDDEN_ROLE' ||
+      (response.status === 403 && message === 'forbidden')
+    ) {
+      message =
+        "You don't have permission for this action. Ask your school's principal to grant it under Admin → Role permissions.";
+    }
     // Preserve the full body + status on the Error object so callers
     // that care (e.g. room-conflict 409s) can introspect, while keeping
     // the message string ergonomic for the common case.
-    const err = new Error(error.error || `API error: ${response.status}`) as Error & {
+    const err = new Error(message) as Error & {
       status?: number;
       body?: unknown;
     };
