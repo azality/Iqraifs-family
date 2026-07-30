@@ -30,7 +30,7 @@
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { todayInOrgTz } from "./tz.ts";
-import { userCanInOrg } from "./schoolAuth.ts";
+import { userCanInOrg, hasAnyRoleInOrg as hasAnyOrgRole } from "./schoolAuth.ts";
 
 // -----------------------------------------------------------------------------
 // Auth helpers
@@ -84,32 +84,6 @@ async function sectionSubjectCtx(id: string): Promise<{
     orgId: (data as any).org_id,
     sectionId: (data as any).class_section_id,
   };
-}
-
-async function hasAnyOrgRole(userId: string, orgId: string): Promise<boolean> {
-  const { data } = await serviceRoleClient
-    .from("user_roles")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("scope_type", "organization")
-    .eq("scope_id", orgId)
-    .is("revoked_at", null)
-    .limit(1)
-    .maybeSingle();
-  return !!data;
-}
-
-async function isPrincipalOrAdmin(userId: string, orgId: string): Promise<boolean> {
-  const { data } = await serviceRoleClient
-    .from("user_roles")
-    .select("role_type")
-    .eq("user_id", userId)
-    .eq("scope_type", "organization")
-    .eq("scope_id", orgId)
-    .is("revoked_at", null);
-  return (data ?? []).some((r: any) =>
-    r.role_type === "principal" || r.role_type === "admin",
-  );
 }
 
 // -----------------------------------------------------------------------------
