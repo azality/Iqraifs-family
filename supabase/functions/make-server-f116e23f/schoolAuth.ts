@@ -6,16 +6,16 @@
 // drifted easily — Phase A's checks accepted org-level visiting_teacher,
 // Phase B's didn't, and Phase C had a slightly different fallback.
 //
-// All NEW routes should import from this file. The existing per-phase copies
-// stay in place for now (low-risk; refactoring 50+ call sites in one PR is
-// dangerous pre-pilot) but should be migrated incrementally.
+// All routes import from this file. The per-phase local copies of
+// requireTeacherOfSection / isTeacherOfSection / loadSection were unified
+// here (branch school-pilot/unify-teacher-section-gate) — do not re-create
+// module-local variants; extend these helpers instead.
 //
 // Block style: by user product decision (PR docs/school-roles, Q in
 // AskUserQuestion), forbidden routes return 403 with a body like
 //   { error: "human-readable message", code: "MACHINE_CODE" }
 // so the frontend can show a useful toast.
 
-import { Context } from "npm:hono";
 import { serviceRoleClient } from "./middleware.tsx";
 
 // Canonical role names. Keep in sync with the role_type enum in Postgres
@@ -110,12 +110,6 @@ export async function hasAdminOrPrincipal(userId: string, orgId: string): Promis
   return false;
 }
 
-/**
- * Return the set of distinct role_type values this user holds in this org
- * (across org-level and any class-level scope rows). Use this when you want
- * to render UI state or make multi-role decisions; for a single allow/deny
- * check, prefer `requireOrgRole` below.
- */
 /** Convenience wrapper: does the user hold ANY active role in this org
  *  (org- or class-scoped, validity window enforced)? The 15 hand-rolled
  *  copies of this check queried scope_type=organization only and skipped
@@ -206,28 +200,71 @@ export type ScopeGate =
   | { ok: true }
   | { ok: false; status: 403 | 404; error: string; code: string };
 
+/** Loads the section row including the parent class's org for org-membership
+ *  checks. class_section has no org_id column — resolved via class.class_id.
+ *  Was duplicated in schoolPhaseB / C / C2 / CD before unification. */
+export async function loadSection(sectionId: string): Promise<
+  | {
+      id: string;
+      class_id: string;
+      class_teacher_user_id: string | null;
+      org_id: string;
+    }
+  | null
+> {
+  const { data, error } = await serviceRoleClient
+    .from("class_section")
+    .select("id, class_id, class_teacher_user_id, class:class_id(org_id)")
+    .eq("id", sectionId)
+    .maybeSingle();
+  if (error) {
+    console.error("[schoolAuth.loadSection] DB error:", error);
+    return null;
+  }
+  if (!data) return null;
+  const orgId = (data as any).class?.org_id ?? null;
+  if (!orgId) return null;
+  return {
+    id: (data as any).id,
+    class_id: (data as any).class_id,
+    class_teacher_user_id: (data as any).class_teacher_user_id ?? null,
+    org_id: orgId,
+  };
+}
+
 export async function requireTeacherOfSection(
   userId: string,
   orgId: string,
   sectionId: string,
+  opts?: {
+    /** Also admit an org-scoped office_staff who holds this permission.
+     *  Phase B (attendance / behavior / roster) passes "mark_attendance"
+     *  so office staff can cover for an absent class teacher — honoring
+     *  per-org overrides via userCanInOrg. Other callers omit it. */
+    allowOfficeStaffWith?: PermissionKey;
+  },
 ): Promise<ScopeGate> {
   // First confirm the section is in this org. Doubles as an existence check.
-  // class_section has no org_id column — resolve via class.class_id(org_id).
-  const { data: sec } = await serviceRoleClient
-    .from("class_section")
-    .select("id, class_teacher_user_id, class:class_id(org_id)")
-    .eq("id", sectionId)
-    .maybeSingle();
+  const sec = await loadSection(sectionId);
   if (!sec) return { ok: false, status: 404, error: "section not found", code: "SECTION_NOT_FOUND" };
-  if ((sec as any).class?.org_id !== orgId) {
+  if (sec.org_id !== orgId) {
     return { ok: false, status: 404, error: "section not in this org", code: "SECTION_NOT_IN_ORG" };
   }
 
   // Admin/principal: always allowed.
   if (await hasAdminOrPrincipal(userId, orgId)) return { ok: true };
 
+  // Opt-in office_staff grant (see opts docs above).
+  if (
+    opts?.allowOfficeStaffWith &&
+    (await userHasRoleRow(userId, "office_staff", "organization", orgId)) &&
+    (await userCanInOrg(userId, orgId, opts.allowOfficeStaffWith))
+  ) {
+    return { ok: true };
+  }
+
   // Class teacher of this exact section.
-  if ((sec as any).class_teacher_user_id === userId) return { ok: true };
+  if (sec.class_teacher_user_id === userId) return { ok: true };
 
   // Visiting teacher scoped to this section.
   if (await userHasRoleRow(userId, "visiting_teacher", "class", sectionId)) return { ok: true };
@@ -243,6 +280,26 @@ export async function requireTeacherOfSection(
     error: "You do not have permission to act on this class.",
     code: "NOT_TEACHER_OF_SECTION",
   };
+}
+
+/** Boolean variant WITHOUT the admin/principal short-circuit and without
+ *  the section-in-org existence check. Used by call sites (curriculum,
+ *  form audience) that check admin separately and layer a permission key
+ *  on top — keep those semantics; don't swap in requireTeacherOfSection. */
+export async function isTeacherOfSection(
+  userId: string,
+  orgId: string,
+  sectionId: string,
+): Promise<boolean> {
+  const { data: sec } = await serviceRoleClient
+    .from("class_section")
+    .select("class_teacher_user_id")
+    .eq("id", sectionId)
+    .maybeSingle();
+  if (sec?.class_teacher_user_id === userId) return true;
+  if (await userHasRoleRow(userId, "visiting_teacher", "class", sectionId)) return true;
+  if (await userHasRoleRow(userId, "visiting_teacher", "organization", orgId)) return true;
+  return false;
 }
 
 // =============================================================================
@@ -294,54 +351,3 @@ export async function userCanInOrg(
   return false;
 }
 
-// =============================================================================
-// requireOrgRole — Hono middleware FACTORY
-//
-// Usage:
-//   school.post("/orgs/:orgId/something",
-//     requireOrgRole({ allow: ["principal", "admin"] }),
-//     async (c) => { ... });
-//
-// The middleware reads :orgId from the route params, looks up the caller's
-// roles in that org, and 403s if none of them are in `allow`. The handler
-// can then call getAuthUserId(c) without re-checking permissions.
-//
-// `code` overrides the default 403 code so frontend can branch on it.
-// `orgIdParam` lets you point at a non-standard path param (default "orgId").
-// =============================================================================
-
-export function requireOrgRole(opts: {
-  allow: SchoolRole[];
-  code?: string;
-  orgIdParam?: string;
-}) {
-  const allowSet = new Set<SchoolRole>(opts.allow);
-  const orgIdParam = opts.orgIdParam ?? "orgId";
-
-  return async function middleware(c: Context, next: () => Promise<void>) {
-    const user = c.get("user");
-    if (!user?.id) {
-      return c.json({ error: "unauthenticated", code: "UNAUTHENTICATED" }, 401);
-    }
-    const orgId = c.req.param(orgIdParam);
-    if (!orgId) {
-      // Programmer error — route mounted at wrong path. Surface clearly.
-      return c.json({ error: `missing :${orgIdParam} in route`, code: "MISSING_ORG_PARAM" }, 500);
-    }
-
-    const roles = await getOrgRoles(user.id, orgId);
-    for (const r of roles) {
-      if (allowSet.has(r)) return next();
-    }
-
-    const human =
-      opts.allow.length === 1
-        ? `This action requires ${opts.allow[0].replace(/_/g, " ")} role in this school.`
-        : `This action requires one of: ${opts.allow.map(r => r.replace(/_/g, " ")).join(", ")}.`;
-
-    return c.json(
-      { error: human, code: opts.code ?? "FORBIDDEN_ROLE", allowed: opts.allow },
-      403,
-    );
-  };
-}

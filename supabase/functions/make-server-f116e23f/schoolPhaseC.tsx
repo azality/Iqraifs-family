@@ -29,65 +29,13 @@ import {
   createImportBatch,
   finalizeImportBatch,
 } from "./middleware.tsx";
-import { userHasRoleRow, hasAdminOrPrincipal, hasAnyRoleInOrg } from "./schoolAuth.ts";
+import {
+  hasAdminOrPrincipal,
+  hasAnyRoleInOrg,
+  loadSection,
+  requireTeacherOfSection,
+} from "./schoolAuth.ts";
 import { todayInOrgTz } from "./tz.ts";
-
-async function loadSection(sectionId: string): Promise<
-  | {
-      id: string;
-      class_id: string;
-      class_teacher_user_id: string | null;
-      org_id: string;
-    }
-  | null
-> {
-  const { data, error } = await serviceRoleClient
-    .from("class_section")
-    .select("id, class_id, class_teacher_user_id, class:class_id(org_id)")
-    .eq("id", sectionId)
-    .maybeSingle();
-  if (error) {
-    console.error("[schoolPhaseC.loadSection] DB error:", error);
-    return null;
-  }
-  if (!data) return null;
-  const orgId = (data as any).class?.org_id ?? null;
-  if (!orgId) return null;
-  return {
-    id: (data as any).id,
-    class_id: (data as any).class_id,
-    class_teacher_user_id: (data as any).class_teacher_user_id ?? null,
-    org_id: orgId,
-  };
-}
-
-async function requireTeacherOfSection(
-  userId: string,
-  orgId: string,
-  sectionId: string,
-  expectedSectionOrgId: string,
-): Promise<{ ok: true } | { ok: false; status: 403 | 404; error: string }> {
-  if (expectedSectionOrgId !== orgId) {
-    return { ok: false, status: 404, error: "section not in this org" };
-  }
-  if (await hasAdminOrPrincipal(userId, orgId)) return { ok: true };
-
-  const { data: sec, error: secErr } = await serviceRoleClient
-    .from("class_section")
-    .select("class_teacher_user_id")
-    .eq("id", sectionId)
-    .maybeSingle();
-  if (secErr) return { ok: false, status: 403, error: "forbidden" };
-  if (sec?.class_teacher_user_id === userId) return { ok: true };
-
-  if (await userHasRoleRow(userId, "visiting_teacher", "class", sectionId)) {
-    return { ok: true };
-  }
-  if (await userHasRoleRow(userId, "visiting_teacher", "organization", orgId)) {
-    return { ok: true };
-  }
-  return { ok: false, status: 403, error: "forbidden" };
-}
 
 // -----------------------------------------------------------------------------
 // Validation helpers
@@ -229,7 +177,7 @@ export function installPhaseC(school: Hono): void {
     const section = await loadSection(sectionId);
     if (!section) return c.json({ error: "section not found" }, 404);
 
-    const gate = await requireTeacherOfSection(userId, orgId, sectionId, section.org_id);
+    const gate = await requireTeacherOfSection(userId, orgId, sectionId);
     if (!gate.ok) return c.json({ error: gate.error }, gate.status);
 
     // Phase 2: optional section_subject + curriculum_topic links. If
@@ -665,7 +613,7 @@ export function installPhaseC(school: Hono): void {
 
     let allowed = await hasAdminOrPrincipal(userId, orgId);
     if (!allowed && stu.class_section_id) {
-      const gate = await requireTeacherOfSection(userId, orgId, stu.class_section_id, orgId);
+      const gate = await requireTeacherOfSection(userId, orgId, stu.class_section_id);
       allowed = gate.ok;
     }
     // Dedicated Hifz teacher (migration 0030). class_section can carry
@@ -870,7 +818,7 @@ export function installPhaseC(school: Hono): void {
     const section = await loadSection(sectionId);
     if (!section) return c.json({ error: "section not found" }, 404);
 
-    const gate = await requireTeacherOfSection(userId, orgId, sectionId, section.org_id);
+    const gate = await requireTeacherOfSection(userId, orgId, sectionId);
     if (!gate.ok) return c.json({ error: gate.error }, gate.status);
 
     const { data: students, error: stuErr } = await serviceRoleClient
