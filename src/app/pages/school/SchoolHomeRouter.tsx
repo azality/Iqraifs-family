@@ -101,11 +101,11 @@ export function SchoolHomeRouter() {
   }
 
   if (role === "office_staff") {
-    return <OfficeStaffHome />;
+    return <OfficeStaffHome me={me} />;
   }
 
   if (role === "financial_staff") {
-    return <FinanceHome />;
+    return <FinanceHome me={me} />;
   }
 
   return <PerformanceDashboard />;

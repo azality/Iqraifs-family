@@ -30,7 +30,8 @@ function todayLabel(): string {
   });
 }
 
-function firstName(): string {
+function firstName(me?: { fullName?: string | null } | null): string {
+  if (me?.fullName) return me.fullName.split(/\s+/)[0];
   const stored =
     typeof window !== "undefined"
       ? window.localStorage.getItem("fgs_user_name")
@@ -50,7 +51,7 @@ function fmtPeriod(period: string): string {
   return d.toLocaleDateString(undefined, { month: "short", year: "numeric" });
 }
 
-export function FinanceHome() {
+export function FinanceHome({ me }: { me?: { fullName?: string | null } | null } = {}) {
   const { orgId = "" } = useParams<{ orgId: string }>();
   const [snapshot, setSnapshot] = useState<FinanceSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
@@ -106,7 +107,7 @@ export function FinanceHome() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-            Welcome back, {firstName()}
+            Welcome back, {firstName(me)}
           </h1>
           <p className="mt-0.5 text-sm text-slate-500">{todayLabel()}</p>
         </div>
@@ -124,30 +125,35 @@ export function FinanceHome() {
               Collection · {fmtPeriod(snapshot.period)}
             </div>
             <h2 className="mt-0.5 text-lg font-semibold text-white">
-              {fmtRs(c.paidTotal)} of {fmtRs(c.dueTotal)}
+              {c.dueTotal === 0
+                ? "No invoices this period"
+                : `${fmtRs(c.paidTotal)} of ${fmtRs(c.dueTotal)}`}
             </h2>
           </div>
           <div className="text-right">
             <div className="text-3xl font-bold tabular-nums text-white">
-              {c.collectionPct}%
+              {c.dueTotal === 0 ? "—" : `${c.collectionPct}%`}
             </div>
             <div className="text-[11px] text-emerald-300">collected</div>
           </div>
         </div>
-        {/* Progress bar */}
-        <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-white/10">
-          <div
-            className={
-              "h-full " +
-              (c.collectionPct >= 90
-                ? "bg-emerald-400"
-                : c.collectionPct >= 70
-                ? "bg-amber-400"
-                : "bg-rose-400")
-            }
-            style={{ width: `${Math.min(100, c.collectionPct)}%` }}
-          />
-        </div>
+        {/* Progress bar — hidden when nothing is invoiced: "0% collected
+            of Rs. 0" framed a brand-new period as failure. */}
+        {c.dueTotal > 0 && (
+          <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-white/10">
+            <div
+              className={
+                "h-full " +
+                (c.collectionPct >= 90
+                  ? "bg-emerald-400"
+                  : c.collectionPct >= 70
+                  ? "bg-amber-400"
+                  : "bg-rose-400")
+              }
+              style={{ width: `${Math.min(100, c.collectionPct)}%` }}
+            />
+          </div>
+        )}
         {/* Breakdown chips */}
         <div className="mt-4 flex flex-wrap gap-2 text-[11px]">
           <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-emerald-300 ring-1 ring-emerald-500/20">
