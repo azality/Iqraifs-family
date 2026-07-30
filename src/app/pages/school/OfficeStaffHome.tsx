@@ -35,7 +35,8 @@ function todayLabel(): string {
   });
 }
 
-function firstName(): string {
+function firstName(me?: { fullName?: string | null } | null): string {
+  if (me?.fullName) return me.fullName.split(/\s+/)[0];
   const stored =
     typeof window !== "undefined"
       ? window.localStorage.getItem("fgs_user_name")
@@ -43,7 +44,7 @@ function firstName(): string {
   return stored ? stored.split(/\s+/)[0] : "Office";
 }
 
-export function OfficeStaffHome() {
+export function OfficeStaffHome({ me }: { me?: { fullName?: string | null } | null } = {}) {
   const { orgId = "" } = useParams<{ orgId: string }>();
   const [snapshot, setSnapshot] = useState<OfficeSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
@@ -97,7 +98,7 @@ export function OfficeStaffHome() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-            Welcome back, {firstName()}
+            Welcome back, {firstName(me)}
           </h1>
           <p className="mt-0.5 text-sm text-slate-500">{todayLabel()}</p>
         </div>
@@ -135,7 +136,23 @@ export function OfficeStaffHome() {
         />
       </div>
 
-      {allClear && (
+      {allClear && snapshot.studentCount === 0 ? (
+        // Day-one empty org: "all clear" would read as done rather than
+        // not-started. Point at the actual first task instead.
+        <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-900">
+          <div className="font-medium">No students enrolled yet</div>
+          <p className="mt-0.5 text-xs text-indigo-700">
+            Once students are added you'll see roster requests, missing
+            contacts, and attendance gaps here.
+          </p>
+          <Link
+            to={`/school/orgs/${orgId}/admin/students`}
+            className="mt-2 inline-flex items-center gap-1 rounded-md border border-indigo-300 bg-white px-2.5 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+          >
+            Add students →
+          </Link>
+        </div>
+      ) : allClear ? (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
           <div className="flex items-center gap-2">
             <CheckCircle2 className="h-4 w-4" />
@@ -143,7 +160,7 @@ export function OfficeStaffHome() {
             requests, missing contacts, or attendance gaps to handle.
           </div>
         </div>
-      )}
+      ) : null}
 
       {/* Roster requests */}
       {snapshot.rosterRequests.pendingCount > 0 && (

@@ -59,14 +59,13 @@ interface Props {
 }
 
 function firstName(me: SchoolMeResponse | null): string {
-  // /school/me doesn't return a name field today — fall back to a
-  // friendly generic. The header still personalises the org name.
+  if (me?.fullName) return me.fullName.split(/\s+/)[0];
+  // Legacy fallback for accounts with no user_metadata name.
   const stored =
     typeof window !== "undefined"
       ? window.localStorage.getItem("fgs_user_name")
       : null;
   if (stored) return stored.split(/\s+/)[0];
-  void me;
   return "Teacher";
 }
 
@@ -340,8 +339,11 @@ export function TeacherHome({ orgId, me }: Props) {
       )}
 
       {/* Smart "Up next" — driven by the lesson-prep endpoint. Replaces
-          the old full-day listing. */}
-      {upcoming !== null && (
+          the old full-day listing. A fixed-height skeleton holds the slot
+          while loading so the header doesn't jump when the card pops in. */}
+      {upcoming === null ? (
+        <div className="h-24 animate-pulse rounded-xl border border-slate-200 bg-slate-50" />
+      ) : (
         <UpNextCard items={upcoming} audience="teacher" orgId={orgId} />
       )}
 

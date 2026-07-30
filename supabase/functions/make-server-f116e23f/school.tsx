@@ -207,10 +207,16 @@ school.get("/me", async (c) => {
   // Older accounts (signed up before signupIntent existed) get 'family'
   // by default.
   let signupIntent: 'family' | 'school' = 'family';
+  // Display name for dashboard greetings ("Welcome back, Ayesha"). The
+  // frontends used to fall back to a localStorage hack that greeted staff
+  // as "Office" / "Finance" on any fresh browser.
+  let fullName: string | null = null;
   try {
     const { data: userLookup } = await serviceRoleClient.auth.admin.getUserById(userId);
     const meta = (userLookup?.user as any)?.app_metadata ?? {};
     if (meta.signupIntent === 'school') signupIntent = 'school';
+    const um = (userLookup?.user as any)?.user_metadata ?? {};
+    fullName = um.full_name || um.name || null;
   } catch (_err) {
     // Lookup failure is non-fatal — default to 'family'.
   }
@@ -313,6 +319,7 @@ school.get("/me", async (c) => {
 
   return c.json({
     userId,
+    fullName,
     signupIntent,
     roles,
     organizations: orgRows.data ?? [],

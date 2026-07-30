@@ -38,6 +38,9 @@ export interface SchoolClassSummary {
 
 export interface SchoolMeResponse {
   userId: string;
+  /** Display name from auth user_metadata (full_name || name). Null when
+   *  the account has neither — greetings fall back per-page. */
+  fullName?: string | null;
   // 'school' for principals who signed up via /signup → "I run a school"
   // (or who were manually flagged via SQL). Drives whether the workspace
   // switcher shows the "My Family" option at all. Defaults to 'family'

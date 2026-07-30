@@ -794,6 +794,40 @@ export function PerformanceDashboard() {
 
       {/* Setup checklist — only for fresh schools with at least one
           incomplete actionable step and no prior dismissal. */}
+      {/* Fresh-campus CTA — the checklist can be dismissed (or completes
+          once an admin is added), after which an empty org rendered a
+          wall of "—" KPI tiles with no next step. Keep a slim pointer
+          until the campus actually has students. */}
+      {!showSetupChecklist && setupCounts && setupCounts.studentCount === 0 && (
+        <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-sm font-medium text-indigo-900">
+                This campus has no students yet
+              </div>
+              <p className="text-xs text-indigo-700">
+                The tiles below fill in as classes, students, and attendance
+                are added.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Link
+                to={`/school/orgs/${orgId}/admin/classes`}
+                className="inline-flex items-center rounded-md border border-indigo-300 bg-white px-2.5 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+              >
+                Add classes
+              </Link>
+              <Link
+                to={`/school/orgs/${orgId}/admin/import`}
+                className="inline-flex items-center rounded-md border border-indigo-300 bg-white px-2.5 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+              >
+                Import from Excel
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showSetupChecklist && setupCounts && (
         <div data-tour="setup-checklist">
           <SetupChecklist
