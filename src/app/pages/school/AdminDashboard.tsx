@@ -130,6 +130,8 @@ export function AdminDashboard() {
     { to: `/school/orgs/${orgId}/admin/inbox`, label: "Parent inbox", count: counts.inboxUnread, icon: Inbox, badge: true },
     { to: `/school/orgs/${orgId}/admin/forms`, label: "Forms", count: counts.formsDraft, icon: FileText, badge: true },
     { to: `/school/orgs/${orgId}/admin/announcements`, label: "Announcements", count: null, icon: Megaphone },
+    { to: `/school/orgs/${orgId}/behavior-catalog`, label: "Behavior categories", count: null, icon: ClipboardList },
+    { to: `/school/orgs/${orgId}/admin/year-rollover`, label: "Year rollover", count: null, icon: SettingsIcon, principalOnly: true },
     { to: `/school/orgs/${orgId}/admin/permissions`, label: "Permissions", count: null, icon: ShieldCheck, principalOnly: true },
     { to: `/school/orgs/${orgId}/admin/settings`, label: "Settings", count: null, icon: SettingsIcon, principalOnly: true },
   ];
@@ -177,8 +179,8 @@ export function AdminDashboard() {
         })}
       </div>
 
-      {/* Leave-school control. Hidden for principals — they need to either
-          transfer ownership (TODO) or delete the school via Settings.
+      {/* Leave-school control. Hidden for principals — they transfer
+          ownership or delete the school via Settings instead.
           Available to admins/teachers/staff: revokes their role, leaves their
           Supabase Auth user intact (they keep family-app access). */}
       {!principal && (
