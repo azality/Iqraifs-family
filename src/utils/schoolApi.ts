@@ -1285,6 +1285,9 @@ export interface AdminStudent {
   gender: string | null;
   guardian_phone: string | null;
   guardian_email: string | null;
+  /** Backend returns select("*") — present when the student is in a hifz
+   *  group (PR feat/hifz-groups). Used by TeacherHome's group rosters. */
+  hifz_group_id?: string | null;
 }
 
 export interface AdminParent {

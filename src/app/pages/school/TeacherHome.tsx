@@ -23,11 +23,16 @@ import {
   ListChecks,
   Calendar,
   BookOpen,
+  BookMarked,
   MapPin,
 } from "lucide-react";
 import {
   getSectionsLeaderboard,
   getMySectionSubjects,
+  listHifzGroups,
+  listStudents,
+  type HifzGroup,
+  type AdminStudent,
   getMyTeacherSnapshot,
   getMyTeacherTimetable,
   getMyUpcoming,
@@ -106,7 +111,41 @@ export function TeacherHome({ orgId, me }: Props) {
   const [showTimeOff, setShowTimeOff] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Hifz groups where I'm the assigned teacher, plus their member rosters.
+  // For a Hifz-focused school this is the daily-driver view — before this
+  // existed, a hifz-group teacher saw "No sections assigned" (UX audit).
+  const [myHifzGroups, setMyHifzGroups] = useState<HifzGroup[]>([]);
+  const [hifzMembers, setHifzMembers] = useState<Record<string, AdminStudent[]>>({});
   const location = useLocation();
+
+  useEffect(() => {
+    if (!orgId) return;
+    let cancelled = false;
+    listHifzGroups(orgId)
+      .then(async (groups) => {
+        if (cancelled) return;
+        const mine = groups.filter((g) => g.hifzTeacherUserId === me.userId);
+        setMyHifzGroups(mine);
+        if (mine.length === 0) return;
+        // One students fetch, grouped client-side — the list endpoint has
+        // no hifzGroupId filter but any org role may call it.
+        const students = await listStudents(orgId);
+        if (cancelled) return;
+        const byGroup: Record<string, AdminStudent[]> = {};
+        for (const s of students) {
+          if (s.hifz_group_id && mine.some((g) => g.id === s.hifz_group_id)) {
+            (byGroup[s.hifz_group_id] ??= []).push(s);
+          }
+        }
+        setHifzMembers(byGroup);
+      })
+      .catch(() => {
+        /* non-fatal — section stays hidden */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId, me.userId]);
 
   // Toolbar "My classes" / "My subjects" deep-link via hash anchors
   // (#my-classes / #my-subjects). React Router doesn't auto-scroll to
@@ -125,7 +164,7 @@ export function TeacherHome({ orgId, me }: Props) {
       // sticky toolbar.
       requestAnimationFrame(() => el.scrollIntoView({ behavior: "smooth", block: "start" }));
     }
-  }, [location.hash, sections, mySubjects.length]);
+  }, [location.hash, sections, mySubjects.length, myHifzGroups.length]);
 
   // Phase 4a: section_subjects this teacher owns, with curriculum progress.
   useEffect(() => {
@@ -447,7 +486,10 @@ export function TeacherHome({ orgId, me }: Props) {
           appear on subject pages and the timetable rather than owning
           a homeroom. Show a friendlier message in that case so the
           screen doesn't read as "your principal forgot you." */}
-      {sections && sections.length === 0 && !loading && (
+      {sections && sections.length === 0 && !loading &&
+        // Hifz-group teachers aren't "unassigned" — their groups render
+        // below. Only show this card when there is genuinely nothing.
+        myHifzGroups.length === 0 && (
         <div className="rounded-xl border border-slate-200 bg-white p-8 text-center">
           <Users className="mx-auto h-8 w-8 text-slate-300" />
           <h3 className="mt-3 text-sm font-semibold text-slate-900">
@@ -456,9 +498,76 @@ export function TeacherHome({ orgId, me }: Props) {
           <p className="mt-1 text-sm text-slate-500">
             {mySubjects.length > 0
               ? "You're set up as a subject teacher — your assigned subjects are listed below. Class teachers see roll-call here."
-              : "Your principal hasn't assigned you to a class yet. Once they do, you'll see roll-call, students, and behavior tools here."}
+              : "Your principal hasn't assigned you to a class or hifz group yet. Once they do, you'll see your students and daily tools here."}
           </p>
         </div>
+      )}
+
+      {/* My hifz groups — groups where I'm the assigned hifz teacher.
+          Members link to the student page, which carries the Log Hifz
+          button; that's the logging path for group-based hifz. */}
+      {myHifzGroups.length > 0 && (
+        <section id="my-hifz-groups" className="space-y-3 scroll-mt-20">
+          <div className="flex items-end justify-between">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
+              My hifz groups
+            </h2>
+            <span className="text-xs text-slate-400">
+              Tap a student to view progress &amp; log hifz
+            </span>
+          </div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            {myHifzGroups.map((g) => {
+              const members = hifzMembers[g.id] ?? [];
+              return (
+                <div
+                  key={g.id}
+                  className="rounded-xl border border-emerald-200 bg-white p-4 shadow-sm transition hover:shadow"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="inline-flex items-center gap-1.5 text-xs uppercase tracking-wider text-emerald-600">
+                        <BookMarked className="h-3.5 w-3.5" />
+                        Hifz group
+                      </div>
+                      <div className="mt-0.5 text-base font-semibold text-slate-900">
+                        {g.name}
+                      </div>
+                      {g.description && (
+                        <p className="mt-0.5 text-xs text-slate-500 line-clamp-2">
+                          {g.description}
+                        </p>
+                      )}
+                    </div>
+                    <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-200">
+                      {g.studentCount} {g.studentCount === 1 ? "student" : "students"}
+                    </span>
+                  </div>
+
+                  {members.length > 0 ? (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {members.map((s) => (
+                        <Link
+                          key={s.id}
+                          to={`/school/orgs/${orgId}/admin/students/${s.id}`}
+                          className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-emerald-50 hover:border-emerald-200"
+                        >
+                          {s.full_name}
+                          <ChevronRight className="h-3 w-3 text-slate-400" />
+                        </Link>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-3 text-xs text-slate-400">
+                      No students in this group yet — your admin assigns
+                      students under Manage students.
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
       )}
 
       {sections && sections.length > 0 && (
@@ -534,6 +643,13 @@ export function TeacherHome({ orgId, me }: Props) {
                   >
                     <CheckCircle className="h-3.5 w-3.5" />
                     Take attendance
+                  </Link>
+                  <Link
+                    to={`/school/orgs/${orgId}/sections/${s.sectionId}/hifz`}
+                    className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
+                  >
+                    <BookMarked className="h-3.5 w-3.5" />
+                    Hifz
                   </Link>
                   <Link
                     to={`/school/orgs/${orgId}/sections/${s.sectionId}`}
