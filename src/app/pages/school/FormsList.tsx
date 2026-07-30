@@ -9,6 +9,7 @@ import { HeroCard, DataTable, type DataTableColumn } from "../../components/scho
 import {
   getSchoolMe,
   isOrgAdmin,
+  viewerRoleForOrg,
   listForms,
   closeForm,
   deleteForm,
@@ -16,6 +17,7 @@ import {
   type FormStatus,
   type SchoolMeResponse,
 } from "../../../utils/schoolApi";
+import { useOrgPermissionState } from "./useOrgPermission";
 
 const STATUS_BADGE: Record<FormStatus, string> = {
   draft: "bg-slate-100 text-slate-700",
@@ -65,8 +67,19 @@ export function FormsList() {
 
   const filtered = useMemo(() => forms, [forms]);
 
+  // Permission-aware gate. isOrgAdmin still short-circuits for
+  // principal/admin; other roles resolve through the effective matrix
+  // (create_forms) so the Permissions editor's toggles govern this page.
+  // While the matrix fetch is in flight we render nothing rather than
+  // bouncing a legitimately-permitted user.
+  const viewerRole = me ? viewerRoleForOrg(me, orgId) : null;
+  const perm = useOrgPermissionState(orgId, viewerRole, "create_forms");
+
   if (meLoading) return null;
-  if (!isOrgAdmin(me, orgId)) return <Navigate to="/school" replace />;
+  if (!isOrgAdmin(me, orgId) && !perm.allowed) {
+    if (perm.loading) return null;
+    return <Navigate to="/school" replace />;
+  }
 
   const handleClose = async (f: Form) => {
     if (!confirm(`Close form "${f.title}"?`)) return;

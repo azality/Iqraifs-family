@@ -28,6 +28,7 @@ import { DataTable, sectionTitleClasses, type DataTableColumn } from "../../comp
 import {
   getSchoolMe,
   isOrgAdmin,
+  viewerRoleForOrg,
   listClasses,
   listStudents,
   adminCreateStudent,
@@ -42,6 +43,7 @@ import {
   type HifzGroup,
   type SchoolMeResponse,
 } from "../../../utils/schoolApi";
+import { useOrgPermissionState } from "./useOrgPermission";
 import { CsvUploadDialog } from "./components/CsvUploadDialog";
 
 type SectionOption = { id: string; label: string; className: string; sectionName: string };
@@ -155,8 +157,19 @@ export function ManageStudents() {
     return out;
   }, [classes]);
 
+  // Permission-aware gate. isOrgAdmin still short-circuits for
+  // principal/admin; other roles resolve through the effective matrix
+  // (manage_students) so the Permissions editor's toggles govern this page.
+  // While the matrix fetch is in flight we render nothing rather than
+  // bouncing a legitimately-permitted user.
+  const viewerRole = me ? viewerRoleForOrg(me, orgId) : null;
+  const perm = useOrgPermissionState(orgId, viewerRole, "manage_students");
+
   if (meLoading) return null;
-  if (!isOrgAdmin(me, orgId)) return <Navigate to="/school" replace />;
+  if (!isOrgAdmin(me, orgId) && !perm.allowed) {
+    if (perm.loading) return null;
+    return <Navigate to="/school" replace />;
+  }
 
   const startCreate = () => {
     setEditing(null);

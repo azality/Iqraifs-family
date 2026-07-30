@@ -12,6 +12,7 @@ import {
   getSchoolMe,
   getForm,
   isOrgAdmin,
+  viewerRoleForOrg,
   listFormResponses,
   type Form,
   type FormField,
@@ -19,6 +20,7 @@ import {
   type FormResponseValue,
   type SchoolMeResponse,
 } from "../../../utils/schoolApi";
+import { useOrgPermissionState } from "./useOrgPermission";
 
 function valueToString(v: FormResponseValue["value"]): string {
   if (v === null || v === undefined) return "";
@@ -72,8 +74,19 @@ export function FormResponses() {
     [form],
   );
 
+  // Permission-aware gate. isOrgAdmin still short-circuits for
+  // principal/admin; other roles resolve through the effective matrix
+  // (create_forms) so the Permissions editor's toggles govern this page.
+  // While the matrix fetch is in flight we render nothing rather than
+  // bouncing a legitimately-permitted user.
+  const viewerRole = me ? viewerRoleForOrg(me, orgId) : null;
+  const perm = useOrgPermissionState(orgId, viewerRole, "create_forms");
+
   if (meLoading) return null;
-  if (!isOrgAdmin(me, orgId)) return <Navigate to="/school" replace />;
+  if (!isOrgAdmin(me, orgId) && !perm.allowed) {
+    if (perm.loading) return null;
+    return <Navigate to="/school" replace />;
+  }
 
   const toggle = (id: string) => {
     setExpanded((s) => {

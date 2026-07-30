@@ -25,6 +25,7 @@ import { HeroCard, KpiTile, DataTable, type DataTableColumn } from "../../compon
 import {
   getSchoolMe,
   isOrgAdmin,
+  viewerRoleForOrg,
   listClasses,
   listOrgFees,
   updateFee,
@@ -34,6 +35,7 @@ import {
   type FeeStatusValue,
   type SchoolMeResponse,
 } from "../../../utils/schoolApi";
+import { useOrgPermissionState } from "./useOrgPermission";
 
 function currentPeriod(): string {
   const d = new Date();
@@ -183,8 +185,19 @@ export function FeesOverview() {
     return { due, paid, paidCount, unpaidCount };
   }, [fees]);
 
+  // Permission-aware gate. isOrgAdmin still short-circuits for
+  // principal/admin; other roles resolve through the effective matrix
+  // (mark_fees_status) so the Permissions editor's toggles govern this page.
+  // While the matrix fetch is in flight we render nothing rather than
+  // bouncing a legitimately-permitted user.
+  const viewerRole = me ? viewerRoleForOrg(me, orgId) : null;
+  const perm = useOrgPermissionState(orgId, viewerRole, "mark_fees_status");
+
   if (meLoading) return null;
-  if (!isOrgAdmin(me, orgId)) return <Navigate to="/school" replace />;
+  if (!isOrgAdmin(me, orgId) && !perm.allowed) {
+    if (perm.loading) return null;
+    return <Navigate to="/school" replace />;
+  }
 
   const handleDelete = async (f: FeeStatus) => {
     if (!confirm(`Delete fee record for ${f.student_name ?? f.student_id} (${f.period})?`)) return;

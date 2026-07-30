@@ -22,6 +22,7 @@ import { Star, Users } from "lucide-react";
 import {
   getSchoolMe,
   isOrgAdmin,
+  viewerRoleForOrg,
   listClasses,
   listParents,
   createParent,
@@ -33,6 +34,7 @@ import {
   type CreateParentBody,
   type SchoolMeResponse,
 } from "../../../utils/schoolApi";
+import { useOrgPermissionState } from "./useOrgPermission";
 import { CsvUploadDialog } from "./components/CsvUploadDialog";
 
 const empty: CreateParentBody = { fullName: "", phone: "", email: "", relationship: "" };
@@ -164,8 +166,19 @@ export function ManageParents() {
     });
   }, [families, search, searchScope, sectionLabel]);
 
+  // Permission-aware gate. isOrgAdmin still short-circuits for
+  // principal/admin; other roles resolve through the effective matrix
+  // (manage_students) so the Permissions editor's toggles govern this page.
+  // While the matrix fetch is in flight we render nothing rather than
+  // bouncing a legitimately-permitted user.
+  const viewerRole = me ? viewerRoleForOrg(me, orgId) : null;
+  const perm = useOrgPermissionState(orgId, viewerRole, "manage_students");
+
   if (meLoading) return null;
-  if (!isOrgAdmin(me, orgId)) return <Navigate to="/school" replace />;
+  if (!isOrgAdmin(me, orgId) && !perm.allowed) {
+    if (perm.loading) return null;
+    return <Navigate to="/school" replace />;
+  }
 
   const startCreate = () => { setEditing(null); setForm(empty); setFormOpen(true); };
   const startEdit = (p: AdminParent) => {
