@@ -1,6 +1,14 @@
 // i18n initializer.
 // Reads saved language from localStorage (`fgs_lang`), falls back to `'en'`.
 // Sets `<html dir>` based on language so Urdu renders right-to-left.
+//
+// TRANSLATION SCOPE (pilot decision, July 2026): the STAFF UI
+// (src/app/pages/school/*) ships English-only for the Aug 2026 Iqra
+// Academy pilot — school staff work in English. Everything PARENT- or
+// STUDENT-facing (src/app/pages/portal/*, toolbar/setup strings staff
+// screens share with tours) must go through t() with en + ur entries.
+// Don't add ur keys for staff-only screens; do NOT hardcode English in
+// portal pages. Full staff translation is a post-pilot project.
 
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';

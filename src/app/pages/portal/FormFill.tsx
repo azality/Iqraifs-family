@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { ArrowLeft } from "lucide-react";
 import {
   HeroCard,
@@ -55,6 +56,7 @@ function deadlineLabel(deadline: string | null): string | null {
 }
 
 export function FormFill() {
+  const { t } = useTranslation();
   const { formId = "" } = useParams<{ formId: string }>();
   const { subject } = usePinAuth();
   const navigate = useNavigate();
@@ -200,10 +202,10 @@ export function FormFill() {
         onBehalfOfStudentId: selectedStudentId || undefined,
         values: payload,
       });
-      toast.success("Response submitted");
+      toast.success(t("portal.formSubmitted"));
       navigate("/school-portal/forms");
     } catch (e2) {
-      toast.error(e2 instanceof Error ? e2.message : "Failed to submit");
+      toast.error(t("portal.submitFailed"));
       setSubmitting(false);
     }
   };

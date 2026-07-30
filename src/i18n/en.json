@@ -115,7 +115,10 @@
       "behaviorScore": "Behavior Score"
     },
     "recentActivity": "Recent Activity",
-    "snapshotError": "Couldn’t load today’s update. Please try again in a moment."
+    "snapshotError": "Couldn’t load today’s update. Please try again in a moment.",
+    "formSubmitted": "Response submitted",
+    "submitFailed": "Could not submit — please try again.",
+    "updateFailed": "Could not save — please try again."
   },
   "lang": {
     "english": "English",
