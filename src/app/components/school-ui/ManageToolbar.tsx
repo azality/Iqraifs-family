@@ -90,9 +90,19 @@ function flatItemsForRole(
     `/school/orgs/${orgId}/admin/announcements`, Megaphone);
 
   switch (role) {
+    case "hifz_teacher":
+      // Hifz teachers' daily driver is the groups/sections hifz view on
+      // TeacherHome — anchor there instead of the academic "My subjects".
+      return [
+        I("dashboard", "Dashboard", `/school/orgs/${orgId}`, Home),
+        I("my-schedule", "My schedule", `/school/orgs/${orgId}/my-schedule`, Calendar),
+        I("my-hifz", "My hifz groups", `/school/orgs/${orgId}#my-hifz-groups`, BookMarked),
+        I("my-classes", "My classes", `/school/orgs/${orgId}#my-classes`, Users),
+        announcements,
+        I("time-off", "Request time off", `/school/orgs/${orgId}/my-schedule?action=time-off`, CalendarOff),
+      ];
     case "class_teacher":
     case "visiting_teacher":
-    case "hifz_teacher":
       // Teachers also need the page-local actions surfaced here so they
       // don't have to bounce between an inline nav strip and the top
       // toolbar. My classes / My subjects deep-link to anchored sections
