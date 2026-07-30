@@ -47,6 +47,7 @@
 
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
+import { userCanInOrg } from "./schoolAuth.ts";
 
 // -----------------------------------------------------------------------------
 // Helpers
@@ -309,7 +310,7 @@ export function installCurriculum(school: Hono) {
     const csId = c.req.param("csId");
     const ctx = await classSubjectOrgId(csId);
     if (!ctx) return c.json({ error: "subject not found" }, 404);
-    if (!(await isPrincipalOrAdmin(userId, ctx.orgId))) {
+    if (!(await userCanInOrg(userId, ctx.orgId, "define_curriculum"))) {
       return c.json({ error: "forbidden" }, 403);
     }
 
@@ -430,7 +431,7 @@ export function installCurriculum(school: Hono) {
     const csId = c.req.param("csId");
     const ctx = await classSubjectOrgId(csId);
     if (!ctx) return c.json({ error: "subject not found" }, 404);
-    if (!(await isPrincipalOrAdmin(userId, ctx.orgId))) {
+    if (!(await userCanInOrg(userId, ctx.orgId, "define_curriculum"))) {
       return c.json({ error: "forbidden" }, 403);
     }
 
@@ -485,7 +486,7 @@ export function installCurriculum(school: Hono) {
     const id = c.req.param("id");
     const ctx = await curriculumOrgId(id);
     if (!ctx) return c.json({ error: "curriculum not found" }, 404);
-    if (!(await isPrincipalOrAdmin(userId, ctx.orgId))) {
+    if (!(await userCanInOrg(userId, ctx.orgId, "define_curriculum"))) {
       return c.json({ error: "forbidden" }, 403);
     }
 
@@ -532,7 +533,7 @@ export function installCurriculum(school: Hono) {
     const id = c.req.param("id");
     const ctx = await curriculumOrgId(id);
     if (!ctx) return c.json({ error: "curriculum not found" }, 404);
-    if (!(await isPrincipalOrAdmin(userId, ctx.orgId))) {
+    if (!(await userCanInOrg(userId, ctx.orgId, "define_curriculum"))) {
       return c.json({ error: "forbidden" }, 403);
     }
     const { error } = await serviceRoleClient
@@ -552,7 +553,7 @@ export function installCurriculum(school: Hono) {
     const curriculumId = c.req.param("id");
     const ctx = await curriculumOrgId(curriculumId);
     if (!ctx) return c.json({ error: "curriculum not found" }, 404);
-    if (!(await isPrincipalOrAdmin(userId, ctx.orgId))) {
+    if (!(await userCanInOrg(userId, ctx.orgId, "define_curriculum"))) {
       return c.json({ error: "forbidden" }, 403);
     }
 
@@ -615,7 +616,7 @@ export function installCurriculum(school: Hono) {
     const curriculumId = c.req.param("id");
     const ctx = await curriculumOrgId(curriculumId);
     if (!ctx) return c.json({ error: "curriculum not found" }, 404);
-    if (!(await isPrincipalOrAdmin(userId, ctx.orgId))) {
+    if (!(await userCanInOrg(userId, ctx.orgId, "define_curriculum"))) {
       return c.json({ error: "forbidden" }, 403);
     }
 
@@ -691,7 +692,7 @@ export function installCurriculum(school: Hono) {
     const id = c.req.param("id");
     const ctx = await topicOrgId(id);
     if (!ctx || !ctx.orgId) return c.json({ error: "topic not found" }, 404);
-    if (!(await isPrincipalOrAdmin(userId, ctx.orgId))) {
+    if (!(await userCanInOrg(userId, ctx.orgId, "define_curriculum"))) {
       return c.json({ error: "forbidden" }, 403);
     }
 
@@ -750,7 +751,7 @@ export function installCurriculum(school: Hono) {
     const id = c.req.param("id");
     const ctx = await topicOrgId(id);
     if (!ctx || !ctx.orgId) return c.json({ error: "topic not found" }, 404);
-    if (!(await isPrincipalOrAdmin(userId, ctx.orgId))) {
+    if (!(await userCanInOrg(userId, ctx.orgId, "define_curriculum"))) {
       return c.json({ error: "forbidden" }, 403);
     }
     const { error } = await serviceRoleClient
@@ -800,7 +801,7 @@ export function installCurriculum(school: Hono) {
     const topicId = c.req.param("topicId");
     const ctx = await topicOrgId(topicId);
     if (!ctx || !ctx.orgId) return c.json({ error: "topic not found" }, 404);
-    if (!(await isPrincipalOrAdmin(userId, ctx.orgId))) {
+    if (!(await userCanInOrg(userId, ctx.orgId, "define_curriculum"))) {
       return c.json({ error: "forbidden" }, 403);
     }
 
@@ -937,7 +938,7 @@ export function installCurriculum(school: Hono) {
     const topicId = c.req.param("topicId");
     const ctx = await topicOrgId(topicId);
     if (!ctx || !ctx.orgId) return c.json({ error: "topic not found" }, 404);
-    if (!(await isPrincipalOrAdmin(userId, ctx.orgId))) {
+    if (!(await userCanInOrg(userId, ctx.orgId, "define_curriculum"))) {
       return c.json({ error: "forbidden" }, 403);
     }
 
@@ -1019,7 +1020,7 @@ export function installCurriculum(school: Hono) {
       .eq("id", id)
       .maybeSingle();
     if (!existing) return c.json({ error: "resource not found" }, 404);
-    if (!(await isPrincipalOrAdmin(userId, (existing as any).org_id))) {
+    if (!(await userCanInOrg(userId, (existing as any).org_id, "define_curriculum"))) {
       return c.json({ error: "forbidden" }, 403);
     }
 
@@ -1087,7 +1088,7 @@ export function installCurriculum(school: Hono) {
       .eq("id", id)
       .maybeSingle();
     if (!existing) return c.json({ error: "resource not found" }, 404);
-    if (!(await isPrincipalOrAdmin(userId, (existing as any).org_id))) {
+    if (!(await userCanInOrg(userId, (existing as any).org_id, "define_curriculum"))) {
       return c.json({ error: "forbidden" }, 403);
     }
     const { error } = await serviceRoleClient
@@ -1121,7 +1122,7 @@ export function installCurriculum(school: Hono) {
     const id = c.req.param("id");
     const ctx = await curriculumOrgId(id);
     if (!ctx) return c.json({ error: "curriculum not found" }, 404);
-    if (!(await isPrincipalOrAdmin(userId, ctx.orgId))) {
+    if (!(await userCanInOrg(userId, ctx.orgId, "define_curriculum"))) {
       return c.json({ error: "forbidden" }, 403);
     }
 
