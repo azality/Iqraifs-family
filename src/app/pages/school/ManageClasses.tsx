@@ -3,8 +3,9 @@
 // Each class can be expanded to reveal its sections. Sections have an
 // optional class-teacher dropdown sourced from the org's teacher list.
 
+import { toast } from "sonner";
 import { useEffect, useState } from "react";
-import { Link, Navigate, useParams } from "react-router";
+import { Link, useParams } from "react-router";
 import { ClassSubjectsManager } from "./components/ClassSubjectsManager";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
@@ -15,6 +16,7 @@ import {
   cardBase,
   cardElev,
   sectionTitleClasses,
+  NoAccessRedirect,
 } from "../../components/school-ui";
 import {
   Dialog,
@@ -94,7 +96,7 @@ export function ManageClasses() {
   }, [orgId]);
 
   if (meLoading) return null;
-  if (!isOrgAdmin(me, orgId)) return <Navigate to="/school" replace />;
+  if (!isOrgAdmin(me, orgId)) return <NoAccessRedirect />;
 
   const handleAddClass = async () => {
     if (!newClassName.trim()) return;
@@ -117,7 +119,12 @@ export function ManageClasses() {
 
   const handleDeleteClass = async (cls: AdminClass) => {
     if (!confirm(`Delete class "${cls.name}"? Its sections will be removed too.`)) return;
-    await deleteClass(orgId, cls.id);
+    try {
+      await deleteClass(orgId, cls.id);
+      toast.success(`Deleted class ${cls.name}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not delete the class.");
+    }
     refresh();
   };
 
@@ -140,7 +147,12 @@ export function ManageClasses() {
 
   const handleDeleteSection = async (sectionId: string, name: string) => {
     if (!confirm(`Delete section "${name}"?`)) return;
-    await deleteSection(orgId, sectionId);
+    try {
+      await deleteSection(orgId, sectionId);
+      toast.success(`Deleted section ${name}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not delete the section.");
+    }
     refresh();
   };
 

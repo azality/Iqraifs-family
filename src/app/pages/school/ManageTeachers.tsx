@@ -1,7 +1,7 @@
 // Manage teachers (and, for principals, org admins) for an org.
 
 import { useEffect, useState } from "react";
-import { Link, Navigate, useParams } from "react-router";
+import { Link, useParams } from "react-router";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -27,6 +27,7 @@ import {
   cardBase,
   sectionTitleClasses,
   type DataTableColumn,
+  NoAccessRedirect,
 } from "../../components/school-ui";
 import {
   getSchoolMe,
@@ -119,7 +120,7 @@ export function ManageTeachers() {
   if (meLoading) return null;
   if (!isOrgAdmin(me, orgId) && !perm.allowed) {
     if (perm.loading) return null;
-    return <Navigate to="/school" replace />;
+    return <NoAccessRedirect />;
   }
 
   const principal = isOrgPrincipal(me, orgId);

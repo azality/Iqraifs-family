@@ -3,7 +3,7 @@
 // "see them all in one place" view.
 
 import { useEffect, useState } from "react";
-import { Link, Navigate, useParams } from "react-router";
+import { Link, useParams } from "react-router";
 import { Button } from "../../components/ui/button";
 import { Copy, Mail } from "lucide-react";
 import {
@@ -11,6 +11,7 @@ import {
   DataTable,
   cardBase,
   type DataTableColumn,
+  NoAccessRedirect,
 } from "../../components/school-ui";
 import {
   getSchoolMe,
@@ -37,7 +38,7 @@ export function LinkCodes() {
   }, [orgId]);
 
   if (meLoading) return null;
-  if (!isOrgAdmin(me, orgId)) return <Navigate to="/school" replace />;
+  if (!isOrgAdmin(me, orgId)) return <NoAccessRedirect />;
 
   const copy = (s: string) => { void navigator.clipboard.writeText(s); };
 

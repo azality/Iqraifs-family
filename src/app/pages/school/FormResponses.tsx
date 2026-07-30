@@ -3,11 +3,11 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 
 const FragmentWithKey = Fragment;
-import { Link, Navigate, useParams } from "react-router";
+import { Link, useParams } from "react-router";
 import { toast } from "sonner";
 import { Button } from "../../components/ui/button";
 import { Download, ChevronDown, ChevronRight } from "lucide-react";
-import { HeroCard, cardBase, cardElev } from "../../components/school-ui";
+import { HeroCard, cardBase, cardElev, NoAccessRedirect } from "../../components/school-ui";
 import {
   getSchoolMe,
   getForm,
@@ -85,7 +85,7 @@ export function FormResponses() {
   if (meLoading) return null;
   if (!isOrgAdmin(me, orgId) && !perm.allowed) {
     if (perm.loading) return null;
-    return <Navigate to="/school" replace />;
+    return <NoAccessRedirect />;
   }
 
   const toggle = (id: string) => {

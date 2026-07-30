@@ -15,7 +15,7 @@
 // detection against the current data.
 
 import { useEffect, useMemo, useState } from "react";
-import { Link, Navigate, useParams } from "react-router";
+import { Link, useParams } from "react-router";
 import {
   ArrowLeft,
   Building2,
@@ -56,7 +56,7 @@ import {
   type RoleTemplate,
 } from "../../../utils/schoolApi";
 import { CsvUploadDialog } from "./components/CsvUploadDialog";
-import { sectionTitleClasses } from "../../components/school-ui";
+import { sectionTitleClasses, NoAccessRedirect } from "../../components/school-ui";
 
 type ImporterId =
   | "classes"
@@ -211,7 +211,7 @@ export function ImportCenter() {
   };
 
   if (meLoading) return null;
-  if (!isOrgAdmin(me, orgId)) return <Navigate to={`/school/orgs/${orgId}`} replace />;
+  if (!isOrgAdmin(me, orgId)) return <NoAccessRedirect to={`/school/orgs/${orgId}`} />;
 
   // Importer dialog renderer — switched on openId so we don't mount all 7.
   const renderDialog = () => {

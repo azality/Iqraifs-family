@@ -114,7 +114,8 @@
       "ayahsMemorized": "Ayahs Memorized",
       "behaviorScore": "Behavior Score"
     },
-    "recentActivity": "Recent Activity"
+    "recentActivity": "Recent Activity",
+    "snapshotError": "Couldn’t load today’s update. Please try again in a moment."
   },
   "lang": {
     "english": "English",

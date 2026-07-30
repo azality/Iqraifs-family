@@ -27,11 +27,6 @@ export function PortalHome() {
   const [snapshots, setSnapshots] = useState<Record<string, TodaySnapshot>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // Students-typed PIN: jump straight to their own dashboard.
-  if (subject?.subjectType === "student") {
-    return <Navigate to={`/school-portal/students/${subject.subjectId}`} replace />;
-  }
-
   const students = subject?.students ?? [];
 
   useEffect(() => {
@@ -52,6 +47,12 @@ export function PortalHome() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [students.length]);
 
+  // Early returns AFTER all hooks (React #310 discipline — the student
+  // redirect used to sit above the useEffect and could change hook count
+  // when the PIN subject resolved asynchronously).
+  if (subject?.subjectType === "student") {
+    return <Navigate to={`/school-portal/students/${subject.subjectId}`} replace />;
+  }
   if (!subject) return null;
 
   return (
@@ -107,7 +108,10 @@ export function PortalHome() {
                 </div>
                 <div className="px-4 pb-3">
                   {err ? (
-                    <div className="text-[11px] text-rose-700">{err}</div>
+                    // Friendly copy, not the raw error — e.message here is
+                    // "Failed to fetch" or a server string, meaningless and
+                    // alarming to a parent.
+                    <div className="text-[11px] text-rose-700">{t("portal.snapshotError")}</div>
                   ) : !snap ? (
                     <div className="text-[11px] text-slate-400 italic">{t("common.loading")}</div>
                   ) : (

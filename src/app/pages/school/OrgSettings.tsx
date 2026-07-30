@@ -5,7 +5,7 @@
 // plus a placeholder danger-zone for future archive support.
 
 import { useEffect, useState } from "react";
-import { Navigate, useNavigate, useParams } from "react-router";
+import { useNavigate, useParams } from "react-router";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
@@ -15,6 +15,7 @@ import {
   cardBase,
   cardElev,
   sectionTitleClasses,
+  NoAccessRedirect,
 } from "../../components/school-ui";
 import {
   Dialog,
@@ -174,7 +175,7 @@ export function OrgSettings() {
 
   if (meLoading) return null;
   if (!isOrgPrincipal(me, orgId)) {
-    return <Navigate to={`/school/orgs/${orgId}`} replace />;
+    return <NoAccessRedirect to={`/school/orgs/${orgId}`} message="Only the principal can open school settings." />;
   }
 
   const handleOrgSave = async () => {

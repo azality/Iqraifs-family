@@ -3,8 +3,9 @@
 // Table with search + class/section filter. Supports single-student
 // add/edit/delete and CSV bulk import.
 
+import { toast } from "sonner";
 import { useEffect, useMemo, useState } from "react";
-import { Link, Navigate, useNavigate, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
@@ -24,7 +25,7 @@ import {
 } from "../../components/ui/select";
 import { Plus, Upload, Search, Trash2, Pencil, Eye, MessageSquare } from "lucide-react";
 import { BehaviorLogEntry } from "./BehaviorLogEntry";
-import { DataTable, sectionTitleClasses, type DataTableColumn } from "../../components/school-ui";
+import { DataTable, sectionTitleClasses, type DataTableColumn, NoAccessRedirect } from "../../components/school-ui";
 import {
   getSchoolMe,
   isOrgAdmin,
@@ -168,7 +169,7 @@ export function ManageStudents() {
   if (meLoading) return null;
   if (!isOrgAdmin(me, orgId) && !perm.allowed) {
     if (perm.loading) return null;
-    return <Navigate to="/school" replace />;
+    return <NoAccessRedirect />;
   }
 
   const startCreate = () => {
@@ -197,7 +198,11 @@ export function ManageStudents() {
   };
 
   const submitForm = async () => {
-    if (!form.grNumber || !form.fullName) return;
+    if (!form.grNumber || !form.fullName) {
+      // Silent no-op here made Save look broken during onboarding — say why.
+      toast.error("GR number and full name are required.");
+      return;
+    }
     // Build the structured guardians[] array — only include slots with
     // a fullName. Backend dedupes by NIC → email → phone so a sibling
     // submission with the same father reuses the existing parent row.
@@ -240,7 +245,12 @@ export function ManageStudents() {
 
   const handleDelete = async (s: AdminStudent) => {
     if (!confirm(`Delete student "${s.full_name}" (GR# ${s.gr_number})?`)) return;
-    await deleteStudent(orgId, s.id);
+    try {
+      await deleteStudent(orgId, s.id);
+      toast.success(`Deleted ${s.full_name}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not delete the student.");
+    }
     refresh();
   };
 

@@ -16,7 +16,7 @@
 // Both are existing endpoints; no new backend work required.
 
 import { useEffect, useMemo, useState } from "react";
-import { Link, Navigate, useNavigate, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 import {
   Activity,
   BookOpen,
@@ -32,7 +32,7 @@ import {
   Users,
 } from "lucide-react";
 import { Button } from "../../components/ui/button";
-import { HeroCard } from "../../components/school-ui";
+import { HeroCard, NoAccessRedirect } from "../../components/school-ui";
 import {
   getSchoolMe,
   getSectionsLeaderboard,
@@ -152,7 +152,7 @@ export function SectionOverview() {
 
   if (meLoading) return null;
   if (viewerRole === "other") {
-    return <Navigate to="/school" replace />;
+    return <NoAccessRedirect />;
   }
 
   if (loading) {

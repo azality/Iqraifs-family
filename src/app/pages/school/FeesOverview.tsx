@@ -1,7 +1,7 @@
 // FeesOverview — admin surface listing fee statuses across the org for a period.
 
 import { useEffect, useMemo, useState } from "react";
-import { Link, Navigate, useNavigate, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -21,7 +21,7 @@ import {
   DialogTitle,
 } from "../../components/ui/dialog";
 import { Pencil, Trash2, CheckCircle2 } from "lucide-react";
-import { HeroCard, KpiTile, DataTable, type DataTableColumn } from "../../components/school-ui";
+import { HeroCard, KpiTile, DataTable, type DataTableColumn, NoAccessRedirect } from "../../components/school-ui";
 import {
   getSchoolMe,
   isOrgAdmin,
@@ -196,12 +196,17 @@ export function FeesOverview() {
   if (meLoading) return null;
   if (!isOrgAdmin(me, orgId) && !perm.allowed) {
     if (perm.loading) return null;
-    return <Navigate to="/school" replace />;
+    return <NoAccessRedirect />;
   }
 
   const handleDelete = async (f: FeeStatus) => {
     if (!confirm(`Delete fee record for ${f.student_name ?? f.student_id} (${f.period})?`)) return;
-    await deleteFee(orgId, f.id);
+    try {
+      await deleteFee(orgId, f.id);
+      toast.success("Fee record deleted");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not delete the fee record.");
+    }
     refresh();
   };
 

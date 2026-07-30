@@ -19,7 +19,7 @@
 //   - Auto-save: 1500 ms after the last edit; visible status pill.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, Navigate, useParams } from "react-router";
+import { Link, useParams } from "react-router";
 import { ArrowLeft, Save, ClipboardList, Loader2 } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -34,7 +34,7 @@ import {
   getMarksSheet, saveMarksSheet,
   type AdminClass, type MarksSheetResponse, type SchoolMeResponse,
 } from "../../../utils/schoolApi";
-import { sectionTitleClasses } from "../../components/school-ui";
+import { sectionTitleClasses, NoAccessRedirect } from "../../components/school-ui";
 
 type CellState = {
   obtained: string;     // string for input control
@@ -267,7 +267,7 @@ export function MarksEntry() {
   }, [sheet, cells, defaultMax]);
 
   if (meLoading) return null;
-  if (!isOrgAdmin(me, orgId)) return <Navigate to={`/school/orgs/${orgId}`} replace />;
+  if (!isOrgAdmin(me, orgId)) return <NoAccessRedirect to={`/school/orgs/${orgId}`} />;
 
   const statusPill = () => {
     if (saveStatus === "saving") {

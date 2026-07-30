@@ -1,11 +1,11 @@
 // FormsList — admin/teacher list of forms with filter pills.
 
 import { useEffect, useMemo, useState } from "react";
-import { Link, Navigate, useNavigate, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 import { Button } from "../../components/ui/button";
 import { Plus, Eye, MessageSquare, XCircle, Trash2 } from "lucide-react";
-import { HeroCard, DataTable, type DataTableColumn } from "../../components/school-ui";
+import { HeroCard, DataTable, type DataTableColumn, NoAccessRedirect } from "../../components/school-ui";
 import {
   getSchoolMe,
   isOrgAdmin,
@@ -78,18 +78,28 @@ export function FormsList() {
   if (meLoading) return null;
   if (!isOrgAdmin(me, orgId) && !perm.allowed) {
     if (perm.loading) return null;
-    return <Navigate to="/school" replace />;
+    return <NoAccessRedirect />;
   }
 
   const handleClose = async (f: Form) => {
     if (!confirm(`Close form "${f.title}"?`)) return;
-    await closeForm(orgId, f.id);
+    try {
+      await closeForm(orgId, f.id);
+      toast.success(`Closed "${f.title}"`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not close the form.");
+    }
     refresh();
   };
 
   const handleDelete = async (f: Form) => {
     if (!confirm(`Delete form "${f.title}"?`)) return;
-    await deleteForm(orgId, f.id);
+    try {
+      await deleteForm(orgId, f.id);
+      toast.success(`Deleted "${f.title}"`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not delete the form.");
+    }
     refresh();
   };
 

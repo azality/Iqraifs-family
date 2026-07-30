@@ -1,7 +1,7 @@
 // StudentFees — admin per-student fee history with add / mark paid / delete.
 
 import { useEffect, useState } from "react";
-import { Link, Navigate, useParams } from "react-router";
+import { Link, useParams } from "react-router";
 import { toast } from "sonner";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -22,7 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../components/ui/select";
-import { HeroCard, DataTable, type DataTableColumn } from "../../components/school-ui";
+import { HeroCard, DataTable, type DataTableColumn, NoAccessRedirect } from "../../components/school-ui";
 import {
   getSchoolMe,
   getStudent,
@@ -81,7 +81,7 @@ export function StudentFees() {
   useEffect(refresh, [orgId, studentId]);
 
   if (meLoading) return null;
-  if (!isOrgAdmin(me, orgId)) return <Navigate to="/school" replace />;
+  if (!isOrgAdmin(me, orgId)) return <NoAccessRedirect />;
 
   // Human label for a YYYY-MM period string, e.g. "2026-06" → "June 2026".
   // Falls back to the raw string if it doesn't parse.
