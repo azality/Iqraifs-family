@@ -1359,7 +1359,7 @@ ${status === "paid" ? `<div class="stamp">PAID</div>` : ""}
     const isAdmin = await hasAdminOrPrincipal(userId, orgId);
     const callerRoles = await getOrgRoles(userId, orgId);
     const TEACHING_ROLES = new Set(["class_teacher", "visiting_teacher", "teacher"]);
-    const orgWideForms = isAdmin || callerRoles.some((r) => !TEACHING_ROLES.has(r));
+    const orgWideForms = isAdmin || Array.from(callerRoles).some((r) => !TEACHING_ROLES.has(r));
     if (!orgWideForms) {
       if (body.audienceKind !== "class_section") {
         return c.json({ error: "forbidden" }, 403);
