@@ -25,17 +25,24 @@ import {
   type SectionSubjectProgress,
   type ClassCurriculumTopic,
 } from "../../../../utils/schoolApi";
+import { SubjectCurriculumPanel } from "./SubjectCurriculumPanel";
 
 interface Props {
   orgId: string;
   sectionId: string;
   /** When true, surface an "Edit in class settings" link. */
   canManage: boolean;
+  /** When true, mount the full curriculum editor (paste-many, templates,
+   *  copy-from-year, resources) inline per subject. Driven by the
+   *  viewer's effective define_curriculum permission — this is how a
+   *  class teacher granted the permission edits the syllabus without
+   *  needing the admin-only Classes page. */
+  canEditCurriculum?: boolean;
   /** Optional: pass the parent classId so the manage-link points there. */
   classId?: string | null;
 }
 
-export function SectionSubjectsManager({ orgId, sectionId, canManage, classId }: Props) {
+export function SectionSubjectsManager({ orgId, sectionId, canManage, canEditCurriculum = false, classId }: Props) {
   // Phase 4b: use the curriculum-progress endpoint instead of the plain
   // subjects list so we can show the per-subject progress bar inline.
   const [subjects, setSubjects] = useState<SectionSubjectProgress[]>([]);
@@ -193,8 +200,9 @@ export function SectionSubjectsManager({ orgId, sectionId, canManage, classId }:
                     </>
                   ) : (
                     <p className="text-[10px] text-slate-400">
-                      No curriculum defined yet for {s.name}. Ask your admin
-                      to set up the syllabus.
+                      {canEditCurriculum
+                        ? `No curriculum yet for ${s.name} — expand to set it up (template / paste / copy from last year).`
+                        : `No curriculum defined yet for ${s.name}. Ask your admin or class teacher to set up the syllabus.`}
                     </p>
                   )}
                 </div>
@@ -202,6 +210,18 @@ export function SectionSubjectsManager({ orgId, sectionId, canManage, classId }:
                 {/* Expanded panel: topic list + actions */}
                 {isOpen && (
                   <div className="border-t border-slate-100 p-3 space-y-3">
+                    {/* Full curriculum editor for viewers with the
+                        define_curriculum permission. Brings the same
+                        paste-many / template / copy-from-year tools the
+                        admin Classes page has — previously unreachable
+                        for teachers even when granted the permission. */}
+                    {canEditCurriculum && (
+                      <SubjectCurriculumPanel
+                        classSubjectId={s.classSubjectId}
+                        subjectName={s.name}
+                        canManage
+                      />
+                    )}
                     {/* Actions row */}
                     <div className="flex flex-wrap gap-2">
                       <Link

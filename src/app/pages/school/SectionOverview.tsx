@@ -44,6 +44,7 @@ import {
   type SchoolMeResponse,
 } from "../../../utils/schoolApi";
 import { SectionSubjectsManager } from "./components/SectionSubjectsManager";
+import { useOrgPermission } from "./useOrgPermission";
 
 const PERIODS: ReadonlyArray<{ value: DashboardPeriod; label: string }> = [
   { value: "T", label: "T" },
@@ -137,13 +138,19 @@ export function SectionOverview() {
       .slice(0, 5);
   }, [notes]);
 
-  if (meLoading) return null;
   // Any non-other school role in this org can read the section overview.
   // Backend already enforces per-section scoping for class teachers and
   // visiting teachers (determineScope), so the page either renders their
   // own sections or returns empty data. Previously gated to admin/principal
   // only, which kicked class teachers back to /school → "no role" page.
-  const viewerRole = viewerRoleForOrg(me, orgId);
+  const viewerRole = me ? viewerRoleForOrg(me, orgId) : null;
+  // Effective define_curriculum for this viewer — lets a class teacher
+  // the principal granted the permission edit the syllabus from here
+  // (the admin Classes page bounces non-admins). Hook must run before
+  // any early return so hook order stays stable across renders.
+  const canEditCurriculum = useOrgPermission(orgId, viewerRole, "define_curriculum");
+
+  if (meLoading) return null;
   if (viewerRole === "other") {
     return <Navigate to="/school" replace />;
   }
@@ -419,6 +426,7 @@ export function SectionOverview() {
         canManage={
           viewerRole === "principal" || viewerRole === "admin"
         }
+        canEditCurriculum={canEditCurriculum}
       />
     </div>
   );

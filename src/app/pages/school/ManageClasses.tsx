@@ -286,7 +286,12 @@ export function ManageClasses() {
                             <Table2 className="h-3.5 w-3.5" />
                           </Button>
                         </Link>
-                        <Link to={`/school/orgs/${orgId}/sections/${sec.id}/curriculum`}>
+                        {/* Points at the section overview's Subjects panel —
+                            the per-subject editor with paste/template/copy.
+                            The old target (/sections/:id/curriculum) is the
+                            legacy per-section model that doesn't feed the
+                            progress bars. */}
+                        <Link to={`/school/orgs/${orgId}/sections/${sec.id}`}>
                           <Button variant="outline" size="icon" className="h-8 w-8" title="Curriculum">
                             <ListChecks className="h-3.5 w-3.5" />
                           </Button>
