@@ -56,6 +56,10 @@ const PERMISSION_META: Record<string, { label: string; description: string }> = 
     label: "View all classes",
     description: "See all classes in the school (not just the user's own section).",
   },
+  manage_public_site: {
+    label: "Manage public site",
+    description: "Edit the school's public marketing page — hero, faculty wall, gallery, contact.",
+  },
 };
 
 function prettify(key: string): string {

@@ -208,7 +208,10 @@ export function installPhaseB(school: Hono): void {
     const userId = getAuthUserId(c);
     if (!userId) return c.json({ error: "unauthenticated" }, 401);
     const orgId = c.req.param("orgId");
-    if (!(await userCanInOrg(userId, orgId, "manage_attendance"))) {
+    // NOTE: key was previously the nonexistent "manage_attendance", which
+    // resolved to false for every role — silently locking bulk attendance
+    // to principal/admin (they short-circuit in userCanInOrg).
+    if (!(await userCanInOrg(userId, orgId, "mark_attendance"))) {
       return c.json({ error: "forbidden", code: "FORBIDDEN_PERMISSION" }, 403);
     }
     let body: any;

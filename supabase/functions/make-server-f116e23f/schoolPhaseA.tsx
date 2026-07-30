@@ -161,7 +161,8 @@ type PermissionKey =
   | "create_forms"
   | "define_curriculum"
   | "manage_teachers"
-  | "view_all_classes";
+  | "view_all_classes"
+  | "manage_public_site";
 
 const PERMISSION_KEYS: PermissionKey[] = [
   "manage_students",
@@ -172,6 +173,7 @@ const PERMISSION_KEYS: PermissionKey[] = [
   "define_curriculum",
   "manage_teachers",
   "view_all_classes",
+  "manage_public_site",
 ];
 
 const DEFAULT_PERMISSIONS: Record<RoleTemplate, Record<PermissionKey, boolean>> = {
@@ -184,6 +186,7 @@ const DEFAULT_PERMISSIONS: Record<RoleTemplate, Record<PermissionKey, boolean>> 
     define_curriculum: true,
     manage_teachers: true,
     view_all_classes: true,
+    manage_public_site: true,
   },
   class_teacher: {
     manage_students: false,
@@ -194,6 +197,7 @@ const DEFAULT_PERMISSIONS: Record<RoleTemplate, Record<PermissionKey, boolean>> 
     define_curriculum: true,
     manage_teachers: false,
     view_all_classes: false,
+    manage_public_site: false,
   },
   visiting_teacher: {
     manage_students: false,
@@ -204,6 +208,7 @@ const DEFAULT_PERMISSIONS: Record<RoleTemplate, Record<PermissionKey, boolean>> 
     define_curriculum: false,
     manage_teachers: false,
     view_all_classes: false,
+    manage_public_site: false,
   },
   financial_staff: {
     manage_students: false,
@@ -214,6 +219,7 @@ const DEFAULT_PERMISSIONS: Record<RoleTemplate, Record<PermissionKey, boolean>> 
     define_curriculum: false,
     manage_teachers: false,
     view_all_classes: false,
+    manage_public_site: false,
   },
   office_staff: {
     manage_students: true,
@@ -226,6 +232,7 @@ const DEFAULT_PERMISSIONS: Record<RoleTemplate, Record<PermissionKey, boolean>> 
     define_curriculum: false,
     manage_teachers: true,
     view_all_classes: true,
+    manage_public_site: false,
   },
 };
 
@@ -1372,7 +1379,7 @@ export function installPhaseA(school: Hono) {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
     const studentId = c.req.param("studentId");
-    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    if (!(await userCanInOrg(userId, orgId, "manage_students"))) return c.json({ error: "forbidden" }, 403);
     const { error } = await serviceRoleClient
       .from("student").delete().eq("id", studentId).eq("org_id", orgId);
     if (error) return c.json({ error: error.message }, 500);
@@ -1382,7 +1389,7 @@ export function installPhaseA(school: Hono) {
   school.post("/orgs/:orgId/students/bulk", async (c) => {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
-    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    if (!(await userCanInOrg(userId, orgId, "manage_students"))) return c.json({ error: "forbidden" }, 403);
     let body: any;
     try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
     if (!Array.isArray(body?.rows)) return c.json({ error: "rows[] required" }, 400);

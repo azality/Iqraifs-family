@@ -24,7 +24,8 @@ export type PermissionKey =
   | "create_forms"
   | "define_curriculum"
   | "manage_teachers"
-  | "view_all_classes";
+  | "view_all_classes"
+  | "manage_public_site";
 
 export const ROLES: SchoolRole[] = [
   "principal",
@@ -45,6 +46,7 @@ export const PERMISSIONS: PermissionKey[] = [
   "define_curriculum",
   "manage_teachers",
   "view_all_classes",
+  "manage_public_site",
 ];
 
 /** Default permissions. Pre-pilot decisions:
@@ -66,6 +68,7 @@ export const DEFAULT_PERMISSIONS: Record<SchoolRole, Record<PermissionKey, boole
     define_curriculum: true,
     manage_teachers: true,
     view_all_classes: true,
+    manage_public_site: true,
   },
   admin: {
     manage_students: true,
@@ -76,6 +79,7 @@ export const DEFAULT_PERMISSIONS: Record<SchoolRole, Record<PermissionKey, boole
     define_curriculum: true,
     manage_teachers: true,
     view_all_classes: true,
+    manage_public_site: true,
   },
   class_teacher: {
     manage_students: false,
@@ -86,6 +90,7 @@ export const DEFAULT_PERMISSIONS: Record<SchoolRole, Record<PermissionKey, boole
     define_curriculum: true,
     manage_teachers: false,
     view_all_classes: false,
+    manage_public_site: false,
   },
   visiting_teacher: {
     manage_students: false,
@@ -96,6 +101,7 @@ export const DEFAULT_PERMISSIONS: Record<SchoolRole, Record<PermissionKey, boole
     define_curriculum: false,
     manage_teachers: false,
     view_all_classes: false,
+    manage_public_site: false,
   },
   teacher: {
     manage_students: false,
@@ -106,6 +112,7 @@ export const DEFAULT_PERMISSIONS: Record<SchoolRole, Record<PermissionKey, boole
     define_curriculum: false,
     manage_teachers: false,
     view_all_classes: false,
+    manage_public_site: false,
   },
   financial_staff: {
     manage_students: false,
@@ -116,6 +123,7 @@ export const DEFAULT_PERMISSIONS: Record<SchoolRole, Record<PermissionKey, boole
     define_curriculum: false,
     manage_teachers: false,
     view_all_classes: false,
+    manage_public_site: false,
   },
   office_staff: {
     manage_students: true,
@@ -126,6 +134,7 @@ export const DEFAULT_PERMISSIONS: Record<SchoolRole, Record<PermissionKey, boole
     define_curriculum: false,
     manage_teachers: true,
     view_all_classes: true,
+    manage_public_site: false,
   },
 };
 

@@ -26,6 +26,7 @@
 
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
+import { userCanInOrg } from "./schoolAuth.ts";
 import { computeMemorizedTotals } from "./schoolPhaseC.tsx";
 
 // -----------------------------------------------------------------------------
@@ -605,6 +606,12 @@ export function installPhaseC2(school: Hono): void {
 
     const gate = await requireTeacherOfSection(userId, orgId, assignment.class_section_id, section.org_id);
     if (!gate.ok) return c.json({ error: gate.error }, gate.status);
+    // Honor the permission matrix: being the section's (visiting) teacher
+    // is necessary but not sufficient — edit_grades must also be granted.
+    // visiting_teacher defaults to false, so subs can't write grades.
+    if (!(await userCanInOrg(userId, orgId, "edit_grades"))) {
+      return c.json({ error: "forbidden", code: "FORBIDDEN_PERMISSION" }, 403);
+    }
 
     // Validate entries
     for (const e of body.entries) {
@@ -732,6 +739,9 @@ export function installPhaseC2(school: Hono): void {
 
     const gate = await requireTeacherOfSection(userId, orgId, assignment.class_section_id, section.org_id);
     if (!gate.ok) return c.json({ error: gate.error }, gate.status);
+    if (!(await userCanInOrg(userId, orgId, "edit_grades"))) {
+      return c.json({ error: "forbidden", code: "FORBIDDEN_PERMISSION" }, 403);
+    }
 
     const score = body.score === undefined || body.score === null ? null : Number(body.score);
     const status = body.status ?? "graded";
@@ -1096,7 +1106,10 @@ export function installPhaseC2(school: Hono): void {
 
     const isGrader = existing.graded_by === userId;
     const isAdmin = await hasAdminOrPrincipal(userId, orgId);
-    if (!isGrader && !isAdmin) return c.json({ error: "forbidden" }, 403);
+    // Owner-delete still requires the edit_grades permission — a role
+    // that can no longer write grades shouldn't be able to erase them.
+    const graderAllowed = isGrader && (await userCanInOrg(userId, orgId, "edit_grades"));
+    if (!graderAllowed && !isAdmin) return c.json({ error: "forbidden" }, 403);
 
     const { error: delErr } = await serviceRoleClient
       .from("grade")
