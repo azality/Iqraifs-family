@@ -28,19 +28,7 @@
 
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
-
-async function hasAnyOrgRole(userId: string, orgId: string): Promise<boolean> {
-  const { data } = await serviceRoleClient
-    .from("user_roles")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("scope_type", "organization")
-    .eq("scope_id", orgId)
-    .is("revoked_at", null)
-    .limit(1)
-    .maybeSingle();
-  return !!data;
-}
+import { hasAnyRoleInOrg as hasAnyOrgRole } from "./schoolAuth.ts";
 
 export function installAcademics(school: Hono) {
   school.get("/orgs/:orgId/academics", async (c) => {

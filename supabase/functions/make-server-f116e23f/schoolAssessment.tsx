@@ -27,23 +27,8 @@
 
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
+import { hasAnyRoleInOrg as hasAnyOrgRole, hasAdminOrPrincipal as isAdminOrPrincipal } from "./schoolAuth.ts";
 
-async function hasAnyOrgRole(userId: string, orgId: string): Promise<boolean> {
-  const { data } = await serviceRoleClient
-    .from("user_roles").select("user_id")
-    .eq("user_id", userId).eq("scope_type", "organization")
-    .eq("scope_id", orgId).is("revoked_at", null).limit(1).maybeSingle();
-  return !!data;
-}
-async function isAdminOrPrincipal(userId: string, orgId: string): Promise<boolean> {
-  const { data } = await serviceRoleClient
-    .from("user_roles").select("role_type")
-    .eq("user_id", userId).eq("scope_type", "organization")
-    .eq("scope_id", orgId).is("revoked_at", null);
-  return (data ?? []).some(
-    (r: any) => r.role_type === "principal" || r.role_type === "admin",
-  );
-}
 async function isTeacherOfSection(userId: string, sectionId: string): Promise<boolean> {
   // Class teacher of the section's class OR section's class_teacher_user_id.
   const { data: sec } = await serviceRoleClient

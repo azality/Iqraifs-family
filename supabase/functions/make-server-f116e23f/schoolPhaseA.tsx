@@ -36,7 +36,7 @@ import {
 import { logAuditWithLookup } from "./schoolAudit.ts";
 // PR K: migrate student-write routes from requireAdminOrPrincipal to
 // userCanInOrg("manage_students") so office_staff can manage students.
-import { userCanInOrg } from "./schoolAuth.ts";
+import { userCanInOrg, hasAnyRoleInOrg, isPrincipalOf, isAdminOf, hasAdminOrPrincipal as requireAdminOrPrincipal } from "./schoolAuth.ts";
 
 // ---------------------------------------------------------------------------
 // Shared row types — exported so the frontend can mirror the shape.
@@ -164,57 +164,6 @@ import {
 } from "./rolePermissions.ts";
 import type { PermissionKey } from "./rolePermissions.ts";
 type RoleTemplate = (typeof OVERRIDABLE_ROLE_TEMPLATES)[number];
-
-// ---------------------------------------------------------------------------
-// Role helpers
-// ---------------------------------------------------------------------------
-async function hasAnyRoleInOrg(userId: string, orgId: string): Promise<boolean> {
-  const { data } = await serviceRoleClient
-    .from("user_roles")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("scope_type", "organization")
-    .eq("scope_id", orgId)
-    .is("revoked_at", null)
-    .limit(1);
-  if (data && data.length > 0) return true;
-  // Also accept any role scoped to a class/section that lives in this org.
-  // Cheap check: at least one role row period in this org via any scope —
-  // for Phase A we only check org-scoped roles which is the common case.
-  return false;
-}
-
-async function isPrincipalOf(userId: string, orgId: string): Promise<boolean> {
-  const { data } = await serviceRoleClient
-    .from("user_roles")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("role_type", "principal")
-    .eq("scope_type", "organization")
-    .eq("scope_id", orgId)
-    .is("revoked_at", null)
-    .maybeSingle();
-  return !!data;
-}
-
-async function isAdminOf(userId: string, orgId: string): Promise<boolean> {
-  const { data } = await serviceRoleClient
-    .from("user_roles")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("role_type", "admin")
-    .eq("scope_type", "organization")
-    .eq("scope_id", orgId)
-    .is("revoked_at", null)
-    .maybeSingle();
-  return !!data;
-}
-
-async function requireAdminOrPrincipal(userId: string, orgId: string): Promise<boolean> {
-  if (await isPrincipalOf(userId, orgId)) return true;
-  if (await isAdminOf(userId, orgId)) return true;
-  return false;
-}
 
 // ---------------------------------------------------------------------------
 // bcrypt — Deno's bcrypt port is unreliable in the edge runtime, so we
