@@ -68,3 +68,42 @@ export function useOrgPermission(
 
   return allowed;
 }
+
+/** State-aware variant for page gates: while the matrix fetch is in
+ *  flight, `loading` is true and callers should render a placeholder
+ *  instead of redirecting — otherwise an office_staff user gets bounced
+ *  off a page they're allowed on before the fetch resolves. */
+export function useOrgPermissionState(
+  orgId: string,
+  viewerRole: string | null | undefined,
+  key: string,
+): { allowed: boolean; loading: boolean } {
+  const privileged = viewerRole === "principal" || viewerRole === "admin";
+  const [state, setState] = useState<{ allowed: boolean; loading: boolean }>(
+    { allowed: privileged, loading: !privileged },
+  );
+
+  useEffect(() => {
+    if (!orgId || !viewerRole) { setState({ allowed: false, loading: false }); return; }
+    if (viewerRole === "principal" || viewerRole === "admin") {
+      setState({ allowed: true, loading: false });
+      return;
+    }
+    let cancelled = false;
+    setState({ allowed: false, loading: true });
+    fetchMatrix(orgId)
+      .then((rows) => {
+        if (cancelled) return;
+        const row = rows.find(
+          (r) => r.roleTemplate === viewerRole && r.permissionKey === key,
+        );
+        setState({ allowed: !!row?.allowed, loading: false });
+      })
+      .catch(() => {
+        if (!cancelled) setState({ allowed: false, loading: false });
+      });
+    return () => { cancelled = true; };
+  }, [orgId, viewerRole, key]);
+
+  return state;
+}
