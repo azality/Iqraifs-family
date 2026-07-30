@@ -2,7 +2,7 @@
 // Handles both /admin/forms/new (create) and /admin/forms/:formId (edit).
 
 import { useEffect, useMemo, useState } from "react";
-import { Link, Navigate, useNavigate, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -28,7 +28,7 @@ import {
   DialogTitle,
 } from "../../components/ui/dialog";
 import { Plus, ArrowUp, ArrowDown, Pencil, Trash2, X } from "lucide-react";
-import { HeroCard, cardBase, cardElev, sectionTitleClasses } from "../../components/school-ui";
+import { HeroCard, cardBase, cardElev, sectionTitleClasses, NoAccessRedirect } from "../../components/school-ui";
 import {
   getSchoolMe,
   isOrgAdmin,
@@ -165,7 +165,7 @@ export function FormBuilder() {
   if (meLoading) return null;
   if (!isOrgAdmin(me, orgId) && !perm.allowed) {
     if (perm.loading) return null;
-    return <Navigate to="/school" replace />;
+    return <NoAccessRedirect />;
   }
   if (loading) return <p className="text-sm text-slate-500">Loading…</p>;
 
@@ -270,7 +270,11 @@ export function FormBuilder() {
 
   const removeField = async (f: FormField) => {
     if (!confirm(`Delete field "${f.label}"?`)) return;
-    await deleteFormField(orgId, f.id);
+    try {
+      await deleteFormField(orgId, f.id);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not delete the field.");
+    }
     refresh();
   };
 

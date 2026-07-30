@@ -9,7 +9,7 @@
 // hidden for non-principals.
 
 import { useEffect, useState } from "react";
-import { useNavigate, Navigate, useParams } from "react-router";
+import { useNavigate, useParams } from "react-router";
 import {
   Building2,
   GraduationCap,
@@ -26,7 +26,7 @@ import {
   Settings as SettingsIcon,
 } from "lucide-react";
 import { Button } from "../../components/ui/button";
-import { HeroCard, KpiTile } from "../../components/school-ui";
+import { HeroCard, KpiTile, NoAccessRedirect } from "../../components/school-ui";
 import {
   getRosterRequests,
   getSchoolMe,
@@ -113,7 +113,7 @@ export function AdminDashboard() {
   }
 
   if (!isOrgAdmin(me, orgId)) {
-    return <Navigate to="/school" replace />;
+    return <NoAccessRedirect />;
   }
 
   const principal = isOrgPrincipal(me, orgId);

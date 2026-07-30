@@ -2,7 +2,7 @@
 // table, single add/edit/delete, CSV bulk upload.
 
 import { useEffect, useMemo, useState } from "react";
-import { Link, Navigate, useParams } from "react-router";
+import { Link, useParams } from "react-router";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
@@ -17,6 +17,7 @@ import { Plus, Upload, Search, Trash2, Pencil, Mail, Phone, GraduationCap } from
 import {
   HeroCard,
   cardBase,
+  NoAccessRedirect,
 } from "../../components/school-ui";
 import { Star, Users } from "lucide-react";
 import {
@@ -177,7 +178,7 @@ export function ManageParents() {
   if (meLoading) return null;
   if (!isOrgAdmin(me, orgId) && !perm.allowed) {
     if (perm.loading) return null;
-    return <Navigate to="/school" replace />;
+    return <NoAccessRedirect />;
   }
 
   const startCreate = () => { setEditing(null); setForm(empty); setFormOpen(true); };

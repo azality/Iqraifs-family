@@ -32,15 +32,25 @@ export function SchoolHomeRouter() {
   const { orgId = "" } = useParams();
   const [me, setMe] = useState<SchoolMeResponse | null>(null);
   const [resolved, setResolved] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
+    setResolved(false);
+    setFailed(false);
     getSchoolMe()
       .then((r) => {
         if (!cancelled) setMe(r);
       })
       .catch(() => {
-        if (!cancelled) setMe(null);
+        // Do NOT fall through to a role-less render: viewerRoleForOrg(null)
+        // resolves undefined and the user would land on the principal
+        // dashboard where every fetch 403s. Show a retry card instead.
+        if (!cancelled) {
+          setMe(null);
+          setFailed(true);
+        }
       })
       .finally(() => {
         if (!cancelled) setResolved(true);
@@ -48,12 +58,31 @@ export function SchoolHomeRouter() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [attempt]);
 
   if (!resolved) {
     return (
       <div className="rounded-xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">
         Loading…
+      </div>
+    );
+  }
+
+  if (failed) {
+    return (
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 text-center">
+        <p className="text-sm font-medium text-amber-900">
+          We couldn't verify your role at this school.
+        </p>
+        <p className="mt-1 text-xs text-amber-700">
+          This is usually a connection hiccup — your access hasn't changed.
+        </p>
+        <button
+          onClick={() => setAttempt((n) => n + 1)}
+          className="mt-3 inline-flex items-center rounded-md border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-800 shadow-sm hover:bg-amber-100"
+        >
+          Try again
+        </button>
       </div>
     );
   }

@@ -48,3 +48,6 @@ export type {
   Status,
   SeverityClassSet,
 } from "./tokens";
+
+export { NoAccessRedirect } from "./NoAccessRedirect";
+export type { NoAccessRedirectProps } from "./NoAccessRedirect";

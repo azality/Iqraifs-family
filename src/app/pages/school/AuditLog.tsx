@@ -5,9 +5,9 @@
 // chronological order. Used to answer "who invited/removed whom and when".
 
 import { useEffect, useState } from "react";
-import { Link, Navigate, useParams } from "react-router";
+import { Link, useParams } from "react-router";
 import { Button } from "../../components/ui/button";
-import { HeroCard, cardBase } from "../../components/school-ui";
+import { HeroCard, cardBase, NoAccessRedirect } from "../../components/school-ui";
 import {
   getSchoolMe,
   isOrgAdmin,
@@ -63,7 +63,7 @@ export function AuditLog() {
   }, [orgId]);
 
   if (meLoading) return null;
-  if (!isOrgAdmin(me, orgId)) return <Navigate to="/school" replace />;
+  if (!isOrgAdmin(me, orgId)) return <NoAccessRedirect />;
 
   return (
     <div className="space-y-4">

@@ -3,7 +3,7 @@
 // back to the server as overrides (the server diffs against defaults).
 
 import { useEffect, useMemo, useState } from "react";
-import { Link, Navigate, useParams } from "react-router";
+import { Link, useParams } from "react-router";
 import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
 import { ShieldCheck, Info } from "lucide-react";
@@ -13,6 +13,7 @@ import {
   cardElev,
   accentBg,
   accentBorder,
+  NoAccessRedirect,
 } from "../../components/school-ui";
 import {
   getSchoolMe,
@@ -113,7 +114,7 @@ export function PermissionsEditor() {
   );
 
   if (meLoading) return null;
-  if (!isOrgPrincipal(me, orgId)) return <Navigate to={`/school/orgs/${orgId}/admin`} replace />;
+  if (!isOrgPrincipal(me, orgId)) return <NoAccessRedirect to={`/school/orgs/${orgId}/admin`} message="Only the principal can edit role permissions." />;
 
   const toggle = (permissionKey: string, roleTemplate: PermissionRow["roleTemplate"]) => {
     setRows((prev) => {
