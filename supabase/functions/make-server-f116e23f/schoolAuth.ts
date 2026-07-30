@@ -20,14 +20,13 @@ import { serviceRoleClient } from "./middleware.tsx";
 
 // Canonical role names. Keep in sync with the role_type enum in Postgres
 // and the role_template enum used by the frontend.
-export type SchoolRole =
-  | "principal"
-  | "admin"
-  | "class_teacher"
-  | "visiting_teacher"
-  | "teacher" // legacy alias for class_teacher in some rows
-  | "financial_staff"
-  | "office_staff";
+// SchoolRole now lives in rolePermissions.ts (the shared permission
+// matrix, also consumed by the frontend). Re-exported so the many
+// existing `import { SchoolRole } from "./schoolAuth.ts"` sites keep
+// working unchanged.
+export type { SchoolRole, PermissionKey } from "./rolePermissions.ts";
+import type { SchoolRole, PermissionKey } from "./rolePermissions.ts";
+import { resolveEffectivePermission } from "./rolePermissions.ts";
 
 // =============================================================================
 // Low-level role lookups — exported because some call sites need the raw
@@ -117,6 +116,15 @@ export async function hasAdminOrPrincipal(userId: string, orgId: string): Promis
  * to render UI state or make multi-role decisions; for a single allow/deny
  * check, prefer `requireOrgRole` below.
  */
+/** Convenience wrapper: does the user hold ANY active role in this org
+ *  (org- or class-scoped, validity window enforced)? The 15 hand-rolled
+ *  copies of this check queried scope_type=organization only and skipped
+ *  the valid_from/valid_until window — expired visiting-teacher roles
+ *  passed those gates. This version closes both gaps. */
+export async function hasAnyRoleInOrg(userId: string, orgId: string): Promise<boolean> {
+  return (await getOrgRoles(userId, orgId)).size > 0;
+}
+
 export async function getOrgRoles(userId: string, orgId: string): Promise<Set<SchoolRole>> {
   const out = new Set<SchoolRole>();
   const today = todayUtcDate();
@@ -250,54 +258,8 @@ export async function requireTeacherOfSection(
 // incrementally — we don't refactor 50+ call sites in one PR.
 // =============================================================================
 
-export type PermissionKey =
-  | "manage_students"
-  | "mark_attendance"
-  | "edit_grades"
-  | "mark_fees_status"
-  | "create_forms"
-  | "define_curriculum"
-  | "manage_teachers"
-  | "view_all_classes"
-  | "manage_public_site";
-
-// Mirror of DEFAULT_PERMISSIONS in schoolPhaseA.tsx. Kept in sync by hand;
-// when you add a new permission, update both places. (Future cleanup: hoist
-// to a shared module and import both sides.)
-const DEFAULT_PERMS: Record<SchoolRole, Partial<Record<PermissionKey, boolean>>> = {
-  principal: {
-    manage_students: true, mark_attendance: true, edit_grades: true,
-    mark_fees_status: true, create_forms: true, define_curriculum: true,
-    manage_teachers: true, view_all_classes: true,
-    manage_public_site: true,
-  },
-  admin: {
-    manage_students: true, mark_attendance: true, edit_grades: true,
-    mark_fees_status: true, create_forms: true, define_curriculum: true,
-    manage_teachers: true, view_all_classes: true,
-    manage_public_site: true,
-  },
-  class_teacher: {
-    mark_attendance: true, edit_grades: true,
-    create_forms: true, define_curriculum: true,
-  },
-  visiting_teacher: {
-    mark_attendance: true,
-  },
-  teacher: {
-    mark_attendance: true, edit_grades: true,
-  },
-  financial_staff: {
-    mark_fees_status: true,
-  },
-  office_staff: {
-    manage_students: true, mark_attendance: true, create_forms: true,
-    manage_teachers: true, view_all_classes: true,
-  },
-};
-
 /** Effective permission for (org, role, key). Reads role_template_override
- *  if a row exists; otherwise falls back to DEFAULT_PERMS. Returns false
+ *  if a row exists; otherwise falls back to the shared DEFAULT_PERMISSIONS matrix. Returns false
  *  when no row and no default. */
 export async function getEffectivePermission(
   orgId: string,
@@ -312,7 +274,7 @@ export async function getEffectivePermission(
     .eq("permission_key", key)
     .maybeSingle();
   if (override) return !!(override as any).allowed;
-  return DEFAULT_PERMS[role]?.[key] ?? false;
+  return resolveEffectivePermission(role, key);
 }
 
 /** Does this user, via any role they hold in this org, have permission KEY?

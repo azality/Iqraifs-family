@@ -27,19 +27,7 @@
 
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
-
-async function isAdminOrPrincipal(userId: string, orgId: string): Promise<boolean> {
-  const { data } = await serviceRoleClient
-    .from("user_roles")
-    .select("role_type")
-    .eq("user_id", userId)
-    .eq("scope_type", "organization")
-    .eq("scope_id", orgId)
-    .is("revoked_at", null);
-  return (data ?? []).some(
-    (r: any) => r.role_type === "principal" || r.role_type === "admin",
-  );
-}
+import { hasAdminOrPrincipal as isAdminOrPrincipal } from "./schoolAuth.ts";
 
 type Decision = {
   studentId: string;

@@ -22,6 +22,7 @@
 
 import { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
+import { hasAnyRoleInOrg } from "./schoolAuth.ts";
 
 // -----------------------------------------------------------------------------
 // Period math — period boundaries computed server-side. All dates are
@@ -95,71 +96,6 @@ function lastNWeekdays(end: Date, n: number): Date[] {
   return out.reverse();
 }
 
-// -----------------------------------------------------------------------------
-// Role gate — any non-revoked role in the org (matches schoolPhaseB pattern).
-// -----------------------------------------------------------------------------
-async function hasAnyRoleInOrg(userId: string, orgId: string): Promise<boolean> {
-  // Also accept class-section scoped roles (visiting teachers) — they still
-  // need read access to the dashboard, just scoped.
-  const { data: orgRow, error: orgErr } = await serviceRoleClient
-    .from("user_roles")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("scope_type", "organization")
-    .eq("scope_id", orgId)
-    .is("revoked_at", null)
-    .limit(1)
-    .maybeSingle();
-  if (orgErr) {
-    console.error("[schoolDashboard.hasAnyRoleInOrg] DB error:", orgErr);
-    return false;
-  }
-  if (orgRow) return true;
-
-  // Check class-teacher assignment via class_section.class_teacher_user_id
-  // (these users may not have a user_roles org row).
-  const { data: classSections } = await serviceRoleClient
-    .from("class_section")
-    .select("id, class!inner(org_id)")
-    .eq("class_teacher_user_id", userId)
-    .eq("class.org_id", orgId)
-    .limit(1);
-  if (classSections && classSections.length > 0) return true;
-
-  // Same flavour for Hifz teacher assignments (PR feat/hifz-teacher-
-  // section-listing). A teacher attached ONLY via hifz_teacher_user_id
-  // should still count as having org access.
-  const { data: hifzSections } = await serviceRoleClient
-    .from("class_section")
-    .select("id, class!inner(org_id)")
-    .eq("hifz_teacher_user_id", userId)
-    .eq("class.org_id", orgId)
-    .limit(1);
-  if (hifzSections && hifzSections.length > 0) return true;
-
-  // Check class-scoped visiting teacher roles tied to sections in this org.
-  const { data: classScoped } = await serviceRoleClient
-    .from("user_roles")
-    .select("scope_id")
-    .eq("user_id", userId)
-    .eq("scope_type", "class")
-    .is("revoked_at", null);
-  if (classScoped && classScoped.length > 0) {
-    const sectionIds = (classScoped as Array<{ scope_id: string }>)
-      .map((r) => r.scope_id)
-      .filter(Boolean);
-    if (sectionIds.length > 0) {
-      const { data: matching } = await serviceRoleClient
-        .from("class_section")
-        .select("id, class!inner(org_id)")
-        .in("id", sectionIds)
-        .eq("class.org_id", orgId)
-        .limit(1);
-      if (matching && matching.length > 0) return true;
-    }
-  }
-  return false;
-}
 
 // -----------------------------------------------------------------------------
 // Caller scope — does this user see the whole org, or only specific sections?

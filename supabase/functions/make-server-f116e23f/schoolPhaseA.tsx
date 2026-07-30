@@ -36,7 +36,7 @@ import {
 import { logAuditWithLookup } from "./schoolAudit.ts";
 // PR K: migrate student-write routes from requireAdminOrPrincipal to
 // userCanInOrg("manage_students") so office_staff can manage students.
-import { userCanInOrg } from "./schoolAuth.ts";
+import { userCanInOrg, hasAnyRoleInOrg, isPrincipalOf, isAdminOf, hasAdminOrPrincipal as requireAdminOrPrincipal } from "./schoolAuth.ts";
 
 // ---------------------------------------------------------------------------
 // Shared row types — exported so the frontend can mirror the shape.
@@ -152,140 +152,18 @@ export interface TeacherRow {
 // Permission defaults — defaults that apply unless role_template_override
 // stores a deviating row for (org, role_template, permission_key).
 // ---------------------------------------------------------------------------
-type RoleTemplate = "admin" | "class_teacher" | "visiting_teacher" | "financial_staff" | "office_staff";
-type PermissionKey =
-  | "manage_students"
-  | "mark_attendance"
-  | "edit_grades"
-  | "mark_fees_status"
-  | "create_forms"
-  | "define_curriculum"
-  | "manage_teachers"
-  | "view_all_classes"
-  | "manage_public_site";
-
-const PERMISSION_KEYS: PermissionKey[] = [
-  "manage_students",
-  "mark_attendance",
-  "edit_grades",
-  "mark_fees_status",
-  "create_forms",
-  "define_curriculum",
-  "manage_teachers",
-  "view_all_classes",
-  "manage_public_site",
-];
-
-const DEFAULT_PERMISSIONS: Record<RoleTemplate, Record<PermissionKey, boolean>> = {
-  admin: {
-    manage_students: true,
-    mark_attendance: true,
-    edit_grades: true,
-    mark_fees_status: true,
-    create_forms: true,
-    define_curriculum: true,
-    manage_teachers: true,
-    view_all_classes: true,
-    manage_public_site: true,
-  },
-  class_teacher: {
-    manage_students: false,
-    mark_attendance: true,
-    edit_grades: true,
-    mark_fees_status: false,
-    create_forms: true,
-    define_curriculum: true,
-    manage_teachers: false,
-    view_all_classes: false,
-    manage_public_site: false,
-  },
-  visiting_teacher: {
-    manage_students: false,
-    mark_attendance: true,
-    edit_grades: false,
-    mark_fees_status: false,
-    create_forms: false,
-    define_curriculum: false,
-    manage_teachers: false,
-    view_all_classes: false,
-    manage_public_site: false,
-  },
-  financial_staff: {
-    manage_students: false,
-    mark_attendance: false,
-    edit_grades: false,
-    mark_fees_status: true,
-    create_forms: false,
-    define_curriculum: false,
-    manage_teachers: false,
-    view_all_classes: false,
-    manage_public_site: false,
-  },
-  office_staff: {
-    manage_students: true,
-    // PR C #6: Iqra wants office staff to be able to mark attendance when
-    // the class teacher is absent. Granted org-wide; tighten if needed.
-    mark_attendance: true,
-    edit_grades: false,
-    mark_fees_status: false,
-    create_forms: true,
-    define_curriculum: false,
-    manage_teachers: true,
-    view_all_classes: true,
-    manage_public_site: false,
-  },
-};
-
-// ---------------------------------------------------------------------------
-// Role helpers
-// ---------------------------------------------------------------------------
-async function hasAnyRoleInOrg(userId: string, orgId: string): Promise<boolean> {
-  const { data } = await serviceRoleClient
-    .from("user_roles")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("scope_type", "organization")
-    .eq("scope_id", orgId)
-    .is("revoked_at", null)
-    .limit(1);
-  if (data && data.length > 0) return true;
-  // Also accept any role scoped to a class/section that lives in this org.
-  // Cheap check: at least one role row period in this org via any scope —
-  // for Phase A we only check org-scoped roles which is the common case.
-  return false;
-}
-
-async function isPrincipalOf(userId: string, orgId: string): Promise<boolean> {
-  const { data } = await serviceRoleClient
-    .from("user_roles")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("role_type", "principal")
-    .eq("scope_type", "organization")
-    .eq("scope_id", orgId)
-    .is("revoked_at", null)
-    .maybeSingle();
-  return !!data;
-}
-
-async function isAdminOf(userId: string, orgId: string): Promise<boolean> {
-  const { data } = await serviceRoleClient
-    .from("user_roles")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("role_type", "admin")
-    .eq("scope_type", "organization")
-    .eq("scope_id", orgId)
-    .is("revoked_at", null)
-    .maybeSingle();
-  return !!data;
-}
-
-async function requireAdminOrPrincipal(userId: string, orgId: string): Promise<boolean> {
-  if (await isPrincipalOf(userId, orgId)) return true;
-  if (await isAdminOf(userId, orgId)) return true;
-  return false;
-}
+// RoleTemplate / PermissionKey / DEFAULT_PERMISSIONS now come from the
+// shared matrix in rolePermissions.ts (single source of truth, also
+// consumed by schoolAuth.ts and the frontend). RoleTemplate here means
+// "a role whose defaults can be overridden per-org" — i.e. everything
+// except principal.
+import {
+  PERMISSION_KEYS,
+  DEFAULT_PERMISSIONS,
+  OVERRIDABLE_ROLE_TEMPLATES,
+} from "./rolePermissions.ts";
+import type { PermissionKey } from "./rolePermissions.ts";
+type RoleTemplate = (typeof OVERRIDABLE_ROLE_TEMPLATES)[number];
 
 // ---------------------------------------------------------------------------
 // bcrypt — Deno's bcrypt port is unreliable in the edge runtime, so we
@@ -1483,7 +1361,7 @@ export function installPhaseA(school: Hono) {
   school.post("/orgs/:orgId/parents", async (c) => {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
-    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    if (!(await userCanInOrg(userId, orgId, "manage_students"))) return c.json({ error: "forbidden" }, 403);
     let body: any;
     try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
     const v = validParentRow(body, 0);
@@ -1582,7 +1460,7 @@ export function installPhaseA(school: Hono) {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
     const parentId = c.req.param("parentId");
-    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    if (!(await userCanInOrg(userId, orgId, "manage_students"))) return c.json({ error: "forbidden" }, 403);
     let body: any;
     try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
     const map: Record<string, string> = {
@@ -1607,7 +1485,7 @@ export function installPhaseA(school: Hono) {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
     const parentId = c.req.param("parentId");
-    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    if (!(await userCanInOrg(userId, orgId, "manage_students"))) return c.json({ error: "forbidden" }, 403);
     const { error } = await serviceRoleClient
       .from("parent").delete().eq("id", parentId).eq("org_id", orgId);
     if (error) return c.json({ error: error.message }, 500);
@@ -1617,7 +1495,7 @@ export function installPhaseA(school: Hono) {
   school.post("/orgs/:orgId/parents/bulk", async (c) => {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
-    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    if (!(await userCanInOrg(userId, orgId, "manage_students"))) return c.json({ error: "forbidden" }, 403);
     let body: any;
     try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
     if (!Array.isArray(body?.rows)) return c.json({ error: "rows[] required" }, 400);
@@ -1699,7 +1577,7 @@ export function installPhaseA(school: Hono) {
   school.post("/orgs/:orgId/student-parent", async (c) => {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
-    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    if (!(await userCanInOrg(userId, orgId, "manage_students"))) return c.json({ error: "forbidden" }, 403);
     let body: any;
     try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
     if (!body?.studentId || !body?.parentId) return c.json({ error: "studentId and parentId required" }, 400);
@@ -1724,7 +1602,7 @@ export function installPhaseA(school: Hono) {
   school.delete("/orgs/:orgId/student-parent/:studentId/:parentId", async (c) => {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
-    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    if (!(await userCanInOrg(userId, orgId, "manage_students"))) return c.json({ error: "forbidden" }, 403);
     const studentId = c.req.param("studentId");
     const parentId = c.req.param("parentId");
     const { error } = await serviceRoleClient
@@ -1934,7 +1812,7 @@ export function installPhaseA(school: Hono) {
     const callerId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
     const targetUserId = c.req.param("userId");
-    if (!(await requireAdminOrPrincipal(callerId, orgId))) {
+    if (!(await userCanInOrg(callerId, orgId, "manage_teachers"))) {
       return c.json({ error: "forbidden" }, 403);
     }
     if (targetUserId === callerId) {
@@ -2010,7 +1888,7 @@ export function installPhaseA(school: Hono) {
   school.post("/orgs/:orgId/teachers", async (c) => {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
-    if (!(await requireAdminOrPrincipal(userId, orgId))) {
+    if (!(await userCanInOrg(userId, orgId, "manage_teachers"))) {
       return c.json({ error: "forbidden" }, 403);
     }
     let body: any;
@@ -2169,7 +2047,7 @@ export function installPhaseA(school: Hono) {
   school.post("/orgs/:orgId/teachers/bulk", async (c) => {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
-    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    if (!(await userCanInOrg(userId, orgId, "manage_teachers"))) return c.json({ error: "forbidden" }, 403);
     let body: any;
     try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
     if (!Array.isArray(body?.rows)) return c.json({ error: "rows[] required" }, 400);
@@ -2371,8 +2249,8 @@ export function installPhaseA(school: Hono) {
     const callerId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
     const targetUserId = c.req.param("userId");
-    if (!(await requireAdminOrPrincipal(callerId, orgId))) {
-      return c.json({ error: "forbidden", code: "FORBIDDEN_ROLE" }, 403);
+    if (!(await userCanInOrg(callerId, orgId, "manage_teachers"))) {
+      return c.json({ error: "forbidden", code: "FORBIDDEN_PERMISSION" }, 403);
     }
 
     // Confirm target actually has a non-revoked role in this org. Without
@@ -2516,7 +2394,7 @@ export function installPhaseA(school: Hono) {
   school.post("/orgs/:orgId/pin/set", async (c) => {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
-    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    if (!(await userCanInOrg(userId, orgId, "manage_students"))) return c.json({ error: "forbidden" }, 403);
     let body: any;
     try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
     const { subjectType, subjectId, pin } = body || {};
@@ -2572,7 +2450,7 @@ export function installPhaseA(school: Hono) {
   school.post("/orgs/:orgId/pin/reset", async (c) => {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
-    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    if (!(await userCanInOrg(userId, orgId, "manage_students"))) return c.json({ error: "forbidden" }, 403);
     let body: any;
     try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
     const { subjectType, subjectId } = body || {};
@@ -2837,7 +2715,7 @@ export function installPhaseA(school: Hono) {
   school.post("/orgs/:orgId/link-codes", async (c) => {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
-    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    if (!(await userCanInOrg(userId, orgId, "manage_students"))) return c.json({ error: "forbidden" }, 403);
     let body: any;
     try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
     if (!body?.studentId) return c.json({ error: "studentId required" }, 400);
@@ -2992,7 +2870,7 @@ export function installPhaseA(school: Hono) {
       overrideMap.set(`${o.role_template}::${o.permission_key}`, o.allowed);
     }
     const result: Array<{ roleTemplate: RoleTemplate; permissionKey: PermissionKey; allowed: boolean }> = [];
-    for (const rt of Object.keys(DEFAULT_PERMISSIONS) as RoleTemplate[]) {
+    for (const rt of OVERRIDABLE_ROLE_TEMPLATES) {
       for (const pk of PERMISSION_KEYS) {
         const key = `${rt}::${pk}`;
         const allowed = overrideMap.has(key) ? !!overrideMap.get(key) : DEFAULT_PERMISSIONS[rt][pk];
@@ -3010,7 +2888,7 @@ export function installPhaseA(school: Hono) {
     try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
     if (!Array.isArray(body?.overrides)) return c.json({ error: "overrides[] required" }, 400);
 
-    const validTemplates = new Set(Object.keys(DEFAULT_PERMISSIONS));
+    const validTemplates = new Set<string>(OVERRIDABLE_ROLE_TEMPLATES);
     const validKeys = new Set(PERMISSION_KEYS);
     const rows: any[] = [];
     for (const o of body.overrides) {

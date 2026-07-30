@@ -29,66 +29,8 @@ import {
   createImportBatch,
   finalizeImportBatch,
 } from "./middleware.tsx";
+import { userHasRoleRow, hasAdminOrPrincipal, hasAnyRoleInOrg } from "./schoolAuth.ts";
 import { todayInOrgTz } from "./tz.ts";
-
-// -----------------------------------------------------------------------------
-// Permission helpers (mirrors schoolPhaseB.tsx — kept self-contained so this
-// module doesn't depend on internals of school.tsx or sibling phase modules).
-// -----------------------------------------------------------------------------
-
-async function userHasRoleRow(
-  userId: string,
-  roleType: string,
-  scopeType: string,
-  scopeId: string,
-): Promise<boolean> {
-  const { data, error } = await serviceRoleClient
-    .from("user_roles")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("role_type", roleType)
-    .eq("scope_type", scopeType)
-    .eq("scope_id", scopeId)
-    .is("revoked_at", null)
-    .maybeSingle();
-  if (error) {
-    console.error("[schoolPhaseC.userHasRoleRow] DB error:", error);
-    return false;
-  }
-  return !!data;
-}
-
-async function hasAdminOrPrincipal(userId: string, orgId: string): Promise<boolean> {
-  if (await userHasRoleRow(userId, "principal", "organization", orgId)) return true;
-  if (await userHasRoleRow(userId, "admin", "organization", orgId)) return true;
-  return false;
-}
-
-async function hasAnyRoleInOrg(userId: string, orgId: string): Promise<boolean> {
-  const { data, error } = await serviceRoleClient
-    .from("user_roles")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("scope_type", "organization")
-    .eq("scope_id", orgId)
-    .is("revoked_at", null)
-    .limit(1);
-  if (error) {
-    console.error("[schoolPhaseC.hasAnyRoleInOrg] DB error:", error);
-    return false;
-  }
-  if (data && data.length > 0) return true;
-  // Also accept any non-revoked role row for the user (e.g. section-scoped
-  // teachers without an explicit org row), matching Phase B fallback.
-  const { data: data2, error: err2 } = await serviceRoleClient
-    .from("user_roles")
-    .select("id")
-    .eq("user_id", userId)
-    .is("revoked_at", null)
-    .limit(1);
-  if (err2) return false;
-  return !!(data2 && data2.length > 0);
-}
 
 async function loadSection(sectionId: string): Promise<
   | {
