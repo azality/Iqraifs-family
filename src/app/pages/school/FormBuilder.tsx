@@ -32,6 +32,7 @@ import { HeroCard, cardBase, cardElev, sectionTitleClasses } from "../../compone
 import {
   getSchoolMe,
   isOrgAdmin,
+  viewerRoleForOrg,
   listClasses,
   listStudents,
   createForm,
@@ -51,6 +52,7 @@ import {
   type FormFieldKind,
   type SchoolMeResponse,
 } from "../../../utils/schoolApi";
+import { useOrgPermissionState } from "./useOrgPermission";
 
 const KIND_LABELS: Record<FormFieldKind, string> = {
   short_text: "Short text",
@@ -152,8 +154,19 @@ export function FormBuilder() {
     [form],
   );
 
+  // Permission-aware gate. isOrgAdmin still short-circuits for
+  // principal/admin; other roles resolve through the effective matrix
+  // (create_forms) so the Permissions editor's toggles govern this page.
+  // While the matrix fetch is in flight we render nothing rather than
+  // bouncing a legitimately-permitted user.
+  const viewerRole = me ? viewerRoleForOrg(me, orgId) : null;
+  const perm = useOrgPermissionState(orgId, viewerRole, "create_forms");
+
   if (meLoading) return null;
-  if (!isOrgAdmin(me, orgId)) return <Navigate to="/school" replace />;
+  if (!isOrgAdmin(me, orgId) && !perm.allowed) {
+    if (perm.loading) return null;
+    return <Navigate to="/school" replace />;
+  }
   if (loading) return <p className="text-sm text-slate-500">Loading…</p>;
 
   const handleCreate = async () => {

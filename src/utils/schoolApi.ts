@@ -1150,10 +1150,26 @@ export const getFinanceSnapshot = (
 // ─── Org-scoped role helper ────────────────────────────────────────────
 
 /** True if the user has a principal role on this specific org. */
+// Group-scoped roles (multi-campus head office) grant the role on every
+// member campus. The frontend doesn't know the group→org mapping, so we
+// treat a school_group principal/admin as privileged for any org the /me
+// payload exposes — the backend re-enforces per-org membership on every
+// request, so this can only unlock UI the API will actually serve.
+const hasGroupScopedRole = (
+  me: SchoolMeResponse | null,
+  roleTypes: string[],
+): boolean =>
+  !!me?.roles.some(
+    (r) =>
+      (r.scope_type as string) === "school_group" &&
+      roleTypes.includes(r.role_type as string),
+  );
+
 export const isOrgPrincipal = (
   me: SchoolMeResponse | null,
   orgId: string,
-): boolean => principalOrgIds(me).includes(orgId);
+): boolean =>
+  principalOrgIds(me).includes(orgId) || hasGroupScopedRole(me, ["principal"]);
 
 export const recordAttendance = (
   classId: string,
@@ -2437,6 +2453,7 @@ export const updatePermissions = (
 
 export function isOrgAdmin(me: SchoolMeResponse | null, orgId: string): boolean {
   if (!me) return false;
+  if (hasGroupScopedRole(me, ["principal", "admin"])) return true;
   return me.roles.some(
     (r) =>
       (r.role_type === "principal" || (r.role_type as string) === "admin") &&
@@ -2493,8 +2510,11 @@ export function viewerRoleForOrg(
   if (orgRoles.includes("hifz_teacher") || classRoles.includes("hifz_teacher")) {
     return "hifz_teacher";
   }
-  // Org-scoped teacher (rare; treat as principal-lite)
-  if (orgRoles.includes("teacher")) return "admin";
+  // Org-scoped legacy `teacher` — matrix-wise it's a restricted teaching
+  // role (attendance + grades only), so route it like a class teacher.
+  // The old "treat as principal-lite" mapping gave them admin nav where
+  // every page bounced them straight back.
+  if (orgRoles.includes("teacher")) return "class_teacher";
   return "other";
 }
 

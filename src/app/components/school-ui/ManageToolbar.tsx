@@ -107,6 +107,9 @@ function flatItemsForRole(
       return [
         I("students", t("toolbar.students"), `/school/orgs/${orgId}/admin/students`, Users),
         I("parents", t("toolbar.parents"), `/school/orgs/${orgId}/admin/parents`, Heart),
+        // office_staff holds manage_teachers by default and the page now
+        // honors the permission — give them the nav entry to match.
+        I("teachers", t("toolbar.teachers"), `/school/orgs/${orgId}/admin/teachers`, UserCog),
         I("roster-requests", t("toolbar.rosterRequests"), `/school/orgs/${orgId}/admin/roster-requests`, ClipboardList),
         I("inbox", "Parent inbox", `/school/orgs/${orgId}/admin/inbox`, Inbox),
         announcements,
