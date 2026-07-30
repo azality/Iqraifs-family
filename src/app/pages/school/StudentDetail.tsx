@@ -307,7 +307,7 @@ export function StudentDetail() {
                 <Link to={`/school/orgs/${orgId}/sections/${student.class_section_id}/gradebook`}>
                   <Button size="sm" variant="outline">Section gradebook →</Button>
                 </Link>
-                <Link to={`/school/orgs/${orgId}/sections/${student.class_section_id}/curriculum`}>
+                <Link to={`/school/orgs/${orgId}/sections/${student.class_section_id}`}>
                   <Button size="sm" variant="outline">Curriculum →</Button>
                 </Link>
               </CardContent>

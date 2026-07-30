@@ -73,6 +73,18 @@ export function SubjectCurriculumPanel({
   const [curriculum, setCurriculum] = useState<ClassCurriculum | null>(null);
   const [topics, setTopics] = useState<ClassCurriculumTopic[]>([]);
   const [availableYears, setAvailableYears] = useState<CurriculumYearSummary[]>([]);
+
+  // Year dropdown options: previous / current / next academic year plus
+  // every year that already has a curriculum. Sorted descending.
+  const yearOptions = useMemo(() => {
+    const base = currentAcademicYear();
+    const startYear = parseInt(base.slice(0, 4), 10);
+    const fmt = (sy: number) => `${sy}-${((sy + 1) % 100).toString().padStart(2, "0")}`;
+    const set = new Set<string>([fmt(startYear - 1), fmt(startYear), fmt(startYear + 1)]);
+    for (const y of availableYears) set.add(y.academicYear);
+    set.add(year); // keep the current selection valid even if unusual
+    return Array.from(set).sort().reverse();
+  }, [availableYears, year]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -342,13 +354,19 @@ export function SubjectCurriculumPanel({
             <span className="text-[10px] uppercase tracking-wider text-slate-500">
               Academic year
             </span>
-            <Input
+            {/* Constrained select — free-text here let a "2026-2027" typo
+                create an orphan curriculum that no chip or copy-candidate
+                ever matched. Options: prev/current/next academic year plus
+                any year that already has content. */}
+            <select
               value={year}
               onChange={(e) => setYear(e.target.value)}
-              placeholder="2026-27"
-              className="h-7 w-28 text-xs"
-              maxLength={20}
-            />
+              className="h-7 rounded-md border border-slate-200 bg-white px-2 text-xs"
+            >
+              {yearOptions.map((y) => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
             {curriculum && (
               <span className="text-[10px] text-slate-400">
                 {curriculum.title}
@@ -394,7 +412,7 @@ export function SubjectCurriculumPanel({
               {topics.length === 0 && !adding && (
                 <p className="rounded border border-dashed border-slate-200 bg-slate-50 p-3 text-center text-xs text-slate-500">
                   {canManage
-                    ? `No topics defined for ${subjectName} in ${year}. Click "Add topic" to start.`
+                    ? `No topics for ${subjectName} in ${year} yet. Fastest: "Use standard template" or "Paste many" below — or "Copy from" a previous year if one exists. "Add one" adds topics individually.`
                     : `No curriculum defined for ${subjectName} in ${year} yet.`}
                 </p>
               )}
