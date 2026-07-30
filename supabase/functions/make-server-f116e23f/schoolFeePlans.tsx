@@ -28,6 +28,7 @@
 
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
+import { userCanInOrg } from "./schoolAuth.ts";
 
 async function hasAnyOrgRole(userId: string, orgId: string): Promise<boolean> {
   const { data } = await serviceRoleClient
@@ -41,17 +42,12 @@ async function hasAnyOrgRole(userId: string, orgId: string): Promise<boolean> {
     .maybeSingle();
   return !!data;
 }
+// Delegates to the permission matrix: mark_fees_status defaults to
+// financial_staff (plus the principal/admin short-circuit) and is
+// grantable/revocable per-org from the Permissions editor — the old
+// hardcoded role list wasn't.
 async function canManageFees(userId: string, orgId: string): Promise<boolean> {
-  const { data } = await serviceRoleClient
-    .from("user_roles")
-    .select("role_type")
-    .eq("user_id", userId)
-    .eq("scope_type", "organization")
-    .eq("scope_id", orgId)
-    .is("revoked_at", null);
-  return (data ?? []).some((r: any) =>
-    r.role_type === "principal" || r.role_type === "admin" || r.role_type === "financial_staff",
-  );
+  return userCanInOrg(userId, orgId, "mark_fees_status");
 }
 
 function planToJson(r: any) {

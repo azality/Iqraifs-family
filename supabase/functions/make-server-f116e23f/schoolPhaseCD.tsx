@@ -22,7 +22,7 @@ import { verifyPinToken } from "./schoolPhaseA.tsx";
 import { todayInOrgTz } from "./tz.ts";
 // PR K: migrate fee + grade gates from hasAdminOrPrincipal to userCanInOrg
 // so financial_staff / class_teacher can act per their permission template.
-import { userCanInOrg } from "./schoolAuth.ts";
+import { userCanInOrg, getOrgRoles } from "./schoolAuth.ts";
 
 // -----------------------------------------------------------------------------
 // Permission helpers (self-contained — mirrors Phase B / C / C2 pattern)
@@ -363,7 +363,9 @@ export function installPhaseCD(school: Hono): void {
     if (section.org_id !== orgId) return c.json({ error: "section not in this org" }, 404);
 
     const isAdmin = await hasAdminOrPrincipal(userId, orgId);
-    if (!isAdmin && !(await isTeacherOfSection(userId, orgId, sectionId))) {
+    // Teacher path also requires the define_curriculum permission —
+    // being the section's teacher is scope, not authority.
+    if (!isAdmin && !((await isTeacherOfSection(userId, orgId, sectionId)) && (await userCanInOrg(userId, orgId, "define_curriculum")))) {
       return c.json({ error: "forbidden" }, 403);
     }
 
@@ -451,7 +453,9 @@ export function installPhaseCD(school: Hono): void {
     if (existing.org_id !== orgId) return c.json({ error: "curriculum not in this org" }, 404);
 
     const isAdmin = await hasAdminOrPrincipal(userId, orgId);
-    if (!isAdmin && !(await isTeacherOfSection(userId, orgId, existing.class_section_id))) {
+    // Teacher path also requires the define_curriculum permission —
+    // being the section's teacher is scope, not authority.
+    if (!isAdmin && !((await isTeacherOfSection(userId, orgId, existing.class_section_id)) && (await userCanInOrg(userId, orgId, "define_curriculum")))) {
       return c.json({ error: "forbidden" }, 403);
     }
 
@@ -500,7 +504,9 @@ export function installPhaseCD(school: Hono): void {
     if (existing.org_id !== orgId) return c.json({ error: "curriculum not in this org" }, 404);
 
     const isAdmin = await hasAdminOrPrincipal(userId, orgId);
-    if (!isAdmin && !(await isTeacherOfSection(userId, orgId, existing.class_section_id))) {
+    // Teacher path also requires the define_curriculum permission —
+    // being the section's teacher is scope, not authority.
+    if (!isAdmin && !((await isTeacherOfSection(userId, orgId, existing.class_section_id)) && (await userCanInOrg(userId, orgId, "define_curriculum")))) {
       return c.json({ error: "forbidden" }, 403);
     }
 
@@ -542,7 +548,9 @@ export function installPhaseCD(school: Hono): void {
     if (cur.org_id !== orgId) return c.json({ error: "curriculum not in this org" }, 404);
 
     const isAdmin = await hasAdminOrPrincipal(userId, orgId);
-    if (!isAdmin && !(await isTeacherOfSection(userId, orgId, cur.class_section_id))) {
+    // Teacher path also requires the define_curriculum permission —
+    // being the section's teacher is scope, not authority.
+    if (!isAdmin && !((await isTeacherOfSection(userId, orgId, cur.class_section_id)) && (await userCanInOrg(userId, orgId, "define_curriculum")))) {
       return c.json({ error: "forbidden" }, 403);
     }
 
@@ -610,7 +618,9 @@ export function installPhaseCD(school: Hono): void {
     }
 
     const isAdmin = await hasAdminOrPrincipal(userId, orgId);
-    if (!isAdmin && !(await isTeacherOfSection(userId, orgId, cur.class_section_id))) {
+    // Teacher path also requires the define_curriculum permission —
+    // being the section's teacher is scope, not authority.
+    if (!isAdmin && !((await isTeacherOfSection(userId, orgId, cur.class_section_id)) && (await userCanInOrg(userId, orgId, "define_curriculum")))) {
       return c.json({ error: "forbidden" }, 403);
     }
 
@@ -675,7 +685,9 @@ export function installPhaseCD(school: Hono): void {
     }
 
     const isAdmin = await hasAdminOrPrincipal(userId, orgId);
-    if (!isAdmin && !(await isTeacherOfSection(userId, orgId, cur.class_section_id))) {
+    // Teacher path also requires the define_curriculum permission —
+    // being the section's teacher is scope, not authority.
+    if (!isAdmin && !((await isTeacherOfSection(userId, orgId, cur.class_section_id)) && (await userCanInOrg(userId, orgId, "define_curriculum")))) {
       return c.json({ error: "forbidden" }, 403);
     }
 
@@ -717,7 +729,9 @@ export function installPhaseCD(school: Hono): void {
     if (cur.org_id !== orgId) return c.json({ error: "curriculum not in this org" }, 404);
 
     const isAdmin = await hasAdminOrPrincipal(userId, orgId);
-    if (!isAdmin && !(await isTeacherOfSection(userId, orgId, cur.class_section_id))) {
+    // Teacher path also requires the define_curriculum permission —
+    // being the section's teacher is scope, not authority.
+    if (!isAdmin && !((await isTeacherOfSection(userId, orgId, cur.class_section_id)) && (await userCanInOrg(userId, orgId, "define_curriculum")))) {
       return c.json({ error: "forbidden" }, 403);
     }
 
@@ -1147,8 +1161,7 @@ export function installPhaseCD(school: Hono): void {
 
     // Visibility check: staff OR linked parent.
     const allowed =
-      (await hasAdminOrPrincipal(userId, orgId)) ||
-      (await isFinancialStaff(userId, orgId)) ||
+      (await userCanInOrg(userId, orgId, "mark_fees_status")) ||
       (await isParentOfStudent(userId, (fee as any).student_id));
     if (!allowed) return c.json({ error: "forbidden", code: "FORBIDDEN_ROLE" }, 403);
 
@@ -1332,9 +1345,22 @@ ${status === "paid" ? `<div class="stamp">PAID</div>` : ""}
       }
     }
 
-    // Permissions: Admin+ OR class teacher of the audienceSectionId.
+    // Permissions, resolved through the create_forms matrix key:
+    //   - admin/principal: any audience (short-circuit inside userCanInOrg)
+    //   - non-teaching roles with create_forms (office_staff by default):
+    //     any audience — they act org-wide
+    //   - teaching roles with create_forms (class_teacher by default):
+    //     restricted to their own section's audience
+    //   - roles without create_forms (visiting_teacher, financial_staff):
+    //     403 even for their own section — matrix wins over section scope
+    if (!(await userCanInOrg(userId, orgId, "create_forms"))) {
+      return c.json({ error: "forbidden", code: "FORBIDDEN_PERMISSION" }, 403);
+    }
     const isAdmin = await hasAdminOrPrincipal(userId, orgId);
-    if (!isAdmin) {
+    const callerRoles = await getOrgRoles(userId, orgId);
+    const TEACHING_ROLES = new Set(["class_teacher", "visiting_teacher", "teacher"]);
+    const orgWideForms = isAdmin || callerRoles.some((r) => !TEACHING_ROLES.has(r));
+    if (!orgWideForms) {
       if (body.audienceKind !== "class_section") {
         return c.json({ error: "forbidden" }, 403);
       }

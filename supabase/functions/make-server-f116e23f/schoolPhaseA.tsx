@@ -1412,7 +1412,7 @@ export function installPhaseA(school: Hono) {
   school.post("/orgs/:orgId/parents", async (c) => {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
-    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    if (!(await userCanInOrg(userId, orgId, "manage_students"))) return c.json({ error: "forbidden" }, 403);
     let body: any;
     try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
     const v = validParentRow(body, 0);
@@ -1511,7 +1511,7 @@ export function installPhaseA(school: Hono) {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
     const parentId = c.req.param("parentId");
-    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    if (!(await userCanInOrg(userId, orgId, "manage_students"))) return c.json({ error: "forbidden" }, 403);
     let body: any;
     try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
     const map: Record<string, string> = {
@@ -1536,7 +1536,7 @@ export function installPhaseA(school: Hono) {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
     const parentId = c.req.param("parentId");
-    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    if (!(await userCanInOrg(userId, orgId, "manage_students"))) return c.json({ error: "forbidden" }, 403);
     const { error } = await serviceRoleClient
       .from("parent").delete().eq("id", parentId).eq("org_id", orgId);
     if (error) return c.json({ error: error.message }, 500);
@@ -1546,7 +1546,7 @@ export function installPhaseA(school: Hono) {
   school.post("/orgs/:orgId/parents/bulk", async (c) => {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
-    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    if (!(await userCanInOrg(userId, orgId, "manage_students"))) return c.json({ error: "forbidden" }, 403);
     let body: any;
     try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
     if (!Array.isArray(body?.rows)) return c.json({ error: "rows[] required" }, 400);
@@ -1628,7 +1628,7 @@ export function installPhaseA(school: Hono) {
   school.post("/orgs/:orgId/student-parent", async (c) => {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
-    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    if (!(await userCanInOrg(userId, orgId, "manage_students"))) return c.json({ error: "forbidden" }, 403);
     let body: any;
     try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
     if (!body?.studentId || !body?.parentId) return c.json({ error: "studentId and parentId required" }, 400);
@@ -1653,7 +1653,7 @@ export function installPhaseA(school: Hono) {
   school.delete("/orgs/:orgId/student-parent/:studentId/:parentId", async (c) => {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
-    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    if (!(await userCanInOrg(userId, orgId, "manage_students"))) return c.json({ error: "forbidden" }, 403);
     const studentId = c.req.param("studentId");
     const parentId = c.req.param("parentId");
     const { error } = await serviceRoleClient
@@ -1863,7 +1863,7 @@ export function installPhaseA(school: Hono) {
     const callerId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
     const targetUserId = c.req.param("userId");
-    if (!(await requireAdminOrPrincipal(callerId, orgId))) {
+    if (!(await userCanInOrg(callerId, orgId, "manage_teachers"))) {
       return c.json({ error: "forbidden" }, 403);
     }
     if (targetUserId === callerId) {
@@ -1939,7 +1939,7 @@ export function installPhaseA(school: Hono) {
   school.post("/orgs/:orgId/teachers", async (c) => {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
-    if (!(await requireAdminOrPrincipal(userId, orgId))) {
+    if (!(await userCanInOrg(userId, orgId, "manage_teachers"))) {
       return c.json({ error: "forbidden" }, 403);
     }
     let body: any;
@@ -2098,7 +2098,7 @@ export function installPhaseA(school: Hono) {
   school.post("/orgs/:orgId/teachers/bulk", async (c) => {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
-    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    if (!(await userCanInOrg(userId, orgId, "manage_teachers"))) return c.json({ error: "forbidden" }, 403);
     let body: any;
     try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
     if (!Array.isArray(body?.rows)) return c.json({ error: "rows[] required" }, 400);
@@ -2300,8 +2300,8 @@ export function installPhaseA(school: Hono) {
     const callerId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
     const targetUserId = c.req.param("userId");
-    if (!(await requireAdminOrPrincipal(callerId, orgId))) {
-      return c.json({ error: "forbidden", code: "FORBIDDEN_ROLE" }, 403);
+    if (!(await userCanInOrg(callerId, orgId, "manage_teachers"))) {
+      return c.json({ error: "forbidden", code: "FORBIDDEN_PERMISSION" }, 403);
     }
 
     // Confirm target actually has a non-revoked role in this org. Without
@@ -2445,7 +2445,7 @@ export function installPhaseA(school: Hono) {
   school.post("/orgs/:orgId/pin/set", async (c) => {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
-    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    if (!(await userCanInOrg(userId, orgId, "manage_students"))) return c.json({ error: "forbidden" }, 403);
     let body: any;
     try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
     const { subjectType, subjectId, pin } = body || {};
@@ -2501,7 +2501,7 @@ export function installPhaseA(school: Hono) {
   school.post("/orgs/:orgId/pin/reset", async (c) => {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
-    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    if (!(await userCanInOrg(userId, orgId, "manage_students"))) return c.json({ error: "forbidden" }, 403);
     let body: any;
     try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
     const { subjectType, subjectId } = body || {};
@@ -2766,7 +2766,7 @@ export function installPhaseA(school: Hono) {
   school.post("/orgs/:orgId/link-codes", async (c) => {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
-    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    if (!(await userCanInOrg(userId, orgId, "manage_students"))) return c.json({ error: "forbidden" }, 403);
     let body: any;
     try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
     if (!body?.studentId) return c.json({ error: "studentId required" }, 400);

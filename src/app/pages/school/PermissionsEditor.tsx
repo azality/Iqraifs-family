@@ -100,8 +100,15 @@ export function PermissionsEditor() {
     return map;
   }, [rows]);
 
+  // view_all_classes is hidden until an endpoint actually enforces it —
+  // showing a toggle that does nothing erodes trust in the whole matrix.
+  // Re-add to the editor when read-scoping lands.
+  const HIDDEN_KEYS = new Set(["view_all_classes"]);
   const permissionKeys = useMemo(
-    () => Array.from(new Set(rows.map((r) => r.permissionKey))).sort(),
+    () =>
+      Array.from(new Set(rows.map((r) => r.permissionKey)))
+        .filter((k) => !HIDDEN_KEYS.has(k))
+        .sort(),
     [rows],
   );
 
