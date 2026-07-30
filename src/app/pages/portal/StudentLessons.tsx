@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { Video, Headphones, Paperclip, CheckCircle2, Circle, BookOpen, ListChecks } from "lucide-react";
 import { HeroCard, cardBase, cardElev } from "../../components/school-ui";
 import { usePinAuth } from "../../contexts/PinAuthContext";
@@ -25,6 +26,7 @@ function todayIso(): string {
 }
 
 export function StudentLessons() {
+  const { t } = useTranslation();
   const { studentId = "" } = useParams<{ studentId: string }>();
   const { subject } = usePinAuth();
   const isStudent = subject?.subjectType === "student";
@@ -96,7 +98,7 @@ export function StudentLessons() {
         setCompletion((s) => ({ ...s, [lessonId]: r.completedAt }));
       }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to update");
+      toast.error(t("portal.updateFailed"));
     } finally {
       setPending((s) => {
         const next = new Set(s);
