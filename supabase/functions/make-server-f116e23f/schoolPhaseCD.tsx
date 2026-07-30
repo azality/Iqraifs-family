@@ -22,7 +22,14 @@ import { verifyPinToken } from "./schoolPhaseA.tsx";
 import { todayInOrgTz } from "./tz.ts";
 // PR K: migrate fee + grade gates from hasAdminOrPrincipal to userCanInOrg
 // so financial_staff / class_teacher can act per their permission template.
-import { userCanInOrg, getOrgRoles, userHasRoleRow, hasAdminOrPrincipal, hasAnyRoleInOrg } from "./schoolAuth.ts";
+import {
+  userCanInOrg,
+  getOrgRoles,
+  hasAdminOrPrincipal,
+  hasAnyRoleInOrg,
+  loadSection,
+  isTeacherOfSection,
+} from "./schoolAuth.ts";
 
 /** PR D: receipt visibility — financial_staff can view/print receipts. */
 /** PR D: receipt visibility — parent linked to this student can view/print
@@ -37,46 +44,6 @@ async function isParentOfStudent(userId: string, studentId: string): Promise<boo
     .eq("student_id", studentId)
     .maybeSingle();
   return !!data;
-}
-
-async function loadSection(sectionId: string): Promise<
-  | { id: string; class_id: string; class_teacher_user_id: string | null; org_id: string }
-  | null
-> {
-  const { data, error } = await serviceRoleClient
-    .from("class_section")
-    .select("id, class_id, class_teacher_user_id, class:class_id(org_id)")
-    .eq("id", sectionId)
-    .maybeSingle();
-  if (error) {
-    console.error("[schoolPhaseCD.loadSection] DB error:", error);
-    return null;
-  }
-  if (!data) return null;
-  const orgId = (data as any).class?.org_id ?? null;
-  if (!orgId) return null;
-  return {
-    id: (data as any).id,
-    class_id: (data as any).class_id,
-    class_teacher_user_id: (data as any).class_teacher_user_id ?? null,
-    org_id: orgId,
-  };
-}
-
-async function isTeacherOfSection(
-  userId: string,
-  orgId: string,
-  sectionId: string,
-): Promise<boolean> {
-  const { data: sec } = await serviceRoleClient
-    .from("class_section")
-    .select("class_teacher_user_id")
-    .eq("id", sectionId)
-    .maybeSingle();
-  if (sec?.class_teacher_user_id === userId) return true;
-  if (await userHasRoleRow(userId, "visiting_teacher", "class", sectionId)) return true;
-  if (await userHasRoleRow(userId, "visiting_teacher", "organization", orgId)) return true;
-  return false;
 }
 
 // -----------------------------------------------------------------------------

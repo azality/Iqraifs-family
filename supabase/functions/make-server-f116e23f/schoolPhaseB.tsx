@@ -32,90 +32,19 @@ import {
   createImportBatch,
   finalizeImportBatch,
 } from "./middleware.tsx";
-import { userCanInOrg, userHasRoleRow, hasAdminOrPrincipal, hasAnyRoleInOrg } from "./schoolAuth.ts";
+import {
+  userCanInOrg,
+  hasAdminOrPrincipal,
+  hasAnyRoleInOrg,
+  loadSection,
+  requireTeacherOfSection,
+} from "./schoolAuth.ts";
 
-
-
-
-// Loads the section row including the parent class for org-membership checks.
-async function loadSection(sectionId: string): Promise<
-  | {
-      id: string;
-      class_id: string;
-      class_teacher_user_id: string | null;
-      org_id: string;
-    }
-  | null
-> {
-  const { data, error } = await serviceRoleClient
-    .from("class_section")
-    .select("id, class_id, class_teacher_user_id, class:class_id(org_id)")
-    .eq("id", sectionId)
-    .maybeSingle();
-  if (error) {
-    console.error("[schoolPhaseB.loadSection] DB error:", error);
-    return null;
-  }
-  if (!data) return null;
-  const orgId = (data as any).class?.org_id ?? null;
-  if (!orgId) return null;
-  return {
-    id: (data as any).id,
-    class_id: (data as any).class_id,
-    class_teacher_user_id: (data as any).class_teacher_user_id ?? null,
-    org_id: orgId,
-  };
-}
-
-// Caller passes this when they need teacher-of-section access (or higher).
-// Permits: admin/principal of the org, the section's class_teacher_user_id,
-// or a user with a visiting_teacher row scoped to this section (scope_type=
-// 'class', scope_id=sectionId).  If no section-scoped visiting_teacher row
-// exists, falls back to org-level visiting_teacher (matching Phase A
-// permission-toggle gating pattern).
-async function requireTeacherOfSection(
-  userId: string,
-  orgId: string,
-  sectionId: string,
-  expectedSectionOrgId: string,
-): Promise<{ ok: true } | { ok: false; status: 403 | 404; error: string }> {
-  if (expectedSectionOrgId !== orgId) {
-    return { ok: false, status: 404, error: "section not in this org" };
-  }
-  if (await hasAdminOrPrincipal(userId, orgId)) return { ok: true };
-
-  // PR C #6 (updated post-refactor): office_staff can take attendance when
-  // the class teacher is absent. The old code hardcoded the grant because
-  // "we don't read that map here" — the map is now the single source
-  // (rolePermissions.ts, office_staff.mark_attendance defaults true) and
-  // userCanInOrg reads it WITH per-org overrides, so a principal who
-  // revokes mark_attendance from office_staff is finally honored.
-  if (
-    (await userHasRoleRow(userId, "office_staff", "organization", orgId)) &&
-    (await userCanInOrg(userId, orgId, "mark_attendance"))
-  ) {
-    return { ok: true };
-  }
-
-  // Class teacher of this section?
-  const { data: sec, error: secErr } = await serviceRoleClient
-    .from("class_section")
-    .select("class_teacher_user_id")
-    .eq("id", sectionId)
-    .maybeSingle();
-  if (secErr) return { ok: false, status: 403, error: "forbidden" };
-  if (sec?.class_teacher_user_id === userId) return { ok: true };
-
-  // Visiting teacher scoped to this section.
-  if (await userHasRoleRow(userId, "visiting_teacher", "class", sectionId)) {
-    return { ok: true };
-  }
-  // Fallback: org-level visiting_teacher.
-  if (await userHasRoleRow(userId, "visiting_teacher", "organization", orgId)) {
-    return { ok: true };
-  }
-  return { ok: false, status: 403, error: "forbidden" };
-}
+// Section-scope gating lives in schoolAuth.ts (requireTeacherOfSection /
+// loadSection). Phase B passes { allowOfficeStaffWith: "mark_attendance" }
+// so office_staff can cover daily ops for an absent class teacher (PR C #6),
+// honoring per-org permission overrides via userCanInOrg.
+const PHASE_B_GATE_OPTS = { allowOfficeStaffWith: "mark_attendance" as const };
 
 // -----------------------------------------------------------------------------
 // Validation helpers
@@ -254,7 +183,7 @@ export function installPhaseB(school: Hono): void {
     const section = await loadSection(sectionId);
     if (!section) return c.json({ error: "section not found" }, 404);
 
-    const gate = await requireTeacherOfSection(userId, orgId, sectionId, section.org_id);
+    const gate = await requireTeacherOfSection(userId, orgId, sectionId, PHASE_B_GATE_OPTS);
     if (!gate.ok) return c.json({ error: gate.error }, gate.status);
 
     // Best-effort sequential upsert. We need to know if each row was new or
@@ -437,7 +366,7 @@ export function installPhaseB(school: Hono): void {
     const section = await loadSection(sectionId);
     if (!section) return c.json({ error: "section not found" }, 404);
 
-    const gate = await requireTeacherOfSection(userId, orgId, sectionId, section.org_id);
+    const gate = await requireTeacherOfSection(userId, orgId, sectionId, PHASE_B_GATE_OPTS);
     if (!gate.ok) return c.json({ error: gate.error }, gate.status);
 
     let q = serviceRoleClient
@@ -537,7 +466,7 @@ export function installPhaseB(school: Hono): void {
     // behavior notes written by admin/principal.
     let allowed = await hasAdminOrPrincipal(userId, orgId);
     if (!allowed && stu.class_section_id) {
-      const gate = await requireTeacherOfSection(userId, orgId, stu.class_section_id, orgId);
+      const gate = await requireTeacherOfSection(userId, orgId, stu.class_section_id, PHASE_B_GATE_OPTS);
       allowed = gate.ok;
     }
     if (!allowed) return c.json({ error: "forbidden" }, 403);
@@ -647,7 +576,7 @@ export function installPhaseB(school: Hono): void {
     const section = await loadSection(sectionId);
     if (!section) return c.json({ error: "section not found" }, 404);
 
-    const gate = await requireTeacherOfSection(userId, orgId, sectionId, section.org_id);
+    const gate = await requireTeacherOfSection(userId, orgId, sectionId, PHASE_B_GATE_OPTS);
     if (!gate.ok) return c.json({ error: gate.error }, gate.status);
 
     let q = serviceRoleClient
@@ -748,7 +677,7 @@ export function installPhaseB(school: Hono): void {
     const section = await loadSection(sectionId);
     if (!section) return c.json({ error: "section not found" }, 404);
 
-    const gate = await requireTeacherOfSection(userId, orgId, sectionId, section.org_id);
+    const gate = await requireTeacherOfSection(userId, orgId, sectionId, PHASE_B_GATE_OPTS);
     if (!gate.ok) return c.json({ error: gate.error }, gate.status);
 
     // If a studentId is supplied confirm it belongs to this org.
@@ -825,7 +754,7 @@ export function installPhaseB(school: Hono): void {
     const section = await loadSection(sectionId);
     if (!section) return c.json({ error: "section not found" }, 404);
 
-    const gate = await requireTeacherOfSection(userId, orgId, sectionId, section.org_id);
+    const gate = await requireTeacherOfSection(userId, orgId, sectionId, PHASE_B_GATE_OPTS);
     if (!gate.ok) return c.json({ error: gate.error }, gate.status);
 
     const { data, error } = await serviceRoleClient

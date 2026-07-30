@@ -26,65 +26,14 @@
 
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
-import { userCanInOrg, userHasRoleRow, hasAdminOrPrincipal, hasAnyRoleInOrg } from "./schoolAuth.ts";
+import {
+  userCanInOrg,
+  hasAdminOrPrincipal,
+  hasAnyRoleInOrg,
+  loadSection,
+  requireTeacherOfSection,
+} from "./schoolAuth.ts";
 import { computeMemorizedTotals } from "./schoolPhaseC.tsx";
-
-async function loadSection(sectionId: string): Promise<
-  | {
-      id: string;
-      class_id: string;
-      class_teacher_user_id: string | null;
-      org_id: string;
-    }
-  | null
-> {
-  const { data, error } = await serviceRoleClient
-    .from("class_section")
-    .select("id, class_id, class_teacher_user_id, class:class_id(org_id)")
-    .eq("id", sectionId)
-    .maybeSingle();
-  if (error) {
-    console.error("[schoolPhaseC2.loadSection] DB error:", error);
-    return null;
-  }
-  if (!data) return null;
-  const orgId = (data as any).class?.org_id ?? null;
-  if (!orgId) return null;
-  return {
-    id: (data as any).id,
-    class_id: (data as any).class_id,
-    class_teacher_user_id: (data as any).class_teacher_user_id ?? null,
-    org_id: orgId,
-  };
-}
-
-async function requireTeacherOfSection(
-  userId: string,
-  orgId: string,
-  sectionId: string,
-  expectedSectionOrgId: string,
-): Promise<{ ok: true } | { ok: false; status: 403 | 404; error: string }> {
-  if (expectedSectionOrgId !== orgId) {
-    return { ok: false, status: 404, error: "section not in this org" };
-  }
-  if (await hasAdminOrPrincipal(userId, orgId)) return { ok: true };
-
-  const { data: sec, error: secErr } = await serviceRoleClient
-    .from("class_section")
-    .select("class_teacher_user_id")
-    .eq("id", sectionId)
-    .maybeSingle();
-  if (secErr) return { ok: false, status: 403, error: "forbidden" };
-  if (sec?.class_teacher_user_id === userId) return { ok: true };
-
-  if (await userHasRoleRow(userId, "visiting_teacher", "class", sectionId)) {
-    return { ok: true };
-  }
-  if (await userHasRoleRow(userId, "visiting_teacher", "organization", orgId)) {
-    return { ok: true };
-  }
-  return { ok: false, status: 403, error: "forbidden" };
-}
 
 // -----------------------------------------------------------------------------
 // Validation
@@ -190,7 +139,7 @@ export function installPhaseC2(school: Hono): void {
     const section = await loadSection(sectionId);
     if (!section) return c.json({ error: "section not found" }, 404);
 
-    const gate = await requireTeacherOfSection(userId, orgId, sectionId, section.org_id);
+    const gate = await requireTeacherOfSection(userId, orgId, sectionId);
     if (!gate.ok) return c.json({ error: gate.error }, gate.status);
 
     // Phase 3 — optional subject + topic. Validates that the subject
@@ -548,7 +497,7 @@ export function installPhaseC2(school: Hono): void {
     const section = await loadSection(assignment.class_section_id);
     if (!section) return c.json({ error: "section not found" }, 404);
 
-    const gate = await requireTeacherOfSection(userId, orgId, assignment.class_section_id, section.org_id);
+    const gate = await requireTeacherOfSection(userId, orgId, assignment.class_section_id);
     if (!gate.ok) return c.json({ error: gate.error }, gate.status);
     // Honor the permission matrix: being the section's (visiting) teacher
     // is necessary but not sufficient — edit_grades must also be granted.
@@ -681,7 +630,7 @@ export function installPhaseC2(school: Hono): void {
     const section = await loadSection(assignment.class_section_id);
     if (!section) return c.json({ error: "section not found" }, 404);
 
-    const gate = await requireTeacherOfSection(userId, orgId, assignment.class_section_id, section.org_id);
+    const gate = await requireTeacherOfSection(userId, orgId, assignment.class_section_id);
     if (!gate.ok) return c.json({ error: gate.error }, gate.status);
     if (!(await userCanInOrg(userId, orgId, "edit_grades"))) {
       return c.json({ error: "forbidden", code: "FORBIDDEN_PERMISSION" }, 403);
@@ -757,7 +706,7 @@ export function installPhaseC2(school: Hono): void {
     const section = await loadSection(assignment.class_section_id);
     if (!section) return c.json({ error: "section not found" }, 404);
 
-    const gate = await requireTeacherOfSection(userId, orgId, assignment.class_section_id, section.org_id);
+    const gate = await requireTeacherOfSection(userId, orgId, assignment.class_section_id);
     if (!gate.ok) return c.json({ error: gate.error }, gate.status);
 
     const { data, error } = await serviceRoleClient
@@ -963,7 +912,7 @@ export function installPhaseC2(school: Hono): void {
     const section = await loadSection(sectionId);
     if (!section) return c.json({ error: "section not found" }, 404);
 
-    const gate = await requireTeacherOfSection(userId, orgId, sectionId, section.org_id);
+    const gate = await requireTeacherOfSection(userId, orgId, sectionId);
     if (!gate.ok) return c.json({ error: gate.error }, gate.status);
 
     // Assignments for the section. Phase 3: pull subject + topic names
@@ -1108,7 +1057,6 @@ export function installPhaseC2(school: Hono): void {
         userId,
         orgId,
         (stu as any).class_section_id,
-        orgId,
       );
       allowed = gate.ok;
       if (!allowed) {
