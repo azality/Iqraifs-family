@@ -119,7 +119,13 @@ export function PortalLayout() {
     // page (/iqra-demo-xxxx) instead of dropping the user at the
     // generic /school-login screen where they'd have to retype the
     // slug. Falls back to /school-login when slug unknown.
-    const slug = subject?.orgSlug;
+    // Smoke-test fix: /pin-me's orgSlug wasn't always populated, dropping
+    // parents on the generic /school-login. The login page now persists
+    // the slug the user signed in with — use it as the fallback.
+    let slug = subject?.orgSlug;
+    if (!slug) {
+      try { slug = window.localStorage.getItem("fgs_portal_slug") || undefined; } catch { /* ignore */ }
+    }
     logout();
     navigate(slug ? `/${slug}` : "/school-login", { replace: true });
   };

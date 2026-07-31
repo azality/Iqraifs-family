@@ -82,12 +82,19 @@ export function PortalHome() {
             const snap = snapshots[s.id];
             const err = errors[s.id];
             return (
-              <Link
+              // The whole card used to be a <Link> with the status pills'
+              // links NESTED inside — invalid HTML that browsers auto-split,
+              // so tapping the card body often did nothing (smoke test).
+              // Now the header row is the drill-in link and the pills row
+              // sits beside it as a sibling.
+              <div
                 key={s.id}
-                to={`/school-portal/students/${s.id}`}
-                className="block bg-white border border-slate-200 rounded-xl shadow-sm hover:border-indigo-300 transition overflow-hidden"
+                className="bg-white border border-slate-200 rounded-xl shadow-sm hover:border-indigo-300 transition overflow-hidden"
               >
-                <div className="p-4 flex items-center gap-4">
+                <Link
+                  to={`/school-portal/students/${s.id}`}
+                  className="p-4 flex items-center gap-4"
+                >
                   {s.photoUrl ? (
                     <img src={s.photoUrl} alt={s.fullName}
                       className="h-14 w-14 rounded-full object-cover" />
@@ -105,7 +112,7 @@ export function PortalHome() {
                     </div>
                   </div>
                   <ChevronRight className="h-5 w-5 text-slate-300 shrink-0" />
-                </div>
+                </Link>
                 <div className="px-4 pb-3">
                   {err ? (
                     // Friendly copy, not the raw error — e.message here is
@@ -122,7 +129,7 @@ export function PortalHome() {
                     />
                   )}
                 </div>
-              </Link>
+              </div>
             );
           })}
         </div>
