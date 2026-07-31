@@ -158,6 +158,16 @@ function DiaryCard({ diary }: { diary: MyStudentDiaryResponse }) {
 }
 
 function relativeTime(iso: string): string {
+  // Date-only values (lesson_date etc.) carry no clock — "Xh ago" math on
+  // them is meaningless (UTC-midnight parsing made same-day events read
+  // as many hours old). Show the day instead.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+    const today = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const todayStr = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+    if (iso === todayStr) return "today";
+    return new Date(`${iso}T00:00:00`).toLocaleDateString();
+  }
   const d = new Date(iso).getTime();
   const diff = Date.now() - d;
   const mins = Math.round(diff / 60000);

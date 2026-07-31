@@ -1447,7 +1447,7 @@ export function installPortal(school: Hono): void {
     {
       const { data: attRecent } = await serviceRoleClient
         .from("school_attendance")
-        .select("id, attendance_date, status")
+        .select("id, attendance_date, status, created_at, updated_at")
         .eq("student_id", studentId)
         .order("attendance_date", { ascending: false })
         .limit(10);
@@ -1455,7 +1455,10 @@ export function installPortal(school: Hono): void {
         const row = r as any;
         activities.push({
           id: row.id,
-          at: row.attendance_date,
+          // Real event timestamp, not the bare attendance_date — feeding
+          // "2026-07-31" into the portal's relative-time formatter showed
+          // "18h ago" for a mark made an hour earlier (smoke test).
+          at: row.updated_at ?? row.created_at ?? row.attendance_date,
           kind: "attendance",
           summary: `Attendance: ${row.status}`,
         });
