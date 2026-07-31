@@ -15,11 +15,15 @@
 
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
-import { Building2, Users, ArrowRight, CheckCircle2, DollarSign, TrendingUp, AlertTriangle } from "lucide-react";
+import { Building2, Users, ArrowRight, CheckCircle2, DollarSign, TrendingUp, AlertTriangle, UserPlus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import { Card, CardContent } from "../../components/ui/card";
+import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
 import {
   getSchoolGroup, getSchoolGroupSnapshot,
-  type SchoolGroupResponse, type SchoolGroupSnapshot,
+  listGroupStaff, grantGroupStaff, revokeGroupStaff,
+  type SchoolGroupResponse, type SchoolGroupSnapshot, type GroupStaffRow,
 } from "../../../utils/schoolApi";
 import { sectionTitleClasses } from "../../components/school-ui";
 
@@ -28,6 +32,58 @@ export function SchoolGroupDashboard() {
   const [group, setGroup] = useState<SchoolGroupResponse | null>(null);
   const [snap, setSnap] = useState<SchoolGroupSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Head-office staff (settings/admin pass). List 403s for anyone
+  // without a group role — we just hide the panel then. Grant/revoke
+  // are group-principal-only server-side; the buttons surface the
+  // backend's message on failure.
+  const [staff, setStaff] = useState<GroupStaffRow[] | null>(null);
+  const [staffForm, setStaffForm] = useState({ email: "", fullName: "", roleType: "admin" as "admin" | "principal" });
+  const [staffBusy, setStaffBusy] = useState(false);
+
+  const reloadStaff = () => {
+    if (!groupId) return;
+    listGroupStaff(groupId)
+      .then((r) => setStaff(r.staff))
+      .catch(() => setStaff(null));
+  };
+  useEffect(reloadStaff, [groupId]);
+
+  const handleGrant = async () => {
+    const email = staffForm.email.trim();
+    if (!email) { toast.error("Email required"); return; }
+    setStaffBusy(true);
+    try {
+      const res = await grantGroupStaff(groupId, {
+        email,
+        fullName: staffForm.fullName.trim() || undefined,
+        roleType: staffForm.roleType,
+      });
+      toast.success(
+        res.wasCreated
+          ? `Account created and head-office ${staffForm.roleType} granted to ${email}. They set a password via "Forgot password".`
+          : `Head-office ${staffForm.roleType} granted to ${email}`,
+      );
+      setStaffForm({ email: "", fullName: "", roleType: "admin" });
+      reloadStaff();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not grant the role.");
+    } finally {
+      setStaffBusy(false);
+    }
+  };
+
+  const handleRevoke = async (row: GroupStaffRow) => {
+    const who = row.fullName || row.email || "this user";
+    if (!confirm(`Revoke ${who}'s head-office ${row.roleType} role? They lose chain-wide access to every campus (campus-level roles are unaffected).`)) return;
+    try {
+      await revokeGroupStaff(groupId, row.userId);
+      toast.success(`Revoked ${who}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not revoke.");
+    }
+    reloadStaff();
+  };
 
   useEffect(() => {
     if (!groupId) return;
@@ -184,6 +240,94 @@ export function SchoolGroupDashboard() {
               </Card>
             </Link>
           ))}
+        </div>
+      )}
+
+      {/* Head-office staff — chain-wide principal/admin roles. Panel is
+          hidden for anyone whose staff-list fetch was denied. */}
+      {staff !== null && (
+        <div className="space-y-3">
+          <h2 className={sectionTitleClasses}>Head-office staff</h2>
+          <Card>
+            <CardContent className="p-0">
+              <ul className="divide-y divide-slate-100">
+                {staff.length === 0 && (
+                  <li className="px-4 py-3 text-sm text-slate-500 italic">
+                    No head-office roles yet.
+                  </li>
+                )}
+                {staff.map((s) => (
+                  <li key={s.roleId} className="flex flex-wrap items-center gap-3 px-4 py-2.5">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium text-slate-900">
+                        {s.fullName ?? s.email ?? s.userId.slice(0, 8)}
+                      </div>
+                      {s.email && s.fullName && (
+                        <div className="text-xs text-slate-500">{s.email}</div>
+                      )}
+                    </div>
+                    <span
+                      className={
+                        "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ring-1 " +
+                        (s.roleType === "principal"
+                          ? "bg-indigo-50 text-indigo-700 ring-indigo-200"
+                          : "bg-slate-100 text-slate-700 ring-slate-200")
+                      }
+                    >
+                      {s.roleType}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleRevoke(s)}
+                      title="Revoke head-office role"
+                    >
+                      <Trash2 className="h-3.5 w-3.5 text-rose-600" />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">
+                Grant head-office role
+              </div>
+              <div className="flex flex-wrap items-end gap-2">
+                <div className="flex-1 min-w-[180px]">
+                  <Input
+                    placeholder="email@school.com"
+                    value={staffForm.email}
+                    onChange={(e) => setStaffForm((f) => ({ ...f, email: e.target.value }))}
+                  />
+                </div>
+                <div className="flex-1 min-w-[140px]">
+                  <Input
+                    placeholder="Full name (new accounts)"
+                    value={staffForm.fullName}
+                    onChange={(e) => setStaffForm((f) => ({ ...f, fullName: e.target.value }))}
+                  />
+                </div>
+                <select
+                  className="rounded-md border border-slate-200 px-3 py-2 text-sm"
+                  value={staffForm.roleType}
+                  onChange={(e) => setStaffForm((f) => ({ ...f, roleType: e.target.value as "admin" | "principal" }))}
+                >
+                  <option value="admin">Head-office admin</option>
+                  <option value="principal">Head-office principal</option>
+                </select>
+                <Button onClick={handleGrant} disabled={staffBusy}>
+                  <UserPlus className="h-3.5 w-3.5 mr-1" />
+                  {staffBusy ? "Granting…" : "Grant"}
+                </Button>
+              </div>
+              <p className="mt-2 text-[11px] text-slate-500">
+                Head-office roles apply across every campus in the chain.
+                Only a head-office principal can grant or revoke them.
+              </p>
+            </CardContent>
+          </Card>
         </div>
       )}
     </div>

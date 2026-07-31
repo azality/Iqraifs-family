@@ -468,4 +468,226 @@ export function installSchoolGroup(school: Hono): void {
       groups: (groups ?? []).map((g: any) => ({ id: g.id, name: g.name, slug: g.slug })),
     });
   });
+
+  // ===========================================================================
+  // Head-office staff management (settings/admin pass — was SQL-only).
+  // Group-scoped role rows (user_roles.scope_type='school_group') grant
+  // chain-wide principal/admin powers on every member campus (see
+  // schoolAuth.hasGroupRoleForOrg / getOrgRoles).
+  //   GET    /school-groups/:groupId/staff            list active group roles
+  //   POST   /school-groups/:groupId/staff            grant by email
+  //   DELETE /school-groups/:groupId/staff/:userId    revoke (soft)
+  // List: any group principal/admin. Grant/revoke: group PRINCIPAL only.
+  // ===========================================================================
+
+  async function hasGroupRoleOf(
+    userId: string,
+    groupId: string,
+    types: string[],
+  ): Promise<boolean> {
+    const { data } = await serviceRoleClient
+      .from("user_roles")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("scope_type", "school_group")
+      .eq("scope_id", groupId)
+      .in("role_type", types)
+      .is("revoked_at", null)
+      .limit(1);
+    return !!(data && data.length > 0);
+  }
+
+  school.get("/school-groups/:groupId/staff", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const groupId = c.req.param("groupId");
+    if (!(await hasGroupRoleOf(userId, groupId, ["principal", "admin"]))) {
+      return c.json({ error: "forbidden", code: "FORBIDDEN_ROLE" }, 403);
+    }
+    const { data: rows, error } = await serviceRoleClient
+      .from("user_roles")
+      .select("id, user_id, role_type, granted_at")
+      .eq("scope_type", "school_group")
+      .eq("scope_id", groupId)
+      .is("revoked_at", null)
+      .order("granted_at", { ascending: true });
+    if (error) return c.json({ error: error.message }, 500);
+
+    // Hydrate email + display name from auth. Small list (head office),
+    // so per-user lookups are fine.
+    const staff = [] as Array<{
+      roleId: string; userId: string; roleType: string;
+      email: string | null; fullName: string | null; grantedAt: string;
+    }>;
+    for (const r of (rows ?? []) as any[]) {
+      let email: string | null = null;
+      let fullName: string | null = null;
+      try {
+        const { data: u } = await serviceRoleClient.auth.admin.getUserById(r.user_id);
+        email = (u?.user as any)?.email ?? null;
+        const um = (u?.user as any)?.user_metadata ?? {};
+        fullName = um.full_name || um.name || null;
+      } catch { /* keep nulls */ }
+      staff.push({
+        roleId: r.id,
+        userId: r.user_id,
+        roleType: r.role_type,
+        email,
+        fullName,
+        grantedAt: r.granted_at,
+      });
+    }
+    return c.json({ staff });
+  });
+
+  school.post("/school-groups/:groupId/staff", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const groupId = c.req.param("groupId");
+    if (!(await hasGroupRoleOf(userId, groupId, ["principal"]))) {
+      return c.json({
+        error: "Only a head-office principal can grant head-office roles.",
+        code: "FORBIDDEN_ROLE",
+      }, 403);
+    }
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    const email = typeof body?.email === "string" ? body.email.trim() : "";
+    const roleType = body?.roleType;
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return c.json({ error: "valid email required" }, 400);
+    }
+    if (!["principal", "admin"].includes(roleType)) {
+      return c.json({ error: "roleType must be principal or admin" }, 400);
+    }
+
+    // Find-or-create the auth user (same pattern as org staff grants).
+    let targetUserId: string | null = null;
+    let wasCreated = false;
+    const { data: listed } = await (serviceRoleClient as any).auth.admin.listUsers({
+      page: 1,
+      perPage: 200,
+    });
+    const existing = (listed?.users ?? []).find(
+      (u: any) => (u.email ?? "").toLowerCase() === email.toLowerCase(),
+    );
+    if (existing) {
+      targetUserId = existing.id;
+    } else {
+      const randomPwd = crypto.randomUUID() + crypto.randomUUID();
+      const { data: created, error } = await (serviceRoleClient as any).auth.admin.createUser({
+        email,
+        password: randomPwd,
+        email_confirm: true,
+        user_metadata: body?.fullName ? { name: body.fullName } : {},
+      });
+      if (error || !created?.user) {
+        return c.json({ error: error?.message ?? "could not create user" }, 500);
+      }
+      targetUserId = created.user.id;
+      wasCreated = true;
+    }
+
+    // Dedupe: one active group role per user per group.
+    const { data: dup } = await serviceRoleClient
+      .from("user_roles")
+      .select("id, role_type")
+      .eq("user_id", targetUserId)
+      .eq("scope_type", "school_group")
+      .eq("scope_id", groupId)
+      .is("revoked_at", null)
+      .limit(1);
+    if (dup && dup.length > 0) {
+      return c.json({
+        error: `This user already holds a head-office ${(dup[0] as any).role_type} role.`,
+      }, 409);
+    }
+
+    // UNIQUE(user_id, role_type, scope_type, scope_id): a previously
+    // revoked identical grant leaves a row behind — un-revoke it instead
+    // of inserting a duplicate.
+    const { data: revoked } = await serviceRoleClient
+      .from("user_roles")
+      .select("id")
+      .eq("user_id", targetUserId)
+      .eq("role_type", roleType)
+      .eq("scope_type", "school_group")
+      .eq("scope_id", groupId)
+      .not("revoked_at", "is", null)
+      .maybeSingle();
+    if (revoked) {
+      const { error: updErr } = await serviceRoleClient
+        .from("user_roles")
+        .update({ revoked_at: null, granted_by: userId, granted_at: new Date().toISOString() })
+        .eq("id", (revoked as any).id);
+      if (updErr) return c.json({ error: updErr.message }, 500);
+      return c.json({ ok: true, roleId: (revoked as any).id, userId: targetUserId, wasCreated });
+    }
+
+    const { data: ins, error: insErr } = await serviceRoleClient
+      .from("user_roles")
+      .insert({
+        user_id: targetUserId,
+        role_type: roleType,
+        scope_type: "school_group",
+        scope_id: groupId,
+        granted_by: userId,
+      })
+      .select("id")
+      .single();
+    if (insErr) return c.json({ error: insErr.message }, 500);
+
+    return c.json({ ok: true, roleId: (ins as any).id, userId: targetUserId, wasCreated });
+  });
+
+  school.delete("/school-groups/:groupId/staff/:targetUserId", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const groupId = c.req.param("groupId");
+    const targetUserId = c.req.param("targetUserId");
+    if (!(await hasGroupRoleOf(userId, groupId, ["principal"]))) {
+      return c.json({
+        error: "Only a head-office principal can revoke head-office roles.",
+        code: "FORBIDDEN_ROLE",
+      }, 403);
+    }
+
+    // Lockout guard: never revoke the last remaining group principal —
+    // the chain would become manageable only via SQL again.
+    const { data: target } = await serviceRoleClient
+      .from("user_roles")
+      .select("id, role_type")
+      .eq("user_id", targetUserId)
+      .eq("scope_type", "school_group")
+      .eq("scope_id", groupId)
+      .is("revoked_at", null);
+    if (!target || target.length === 0) {
+      return c.json({ error: "no active head-office role for that user" }, 404);
+    }
+    if ((target as any[]).some((r) => r.role_type === "principal")) {
+      const { data: principals } = await serviceRoleClient
+        .from("user_roles")
+        .select("user_id")
+        .eq("scope_type", "school_group")
+        .eq("scope_id", groupId)
+        .eq("role_type", "principal")
+        .is("revoked_at", null);
+      const distinct = new Set((principals ?? []).map((r: any) => r.user_id));
+      if (distinct.size <= 1) {
+        return c.json({
+          error: "Cannot revoke the last head-office principal. Grant another principal first.",
+        }, 400);
+      }
+    }
+
+    const { error } = await serviceRoleClient
+      .from("user_roles")
+      .update({ revoked_at: new Date().toISOString() })
+      .eq("user_id", targetUserId)
+      .eq("scope_type", "school_group")
+      .eq("scope_id", groupId)
+      .is("revoked_at", null);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ ok: true });
+  });
 }
