@@ -1300,6 +1300,9 @@ export interface AdminParent {
   phone: string | null;
   email: string | null;
   relationship: string | null;
+  /** Set when this row is an alias of another parent (canonical merge).
+   *  Backend select("*") always returns it; used by the duplicates panel. */
+  canonical_id?: string | null;
   /** Children linked to this parent (from student_parent). Empty array if
    *  none. Each entry includes the section id so the UI can show class. */
   children?: Array<{
@@ -4254,6 +4257,40 @@ export const listStudentTransfers = (
   studentId: string,
 ): Promise<{ transfers: StudentTransferAudit[] }> =>
   apiCall(`/school/students/${studentId}/transfers`);
+
+// ─── Head-office staff (settings/admin pass) ──────────────────────────
+export interface GroupStaffRow {
+  roleId: string;
+  userId: string;
+  roleType: "principal" | "admin";
+  email: string | null;
+  fullName: string | null;
+  grantedAt: string;
+}
+export const listGroupStaff = (groupId: string): Promise<{ staff: GroupStaffRow[] }> =>
+  apiCall(`/school/school-groups/${groupId}/staff`);
+export const grantGroupStaff = (
+  groupId: string,
+  body: { email: string; fullName?: string; roleType: "principal" | "admin" },
+): Promise<{ ok: true; userId: string; wasCreated: boolean }> =>
+  apiCall(`/school/school-groups/${groupId}/staff`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+export const revokeGroupStaff = (groupId: string, userId: string): Promise<{ ok: true }> =>
+  apiCall(`/school/school-groups/${groupId}/staff/${userId}`, { method: "DELETE" });
+
+// ─── Parent canonical merge (settings/admin pass) ─────────────────────
+export const linkParentCanonical = (
+  aliasParentId: string,
+  canonicalParentId: string,
+): Promise<{ ok: true; alias: { id: string; name: string }; canonical: { id: string; name: string } }> =>
+  apiCall(`/school/parents/${aliasParentId}/canonical`, {
+    method: "POST",
+    body: JSON.stringify({ canonicalParentId }),
+  });
+export const unlinkParentCanonical = (aliasParentId: string): Promise<{ ok: true }> =>
+  apiCall(`/school/parents/${aliasParentId}/canonical`, { method: "DELETE" });
 
 // =============================================================================
 // Public school site (Phase 1)

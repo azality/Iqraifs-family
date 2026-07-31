@@ -2,7 +2,8 @@
 // link-code generator. Reached from ManageStudents.
 
 import { useEffect, useState } from "react";
-import { Link, Navigate, useParams } from "react-router";
+import { Link, Navigate, useNavigate, useParams } from "react-router";
+import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -16,7 +17,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../../components/ui/dialog";
-import { Users, KeyRound, Plus, Copy, Trash2, Link2, BookMarked, Trophy, ClipboardCheck, Wallet, FileText } from "lucide-react";
+import { Users, KeyRound, Plus, Copy, Trash2, Link2, BookMarked, Trophy, ClipboardCheck, Wallet, FileText, ArrowRightLeft } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import { HeroCard, sectionTitleClasses } from "../../components/school-ui";
 import { HifzLogEntry } from "./HifzLogEntry";
@@ -34,6 +35,9 @@ import {
   setPin,
   resetPin,
   createLinkCode,
+  listClasses,
+  transferStudent,
+  type AdminClass,
   type StudentWithParents,
   type AdminParent,
   type SchoolMeResponse,
@@ -60,6 +64,26 @@ export function StudentDetail() {
   // Link code
   const [codeOpen, setCodeOpen] = useState(false);
   const [generatedCode, setGeneratedCode] = useState<{ code: string; expiresAt: string | null } | null>(null);
+
+  // Transfer-to-sibling-campus dialog (settings/admin pass). Target
+  // campuses = other orgs where the CALLER is admin/principal — the
+  // backend requires admin at both source and target.
+  const navigate = useNavigate();
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [transferOrgId, setTransferOrgId] = useState("");
+  const [transferSectionId, setTransferSectionId] = useState("");
+  const [transferReason, setTransferReason] = useState("");
+  const [transferClasses, setTransferClasses] = useState<AdminClass[]>([]);
+  const [transferBusy, setTransferBusy] = useState(false);
+
+  useEffect(() => {
+    if (!transferOrgId) { setTransferClasses([]); return; }
+    let cancelled = false;
+    listClasses(transferOrgId)
+      .then((cs) => { if (!cancelled) setTransferClasses(cs); })
+      .catch(() => { if (!cancelled) setTransferClasses([]); });
+    return () => { cancelled = true; };
+  }, [transferOrgId]);
 
   // Hifz logger
   const [hifzOpen, setHifzOpen] = useState(false);
@@ -134,6 +158,45 @@ export function StudentDetail() {
     setCodeOpen(true);
   };
 
+  // Sibling campuses this caller can transfer INTO: other orgs from /me
+  // where they're admin/principal. The backend re-checks both sides and
+  // same-school-group membership, so a non-sibling org in the list just
+  // errors cleanly on submit.
+  const transferTargets =
+    isOrgAdmin(me, orgId)
+      ? (me?.organizations ?? []).filter(
+          (o) => o.id !== orgId && isOrgAdmin(me, o.id),
+        )
+      : [];
+
+  const handleTransfer = async () => {
+    if (!transferOrgId || !transferSectionId) {
+      toast.error("Pick the target campus and section.");
+      return;
+    }
+    const targetName = transferTargets.find((o) => o.id === transferOrgId)?.name ?? "the other campus";
+    if (!confirm(
+      `Transfer ${student?.full_name ?? "this student"} to ${targetName}?\n\n` +
+      `They leave this campus's roster immediately; attendance and records here are preserved for audit.`,
+    )) return;
+    setTransferBusy(true);
+    try {
+      const res = await transferStudent(studentId, {
+        toOrgId: transferOrgId,
+        toSectionId: transferSectionId,
+        reason: transferReason.trim() || undefined,
+      });
+      toast.success(`Transferred to ${targetName}` + (res.warning ? ` (${res.warning})` : ""));
+      setTransferOpen(false);
+      // The student is no longer in this org — back to the roster.
+      navigate(`/school/orgs/${orgId}/admin/students`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Transfer failed.");
+    } finally {
+      setTransferBusy(false);
+    }
+  };
+
   const copy = (s: string) => { void navigator.clipboard.writeText(s); };
 
   return (
@@ -202,6 +265,16 @@ export function StudentDetail() {
               >
                 <Link2 className="h-3.5 w-3.5 mr-1" /> Link code
               </Button>
+              {transferTargets.length > 0 && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 border-white/30 bg-white/5 text-white hover:bg-white/10 hover:text-white"
+                  onClick={() => setTransferOpen(true)}
+                >
+                  <ArrowRightLeft className="h-3.5 w-3.5 mr-1" /> Transfer
+                </Button>
+              )}
             </div>
           </div>
         }
@@ -471,6 +544,69 @@ export function StudentDetail() {
               <Copy className="h-4 w-4 mr-1" /> Copy
             </Button>
             <Button variant="outline" onClick={() => setCodeOpen(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Transfer to sibling campus (settings/admin pass) */}
+      <Dialog open={transferOpen} onOpenChange={setTransferOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Transfer {student?.full_name ?? "student"}</DialogTitle>
+            <DialogDescription>
+              Move this student to a sibling campus in your chain. Their
+              records here stay for audit; the roster spot moves.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>Target campus</Label>
+              <select
+                className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
+                value={transferOrgId}
+                onChange={(e) => { setTransferOrgId(e.target.value); setTransferSectionId(""); }}
+              >
+                <option value="">Choose a campus…</option>
+                {transferTargets.map((o) => (
+                  <option key={o.id} value={o.id}>{o.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Target class & section</Label>
+              <select
+                className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
+                value={transferSectionId}
+                onChange={(e) => setTransferSectionId(e.target.value)}
+                disabled={!transferOrgId}
+              >
+                <option value="">
+                  {transferOrgId
+                    ? transferClasses.length > 0 ? "Choose a section…" : "No sections at that campus"
+                    : "Pick a campus first"}
+                </option>
+                {transferClasses.flatMap((c) =>
+                  (c.sections ?? []).map((s) => (
+                    <option key={s.id} value={s.id}>{c.name} — {s.name}</option>
+                  )),
+                )}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="transfer-reason">Reason (optional)</Label>
+              <Input
+                id="transfer-reason"
+                value={transferReason}
+                onChange={(e) => setTransferReason(e.target.value)}
+                placeholder="e.g. Family moved closer to North campus"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTransferOpen(false)}>Cancel</Button>
+            <Button onClick={handleTransfer} disabled={transferBusy || !transferOrgId || !transferSectionId}>
+              {transferBusy ? "Transferring…" : "Transfer"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -3,6 +3,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
+import { toast } from "sonner";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
@@ -30,6 +31,8 @@ import {
   updateParent,
   deleteParent,
   bulkCreateParents,
+  linkParentCanonical,
+  unlinkParentCanonical,
   type AdminClass,
   type AdminParent,
   type CreateParentBody,
@@ -167,6 +170,39 @@ export function ManageParents() {
     });
   }, [families, search, searchScope, sectionLabel]);
 
+  // ─── Likely-duplicate detection (settings/admin pass) ────────────────
+  // Two UNLINKED parents are a merge candidate when their normalized
+  // phone digits match, or their names match exactly (case-insensitive).
+  // Rows already aliased (canonical_id set) are listed separately with
+  // an Unlink action. Pure client-side — the list is bounded at 500.
+  const duplicatePairs = useMemo(() => {
+    const norm = (s: string | null) => (s ?? "").replace(/\D/g, "");
+    const pairs: Array<{ a: AdminParent; b: AdminParent; why: string }> = [];
+    const seen = new Set<string>();
+    for (let i = 0; i < parents.length; i++) {
+      for (let j = i + 1; j < parents.length; j++) {
+        const a = parents[i], b = parents[j];
+        if (a.canonical_id || b.canonical_id) continue; // already merged
+        const phoneMatch = norm(a.phone).length >= 7 && norm(a.phone) === norm(b.phone);
+        const nameMatch = a.full_name.trim().toLowerCase() === b.full_name.trim().toLowerCase();
+        if (!phoneMatch && !nameMatch) continue;
+        const key = [a.id, b.id].sort().join("|");
+        if (seen.has(key)) continue;
+        seen.add(key);
+        pairs.push({ a, b, why: phoneMatch ? "same phone" : "same name" });
+      }
+    }
+    return pairs;
+  }, [parents]);
+  const aliasedParents = useMemo(
+    () => parents.filter((p) => p.canonical_id),
+    [parents],
+  );
+  const parentById = useMemo(
+    () => new Map(parents.map((p) => [p.id, p])),
+    [parents],
+  );
+
   // Permission-aware gate. isOrgAdmin still short-circuits for
   // principal/admin; other roles resolve through the effective matrix
   // (manage_students) so the Permissions editor's toggles govern this page.
@@ -207,6 +243,34 @@ export function ManageParents() {
     return res;
   };
 
+  // Merge/unlink actions are admin/principal-only (backend enforces the
+  // same); permission-holders like office_staff see the panel read-only.
+  const canMerge = isOrgAdmin(me, orgId);
+  const handleMerge = async (alias: AdminParent, canonical: AdminParent) => {
+    if (!confirm(
+      `Merge "${alias.full_name}" into "${canonical.full_name}"?\n\n` +
+      `A PIN login as either parent will see children of both. ` +
+      `"${canonical.full_name}" becomes the main record.`,
+    )) return;
+    try {
+      await linkParentCanonical(alias.id, canonical.id);
+      toast.success(`Merged ${alias.full_name} into ${canonical.full_name}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not merge.");
+    }
+    refresh();
+  };
+  const handleUnlink = async (alias: AdminParent) => {
+    if (!confirm(`Unlink "${alias.full_name}"? It becomes an independent record again.`)) return;
+    try {
+      await unlinkParentCanonical(alias.id);
+      toast.success(`Unlinked ${alias.full_name}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not unlink.");
+    }
+    refresh();
+  };
+
   return (
     <div className="space-y-4">
       <HeroCard
@@ -230,6 +294,61 @@ export function ManageParents() {
           </div>
         }
       />
+
+      {/* Possible duplicates + existing merges (settings/admin pass). */}
+      {(duplicatePairs.length > 0 || aliasedParents.length > 0) && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 space-y-3">
+          <div className="text-sm font-semibold text-amber-900">
+            Possible duplicate parents
+          </div>
+          {duplicatePairs.length === 0 && (
+            <p className="text-xs text-amber-800">No unmerged duplicates detected.</p>
+          )}
+          {duplicatePairs.map(({ a, b, why }) => (
+            <div
+              key={a.id + b.id}
+              className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm"
+            >
+              <span className="font-medium text-slate-900">{a.full_name}</span>
+              <span className="text-slate-400">↔</span>
+              <span className="font-medium text-slate-900">{b.full_name}</span>
+              <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+                {why}
+              </span>
+              {canMerge && (
+                <span className="ml-auto flex gap-1.5">
+                  <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => handleMerge(b, a)}>
+                    Keep "{a.full_name.split(/\s+/)[0]}"
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => handleMerge(a, b)}>
+                    Keep "{b.full_name.split(/\s+/)[0]}"
+                  </Button>
+                </span>
+              )}
+            </div>
+          ))}
+          {aliasedParents.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="text-xs font-medium text-amber-900">Already merged</div>
+              {aliasedParents.map((p) => {
+                const target = p.canonical_id ? parentById.get(p.canonical_id) : null;
+                return (
+                  <div key={p.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs">
+                    <span className="text-slate-700">{p.full_name}</span>
+                    <span className="text-slate-400">→</span>
+                    <span className="font-medium text-slate-900">{target?.full_name ?? "another campus's record"}</span>
+                    {canMerge && (
+                      <Button variant="ghost" size="sm" className="ml-auto h-6 text-xs text-rose-700" onClick={() => handleUnlink(p)}>
+                        Unlink
+                      </Button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Filter scope chips + search input. Chips narrow which facet
           (parent / student / class) the search matches against. */}
