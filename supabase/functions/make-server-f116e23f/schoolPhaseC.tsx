@@ -1053,7 +1053,15 @@ export function computeMemorizedTotals(
     // trend grid only. Skip them BEFORE the kind check so an accidental
     // "missed memorized" row can't inflate the count.
     if (r.missed) continue;
-    if (r.kind !== "memorized") continue;
+    // Both explicit 'memorized' rows AND daily 'sabaq' entries count:
+    // sabaq IS the newly-memorized portion in the classic sabaq/sabqi/
+    // manzil system, and it's what hifz teachers actually log day-to-day
+    // (demo smoke test: 49 rows, only 4 'memorized' — every student
+    // showed 0 ayahs despite weeks of sabaq). sabqi/manzil/revised/
+    // tested are revision of already-counted material and stay excluded;
+    // ayah-level dedupe below keeps sabaq+memorized overlaps from
+    // double-counting.
+    if (r.kind !== "memorized" && r.kind !== "sabaq") continue;
     surahsWithMem.add(r.surah_number);
     let set = ayahsBySurah.get(r.surah_number);
     if (!set) {
