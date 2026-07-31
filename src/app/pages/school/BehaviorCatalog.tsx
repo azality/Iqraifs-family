@@ -1,296 +1,323 @@
-// Principal-only page for managing the school-wide behavior catalog.
+// Behavior categories — the school-wide list teachers pick from when
+// logging behavior notes (BehaviorLogEntry).
 //
-// Lives at /school/orgs/:orgId/behavior-catalog. Lists positives + concerns
-// separately. "Add behavior" dialog covers both kinds. Inactive items
-// hidden by default with a toggle to show them (since the backend GET
-// already filters to active=true, "show inactive" would need a separate
-// endpoint — deferred; for v1 we just show what's active).
+// REWRITTEN (smoke-test fix): this page used to manage the KV-era
+// trackable_items catalog via the legacy /organizations/:orgId/
+// behavior-catalog endpoints — principal-gated, so the toolbar's admin
+// entry 403'd, and the pilot's actual logging flow never read that list
+// anyway. It now manages the Postgres behavior_category table through
+// the same API BehaviorLogEntry consumes (list/create/update/archive,
+// admin+principal writes). The backend auto-seeds a sensible default
+// set (Adab, Akhlaq, Salah punctuality, …) on first read.
 
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
+import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { Badge } from "../../components/ui/badge";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../../components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
-import { ChevronLeft, Plus, Heart, AlertTriangle, Loader2 } from "lucide-react";
-import { toast } from "sonner";
 import {
-  createBehaviorCatalogItem,
-  getBehaviorCatalog,
-  type BehaviorCatalogItem,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../../components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../../components/ui/select";
+import {
+  ChevronLeft,
+  Plus,
+  Pencil,
+  Archive,
+  ArrowUp,
+  ArrowDown,
+  Heart,
+  AlertTriangle,
+  Loader2,
+} from "lucide-react";
+import { toast } from "sonner";
+import { NoAccessRedirect } from "../../components/school-ui";
+import {
+  getSchoolMe,
+  isOrgAdmin,
+  listBehaviorCategories,
+  createBehaviorCategory,
+  updateBehaviorCategory,
+  archiveBehaviorCategory,
+  type BehaviorCategory,
+  type SchoolMeResponse,
 } from "../../../utils/schoolApi";
 
-// Sensible defaults the principal can override — based on what most
-// Pakistani schools already use informally.
-const POSITIVE_DEFAULTS = [
-  { name: "Helped a classmate", points: 3 },
-  { name: "Volunteered in class", points: 2 },
-  { name: "Came prepared", points: 2 },
-  { name: "Showed good adab", points: 3 },
+const KINDS: Array<{ value: BehaviorCategory["kind"]; label: string }> = [
+  { value: "both", label: "Positive & concern" },
+  { value: "positive", label: "Positive only" },
+  { value: "concern", label: "Concern only" },
 ];
-const NEGATIVE_DEFAULTS = [
-  { name: "Disrupting class", points: -3, tier: "minor" as const },
-  { name: "Not completing homework", points: -2, tier: "minor" as const },
-  { name: "Disrespectful behavior", points: -5, tier: "moderate" as const },
-];
+
+function kindBadge(kind: BehaviorCategory["kind"]) {
+  if (kind === "positive") {
+    return (
+      <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-50">
+        <Heart className="h-3 w-3 mr-1" /> Positive
+      </Badge>
+    );
+  }
+  if (kind === "concern") {
+    return (
+      <Badge className="bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-50">
+        <AlertTriangle className="h-3 w-3 mr-1" /> Concern
+      </Badge>
+    );
+  }
+  return (
+    <Badge className="bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-100">
+      Both
+    </Badge>
+  );
+}
 
 export function BehaviorCatalog() {
   const { orgId = "" } = useParams();
-  const [items, setItems] = useState<BehaviorCatalogItem[]>([]);
+  const [me, setMe] = useState<SchoolMeResponse | null>(null);
+  const [meLoading, setMeLoading] = useState(true);
+  const [items, setItems] = useState<BehaviorCategory[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  // Add dialog state
-  const [addOpen, setAddOpen] = useState(false);
-  const [name, setName] = useState("");
-  const [kind, setKind] = useState<"positive" | "negative">("positive");
-  const [points, setPoints] = useState("3");
-  const [tier, setTier] = useState<"minor" | "moderate" | "major">("minor");
-  const [dedupeMinutes, setDedupeMinutes] = useState("15");
   const [submitting, setSubmitting] = useState(false);
 
+  // Add / edit dialog state. `editing` null = create mode.
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editing, setEditing] = useState<BehaviorCategory | null>(null);
+  const [label, setLabel] = useState("");
+  const [kind, setKind] = useState<BehaviorCategory["kind"]>("both");
+
+  useEffect(() => {
+    getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
+  }, []);
+
   const reload = async () => {
+    if (!orgId) return;
     setLoading(true);
+    setError(null);
     try {
-      const data = await getBehaviorCatalog(orgId);
-      setItems(data);
-    } catch (e: any) {
-      setError(e?.message || "Could not load catalog");
+      const r = await listBehaviorCategories(orgId);
+      setItems([...r.categories].sort((a, b) => a.sortOrder - b.sortOrder));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load categories");
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    if (orgId) reload();
+    void reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId]);
 
-  const resetForm = (newKind?: "positive" | "negative") => {
-    setName("");
-    setKind(newKind ?? "positive");
-    setPoints(newKind === "negative" ? "3" : "3");
-    setTier("minor");
-    setDedupeMinutes("15");
+  if (meLoading) return null;
+  // Toolbar exposes this page in the Admin group (admin + principal).
+  if (!isOrgAdmin(me, orgId)) return <NoAccessRedirect />;
+
+  const openCreate = () => {
+    setEditing(null);
+    setLabel("");
+    setKind("both");
+    setDialogOpen(true);
   };
 
-  const submitAdd = async () => {
-    if (!name.trim()) { toast.error("Name required"); return; }
-    const pts = parseInt(points, 10);
-    if (Number.isNaN(pts) || pts <= 0) {
-      toast.error("Points must be a positive number — the sign is set by kind");
+  const openEdit = (c: BehaviorCategory) => {
+    setEditing(c);
+    setLabel(c.label);
+    setKind(c.kind);
+    setDialogOpen(true);
+  };
+
+  const submit = async () => {
+    const trimmed = label.trim();
+    if (!trimmed) {
+      toast.error("Label required");
       return;
     }
     setSubmitting(true);
     try {
-      await createBehaviorCatalogItem(orgId, {
-        name: name.trim(),
-        kind,
-        points: pts, // backend auto-negates for kind=negative
-        tier: kind === "negative" ? tier : undefined,
-        dedupeWindowMin: kind === "negative" ? parseInt(dedupeMinutes, 10) : undefined,
-      });
-      toast.success(`"${name}" added to catalog`);
-      setAddOpen(false);
-      resetForm();
+      if (editing) {
+        await updateBehaviorCategory(orgId, editing.id, { label: trimmed, kind });
+        toast.success(`Updated "${trimmed}"`);
+      } else {
+        // New entries go to the end of the list.
+        const maxOrder = items.reduce((m, c) => Math.max(m, c.sortOrder), 0);
+        await createBehaviorCategory(orgId, { label: trimmed, kind, sortOrder: maxOrder + 10 });
+        toast.success(`Added "${trimmed}"`);
+      }
+      setDialogOpen(false);
       await reload();
-    } catch (e: any) {
-      toast.error(e?.message || "Could not add behavior");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not save the category.");
     } finally {
       setSubmitting(false);
     }
   };
 
-  const seedDefaults = async () => {
-    setSubmitting(true);
+  const archive = async (c: BehaviorCategory) => {
+    if (!confirm(`Archive "${c.label}"? Teachers will no longer see it when logging behavior. Existing notes keep it.`)) return;
     try {
-      for (const item of POSITIVE_DEFAULTS) {
-        await createBehaviorCatalogItem(orgId, { name: item.name, kind: "positive", points: item.points });
-      }
-      for (const item of NEGATIVE_DEFAULTS) {
-        await createBehaviorCatalogItem(orgId, {
-          name: item.name, kind: "negative", points: Math.abs(item.points), tier: item.tier, dedupeWindowMin: 15,
-        });
-      }
-      toast.success("Default catalog seeded — edit as you like");
-      await reload();
-    } catch (e: any) {
-      toast.error(e?.message || "Could not seed defaults");
-    } finally {
-      setSubmitting(false);
+      await archiveBehaviorCategory(orgId, c.id);
+      toast.success(`Archived "${c.label}"`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not archive the category.");
     }
+    await reload();
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[40vh]">
-        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-      </div>
-    );
-  }
-  if (error) {
-    return <div className="max-w-lg mx-auto mt-12 text-red-600">Error: {error}</div>;
-  }
-
-  const positives = items.filter((i) => i.kind === "positive");
-  const negatives = items.filter((i) => i.kind === "negative");
+  const move = async (idx: number, dir: -1 | 1) => {
+    const j = idx + dir;
+    if (j < 0 || j >= items.length) return;
+    const a = items[idx];
+    const b = items[j];
+    // Swap sort orders; two small PATCHes. Optimistically reorder locally
+    // so the row moves immediately.
+    const next = items.slice();
+    next[idx] = b;
+    next[j] = a;
+    setItems(next);
+    try {
+      await Promise.all([
+        updateBehaviorCategory(orgId, a.id, { sortOrder: b.sortOrder }),
+        updateBehaviorCategory(orgId, b.id, { sortOrder: a.sortOrder }),
+      ]);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not reorder.");
+    }
+    await reload();
+  };
 
   return (
     <div className="space-y-6">
-      <Link to={`/school/orgs/${orgId}`} className="text-sm text-blue-600 hover:underline inline-flex items-center gap-1">
+      <Link
+        to={`/school/orgs/${orgId}/admin`}
+        className="text-sm text-blue-600 hover:underline inline-flex items-center gap-1"
+      >
         <ChevronLeft className="h-3 w-3" />
-        Back to dashboard
+        Admin
       </Link>
 
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold">Behavior catalog</h1>
+          <h1 className="text-2xl font-bold">Behavior categories</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            School-wide list of behaviors teachers can log. You're the only one who can edit this — teachers pick from it.
+            The list teachers pick from when logging behavior notes. A
+            starter set is seeded automatically — rename, reorder, or
+            archive to match your school's language.
           </p>
         </div>
-        <div className="flex gap-2">
-          {items.length === 0 && (
-            <Button onClick={seedDefaults} variant="outline" disabled={submitting}>
-              {submitting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-              Seed defaults
-            </Button>
-          )}
-          <Button onClick={() => { resetForm(); setAddOpen(true); }}>
-            <Plus className="h-4 w-4 mr-2" />
-            Add behavior
-          </Button>
-        </div>
+        <Button onClick={openCreate}>
+          <Plus className="h-4 w-4 mr-2" />
+          Add category
+        </Button>
       </div>
 
-      {items.length === 0 && (
-        <Card className="border-amber-300 bg-amber-50">
-          <CardHeader>
-            <CardTitle className="text-amber-900 text-base">No behaviors yet</CardTitle>
-            <CardDescription className="text-amber-800">
-              Teachers can't log behaviors until at least one is in the catalog.
-              Seed defaults to get started fast, or add custom items.
-            </CardDescription>
-          </CardHeader>
+      {error && (
+        <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>
+      )}
+
+      {loading ? (
+        <div className="flex items-center gap-2 text-sm text-slate-500">
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading categories…
+        </div>
+      ) : items.length === 0 ? (
+        <Card>
+          <CardContent className="p-6 text-sm text-slate-500">
+            No categories yet. Click "Add category" to create the first one.
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardContent className="p-0">
+            <ul className="divide-y divide-slate-100">
+              {items.map((c, idx) => (
+                <li key={c.id} className="flex items-center gap-3 px-4 py-2.5">
+                  <div className="flex flex-col">
+                    <button
+                      type="button"
+                      onClick={() => move(idx, -1)}
+                      disabled={idx === 0}
+                      className="text-slate-400 hover:text-slate-700 disabled:opacity-30"
+                      aria-label={`Move ${c.label} up`}
+                    >
+                      <ArrowUp className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => move(idx, 1)}
+                      disabled={idx === items.length - 1}
+                      className="text-slate-400 hover:text-slate-700 disabled:opacity-30"
+                      aria-label={`Move ${c.label} down`}
+                    >
+                      <ArrowDown className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <span className="flex-1 text-sm font-medium text-slate-900">{c.label}</span>
+                  {kindBadge(c.kind)}
+                  <Button variant="ghost" size="sm" onClick={() => openEdit(c)} title="Edit">
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => archive(c)} title="Archive">
+                    <Archive className="h-3.5 w-3.5 text-slate-500" />
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
         </Card>
       )}
 
-      {/* Positive */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Heart className="h-4 w-4 text-green-600" />
-            Positive ({positives.length})
-          </CardTitle>
-          <CardDescription>
-            Things teachers can recognize. Default points apply on each log.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {positives.length === 0 ? (
-            <p className="text-sm text-muted-foreground italic">No positive behaviors yet.</p>
-          ) : (
-            <div className="grid gap-2 sm:grid-cols-2">
-              {positives.map((item) => (
-                <div key={item.id} className="flex items-center gap-3 p-2.5 border rounded-lg">
-                  <Badge variant="secondary" className="bg-green-100 text-green-800 font-mono">+{item.points}</Badge>
-                  <span className="text-sm font-medium flex-1 truncate">{item.name}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Negative */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <AlertTriangle className="h-4 w-4 text-amber-600" />
-            Concerns ({negatives.length})
-          </CardTitle>
-          <CardDescription>
-            Use sparingly — the audit trail records every entry. Dedupe window prevents accidental repeat-taps.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {negatives.length === 0 ? (
-            <p className="text-sm text-muted-foreground italic">No concerns yet.</p>
-          ) : (
-            <div className="grid gap-2 sm:grid-cols-2">
-              {negatives.map((item) => (
-                <div key={item.id} className="flex items-center gap-3 p-2.5 border rounded-lg">
-                  <Badge variant="secondary" className="bg-red-100 text-red-800 font-mono">{item.points}</Badge>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{item.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {item.tier && <span className="capitalize mr-2">{item.tier}</span>}
-                      {item.dedupe_window_min !== null && <span>· {item.dedupe_window_min}m guard</span>}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Add dialog */}
-      <Dialog open={addOpen} onOpenChange={(o) => { setAddOpen(o); if (!o) resetForm(); }}>
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add a behavior</DialogTitle>
-            <DialogDescription>Will appear in the teacher's "Log behavior" dialog.</DialogDescription>
+            <DialogTitle>{editing ? "Edit category" : "Add category"}</DialogTitle>
+            <DialogDescription>
+              {editing
+                ? "Renames apply going forward; existing notes keep their recorded label."
+                : "Teachers see this label in the behavior log form."}
+            </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3 py-2">
-            <div className="space-y-1">
-              <Label>Kind</Label>
-              <Select value={kind} onValueChange={(v: any) => setKind(v)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="cat-label">Label</Label>
+              <Input
+                id="cat-label"
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                placeholder="e.g. Salah punctuality"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Applies to</Label>
+              <Select value={kind} onValueChange={(v) => setKind(v as BehaviorCategory["kind"])}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="positive">Positive (rewards points)</SelectItem>
-                  <SelectItem value="negative">Concern (deducts points)</SelectItem>
+                  {KINDS.map((k) => (
+                    <SelectItem key={k.value} value={k.value}>{k.label}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="b-name">Name</Label>
-              <Input id="b-name" value={name} onChange={(e) => setName(e.target.value)} placeholder={kind === "positive" ? "Helped a classmate" : "Disrupting class"} autoFocus />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="b-points">
-                Points {kind === "negative" && <span className="text-muted-foreground">(stored negative; just enter the magnitude)</span>}
-              </Label>
-              <Input id="b-points" type="number" min="1" value={points} onChange={(e) => setPoints(e.target.value)} />
-            </div>
-            {kind === "negative" && (
-              <>
-                <div className="space-y-1">
-                  <Label>Severity</Label>
-                  <Select value={tier} onValueChange={(v: any) => setTier(v)}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="minor">Minor</SelectItem>
-                      <SelectItem value="moderate">Moderate</SelectItem>
-                      <SelectItem value="major">Major</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="b-dedupe">Dedupe window (minutes)</Label>
-                  <Input id="b-dedupe" type="number" min="0" value={dedupeMinutes} onChange={(e) => setDedupeMinutes(e.target.value)} />
-                  <p className="text-xs text-muted-foreground">Blocks repeat logs within this window. 15 is sensible — set 0 to disable.</p>
-                </div>
-              </>
-            )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
-            <Button onClick={submitAdd} disabled={submitting || !name.trim()}>
-              {submitting ? "Adding…" : "Add to catalog"}
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+            <Button onClick={submit} disabled={submitting}>
+              {submitting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+              {editing ? "Save" : "Add"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -298,3 +325,5 @@ export function BehaviorCatalog() {
     </div>
   );
 }
+
+export default BehaviorCatalog;
