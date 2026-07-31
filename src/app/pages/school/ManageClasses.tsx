@@ -47,9 +47,11 @@ import {
   Table2,
   ListChecks,
 } from "lucide-react";
+import { useOrgPermissionState } from "./useOrgPermission";
 import {
   getSchoolMe,
   isOrgAdmin,
+  viewerRoleForOrg,
   listClasses,
   adminCreateClass,
   updateClass,
@@ -79,6 +81,14 @@ export function ManageClasses() {
   const [newSectionTeacher, setNewSectionTeacher] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
 
+  // Smoke-test fix: office_staff hold view_all_classes by default and the
+  // toolbar links them here, but the page used to gate on isOrgAdmin only
+  // and bounce them. Permission holders get a read-only view; mutating
+  // controls stay admin/principal-only (canManage).
+  const viewerRole = me ? viewerRoleForOrg(me, orgId) : null;
+  const perm = useOrgPermissionState(orgId, viewerRole, "view_all_classes");
+  const canManage = isOrgAdmin(me, orgId);
+
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
   }, []);
@@ -96,7 +106,10 @@ export function ManageClasses() {
   }, [orgId]);
 
   if (meLoading) return null;
-  if (!isOrgAdmin(me, orgId)) return <NoAccessRedirect />;
+  if (!canManage && !perm.allowed) {
+    if (perm.loading) return null;
+    return <NoAccessRedirect />;
+  }
 
   const handleAddClass = async () => {
     if (!newClassName.trim()) return;
@@ -168,9 +181,11 @@ export function ManageClasses() {
             <Link to={`/school/orgs/${orgId}/admin`}>
               <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">← Admin</Button>
             </Link>
-            <Button onClick={() => setAddOpen(true)} size="sm" className="bg-white text-slate-900 hover:bg-slate-100">
-              <Plus className="h-4 w-4 mr-1" /> Add Class
-            </Button>
+            {canManage && (
+              <Button onClick={() => setAddOpen(true)} size="sm" className="bg-white text-slate-900 hover:bg-slate-100">
+                <Plus className="h-4 w-4 mr-1" /> Add Class
+              </Button>
+            )}
           </div>
         }
       />
@@ -200,14 +215,16 @@ export function ManageClasses() {
                       {cls.sections?.length || 0} section{cls.sections?.length === 1 ? "" : "s"}
                     </span>
                   </button>
-                  <div className="flex gap-1">
-                    <Button variant="ghost" size="sm" onClick={() => { setEditing(cls); setEditName(cls.name); }}>
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => handleDeleteClass(cls)}>
-                      <Trash2 className="h-3.5 w-3.5 text-red-600" />
-                    </Button>
-                  </div>
+                  {canManage && (
+                    <div className="flex gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => { setEditing(cls); setEditName(cls.name); }}>
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => handleDeleteClass(cls)}>
+                        <Trash2 className="h-3.5 w-3.5 text-red-600" />
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </CardHeader>
               {open && (
@@ -227,6 +244,7 @@ export function ManageClasses() {
                     <div key={sec.id} className="flex flex-wrap items-center gap-2 p-2 border border-slate-200 rounded-lg bg-slate-50/50">
                       <span className="text-sm font-medium flex-1 min-w-[80px]">{sec.name}</span>
                       <Select
+                        disabled={!canManage}
                         value={sec.class_teacher_user_id || "__none__"}
                         onValueChange={(v) => handleSectionTeacherChange(sec.id, v === "__none__" ? "" : v)}
                       >
@@ -247,6 +265,7 @@ export function ManageClasses() {
                           POST to /hifz-progress for the section's students
                           even without a class_teacher role. */}
                       <Select
+                        disabled={!canManage}
                         value={(sec.hifz_teacher_user_id as string) || "__none__"}
                         onValueChange={(v) =>
                           updateSection(orgId, sec.id, {
@@ -314,18 +333,22 @@ export function ManageClasses() {
                           </Button>
                         </Link>
                       </div>
-                      <Button variant="ghost" size="sm" onClick={() => handleDeleteSection(sec.id, sec.name)} title="Delete section">
-                        <Trash2 className="h-3.5 w-3.5 text-rose-600" />
-                      </Button>
+                      {canManage && (
+                        <Button variant="ghost" size="sm" onClick={() => handleDeleteSection(sec.id, sec.name)} title="Delete section">
+                          <Trash2 className="h-3.5 w-3.5 text-rose-600" />
+                        </Button>
+                      )}
                     </div>
                   ))}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setSectionDialog({ classId: cls.id })}
-                  >
-                    <Plus className="h-3.5 w-3.5 mr-1" /> Add section
-                  </Button>
+                  {canManage && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setSectionDialog({ classId: cls.id })}
+                    >
+                      <Plus className="h-3.5 w-3.5 mr-1" /> Add section
+                    </Button>
+                  )}
                 </CardContent>
               )}
             </Card>

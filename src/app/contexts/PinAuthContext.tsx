@@ -48,6 +48,11 @@ export function PinAuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (body: PinLoginBody): Promise<PortalMe> => {
     const res = await pinLogin(body);
+    // Remember the school slug the user typed/arrived with so logout can
+    // return to /:slug even if /pin-me's orgSlug is unavailable.
+    try {
+      window.localStorage.setItem("fgs_portal_slug", String(body.orgIdentifier ?? ""));
+    } catch { /* storage unavailable — non-fatal */ }
     setPinToken(res.token, {
       subjectType: res.subjectType,
       subjectId: res.subjectId,

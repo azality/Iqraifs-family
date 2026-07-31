@@ -102,7 +102,11 @@
       "behavior": "رویہ",
       "forms": "فارمز",
       "fees": "فیس",
-      "announcements": "اعلانات"
+      "announcements": "اعلانات",
+      "timetable": "ٹائم ٹیبل",
+      "reportCard": "رپورٹ کارڈ",
+      "teacherComments": "تبصرے",
+      "contactSchool": "اسکول سے رابطہ"
     },
     "tiles": {
       "attendance": "حاضری",

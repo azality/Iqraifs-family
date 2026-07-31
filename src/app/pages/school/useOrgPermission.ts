@@ -72,38 +72,56 @@ export function useOrgPermission(
 /** State-aware variant for page gates: while the matrix fetch is in
  *  flight, `loading` is true and callers should render a placeholder
  *  instead of redirecting — otherwise an office_staff user gets bounced
- *  off a page they're allowed on before the fetch resolves. */
+ *  off a page they're allowed on before the fetch resolves.
+ *
+ *  The state is KEYED to (orgId, viewerRole, key). Effects run after
+ *  render, so when viewerRole changes (null while /me loads →
+ *  "office_staff" once it resolves) there is one render where the
+ *  stored state still belongs to the OLD inputs — and the old
+ *  null-role state was { allowed: false, loading: false }, which page
+ *  gates read as a settled denial and redirected. The July 2026
+ *  production smoke test caught every office/financial staffer being
+ *  bounced off pages the backend allowed. If the stored key doesn't
+ *  match the current inputs, we report loading (or the privileged
+ *  short-circuit) instead of the stale answer. */
 export function useOrgPermissionState(
   orgId: string,
   viewerRole: string | null | undefined,
   key: string,
 ): { allowed: boolean; loading: boolean } {
   const privileged = viewerRole === "principal" || viewerRole === "admin";
-  const [state, setState] = useState<{ allowed: boolean; loading: boolean }>(
-    { allowed: privileged, loading: !privileged },
+  const inputsKey = `${orgId}|${viewerRole ?? ""}|${key}`;
+  const [state, setState] = useState<{ k: string; allowed: boolean; loading: boolean }>(
+    { k: inputsKey, allowed: privileged, loading: !privileged && !!viewerRole && !!orgId },
   );
 
   useEffect(() => {
-    if (!orgId || !viewerRole) { setState({ allowed: false, loading: false }); return; }
+    const k = inputsKey;
+    if (!orgId || !viewerRole) { setState({ k, allowed: false, loading: false }); return; }
     if (viewerRole === "principal" || viewerRole === "admin") {
-      setState({ allowed: true, loading: false });
+      setState({ k, allowed: true, loading: false });
       return;
     }
     let cancelled = false;
-    setState({ allowed: false, loading: true });
+    setState({ k, allowed: false, loading: true });
     fetchMatrix(orgId)
       .then((rows) => {
         if (cancelled) return;
         const row = rows.find(
           (r) => r.roleTemplate === viewerRole && r.permissionKey === key,
         );
-        setState({ allowed: !!row?.allowed, loading: false });
+        setState({ k, allowed: !!row?.allowed, loading: false });
       })
       .catch(() => {
-        if (!cancelled) setState({ allowed: false, loading: false });
+        if (!cancelled) setState({ k, allowed: false, loading: false });
       });
     return () => { cancelled = true; };
-  }, [orgId, viewerRole, key]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inputsKey]);
 
-  return state;
+  // Stored state is for different inputs → don't serve a stale verdict.
+  if (state.k !== inputsKey) {
+    return { allowed: privileged, loading: !privileged && !!viewerRole && !!orgId };
+  }
+  return { allowed: state.allowed, loading: state.loading };
 }

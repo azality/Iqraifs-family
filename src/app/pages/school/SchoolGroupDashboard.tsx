@@ -56,7 +56,13 @@ export function SchoolGroupDashboard() {
       </div>
 
       {error && (
-        <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>
+        <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+          {error}
+          <p className="mt-1 text-xs text-rose-600">
+            The chain dashboard needs a head-office (school-group) role.
+            Campus-level staff manage their own school from its dashboard.
+          </p>
+        </div>
       )}
 
       {snap && (
@@ -113,7 +119,9 @@ export function SchoolGroupDashboard() {
         </div>
       )}
 
-      {!group ? (
+      {/* On error, don't ALSO show a perpetual spinner (smoke-test bug:
+          denied users saw the error banner + "Loading campuses…" forever). */}
+      {error ? null : !group ? (
         <div className="text-sm text-slate-500">Loading campuses…</div>
       ) : group.campuses.length === 0 ? (
         <Card><CardContent className="p-4 text-sm text-slate-500 italic">

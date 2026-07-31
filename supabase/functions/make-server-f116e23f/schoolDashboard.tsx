@@ -694,7 +694,7 @@ export function installDashboard(school: Hono): void {
             ? `Oldest request is ${oldestPendingAgeDays} days old — overdue.`
             : `Oldest request is ${oldestPendingAgeDays} day${oldestPendingAgeDays === 1 ? "" : "s"} old.`,
           actionLabel: "Review requests",
-          actionPath: `/school/approvals`,
+          actionPath: `/school/orgs/${orgId}/admin/roster-requests`,
         });
       }
     } else {
@@ -738,7 +738,7 @@ export function installDashboard(school: Hono): void {
             title: `${label}: attendance ${ss.pct}% (below 75%)`,
             body: `Period attendance is ${ss.pct}% — well below the 75% floor.`,
             actionLabel: "Open section",
-            actionPath: `/school/sections/${ss.section.id}`,
+            actionPath: `/school/orgs/${orgId}/sections/${ss.section.id}`,
           });
         } else if (ss.pct > 0 && ss.pct < 75) {
           alerts.push({
@@ -748,7 +748,7 @@ export function installDashboard(school: Hono): void {
             title: `${label}: attendance ${ss.pct}% (below 75%)`,
             body: `Period attendance is ${ss.pct}% — below the 75% target.`,
             actionLabel: "Open section",
-            actionPath: `/school/sections/${ss.section.id}`,
+            actionPath: `/school/orgs/${orgId}/sections/${ss.section.id}`,
           });
         }
 
@@ -778,7 +778,7 @@ export function installDashboard(school: Hono): void {
               title: `${label}: attendance below threshold for ${streak} consecutive days`,
               body: `Daily attendance has stayed under 75% for ${streak} school day${streak === 1 ? "" : "s"} in a row.`,
               actionLabel: "Open section",
-              actionPath: `/school/sections/${ss.section.id}`,
+              actionPath: `/school/orgs/${orgId}/sections/${ss.section.id}`,
             });
           }
         }
@@ -791,7 +791,7 @@ export function installDashboard(school: Hono): void {
             title: `${label}: ${ss.concerns} concerns this period (above 5)`,
             body: `${ss.concerns} concern notes logged this period — review and follow up.`,
             actionLabel: "Review notes",
-            actionPath: `/school/sections/${ss.section.id}/behavior`,
+            actionPath: `/school/orgs/${orgId}/sections/${ss.section.id}/behavior`,
           });
         } else if (ss.concerns > 5) {
           alerts.push({
@@ -801,7 +801,7 @@ export function installDashboard(school: Hono): void {
             title: `${label}: ${ss.concerns} concerns this period (above 5)`,
             body: `${ss.concerns} concern notes logged this period.`,
             actionLabel: "Review notes",
-            actionPath: `/school/sections/${ss.section.id}/behavior`,
+            actionPath: `/school/orgs/${orgId}/sections/${ss.section.id}/behavior`,
           });
         }
 
@@ -818,7 +818,7 @@ export function installDashboard(school: Hono): void {
             title: `${label}: no attendance recorded in last 3 weekdays`,
             body: `No attendance records for the last 3 school days.`,
             actionLabel: "Take attendance",
-            actionPath: `/school/sections/${ss.section.id}/attendance`,
+            actionPath: `/school/orgs/${orgId}/sections/${ss.section.id}/attendance`,
           });
         }
       }
@@ -837,7 +837,7 @@ export function installDashboard(school: Hono): void {
           title: `Your roster request (${kindLabel}) still pending review (${ageDays} day${ageDays === 1 ? "" : "s"})`,
           body: `Submitted ${ageDays} day${ageDays === 1 ? "" : "s"} ago — awaiting admin decision.`,
           actionLabel: "View request",
-          actionPath: `/school/approvals`,
+          actionPath: `/school/orgs/${orgId}/admin/roster-requests`,
         });
       }
     }
