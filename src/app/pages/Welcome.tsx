@@ -27,6 +27,12 @@ import {
   Menu,
   X,
   ArrowRight,
+  GraduationCap,
+  ClipboardCheck,
+  Languages,
+  FileText,
+  Wallet,
+  ShieldCheck,
 } from 'lucide-react';
 
 // ---- Top Nav ------------------------------------------------------------
@@ -37,6 +43,7 @@ function TopNav() {
     { label: 'Why Iqra', href: '#why' },
     { label: 'How it works', href: '#how' },
     { label: 'Features', href: '#features' },
+    { label: 'For Schools', href: '#schools' },
     { label: 'FAQ', href: '#faq' },
   ];
   const goTo = (hash: string) => {
@@ -266,6 +273,182 @@ function Hero() {
               <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" /> Streak King
             </div>
           </motion.div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ---- Two doors ----------------------------------------------------------
+// iqraifs.com serves two products on one platform: the family system
+// (consumer) and the school system (B2B, piloting with Iqra Islamic
+// Foundation School). This band is the fork in the road — families keep
+// scrolling, school users jump to #schools.
+function TwoDoors() {
+  const goSchools = () => {
+    document.querySelector('#schools')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  const goWhy = () => {
+    document.querySelector('#why')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  return (
+    <section className="relative -mt-8 sm:-mt-12 pb-4 z-10">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6">
+        <div className="grid sm:grid-cols-2 gap-4">
+          <button
+            onClick={goWhy}
+            className="group text-left rounded-2xl border border-blue-100 bg-white p-6 shadow-lg shadow-blue-100/40 transition hover:border-blue-300 hover:shadow-xl"
+          >
+            <div className="flex items-center gap-3">
+              <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white">
+                <Heart className="h-5 w-5" />
+              </div>
+              <div>
+                <div className="font-bold text-gray-900">For Families</div>
+                <div className="text-sm text-gray-500">
+                  Salah, akhlaq &amp; knowledge — a daily practice at home
+                </div>
+              </div>
+              <ArrowRight className="ml-auto h-5 w-5 text-gray-300 transition group-hover:text-blue-600 group-hover:translate-x-0.5" />
+            </div>
+          </button>
+          <button
+            onClick={goSchools}
+            className="group text-left rounded-2xl border border-emerald-100 bg-white p-6 shadow-lg shadow-emerald-100/40 transition hover:border-emerald-300 hover:shadow-xl"
+          >
+            <div className="flex items-center gap-3">
+              <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-600 flex items-center justify-center text-white">
+                <GraduationCap className="h-5 w-5" />
+              </div>
+              <div>
+                <div className="font-bold text-gray-900">For Schools</div>
+                <div className="text-sm text-gray-500">
+                  Attendance, hifz, report cards &amp; a parent portal
+                </div>
+              </div>
+              <ArrowRight className="ml-auto h-5 w-5 text-gray-300 transition group-hover:text-emerald-600 group-hover:translate-x-0.5" />
+            </div>
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ---- For Schools --------------------------------------------------------
+// The school door. Everything listed here is live and was exercised
+// end-to-end in the July 2026 production demo.
+function ForSchools() {
+  const navigate = useNavigate();
+  const [slug, setSlug] = useState('');
+  const goToSchool = () => {
+    const s = slug.trim().toLowerCase().replace(/^\/+|\/+$/g, '');
+    if (s) navigate(`/${s}/login`);
+  };
+
+  const features = [
+    {
+      icon: ClipboardCheck,
+      title: 'Attendance parents see same-day',
+      body: 'One tap per child at roll-call. The mark shows on the parent portal within the minute.',
+    },
+    {
+      icon: BookOpen,
+      title: 'Hifz built in, not bolted on',
+      body: 'Sabaq, sabqi and manzil logging by surah and ayah, hifz groups with their own teachers, and progress parents can follow.',
+    },
+    {
+      icon: Languages,
+      title: 'Parent portal in English & اردو',
+      body: 'Parents and students sign in with a PIN — no app install, no email required. Fully translated, right-to-left.',
+    },
+    {
+      icon: FileText,
+      title: 'Marks, report cards & diary',
+      body: 'Terms, exams and a marks sheet built for speed; printable report cards published per term; a daily class diary pushed to parents.',
+    },
+    {
+      icon: Wallet,
+      title: 'Fees at a glance',
+      body: 'Billing periods, collection dashboards, and per-student statements your finance staff actually use.',
+    },
+    {
+      icon: ShieldCheck,
+      title: 'Roles your school controls',
+      body: 'Principal, admins, class / visiting / hifz teachers, office and finance staff — with per-school permission toggles.',
+    },
+  ];
+
+  return (
+    <section id="schools" className="py-20 sm:py-24 bg-gradient-to-b from-emerald-50/60 to-white">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6">
+        <div className="max-w-2xl">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white border border-emerald-200 text-emerald-700 text-sm mb-5">
+            <GraduationCap className="h-4 w-4" />
+            Iqra for Schools
+          </div>
+          <h2 className="text-3xl sm:text-4xl font-bold tracking-tight text-gray-900">
+            Run your school on Iqra — from roll-call to report cards
+          </h2>
+          <p className="mt-4 text-lg text-gray-600">
+            A school management system built for Islamic schools in Pakistan:
+            Hifz and mainstream classes side by side, an Urdu-first parent
+            portal, and recognition-based motivation — badges and
+            leaderboards, not shopping lists.
+          </p>
+        </div>
+
+        <div className="mt-10 grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+          {features.map((f) => (
+            <div key={f.title} className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+              <div className="h-10 w-10 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center">
+                <f.icon className="h-5 w-5" />
+              </div>
+              <div className="mt-3 font-semibold text-gray-900">{f.title}</div>
+              <p className="mt-1 text-sm text-gray-600">{f.body}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-10 grid lg:grid-cols-2 gap-5">
+          {/* Existing school users — the "find your school" door. */}
+          <div className="rounded-2xl border border-emerald-200 bg-white p-6">
+            <div className="font-semibold text-gray-900">Already use Iqra at your school?</div>
+            <p className="mt-1 text-sm text-gray-600">
+              Staff, parents and students all sign in on your school&rsquo;s own
+              page. Enter your school code — it&rsquo;s on your PIN slip
+              (e.g. <span className="font-mono text-gray-800">iqra-ifs</span>).
+            </p>
+            <div className="mt-3 flex gap-2">
+              <input
+                value={slug}
+                onChange={(e) => setSlug(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') goToSchool(); }}
+                placeholder="your-school-code"
+                className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm font-mono focus:border-emerald-400 focus:outline-none"
+                aria-label="School code"
+              />
+              <Button onClick={goToSchool} className="bg-emerald-600 hover:bg-emerald-700">
+                Go to my school <ArrowRight className="ml-1.5 h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+          {/* Prospective schools. */}
+          <div className="rounded-2xl border border-gray-200 bg-gray-50 p-6">
+            <div className="font-semibold text-gray-900">Want Iqra for your school?</div>
+            <p className="mt-1 text-sm text-gray-600">
+              We onboard schools personally — roster import from Excel,
+              teacher accounts, and parent PINs are set up with you in an
+              afternoon. Currently piloting with schools in Pakistan.
+            </p>
+            <Button
+              variant="outline"
+              className="mt-3"
+              onClick={() => { window.location.href = 'mailto:muneeb@azality.com?subject=Iqra%20for%20our%20school'; }}
+            >
+              Book a walkthrough
+            </Button>
+          </div>
         </div>
       </div>
     </section>
@@ -660,6 +843,12 @@ function Footer() {
             <button onClick={() => navigate('/kid-login-new')} className="text-gray-600 hover:text-gray-900">
               Kid Login
             </button>
+            <button
+              onClick={() => document.querySelector('#schools')?.scrollIntoView({ behavior: 'smooth' })}
+              className="text-gray-600 hover:text-gray-900"
+            >
+              School Sign In
+            </button>
           </div>
         </div>
 
@@ -678,11 +867,13 @@ export function Welcome() {
       <TopNav />
       <main>
         <Hero />
+        <TwoDoors />
         <WhyIqra />
         <HowItWorks />
         <ForParents />
         <ForKids />
         <FeaturesGrid />
+        <ForSchools />
         <FAQ />
         <FinalCTA />
       </main>
