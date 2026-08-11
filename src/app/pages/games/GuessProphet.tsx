@@ -100,6 +100,8 @@ export function GuessProphet() {
         // still a win, still shows the description, but no points.
         if (r.round.pointsSkippedReason === "recent_win_same_prophet") {
           toast.success("Mashallah! You already earned points for this Prophet this week — try a different one for more points.");
+        } else if (r.round.pointsSkippedReason === "daily_points_cap") {
+          toast.success("Mashallah, correct! You've already earned today's Prophet points — come back tomorrow to earn more.");
         } else {
           toast.success(`🎉 +${r.round.pointsAwarded} points! Mashallah!`);
         }
@@ -401,6 +403,13 @@ export function GuessProphet() {
               {round.status === "won" && round.pointsSkippedReason === "recent_win_same_prophet" && (
                 <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                   You already earned points for this Prophet in the last week — great memory! Guess a different Prophet next round to earn points again.
+                </div>
+              )}
+              {round.status === "won" && round.pointsSkippedReason === "daily_points_cap" && (
+                <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  Correct — Mashallah! You've already earned your Prophet
+                  points for today. Keep playing to learn, and come back
+                  tomorrow to earn points again.
                 </div>
               )}
               {/* Learn-about-the-Prophet card — shows whether kid won or

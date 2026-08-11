@@ -63,7 +63,7 @@ export interface RoundShape {
   prophetOrder?: string[] | null;
   // Populated on a won round when the same Prophet was already won in
   // the last week — points intentionally skipped.
-  pointsSkippedReason?: "recent_win_same_prophet" | null;
+  pointsSkippedReason?: "recent_win_same_prophet" | "daily_points_cap" | null;
 }
 
 export interface WeeklyProgress {

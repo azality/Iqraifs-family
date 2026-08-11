@@ -13,6 +13,7 @@
 import { Hono } from "npm:hono";
 import * as kv from "./kv_store.tsx";
 import { requireAuth, getAuthUserId, serviceRoleClient } from "./middleware.tsx";
+import { getDateInTimezone } from "./timezoneUtils.ts";
 import {
   PROPHETS, PROPHETS_BY_ID, QUESTIONS, QUESTIONS_BY_ID, QUESTION_CATEGORIES,
   answerQuestion,
@@ -85,7 +86,7 @@ interface Round {
   // already won on this Prophet within POINTS_COOLDOWN_DAYS. The round
   // still counts as won; pointsAwarded is 0 and the client shows a
   // "no points this time — try a different Prophet" message.
-  pointsSkippedReason?: "recent_win_same_prophet";
+  pointsSkippedReason?: "recent_win_same_prophet" | "daily_points_cap";
 }
 
 function roundKey(roundId: string) { return `prophet-round:${roundId}`; }
@@ -190,6 +191,35 @@ async function recentlyWonOnProphet(childId: string, prophetId: string): Promise
     if (!r.pointsAwarded || r.pointsAwarded <= 0) continue;
     const endedAt = r.endedAt ? new Date(r.endedAt).getTime() : 0;
     if (endedAt >= cutoff) return true;
+  }
+  return false;
+}
+
+// Daily points cap (parent rule, July 2026): the kid can PLAY as many
+// rounds as they like, but only the FIRST correct guess of the day earns
+// points. The per-prophet weekly cooldown alone had a farming loophole —
+// a different Prophet every round meant points every round. "Day" is the
+// family's calendar day (family.timezone), matching prayer logging.
+async function earnedPointsToday(childId: string): Promise<boolean> {
+  let tz = "UTC";
+  try {
+    const child = await kv.get(childId);
+    const family = child?.familyId ? await kv.get(child.familyId) : null;
+    if (family?.timezone) tz = family.timezone;
+  } catch (_err) { /* fall back to UTC */ }
+  const today = getDateInTimezone(new Date(), tz);
+
+  const ids: string[] = (await kv.get(indexKey(childId))) ?? [];
+  const recent = await Promise.all(
+    ids.slice(0, 20).map((rid) => kv.get(roundKey(rid)).catch(() => null)),
+  );
+  for (const r of recent) {
+    if (!r || r.childId !== childId) continue;
+    if (r.status !== "won") continue;
+    if ((r as any).voided) continue;
+    if (!r.pointsAwarded || r.pointsAwarded <= 0) continue;
+    if (!r.endedAt) continue;
+    if (getDateInTimezone(new Date(r.endedAt), tz) === today) return true;
   }
   return false;
 }
@@ -499,9 +529,15 @@ app.post("/:roundId/guess", async (c) => {
     // edge race, whatever), we don't credit points twice — keeps the
     // game about learning, not point farming.
     const onCooldown = await recentlyWonOnProphet(r.childId!, round.prophetId);
+    const cappedToday = !onCooldown && (await earnedPointsToday(r.childId!));
     if (onCooldown) {
       round.pointsAwarded = 0;
       round.pointsSkippedReason = "recent_win_same_prophet";
+    } else if (cappedToday) {
+      // One points-award per day. Still a win, still shows the Prophet's
+      // story — learning stays unlimited, points don't.
+      round.pointsAwarded = 0;
+      round.pointsSkippedReason = "daily_points_cap";
     } else {
       // Resolve points-per-win from family game settings at win time, so
       // a parent who tunes the value while a round is in progress sees
