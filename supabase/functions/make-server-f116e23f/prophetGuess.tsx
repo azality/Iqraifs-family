@@ -91,6 +91,10 @@ interface Round {
 
 function roundKey(roundId: string) { return `prophet-round:${roundId}`; }
 function indexKey(childId: string) { return `prophet-rounds-by-child:${childId}`; }
+// Daily points-award marker — written when a round awards points, read by
+// the daily cap. One key per child holding the family-tz date of the last
+// award; airtight regardless of how many rounds the kid plays in a day.
+function dailyAwardKey(childId: string) { return `prophet-daily-award:${childId}`; }
 
 // Return the redacted round shape sent to the client during play —
 // the chosen prophet stays hidden until status flips to won/lost.
@@ -171,11 +175,10 @@ async function pointsCooldownSnapshot(childId: string): Promise<{
 async function recentlyWonOnProphet(childId: string, prophetId: string): Promise<boolean> {
   const ids: string[] = (await kv.get(indexKey(childId))) ?? [];
   const cutoff = Date.now() - POINTS_COOLDOWN_DAYS * 24 * 60 * 60 * 1000;
-  // Only need to look at the most recent handful — the index is
-  // newest-first. Loading in parallel keeps this a single sequential
-  // KV round-trip for the batch.
+  // Scan the full retained index (same reasoning as earnedPointsToday:
+  // a heavy player can push relevant rounds past a short window).
   const recent = await Promise.all(
-    ids.slice(0, 20).map((rid) => kv.get(roundKey(rid)).catch(() => null)),
+    ids.slice(0, ROUNDS_INDEX_CAP).map((rid) => kv.get(roundKey(rid)).catch(() => null)),
   );
   for (const r of recent) {
     if (!r) continue;
@@ -200,18 +203,33 @@ async function recentlyWonOnProphet(childId: string, prophetId: string): Promise
 // points. The per-prophet weekly cooldown alone had a farming loophole —
 // a different Prophet every round meant points every round. "Day" is the
 // family's calendar day (family.timezone), matching prayer logging.
-async function earnedPointsToday(childId: string): Promise<boolean> {
-  let tz = "UTC";
+async function familyTimezoneFor(childId: string): Promise<string> {
   try {
     const child = await kv.get(childId);
     const family = child?.familyId ? await kv.get(child.familyId) : null;
-    if (family?.timezone) tz = family.timezone;
-  } catch (_err) { /* fall back to UTC */ }
+    if (family?.timezone) return family.timezone;
+  } catch (_err) { /* fall back */ }
+  return "UTC";
+}
+
+async function earnedPointsToday(childId: string): Promise<boolean> {
+  const tz = await familyTimezoneFor(childId);
   const today = getDateInTimezone(new Date(), tz);
 
+  // Primary: the daily-award marker. O(1), can't be pushed out of a
+  // scan window no matter how many rounds are played.
+  try {
+    const marker = await kv.get(dailyAwardKey(childId));
+    if (marker?.date === today) return true;
+  } catch (_err) { /* fall through to history scan */ }
+
+  // Fallback: scan the FULL retained round index. Covers awards made
+  // before the marker existed (deploy transition) and any marker-write
+  // failure. Real data showed 37 rounds in one day — a short scan
+  // window would let the awarding round slide out and reopen the cap.
   const ids: string[] = (await kv.get(indexKey(childId))) ?? [];
   const recent = await Promise.all(
-    ids.slice(0, 20).map((rid) => kv.get(roundKey(rid)).catch(() => null)),
+    ids.slice(0, ROUNDS_INDEX_CAP).map((rid) => kv.get(roundKey(rid)).catch(() => null)),
   );
   for (const r of recent) {
     if (!r || r.childId !== childId) continue;
@@ -544,6 +562,15 @@ app.post("/:roundId/guess", async (c) => {
       // the new amount honored.
       const pointsAward = await pointsPerWinFor(r.childId!);
       round.pointsAwarded = pointsAward;
+      // Stamp the daily-award marker so today's cap holds no matter how
+      // many rounds follow (see earnedPointsToday).
+      try {
+        const tz = await familyTimezoneFor(r.childId!);
+        await kv.set(dailyAwardKey(r.childId!), {
+          date: getDateInTimezone(new Date(), tz),
+          roundId: round.id,
+        });
+      } catch (_err) { /* fallback history scan still covers it */ }
       const userId = getAuthUserId(c);
       await awardPoints({
         childId: r.childId!,
@@ -721,6 +748,14 @@ app.post("/:roundId/parent-override", async (c) => {
     round.endedAt = round.endedAt ?? new Date().toISOString();
     round.pointsAwarded = 0;
     await kv.set(roundKey(roundId), round);
+    // If this round was the one holding today's daily-award marker,
+    // release it — a voided win shouldn't block the kid's points for
+    // the rest of the day. (The fallback history scan also skips
+    // voided rounds, so both layers agree.)
+    try {
+      const marker = await kv.get(dailyAwardKey(childId));
+      if (marker?.roundId === roundId) await kv.del(dailyAwardKey(childId));
+    } catch (_err) { /* non-fatal */ }
     return c.json({ ok: true, action: "void", pointsReversed: reverse });
   }
 
