@@ -39,3 +39,6 @@ IQRA-AUDIT-AND-SCHOOL-PLAN.md
 supabase/.temp/
 admission form.pdf
 .design_handoff/
+
+# Local Access databases (real school data — never commit)
+*.accdb
