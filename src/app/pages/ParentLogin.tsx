@@ -30,7 +30,11 @@ export function ParentLogin() {
     }
     setResetting(true);
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email);
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        // Land on the dedicated set-password page — previously the link
+        // dropped users at the site root where nothing consumed it.
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
       if (error) throw error;
       toast.success('If that email is registered, a reset link is on its way.');
     } catch (err: any) {

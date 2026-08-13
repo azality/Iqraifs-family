@@ -114,6 +114,8 @@ import { PortalLayout } from "./layouts/PortalLayout";
 import { PortalLogin } from "./pages/portal/PortalLogin";
 import { SchoolUnifiedLogin } from "./pages/school/SchoolUnifiedLogin";
 import { SchoolSlugEntry } from "./pages/school/SchoolSlugEntry";
+import { ResetPassword } from "./pages/ResetPassword";
+import { SchoolAccount } from "./pages/school/SchoolAccount";
 import { PortalChangePin } from "./pages/portal/PortalChangePin";
 import { PortalHome } from "./pages/portal/PortalHome";
 import { StudentDashboard } from "./pages/portal/StudentDashboard";
@@ -312,6 +314,15 @@ function RequireFamily({ children }: { children: JSX.Element }) {
 }
 
 export const router = createBrowserRouter([
+  // Password recovery landing (staff first-password + forgot-password).
+  // Outside every provider: the emailed link must work with no session
+  // and no family context. The supabase client consumes the recovery
+  // token from the URL hash on load.
+  {
+    path: "reset-password",
+    element: <ResetPassword />,
+    errorElement: <RouterErrorBoundary />,
+  },
   // School Portal (PIN auth — student + parent). Lives OUTSIDE the family
   // auth tree: no Supabase JWT, no FamilyContext, no WorkspaceContext.
   {
@@ -474,6 +485,7 @@ export const router = createBrowserRouter([
           // "no school access" if the user has neither principal nor
           // teacher rows in user_roles.
           { path: "school", element: <RequireParentRole><SchoolHome /></RequireParentRole> },
+          { path: "school/account", element: <RequireParentRole><SchoolAccount /></RequireParentRole> },
           // Multi-campus (school_group) dashboard — chain principal lands here.
           { path: "school/school-groups/:groupId", element: <RequireParentRole><SchoolGroupDashboard /></RequireParentRole> },
           { path: "school/_design", element: <RequireParentRole><_DesignSystemPreview /></RequireParentRole> },

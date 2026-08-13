@@ -90,6 +90,28 @@ export function SchoolUnifiedLogin() {
   }, [tab]);
   const secretLabel = tab === "staff" ? "Password" : "PIN";
 
+  const [forgotBusy, setForgotBusy] = useState(false);
+  const [forgotSent, setForgotSent] = useState(false);
+  const handleForgotPassword = async () => {
+    setError(null);
+    if (!identifier || !identifier.includes("@")) {
+      setError("Enter your email above first, then tap Forgot password.");
+      return;
+    }
+    setForgotBusy(true);
+    try {
+      await supabase.auth.resetPasswordForEmail(identifier, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+    } catch {
+      /* privacy: never reveal whether the email exists */
+    } finally {
+      // Same neutral outcome either way.
+      setForgotSent(true);
+      setForgotBusy(false);
+    }
+  };
+
   const onSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError(null);
@@ -298,6 +320,23 @@ export function SchoolUnifiedLogin() {
             {error && (
               <div className="bg-rose-50 border border-rose-200 rounded p-3 text-sm text-rose-700">
                 {error}
+              </div>
+            )}
+
+            {/* Staff forgot-password / first-password. Doubles as the
+                invited-staff onboarding path: admin grants the role
+                silently, the person requests their own reset email here
+                and sets a password at /reset-password. */}
+            {tab === "staff" && (
+              <div className="text-right -mt-1">
+                <button
+                  type="button"
+                  onClick={handleForgotPassword}
+                  disabled={forgotBusy}
+                  className="text-xs text-indigo-600 hover:underline disabled:opacity-50"
+                >
+                  {forgotBusy ? "Sending…" : forgotSent ? "Link sent — check your email" : "Forgot password? / First sign-in"}
+                </button>
               </div>
             )}
 
