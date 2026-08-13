@@ -47,7 +47,8 @@ async function callerOrgsInGroup(
     const { data: orgs } = await serviceRoleClient
       .from("organizations")
       .select("id")
-      .eq("school_group_id", groupId);
+      .eq("school_group_id", groupId)
+      .is("deleted_at", null);
     return (orgs ?? []).map((o: any) => o.id);
   }
   return [];
@@ -73,6 +74,7 @@ export function installSchoolGroup(school: Hono): void {
       .from("organizations")
       .select("id, name, slug, settings")
       .eq("school_group_id", groupId)
+      .is("deleted_at", null)
       .order("name", { ascending: true });
     return c.json({
       group: {
@@ -106,6 +108,7 @@ export function installSchoolGroup(school: Hono): void {
       .from("organizations")
       .select("id, name")
       .eq("school_group_id", groupId)
+      .is("deleted_at", null)
       .order("name", { ascending: true });
     const orgIds = (orgs ?? []).map((o: any) => o.id);
     if (orgIds.length === 0) {
@@ -252,7 +255,8 @@ export function installSchoolGroup(school: Hono): void {
     const { data: orgs } = await serviceRoleClient
       .from("organizations")
       .select("id, school_group_id")
-      .in("id", [(alias as any).org_id, (canonical as any).org_id]);
+      .in("id", [(alias as any).org_id, (canonical as any).org_id])
+      .is("deleted_at", null);
     const groupOf = new Map<string, string | null>();
     for (const o of (orgs ?? []) as any[]) groupOf.set(o.id, o.school_group_id ?? null);
     const aliasGroup = groupOf.get((alias as any).org_id);
@@ -341,7 +345,8 @@ export function installSchoolGroup(school: Hono): void {
     const { data: orgs } = await serviceRoleClient
       .from("organizations")
       .select("id, school_group_id")
-      .in("id", [fromOrgId, toOrgId]);
+      .in("id", [fromOrgId, toOrgId])
+      .is("deleted_at", null);
     const fromOrg = (orgs ?? []).find((o: any) => o.id === fromOrgId);
     const toOrg = (orgs ?? []).find((o: any) => o.id === toOrgId);
     if (!fromOrg || !toOrg) return c.json({ error: "org not found" }, 404);
