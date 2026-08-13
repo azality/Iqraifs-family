@@ -278,9 +278,45 @@ school.get("/me", async (c) => {
     });
   }
 
+  // Same materialization for hifz_group.hifz_teacher_user_id: group
+  // assignment (ManageHifzGroups) also skips user_roles, so a teacher
+  // attached ONLY as a group's Hifz teacher would otherwise get no role
+  // here, no org in me.organizations, and never route to TeacherHome —
+  // which now renders their groups (PR #263). Groups are org-scoped
+  // (no section), so we only synthesize the org-scoped marker.
+  const { data: hifzGroups } = await serviceRoleClient
+    .from("hifz_group")
+    .select("id, org_id")
+    .eq("hifz_teacher_user_id", userId)
+    .is("archived_at", null);
+  const hifzGroupOrgIds = Array.from(
+    new Set(
+      ((hifzGroups ?? []) as Array<{ id: string; org_id: string }>)
+        .map((g) => g.org_id)
+        .filter((x): x is string => !!x),
+    ),
+  );
+  for (const gOrgId of hifzGroupOrgIds) {
+    if (
+      !roles.some(
+        (r) =>
+          r.role_type === "hifz_teacher" &&
+          r.scope_type === "organization" &&
+          r.scope_id === gOrgId,
+      )
+    ) {
+      roles.push({
+        role_type: "hifz_teacher",
+        scope_type: "organization",
+        scope_id: gOrgId,
+      });
+    }
+  }
+
   // Hydrate scope names so the frontend doesn't need extra round trips.
-  // For the org list we union real role-row orgs + Hifz section orgs so
-  // a Hifz-only teacher gets their org in me.organizations.
+  // For the org list we union real role-row orgs + Hifz section orgs +
+  // Hifz group orgs so a Hifz-only teacher gets their org in
+  // me.organizations.
   const orgIds = Array.from(
     new Set([
       ...roles
@@ -289,6 +325,7 @@ school.get("/me", async (c) => {
       ...hifzSectionRows
         .map((s) => s.class?.org_id)
         .filter((x): x is string => !!x),
+      ...hifzGroupOrgIds,
     ]),
   );
   const classIds = Array.from(
