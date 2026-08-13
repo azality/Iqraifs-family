@@ -426,6 +426,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           timestamp: Date.now(),
         };
 
+        // Password-recovery links normally land on /reset-password (the
+        // redirectTo we pass), but if the redirect gets stripped (e.g. a
+        // URL not on Supabase's allowlist falls back to the Site URL) the
+        // recovery session materializes wherever the user landed. Route
+        // them to the set-password page so the link always works.
+        if (event === 'PASSWORD_RECOVERY' && window.location.pathname !== '/reset-password') {
+          window.location.replace('/reset-password');
+          return;
+        }
+
         if (session?.access_token) {
           console.log('✅ Setting accessToken from auth state change');
           setAccessTokenState(session.access_token);

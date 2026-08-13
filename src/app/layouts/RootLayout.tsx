@@ -371,8 +371,18 @@ export function RootLayout() {
                 </div>
               )}
 
-              {/* User chip — avatar initial + name on larger screens */}
-              <div className="hidden sm:flex items-center gap-2 px-2 py-1 rounded-full bg-slate-100/80 dark:bg-slate-800/40">
+              {/* User chip — avatar initial + name on larger screens. In
+                  the school workspace it opens My account (name +
+                  password self-service). */}
+              <div
+                className={cn(
+                  "hidden sm:flex items-center gap-2 px-2 py-1 rounded-full bg-slate-100/80 dark:bg-slate-800/40",
+                  isSchoolWorkspace && "cursor-pointer hover:bg-slate-200/80",
+                )}
+                onClick={isSchoolWorkspace ? () => navigate("/school/account") : undefined}
+                role={isSchoolWorkspace ? "button" : undefined}
+                title={isSchoolWorkspace ? "My account" : userName}
+              >
                 <span
                   className={cn(
                     "h-7 w-7 rounded-full flex items-center justify-center text-xs font-bold",
@@ -380,7 +390,6 @@ export function RootLayout() {
                       ? "bg-gradient-to-br from-[#F4C430] to-[#FFB347] text-[#1C2541]"
                       : "bg-gradient-to-br from-blue-500 to-indigo-600 text-white"
                   )}
-                  title={userName}
                 >
                   {userInitial}
                 </span>

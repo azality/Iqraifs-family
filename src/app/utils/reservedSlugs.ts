@@ -22,6 +22,7 @@ export const RESERVED_SLUGS = new Set<string>([
   // School-side
   "school",
   "school-login",
+  "reset-password",
   "school-portal",
   // Generic
   "api",
