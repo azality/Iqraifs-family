@@ -5,8 +5,30 @@
 // uses, just hitting a different path prefix.
 
 import { apiCall } from "./api";
+import { supabase } from "/utils/supabase/client";
 import { projectId as _projectId, publicAnonKey as _publicAnonKey } from "/utils/supabase/info.tsx";
 const PUBLIC_INFO = { projectId: _projectId, publicAnonKey: _publicAnonKey };
+
+/** Multipart photo upload. apiCall forces a JSON Content-Type, so this
+ *  builds its own request; the browser sets the multipart boundary. */
+export async function uploadSchoolPhoto(orgId: string, file: File): Promise<{ url: string }> {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) throw new Error("Not signed in.");
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(
+    `https://${PUBLIC_INFO.projectId}.supabase.co/functions/v1/make-server-f116e23f/school/orgs/${orgId}/photo-upload`,
+    {
+      method: "POST",
+      headers: { apikey: PUBLIC_INFO.publicAnonKey, Authorization: `Bearer ${token}` },
+      body: form,
+    },
+  );
+  const json = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(json?.error ?? `Upload failed (${res.status})`);
+  return json as { url: string };
+}
 
 // ─── /me ─────────────────────────────────────────────────────────────────
 
