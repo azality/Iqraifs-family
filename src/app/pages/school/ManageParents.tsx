@@ -14,7 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../../components/ui/dialog";
-import { Plus, Upload, Search, Trash2, Pencil, Mail, Phone, GraduationCap } from "lucide-react";
+import { Plus, Upload, Search, Trash2, Pencil, Mail, Phone, GraduationCap, Link2 } from "lucide-react";
 import {
   HeroCard,
   cardBase,
@@ -33,6 +33,9 @@ import {
   bulkCreateParents,
   linkParentCanonical,
   unlinkParentCanonical,
+  linkStudentParent,
+  listStudents,
+  type AdminStudent,
   type AdminClass,
   type AdminParent,
   type CreateParentBody,
@@ -54,6 +57,11 @@ export function ManageParents() {
   const [form, setForm] = useState<CreateParentBody>(empty);
   const [csvOpen, setCsvOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Link-a-child dialog state + roster for its search.
+  const [linkParent, setLinkParent] = useState<AdminParent | null>(null);
+  const [linkSearch, setLinkSearch] = useState("");
+  const [linkBusy, setLinkBusy] = useState<string | null>(null);
+  const [allStudents, setAllStudents] = useState<AdminStudent[]>([]);
   // Filter scope — search applies only against the selected facet.
   // "all" = parent name + student name + class. Default.
   type SearchScope = "all" | "parent" | "student" | "class";
@@ -85,6 +93,7 @@ export function ManageParents() {
 
   useEffect(() => {
     if (orgId) listClasses(orgId).then(setClasses).catch(() => {});
+    if (orgId) listStudents(orgId).then(setAllStudents).catch(() => {});
     refresh();
     // eslint-disable-next-line
   }, [orgId]);
@@ -226,8 +235,17 @@ export function ManageParents() {
   const submitForm = async () => {
     if (!form.fullName) return;
     try {
-      if (editing) await updateParent(orgId, editing.id, form);
-      else await createParent(orgId, form);
+      if (editing) {
+        await updateParent(orgId, editing.id, form);
+      } else {
+        const created = await createParent(orgId, form);
+        // Pilot feedback: a freshly added parent was a dead end ("no
+        // linked children", no way to link). Flow straight into the
+        // link-a-child dialog for the new record.
+        if ((created as any)?.id) {
+          openLink({ ...(created as any), children: [] });
+        }
+      }
       setFormOpen(false);
       refresh();
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
@@ -241,6 +259,63 @@ export function ManageParents() {
     const res = await bulkCreateParents(orgId, rows);
     refresh();
     return res;
+  };
+
+  // ─── Link-a-child dialog (pilot feedback: parents added from this page
+  // were unlinked with no way to attach a student — the link affordance
+  // only existed on the student's own page). Search the roster by name /
+  // GR and link; reuses the same student-parent link API as StudentDetail.
+  const openLink = (p: AdminParent) => {
+    setLinkParent(p);
+    setLinkSearch("");
+    setLinkBusy(null);
+  };
+  const linkResults = useMemo(() => {
+    if (!linkParent) return [];
+    const q = linkSearch.trim().toLowerCase();
+    const linkedIds = new Set((linkParent.children ?? []).map((c) => c.id));
+    return allStudents
+      .filter((s) => !linkedIds.has(s.id))
+      .filter((s) =>
+        !q ||
+        s.full_name.toLowerCase().includes(q) ||
+        (s.gr_number ?? "").toLowerCase().includes(q),
+      )
+      .slice(0, 12);
+  }, [linkParent, linkSearch, allStudents]);
+  const handleLinkChild = async (studentId: string) => {
+    if (!linkParent) return;
+    setLinkBusy(studentId);
+    try {
+      await linkStudentParent(orgId, {
+        studentId,
+        parentId: linkParent.id,
+        // First linked child ⇒ this parent becomes the primary contact.
+        isPrimary: (linkParent.children ?? []).length === 0,
+      });
+      const linked = allStudents.find((s) => s.id === studentId);
+      toast.success(`Linked ${linked?.full_name ?? "student"}.`);
+      // Keep the dialog open so siblings can be linked in one sitting;
+      // the freshly linked student drops out of the result list.
+      setLinkParent((p) =>
+        p
+          ? {
+              ...p,
+              children: [
+                ...(p.children ?? []),
+                ...(linked
+                  ? [{ id: linked.id, full_name: linked.full_name, gr_number: linked.gr_number, class_section_id: linked.class_section_id, isPrimary: false }]
+                  : []),
+              ],
+            }
+          : p,
+      );
+      refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not link.");
+    } finally {
+      setLinkBusy(null);
+    }
   };
 
   // Merge/unlink actions are admin/principal-only (backend enforces the
@@ -441,6 +516,9 @@ export function ManageParents() {
                         </div>
                       </div>
                       <div className="flex flex-col gap-0.5">
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Link a child" onClick={() => openLink(p)}>
+                          <Link2 className="h-3.5 w-3.5 text-indigo-600" />
+                        </Button>
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => startEdit(p)}>
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
@@ -467,7 +545,13 @@ export function ManageParents() {
                         : `${family.children.length} children`}
                   </div>
                   {family.children.length === 0 ? (
-                    <p className="text-xs text-slate-400">— none linked</p>
+                    <button
+                      type="button"
+                      onClick={() => openLink(family.parents[0])}
+                      className="text-xs text-indigo-600 hover:underline"
+                    >
+                      + Link a child
+                    </button>
                   ) : (
                     <ul className="flex flex-col gap-0.5">
                       {family.children.map((k) => (
@@ -517,6 +601,58 @@ export function ManageParents() {
         ]}
         onSubmit={handleCsvSubmit}
       />
+
+      {/* Link-a-child dialog */}
+      <Dialog open={!!linkParent} onOpenChange={(v) => { if (!v) setLinkParent(null); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Link a child to {linkParent?.full_name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Input
+              autoFocus
+              placeholder="Search student by name or GR#…"
+              value={linkSearch}
+              onChange={(e) => setLinkSearch(e.target.value)}
+            />
+            <ul className="max-h-72 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-200">
+              {linkResults.length === 0 && (
+                <li className="px-3 py-3 text-sm text-slate-500">
+                  {allStudents.length === 0 ? "Loading students…" : "No matching students."}
+                </li>
+              )}
+              {linkResults.map((s) => (
+                <li key={s.id} className="flex items-center gap-3 px-3 py-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-slate-900 truncate">{s.full_name}</div>
+                    <div className="text-xs text-slate-500">
+                      GR# {s.gr_number}
+                      {s.class_section_id && sectionLabel.get(s.class_section_id)
+                        ? ` · ${sectionLabel.get(s.class_section_id)}`
+                        : ""}
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={linkBusy === s.id}
+                    onClick={() => handleLinkChild(s.id)}
+                  >
+                    {linkBusy === s.id ? "Linking…" : "Link"}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+            <p className="text-xs text-slate-500">
+              Linking connects this parent to the student's record. For
+              brothers/sisters, link the same parent to each child.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLinkParent(null)}>Done</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
