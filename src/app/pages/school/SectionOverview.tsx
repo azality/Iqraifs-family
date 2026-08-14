@@ -234,7 +234,10 @@ export function SectionOverview() {
             </div>
             <div className="mt-1 flex items-baseline gap-2">
               <span className="text-2xl font-semibold text-white">{row.attendancePct.toFixed(1)}%</span>
-              {row.attendanceDelta !== 0 && (
+              {/* attendanceDelta is NULL when there's no prior-period
+                  data (fresh org) — null.toFixed crashed this page for
+                  every section on day one of the pilot. */}
+              {typeof row.attendanceDelta === "number" && row.attendanceDelta !== 0 && (
                 <span className={"inline-flex items-center gap-0.5 text-[10px] font-medium " + (row.attendanceDelta > 0 ? "text-emerald-300" : "text-rose-300")}>
                   {row.attendanceDelta > 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
                   {row.attendanceDelta > 0 ? "+" : ""}{row.attendanceDelta.toFixed(1)}pp

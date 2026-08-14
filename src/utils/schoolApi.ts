@@ -993,7 +993,8 @@ export interface LeaderboardRow {
   studentCount: number;
   classTeacherName: string | null;
   attendancePct: number;
-  attendanceDelta: number;
+  /** Null when there is no prior-period data to compare against. */
+  attendanceDelta: number | null;
   behaviorScore: number;
   positiveCount: number;
   concernCount: number;
