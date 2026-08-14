@@ -14,7 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../../components/ui/dialog";
-import { Plus, Upload, Search, Trash2, Pencil, Mail, Phone, GraduationCap } from "lucide-react";
+import { Plus, Upload, Search, Trash2, Pencil, Mail, Phone, GraduationCap, Link2, X } from "lucide-react";
 import {
   HeroCard,
   cardBase,
@@ -27,7 +27,9 @@ import {
   viewerRoleForOrg,
   listClasses,
   listParents,
+  listStudents,
   createParent,
+  linkStudentParent,
   updateParent,
   deleteParent,
   bulkCreateParents,
@@ -35,6 +37,7 @@ import {
   unlinkParentCanonical,
   type AdminClass,
   type AdminParent,
+  type AdminStudent,
   type CreateParentBody,
   type SchoolMeResponse,
 } from "../../../utils/schoolApi";
@@ -54,6 +57,12 @@ export function ManageParents() {
   const [form, setForm] = useState<CreateParentBody>(empty);
   const [csvOpen, setCsvOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Optional "Link to student" picker inside the add/edit dialog. Same
+  // pattern as StudentDetail's link-parent search, but inverted: search
+  // students (name or GR#) and queue one or more to link after save.
+  const [studentSearch, setStudentSearch] = useState("");
+  const [studentResults, setStudentResults] = useState<AdminStudent[]>([]);
+  const [selectedStudents, setSelectedStudents] = useState<AdminStudent[]>([]);
   // Filter scope — search applies only against the selected facet.
   // "all" = parent name + student name + class. Default.
   type SearchScope = "all" | "parent" | "student" | "class";
@@ -88,6 +97,24 @@ export function ManageParents() {
     refresh();
     // eslint-disable-next-line
   }, [orgId]);
+
+  // Debounced student search for the dialog's link picker.
+  useEffect(() => {
+    if (!formOpen || !studentSearch.trim()) { setStudentResults([]); return; }
+    const t = setTimeout(() => {
+      listStudents(orgId, { search: studentSearch }).then(setStudentResults).catch(() => {});
+    }, 250);
+    return () => clearTimeout(t);
+  }, [formOpen, studentSearch, orgId]);
+
+  // Students that already have at least one linked parent — used for the
+  // is_primary heuristic (mirrors StudentDetail: first parent linked to a
+  // student becomes primary).
+  const linkedStudentIds = useMemo(() => {
+    const s = new Set<string>();
+    for (const p of parents) for (const c of p.children ?? []) s.add(c.id);
+    return s;
+  }, [parents]);
 
   // ─── Cluster parents into family units by shared children ─────────────
   // Union-find on parents. Two parents are in the same family iff they
@@ -217,18 +244,39 @@ export function ManageParents() {
     return <NoAccessRedirect />;
   }
 
-  const startCreate = () => { setEditing(null); setForm(empty); setFormOpen(true); };
+  const resetLinkPicker = () => { setStudentSearch(""); setStudentResults([]); setSelectedStudents([]); };
+  const startCreate = () => { setEditing(null); setForm(empty); resetLinkPicker(); setFormOpen(true); };
   const startEdit = (p: AdminParent) => {
     setEditing(p);
     setForm({ fullName: p.full_name, phone: p.phone || "", email: p.email || "", relationship: p.relationship || "" });
+    resetLinkPicker();
     setFormOpen(true);
+  };
+  const pickStudent = (s: AdminStudent) => {
+    if (!selectedStudents.some((x) => x.id === s.id)) setSelectedStudents([...selectedStudents, s]);
+    setStudentSearch("");
+    setStudentResults([]);
   };
   const submitForm = async () => {
     if (!form.fullName) return;
     try {
-      if (editing) await updateParent(orgId, editing.id, form);
-      else await createParent(orgId, form);
+      let parentId: string;
+      if (editing) { await updateParent(orgId, editing.id, form); parentId = editing.id; }
+      else { const created = await createParent(orgId, form); parentId = created.id; }
+      for (const s of selectedStudents) {
+        // First parent linked to a student becomes primary — same
+        // heuristic as StudentDetail's link-parent dialog.
+        await linkStudentParent(orgId, {
+          studentId: s.id,
+          parentId,
+          isPrimary: !linkedStudentIds.has(s.id),
+        });
+      }
+      if (selectedStudents.length > 0) {
+        toast.success(`Linked ${selectedStudents.length} student${selectedStudents.length === 1 ? "" : "s"} to ${form.fullName}`);
+      }
       setFormOpen(false);
+      resetLinkPicker();
       refresh();
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   };
@@ -467,7 +515,17 @@ export function ManageParents() {
                         : `${family.children.length} children`}
                   </div>
                   {family.children.length === 0 ? (
-                    <p className="text-xs text-slate-400">— none linked</p>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs text-slate-400">— none linked</p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-6 px-2 text-xs"
+                        onClick={() => startEdit(family.parents[0])}
+                      >
+                        <Link2 className="h-3 w-3 mr-1" /> Link child
+                      </Button>
+                    </div>
                   ) : (
                     <ul className="flex flex-col gap-0.5">
                       {family.children.map((k) => (
@@ -496,6 +554,68 @@ export function ManageParents() {
             <div><Label>Relationship</Label><Input value={form.relationship} onChange={(e) => setForm({ ...form, relationship: e.target.value })} placeholder="father / mother / guardian" /></div>
             <div><Label>Phone</Label><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
             <div className="sm:col-span-2"><Label>Email</Label><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
+          </div>
+
+          {/* Optional link-to-student picker. A parent created without a
+              link shows as "no linked children" on this page, which reads
+              as a mistake — so the linking step lives right in the form. */}
+          <div className="border-t pt-3 space-y-2">
+            <Label>Link to student <span className="font-normal text-slate-400">(optional)</span></Label>
+            {editing && (editing.children?.length ?? 0) > 0 && (
+              <p className="text-xs text-slate-500">
+                Already linked: {(editing.children ?? []).map((c) => c.full_name).join(", ")}
+              </p>
+            )}
+            {selectedStudents.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {selectedStudents.map((s) => (
+                  <span key={s.id} className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700 ring-1 ring-inset ring-indigo-200">
+                    <GraduationCap className="h-3 w-3" /> {s.full_name}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedStudents(selectedStudents.filter((x) => x.id !== s.id))}
+                      className="ml-0.5 rounded-full hover:bg-indigo-100"
+                      aria-label={`Remove ${s.full_name}`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="relative">
+              <Search className="absolute left-2 top-2.5 h-4 w-4 text-slate-400" />
+              <Input
+                className="pl-8"
+                placeholder="Search students by name or GR#…"
+                value={studentSearch}
+                onChange={(e) => setStudentSearch(e.target.value)}
+              />
+            </div>
+            {studentResults.length > 0 && (
+              <div className="border rounded-md max-h-40 overflow-y-auto">
+                {studentResults
+                  .filter((s) =>
+                    !selectedStudents.some((x) => x.id === s.id) &&
+                    !(editing?.children ?? []).some((c) => c.id === s.id))
+                  .map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => pickStudent(s)}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 border-b last:border-b-0"
+                    >
+                      <span className="font-medium text-slate-900">{s.full_name}</span>
+                      <span className="ml-2 text-xs text-slate-500">
+                        GR# {s.gr_number}
+                        {s.class_section_id && sectionLabel.get(s.class_section_id) && (
+                          <> · {sectionLabel.get(s.class_section_id)}</>
+                        )}
+                      </span>
+                    </button>
+                  ))}
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setFormOpen(false)}>Cancel</Button>
