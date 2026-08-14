@@ -273,8 +273,26 @@ export function ManageToolbar({ orgId, viewerRole }: ManageToolbarProps) {
   // else keeps the original flat row — their lists are short enough.
   if (viewerRole === "principal" || viewerRole === "admin") {
     const groups = groupsForAdmin(orgId, viewerRole, t);
+    // Standalone Dashboard pill ahead of the dropdowns — principals and
+    // admins had no toolbar route back to the org homepage (teachers /
+    // office / finance rows all have one). isActive treats the org root
+    // as exact-match, so it only lights up on the dashboard itself.
+    const dashTo = `/school/orgs/${orgId}`;
+    const dashActive = isActive(pathname, dashTo);
     return (
       <div className="flex flex-wrap items-center gap-2" data-tour="manage-toolbar">
+        <Link
+          to={dashTo}
+          className={
+            "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium shadow-sm transition-colors " +
+            (dashActive
+              ? `${accentBg} ${accentBorder} ${accentText} border`
+              : "bg-white border border-slate-200 text-slate-700 hover:bg-slate-50")
+          }
+        >
+          <Home className="h-3.5 w-3.5" />
+          Dashboard
+        </Link>
         {groups.map((g) => {
           const activeChild = g.items.find((it) => isActive(pathname, it.to));
           const groupActive = !!activeChild;
