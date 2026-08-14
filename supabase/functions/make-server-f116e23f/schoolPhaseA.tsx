@@ -1238,9 +1238,20 @@ export function installPhaseA(school: Hono) {
       completenessStatus: "completeness_status",
       hifzGroupId: "hifz_group_id",
     };
+    // Postgres date/uuid columns reject "" — the edit form sends empty
+    // strings for untouched optional fields (pilot bug: saving a guardian
+    // phone failed with `invalid input syntax for type date: ""` because
+    // dateOfBirth rode along empty). Coerce empties to null for the
+    // typed columns; text columns keep "" semantics.
+    const EMPTY_IS_NULL = new Set([
+      "date_of_birth", "admission_date", "class_section_id", "hifz_group_id",
+    ]);
     const patch: Record<string, unknown> = {};
     for (const [k, col] of Object.entries(map)) {
-      if (k in body) patch[col] = body[k] ?? null;
+      if (!(k in body)) continue;
+      let v = body[k] ?? null;
+      if (v === "" && EMPTY_IS_NULL.has(col)) v = null;
+      patch[col] = v;
     }
     if (Object.keys(patch).length === 0) return c.json({ error: "no fields to update" }, 400);
     const { data, error } = await serviceRoleClient
