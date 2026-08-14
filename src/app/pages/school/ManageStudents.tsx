@@ -216,7 +216,14 @@ export function ManageStudents() {
     }
     try {
       if (editing) {
-        await updateStudent(orgId, editing.id, form);
+        // Empty strings in optional typed fields (date of birth) crash
+        // the Postgres date column — send null instead. (Pilot bug:
+        // adding a guardian phone failed because the untouched DOB rode
+        // along as "".)
+        await updateStudent(orgId, editing.id, {
+          ...form,
+          dateOfBirth: form.dateOfBirth || null,
+        } as any);
       } else {
         const res = await adminCreateStudent(orgId, {
           ...form,
