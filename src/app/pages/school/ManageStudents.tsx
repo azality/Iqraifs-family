@@ -498,8 +498,30 @@ export function ManageStudents() {
               </div>
               <p className="mt-1 text-[11px] text-slate-500">JPG / PNG / WebP, up to 2 MB.</p>
             </div>
-            <div><Label>Guardian phone</Label><Input value={form.guardianPhone} onChange={(e) => setForm({ ...form, guardianPhone: e.target.value })} /></div>
-            <div><Label>Guardian email</Label><Input type="email" value={form.guardianEmail} onChange={(e) => setForm({ ...form, guardianEmail: e.target.value })} /></div>
+            {/* Guardian contact: the PARENT record is the source of truth
+                (it drives the parent portal login + office dashboards).
+                When parents are linked, show their contact read-only here;
+                the quick-capture fields only appear while no parent is
+                linked, with a nudge toward linking. Linking backfills
+                these columns server-side. */}
+            {editing && (editParents?.length ?? 0) > 0 ? (
+              <div className="sm:col-span-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                <div className="text-xs font-medium text-slate-500">Guardian contact — from linked parent</div>
+                <div className="mt-0.5 text-sm text-slate-800">
+                  {(editParents ?? []).map((p) =>
+                    [p.full_name, p.phone, p.email].filter(Boolean).join(" · "),
+                  ).join("  |  ")}
+                </div>
+                <div className="text-[11px] text-slate-500 mt-0.5">
+                  Edit the phone/email on the parent record (Linked parents below, or the Parents page).
+                </div>
+              </div>
+            ) : (
+              <>
+                <div><Label>Guardian phone</Label><Input value={form.guardianPhone} onChange={(e) => setForm({ ...form, guardianPhone: e.target.value })} placeholder="Quick note — link a parent for portal access" /></div>
+                <div><Label>Guardian email</Label><Input type="email" value={form.guardianEmail} onChange={(e) => setForm({ ...form, guardianEmail: e.target.value })} /></div>
+              </>
+            )}
             <div className="sm:col-span-2">
               <Label>Program</Label>
               <Select

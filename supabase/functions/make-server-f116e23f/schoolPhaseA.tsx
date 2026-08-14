@@ -1607,6 +1607,29 @@ export function installPhaseA(school: Hono) {
         { onConflict: "student_id,parent_id", ignoreDuplicates: true },
       );
     if (error) return c.json({ error: error.message }, 500);
+
+    // Single source of truth is the PARENT record; the student's
+    // guardian_phone/guardian_email quick-capture columns are a legacy
+    // fallback that nothing portal-side reads. Backfill them (only when
+    // empty) from the newly linked parent so exports and old surfaces
+    // stay truthful without ever overwriting deliberate entries.
+    const { data: stuRow } = await serviceRoleClient
+      .from("student")
+      .select("guardian_phone, guardian_email")
+      .eq("id", body.studentId)
+      .maybeSingle();
+    const { data: parRow } = await serviceRoleClient
+      .from("parent")
+      .select("phone, email")
+      .eq("id", body.parentId)
+      .maybeSingle();
+    const backfill: Record<string, string> = {};
+    if (!stuRow?.guardian_phone && parRow?.phone) backfill.guardian_phone = parRow.phone;
+    if (!stuRow?.guardian_email && parRow?.email) backfill.guardian_email = parRow.email;
+    if (Object.keys(backfill).length > 0) {
+      await serviceRoleClient.from("student").update(backfill).eq("id", body.studentId);
+    }
+
     return c.json({ ok: true });
   });
 
