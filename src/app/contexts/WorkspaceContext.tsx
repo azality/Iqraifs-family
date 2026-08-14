@@ -173,6 +173,30 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           return;
         }
 
+        // Case 1b: stored school workspace points at an org THIS user
+        // can't access. The storage key is device-wide, not per-user —
+        // the pilot's admin inherited "Iqra Demo Academy" from an
+        // earlier demo session on the same laptop and her header showed
+        // the wrong school (data was safe — backend gates deny — but a
+        // real client must never see another school's name). Validate
+        // the cached orgId against /me and repoint to the user's own
+        // first org; also refresh a stale orgName after renames.
+        if (workspace.kind === "school" && hasSchool) {
+          const current = r.organizations.find((o) => o.id === workspace.orgId);
+          if (!current) {
+            const own = principalOrgs[0] ?? r.organizations[0];
+            if (own) {
+              const next: Workspace = { kind: "school", orgId: own.id, orgName: own.name };
+              setWorkspaceState(next);
+              setStorageSync(STORAGE_KEY, JSON.stringify(next));
+            }
+          } else if (current.name !== workspace.orgName) {
+            const next: Workspace = { kind: "school", orgId: current.id, orgName: current.name };
+            setWorkspaceState(next);
+            setStorageSync(STORAGE_KEY, JSON.stringify(next));
+          }
+        }
+
         // Case 2: user signed up as a school principal (signupIntent
         // 'school') and hasn't yet chosen a workspace. Default to their
         // first principal org so a fresh school-principal sign-in
