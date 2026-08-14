@@ -37,6 +37,12 @@ import {
   deleteStudent,
   bulkCreateAdminStudents,
   listHifzGroups,
+  getStudent,
+  listParents,
+  linkStudentParent,
+  unlinkStudentParent,
+  uploadSchoolPhoto,
+  type AdminParent,
   type AdminClass,
   type AdminStudent,
   type CreateStudentBody,
@@ -102,6 +108,12 @@ export function ManageStudents() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<AdminStudent | null>(null);
   const [form, setForm] = useState<CreateStudentBody>(emptyForm);
+  // Linked parents shown inside the edit dialog (null = loading).
+  const [editParents, setEditParents] = useState<Array<AdminParent & { isPrimary?: boolean }> | null>(null);
+  // Link-a-parent mini-search inside the edit dialog.
+  const [parentQuery, setParentQuery] = useState("");
+  const [parentResults, setParentResults] = useState<AdminParent[]>([]);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   // Guardian state (PR feat/student-parent-onboarding-redesign) — mirrors
   // the Father / Mother / Guardian columns of the IFS admission form.
   // Father + Mother slots are always rendered; the Other Guardian slot
@@ -182,6 +194,12 @@ export function ManageStudents() {
   };
   const startEdit = (s: AdminStudent) => {
     setEditing(s);
+    // Pull the linked parents so the edit dialog mirrors the parent side
+    // (pilot feedback: linking was invisible from the student's edit view).
+    setEditParents(null);
+    getStudent(orgId, s.id)
+      .then((full) => setEditParents(full.parents ?? []))
+      .catch(() => setEditParents([]));
     setForm({
       grNumber: s.gr_number,
       fullName: s.full_name,
@@ -436,7 +454,50 @@ export function ManageStudents() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="sm:col-span-2"><Label>Photo URL</Label><Input value={form.photoUrl} onChange={(e) => setForm({ ...form, photoUrl: e.target.value })} /></div>
+            <div className="sm:col-span-2">
+              <Label>Photo</Label>
+              <div className="mt-1 flex items-center gap-3">
+                {form.photoUrl ? (
+                  <img src={form.photoUrl} alt="" className="h-12 w-12 rounded-full object-cover ring-1 ring-slate-200" />
+                ) : (
+                  <div className="h-12 w-12 rounded-full bg-slate-100 ring-1 ring-slate-200" />
+                )}
+                <label className="inline-flex cursor-pointer items-center rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50">
+                  {uploadingPhoto ? "Uploading…" : "Upload photo"}
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="hidden"
+                    disabled={uploadingPhoto}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      e.target.value = "";
+                      if (!file) return;
+                      setUploadingPhoto(true);
+                      try {
+                        const { url } = await uploadSchoolPhoto(orgId, file);
+                        setForm((f) => ({ ...f, photoUrl: url }));
+                        toast.success("Photo uploaded — Save to keep it.");
+                      } catch (err) {
+                        toast.error(err instanceof Error ? err.message : "Upload failed.");
+                      } finally {
+                        setUploadingPhoto(false);
+                      }
+                    }}
+                  />
+                </label>
+                {form.photoUrl && (
+                  <button
+                    type="button"
+                    className="text-xs text-rose-600 hover:underline"
+                    onClick={() => setForm((f) => ({ ...f, photoUrl: "" }))}
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+              <p className="mt-1 text-[11px] text-slate-500">JPG / PNG / WebP, up to 2 MB.</p>
+            </div>
             <div><Label>Guardian phone</Label><Input value={form.guardianPhone} onChange={(e) => setForm({ ...form, guardianPhone: e.target.value })} /></div>
             <div><Label>Guardian email</Label><Input type="email" value={form.guardianEmail} onChange={(e) => setForm({ ...form, guardianEmail: e.target.value })} /></div>
             <div className="sm:col-span-2">
@@ -482,6 +543,109 @@ export function ManageStudents() {
               </p>
             </div>
           </div>
+
+          {/* EDIT MODE: linked parents — mirror of the Parents page so
+              link/unlink works from BOTH sides (pilot feedback). */}
+          {editing && (
+            <div className="mt-4 rounded-lg border border-slate-200 p-3">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">
+                Linked parents
+              </div>
+              {editParents === null ? (
+                <p className="text-xs text-slate-400">Loading…</p>
+              ) : editParents.length === 0 ? (
+                <p className="text-xs text-slate-500">No parents linked yet — search below to link one.</p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {editParents.map((p) => (
+                    <li key={p.id} className="flex items-center gap-2 text-sm">
+                      <span className="font-medium text-slate-800 truncate">{p.full_name}</span>
+                      <span className="text-xs text-slate-500 capitalize">{p.relationship || "Parent"}</span>
+                      {p.phone && <span className="text-xs text-slate-500">{p.phone}</span>}
+                      <button
+                        type="button"
+                        className="ml-auto text-xs text-rose-600 hover:underline"
+                        onClick={async () => {
+                          if (!editing) return;
+                          if (!confirm(`Unlink ${p.full_name} from ${editing.full_name}? The parent record stays; only the connection is removed.`)) return;
+                          try {
+                            await unlinkStudentParent(orgId, editing.id, p.id);
+                            setEditParents((cur) => (cur ?? []).filter((x) => x.id !== p.id));
+                            toast.success(`Unlinked ${p.full_name}`);
+                          } catch (err) {
+                            toast.error(err instanceof Error ? err.message : "Could not unlink.");
+                          }
+                        }}
+                      >
+                        Unlink
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="mt-2">
+                <Input
+                  placeholder="Search existing parents to link (name / phone)…"
+                  value={parentQuery}
+                  onChange={async (e) => {
+                    const q = e.target.value;
+                    setParentQuery(q);
+                    if (q.trim().length < 2) { setParentResults([]); return; }
+                    try {
+                      const all = await listParents(orgId, {});
+                      const lower = q.trim().toLowerCase();
+                      const linkedIds = new Set((editParents ?? []).map((x) => x.id));
+                      setParentResults(
+                        all
+                          .filter((p) => !linkedIds.has(p.id))
+                          .filter((p) =>
+                            p.full_name.toLowerCase().includes(lower) ||
+                            (p.phone ?? "").includes(q.trim()),
+                          )
+                          .slice(0, 6),
+                      );
+                    } catch { /* ignore */ }
+                  }}
+                />
+                {parentResults.length > 0 && (
+                  <ul className="mt-1 divide-y divide-slate-100 rounded-md border border-slate-200">
+                    {parentResults.map((p) => (
+                      <li key={p.id} className="flex items-center gap-2 px-2 py-1.5 text-sm">
+                        <span className="truncate">{p.full_name}</span>
+                        {p.phone && <span className="text-xs text-slate-500">{p.phone}</span>}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="ml-auto h-6 text-xs"
+                          onClick={async () => {
+                            if (!editing) return;
+                            try {
+                              await linkStudentParent(orgId, {
+                                studentId: editing.id,
+                                parentId: p.id,
+                                isPrimary: (editParents ?? []).length === 0,
+                              });
+                              setEditParents((cur) => [...(cur ?? []), p]);
+                              setParentResults((r) => r.filter((x) => x.id !== p.id));
+                              toast.success(`Linked ${p.full_name}`);
+                            } catch (err) {
+                              toast.error(err instanceof Error ? err.message : "Could not link.");
+                            }
+                          }}
+                        >
+                          Link
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Need a brand-new parent? Add them on the Parents page — it
+                  links to the child in the same step.
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Family Information — modeled directly on the IFS admission
               form's two-column Family Information table. Father + Mother
