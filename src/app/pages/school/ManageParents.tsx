@@ -43,6 +43,7 @@ import {
 } from "../../../utils/schoolApi";
 import { useOrgPermissionState } from "./useOrgPermission";
 import { CsvUploadDialog } from "./components/CsvUploadDialog";
+import { RelationshipField } from "./components/RelationshipField";
 
 const empty: CreateParentBody = { fullName: "", phone: "", email: "", relationship: "" };
 
@@ -65,7 +66,7 @@ export function ManageParents() {
   const [selectedStudents, setSelectedStudents] = useState<AdminStudent[]>([]);
   // Filter scope — search applies only against the selected facet.
   // "all" = parent name + student name + class. Default.
-  type SearchScope = "all" | "parent" | "student" | "class";
+  type SearchScope = "all" | "parent" | "student" | "class" | "unlinked";
   const [searchScope, setSearchScope] = useState<SearchScope>("all");
   // class_section_id → "Grade 5-A" label, so the Children column can show
   // each child's class instead of a raw uuid.
@@ -164,7 +165,9 @@ export function ManageParents() {
   // Case-insensitive substring match throughout.
   const visibleFamilies = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return families;
+    // "Unlinked" is a state filter, not a text filter — it must apply
+    // even with an empty search box (the early return below would skip it).
+    if (!q && searchScope !== "unlinked") return families;
 
     const matchParent = (p: AdminParent) =>
       p.full_name.toLowerCase().includes(q) ||
@@ -180,6 +183,9 @@ export function ManageParents() {
 
     return families.filter((f) => {
       switch (searchScope) {
+        case "unlinked":
+          // No-children families; optional text still narrows by parent.
+          return f.children.length === 0 && (!q || f.parents.some(matchParent));
         case "parent":
           return f.parents.some(matchParent);
         case "student":
@@ -407,6 +413,7 @@ export function ManageParents() {
             { value: "parent" as const,  label: "Parent name" },
             { value: "student" as const, label: "Student name" },
             { value: "class" as const,   label: "Class" },
+            { value: "unlinked" as const, label: "Unlinked" },
           ]).map((chip) => {
             const active = chip.value === searchScope;
             return (
@@ -547,11 +554,15 @@ export function ManageParents() {
       )}
 
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
-        <DialogContent>
+        {/* Fixed width + stable scrollbar gutter on the results list —
+            without them the appearing/vanishing scrollbar re-triggered
+            the dialog's centering and the box visibly stretched while
+            typing in the student search (pilot bug). */}
+        <DialogContent className="sm:max-w-xl">
           <DialogHeader><DialogTitle>{editing ? "Edit parent" : "Add parent"}</DialogTitle></DialogHeader>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="sm:col-span-2"><Label>Full name*</Label><Input value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} /></div>
-            <div><Label>Relationship</Label><Input value={form.relationship} onChange={(e) => setForm({ ...form, relationship: e.target.value })} placeholder="father / mother / guardian" /></div>
+            <div><Label>Relationship</Label><RelationshipField value={form.relationship ?? ""} onChange={(v) => setForm({ ...form, relationship: v })} /></div>
             <div><Label>Phone</Label><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
             <div className="sm:col-span-2"><Label>Email</Label><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
           </div>
@@ -593,7 +604,7 @@ export function ManageParents() {
               />
             </div>
             {studentResults.length > 0 && (
-              <div className="border rounded-md max-h-40 overflow-y-auto">
+              <div className="border rounded-md max-h-40 overflow-y-auto [scrollbar-gutter:stable]">
                 {studentResults
                   .filter((s) =>
                     !selectedStudents.some((x) => x.id === s.id) &&

@@ -21,6 +21,7 @@ import { Users, KeyRound, Plus, Copy, Trash2, Link2, BookMarked, Trophy, Clipboa
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import { HeroCard, sectionTitleClasses } from "../../components/school-ui";
 import { HifzLogEntry } from "./HifzLogEntry";
+import { RelationshipField } from "./components/RelationshipField";
 import { HifzProgressFeed } from "./HifzProgressFeed";
 import { StudentGradesFeed } from "./StudentGradesFeed";
 import { StudentFeeOverrides } from "./StudentFeeOverrides";
@@ -462,7 +463,7 @@ export function StudentDetail() {
               <p className="text-sm font-medium">Or create new</p>
               <div className="grid gap-2 sm:grid-cols-2">
                 <Input placeholder="Full name *" value={newParentForm.fullName} onChange={(e) => setNewParentForm({ ...newParentForm, fullName: e.target.value })} />
-                <Input placeholder="Relationship" value={newParentForm.relationship} onChange={(e) => setNewParentForm({ ...newParentForm, relationship: e.target.value })} />
+                <RelationshipField value={newParentForm.relationship} onChange={(v) => setNewParentForm({ ...newParentForm, relationship: v })} />
                 <Input placeholder="Phone" value={newParentForm.phone} onChange={(e) => setNewParentForm({ ...newParentForm, phone: e.target.value })} />
                 <Input placeholder="Email" value={newParentForm.email} onChange={(e) => setNewParentForm({ ...newParentForm, email: e.target.value })} />
               </div>
