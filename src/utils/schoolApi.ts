@@ -1572,7 +1572,7 @@ export const linkStudentParent = (
   orgId: string,
   body: { studentId: string; parentId: string; isPrimary?: boolean },
 ): Promise<void> =>
-  apiCall(`/school/orgs/${orgId}/student-parent-links`, {
+  apiCall(`/school/orgs/${orgId}/student-parent`, {
     method: "POST",
     body: JSON.stringify(body),
   });
@@ -1583,7 +1583,7 @@ export const unlinkStudentParent = (
   parentId: string,
 ): Promise<void> =>
   apiCall(
-    `/school/orgs/${orgId}/student-parent-links/${studentId}/${parentId}`,
+    `/school/orgs/${orgId}/student-parent/${studentId}/${parentId}`,
     { method: "DELETE" },
   );
 
