@@ -17,6 +17,7 @@ import {
   type Form,
   type FormField,
   type FormResponse,
+  type FormNonResponder,
   type FormResponseValue,
   type SchoolMeResponse,
 } from "../../../utils/schoolApi";
@@ -55,6 +56,7 @@ export function FormResponses() {
   const [meLoading, setMeLoading] = useState(true);
   const [form, setForm] = useState<Form | null>(null);
   const [responses, setResponses] = useState<FormResponse[]>([]);
+  const [nonResponders, setNonResponders] = useState<FormNonResponder[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   useEffect(() => {
@@ -65,7 +67,7 @@ export function FormResponses() {
     if (!orgId || !formId) return;
     getForm(orgId, formId).then(setForm).catch(() => {});
     listFormResponses(orgId, formId)
-      .then((r) => setResponses(r.responses))
+      .then((r) => { setResponses(r.responses); setNonResponders(r.nonResponders ?? []); })
       .catch((e) => toast.error(e instanceof Error ? e.message : String(e)));
   }, [orgId, formId]);
 
@@ -186,6 +188,70 @@ export function FormResponses() {
             )}
           </tbody>
         </table>
+      </div>
+
+      {/* Chase list — who HASN'T responded (the office's real question at
+          a deadline). Server-resolved from the form's audience. */}
+      <div className={`${cardBase} ${cardElev}`}>
+        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+          <div>
+            <div className="text-sm font-semibold text-slate-900">
+              Not yet responded
+              <span className="ml-2 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800 ring-1 ring-amber-200">
+                {nonResponders.length}
+              </span>
+            </div>
+            <div className="text-xs text-slate-500">
+              Students in this form's audience with no submission yet.
+            </div>
+          </div>
+          {nonResponders.length > 0 && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                const header = ["Student", "GR#", "Class", "Parent", "Parent phone"];
+                const rows = nonResponders.map((n) => [
+                  n.fullName, n.grNumber ?? "", [n.className, n.sectionName].filter(Boolean).join(" - "),
+                  n.parentName ?? "", n.parentPhone ?? "",
+                ]);
+                downloadCsv(`${(form?.title ?? "form").replace(/\s+/g, "_")}_chase_list.csv`, [header, ...rows]);
+              }}
+            >
+              <Download className="h-4 w-4 mr-1" /> Chase list CSV
+            </Button>
+          )}
+        </div>
+        {nonResponders.length === 0 ? (
+          <div className="px-4 py-4 text-sm text-emerald-700">
+            Everyone in the audience has responded. 🎉
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500">Student</th>
+                  <th className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500">GR#</th>
+                  <th className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500">Class</th>
+                  <th className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500">Parent</th>
+                  <th className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500">Phone</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {nonResponders.map((n) => (
+                  <tr key={n.studentId}>
+                    <td className="px-3 py-2 font-medium text-slate-900">{n.fullName}</td>
+                    <td className="px-3 py-2 text-slate-600">{n.grNumber}</td>
+                    <td className="px-3 py-2 text-slate-600">{[n.className, n.sectionName].filter(Boolean).join(" - ")}</td>
+                    <td className="px-3 py-2 text-slate-600">{n.parentName ?? <span className="text-amber-700">no parent linked</span>}</td>
+                    <td className="px-3 py-2 text-slate-600">{n.parentPhone ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

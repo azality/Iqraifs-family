@@ -3720,10 +3720,19 @@ export const reorderFormFields = (
     body: JSON.stringify({ orderedIds }),
   });
 
+export interface FormNonResponder {
+  studentId: string;
+  fullName: string;
+  grNumber: string | null;
+  className: string | null;
+  sectionName: string | null;
+  parentName: string | null;
+  parentPhone: string | null;
+}
 export const listFormResponses = (
   orgId: string,
   formId: string,
-): Promise<{ responses: FormResponse[] }> =>
+): Promise<{ responses: FormResponse[]; nonResponders: FormNonResponder[] }> =>
   apiCall(`/school/orgs/${orgId}/forms/${formId}/responses`);
 
 // ─── Parent-facing forms (would normally live in schoolPortalApi.ts) ──
