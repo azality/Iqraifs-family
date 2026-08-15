@@ -39,6 +39,7 @@ import {
   getForm,
   updateForm,
   publishForm,
+  postAnnouncement,
   closeForm,
   addFormField,
   updateFormField,
@@ -219,6 +220,28 @@ export function FormBuilder() {
     await publishForm(orgId, form.id);
     refresh();
     toast.success("Published");
+    // Announce push (pilot feedback): the portal only shows a passive
+    // badge — nothing TELLS parents a form exists. Offer a matching
+    // announcement so publishing reaches phones the way schools expect.
+    // Audience maps 1:1 (whole_school / class_section / specific_students
+    // are valid announcement kinds too).
+    if (confirm("Also post an announcement so parents know about this form?")) {
+      try {
+        await postAnnouncement(orgId, {
+          title: `Please fill: ${form.title}`,
+          body:
+            `A new form "${form.title}" is waiting for you in the portal's Forms tab.` +
+            (form.deadline ? ` Please respond by ${new Date(form.deadline).toLocaleDateString()}.` : "") +
+            (form.description ? `\n\n${form.description}` : ""),
+          audienceKind: form.audience_kind as "whole_school" | "class_section" | "specific_students",
+          audienceSectionId: form.audience_section_id ?? undefined,
+          audienceStudentIds: form.audience_student_ids?.length ? form.audience_student_ids : undefined,
+        });
+        toast.success("Announcement posted to the form's audience.");
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Form published, but the announcement failed — post it from Communications → Announcements.");
+      }
+    }
   };
 
   const handleClose = async () => {

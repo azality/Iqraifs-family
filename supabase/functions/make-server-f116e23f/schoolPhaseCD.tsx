@@ -1848,7 +1848,7 @@ ${status === "paid" ? `<div class="stamp">PAID</div>` : ""}
 
     const { data: form, error: fErr } = await serviceRoleClient
       .from("form")
-      .select("id, org_id, created_by")
+      .select("id, org_id, created_by, audience_kind, audience_section_id, audience_student_ids")
       .eq("id", formId)
       .maybeSingle();
     if (fErr) return c.json({ error: fErr.message }, 500);
@@ -1885,12 +1885,73 @@ ${status === "paid" ? `<div class="stamp">PAID</div>` : ""}
       valuesByResp[v.response_id] = arr;
     }
 
+    // ── Non-responder chase list (pilot feedback) ─────────────────────
+    // The office's real question at a deadline is "who HASN'T answered?".
+    // Resolve the audience to students, subtract covered ones, and return
+    // each with class + primary-parent contact so the list is actionable.
+    let studentQ = serviceRoleClient
+      .from("student")
+      .select("id, full_name, gr_number, guardian_phone, class_section:class_section_id(name, class:class_id(name))")
+      .eq("org_id", orgId);
+    const aKind = (form as any).audience_kind;
+    if (aKind === "class_section" && (form as any).audience_section_id) {
+      studentQ = studentQ.eq("class_section_id", (form as any).audience_section_id);
+    } else if (aKind === "specific_students") {
+      const ids = ((form as any).audience_student_ids ?? []) as string[];
+      studentQ = studentQ.in("id", ids.length > 0 ? ids : ["00000000-0000-0000-0000-000000000000"]);
+    }
+    const { data: audienceStudents } = await studentQ.limit(1000);
+
+    const covered = new Set<string>();
+    const coveringParents = new Set<string>();
+    for (const r of (responses ?? []) as any[]) {
+      if (r.on_behalf_of_student_id) covered.add(r.on_behalf_of_student_id);
+      // A parent response with no child context covers ALL their children.
+      else if (r.submitter_parent_id) coveringParents.add(r.submitter_parent_id);
+    }
+    if (coveringParents.size > 0) {
+      const { data: kids } = await serviceRoleClient
+        .from("student_parent")
+        .select("student_id, parent_id")
+        .in("parent_id", Array.from(coveringParents));
+      for (const k of (kids ?? []) as any[]) covered.add(k.student_id);
+    }
+
+    const missing = ((audienceStudents ?? []) as any[]).filter((s) => !covered.has(s.id));
+    // Primary-parent contact for each missing student (one batched query).
+    const parentByStudent = new Map<string, { name: string; phone: string | null }>();
+    if (missing.length > 0) {
+      const { data: links } = await serviceRoleClient
+        .from("student_parent")
+        .select("student_id, is_primary, parent:parent_id(full_name, phone)")
+        .in("student_id", missing.map((s) => s.id));
+      for (const l of (links ?? []) as any[]) {
+        // Prefer the primary parent; otherwise first seen.
+        if (!parentByStudent.has(l.student_id) || l.is_primary) {
+          parentByStudent.set(l.student_id, {
+            name: l.parent?.full_name ?? "",
+            phone: l.parent?.phone ?? null,
+          });
+        }
+      }
+    }
+    const nonResponders = missing.map((s) => ({
+      studentId: s.id,
+      fullName: s.full_name,
+      grNumber: s.gr_number,
+      className: s.class_section?.class?.name ?? null,
+      sectionName: s.class_section?.name ?? null,
+      parentName: parentByStudent.get(s.id)?.name || null,
+      parentPhone: parentByStudent.get(s.id)?.phone || s.guardian_phone || null,
+    }));
+
     return c.json({
       formId,
       responses: (responses ?? []).map((r: any) => ({
         ...responseToJson(r),
         values: valuesByResp[r.id] ?? [],
       })),
+      nonResponders,
     });
   });
 
