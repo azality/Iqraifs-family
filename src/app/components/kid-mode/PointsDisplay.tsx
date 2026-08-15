@@ -39,7 +39,7 @@ export function PointsDisplay({
     ? nextMilestone.points - currentPoints
     : 0;
   const progressPercent = nextMilestone
-    ? (currentPoints / nextMilestone.points) * 100
+    ? (Math.max(0, currentPoints) / nextMilestone.points) * 100
     : 100;
 
   return (

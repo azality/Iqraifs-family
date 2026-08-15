@@ -1871,10 +1871,12 @@ app.post(
         // best-ever total for celebration purposes; we just don't let
         // it create a one-way ratchet on currentPoints anymore.
         //
-        // Points still can't go below zero — that floor stays.
-        if (newPoints < 0) {
-          newPoints = 0;
-        }
+        // Zero floor REMOVED too (parent decision, Aug 2026): a kid at
+        // a low balance who earns a concern should go NEGATIVE and dig
+        // back out with good deeds — a floor made concerns free when
+        // the balance was small. Redemptions still require sufficient
+        // balance (guarded at the redeem endpoint), so only concern
+        // deductions can push below zero.
         
         // Update streak if it's a habit
         let streakData = child.streaks || {};
@@ -2050,10 +2052,10 @@ app.post(
       const child = await kv.get(event.childId);
       if (child) {
         const reversedPoints = child.currentPoints - event.points;
-        // Points still can't go negative, but milestone floor is removed
-        // (see comment on the events POST handler) — voiding an earned
-        // event should actually undo the points.
-        const finalPoints = Math.max(0, reversedPoints);
+        // Exact reversal — negative balances are allowed now (see the
+        // events POST handler), so a void undoes precisely what the
+        // event added or removed.
+        const finalPoints = reversedPoints;
 
         await kv.set(event.childId, {
           ...child,
@@ -6374,7 +6376,7 @@ app.post(
     // Update child with recalculated value
     const updatedChild = {
       ...child,
-      currentPoints: Math.max(0, recalculatedPoints), // Never go negative
+      currentPoints: recalculatedPoints, // negative allowed — ledger is truth
       lastReconciled: new Date().toISOString(),
       reconciledDifference: difference
     };

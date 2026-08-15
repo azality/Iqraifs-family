@@ -29,7 +29,7 @@ export function RewardRequestCard({
   const [submitting, setSubmitting] = useState(false);
 
   const canAfford = currentPoints >= pointCost;
-  const progress = Math.min((currentPoints / pointCost) * 100, 100);
+  const progress = Math.min((Math.max(0, currentPoints) / pointCost) * 100, 100);
 
   const handleSubmitRequest = async () => {
     try {
