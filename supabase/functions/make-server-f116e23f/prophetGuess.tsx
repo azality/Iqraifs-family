@@ -347,7 +347,9 @@ async function awardPoints(args: {
   // Bump the child's currentPoints aggregate (same as other write paths).
   const child = await kv.get(args.childId);
   if (child) {
-    const newPoints = Math.max(0, (child.currentPoints ?? 0) + args.points);
+    // Negative balances allowed (matches the family events handler) —
+    // this also makes parent-void reversals exact instead of floored.
+    const newPoints = (child.currentPoints ?? 0) + args.points;
     await kv.set(args.childId, { ...child, currentPoints: newPoints });
   }
   return { eventId };

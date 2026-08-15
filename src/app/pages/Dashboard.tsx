@@ -374,12 +374,12 @@ export function Dashboard() {
 
   const nextMilestone = milestones.find(m => m.points > child.currentPoints);
   const progressToNext = nextMilestone 
-    ? ((child.currentPoints / nextMilestone.points) * 100)
+    ? ((Math.max(0, child.currentPoints) / nextMilestone.points) * 100)
     : 100;
 
   const targetReward = rewards.find(r => r.id === child.targetRewardId);
   const progressToReward = targetReward
-    ? ((child.currentPoints / targetReward.pointCost) * 100)
+    ? ((Math.max(0, child.currentPoints) / targetReward.pointCost) * 100)
     : 0;
 
   // Calculate streak for Fajr (example) - using backend streak data

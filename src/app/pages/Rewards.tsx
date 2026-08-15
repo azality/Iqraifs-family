@@ -173,7 +173,7 @@ export function Rewards() {
                   {child.currentPoints} / {nextMilestone.points}
                 </span>
               </div>
-              <Progress value={(child.currentPoints / nextMilestone.points) * 100} className="h-3" />
+              <Progress value={(Math.max(0, child.currentPoints) / nextMilestone.points) * 100} className="h-3" />
               <p className="text-xs text-center text-muted-foreground">
                 Only {nextMilestone.points - child.currentPoints} points away! 🎯
               </p>
@@ -237,7 +237,7 @@ export function Rewards() {
             {smallRewards.map(reward => {
               const canAfford = child.currentPoints >= reward.pointCost;
               const isTarget = child.targetRewardId === reward.id;
-              const progress = (child.currentPoints / reward.pointCost) * 100;
+              const progress = (Math.max(0, child.currentPoints) / reward.pointCost) * 100;
               
               return (
                 <div 
@@ -294,7 +294,7 @@ export function Rewards() {
             {mediumRewards.map(reward => {
               const canAfford = child.currentPoints >= reward.pointCost;
               const isTarget = child.targetRewardId === reward.id;
-              const progress = (child.currentPoints / reward.pointCost) * 100;
+              const progress = (Math.max(0, child.currentPoints) / reward.pointCost) * 100;
               
               return (
                 <div 
@@ -351,7 +351,7 @@ export function Rewards() {
             {largeRewards.map(reward => {
               const canAfford = child.currentPoints >= reward.pointCost;
               const isTarget = child.targetRewardId === reward.id;
-              const progress = (child.currentPoints / reward.pointCost) * 100;
+              const progress = (Math.max(0, child.currentPoints) / reward.pointCost) * 100;
               
               return (
                 <div 
