@@ -182,6 +182,7 @@ export function ManageStudents() {
   // override, differing sets one, and the very first fee entered for a
   // class with no plan CREATES the plan at that amount.
   const [monthlyFee, setMonthlyFee] = useState("");
+  const [feeReason, setFeeReason] = useState("");
   const [feePlan, setFeePlan] = useState<ClassFeePlan | null>(null);
   useEffect(() => {
     if (!formOpen || !form.classSectionId) { setFeePlan(null); return; }
@@ -218,12 +219,12 @@ export function ManageStudents() {
         plan = created.plan;
         return; // first student defines the class standard — no override needed
       }
-      if (amount === plan.amount) {
+      if (amount === plan.amount && !feeReason.trim()) {
         await deleteStudentFeeOverride(orgId, studentId, plan.id).catch(() => {});
         toast.success(`Fee: Rs. ${amount} (class standard).`);
       } else {
         await upsertStudentFeeOverride(orgId, studentId, plan.id, {
-          overrideAmount: amount, notes: "Set from student form",
+          overrideAmount: amount, notes: feeReason.trim() || "Set from student form",
         });
         toast.success(`Fee set: Rs. ${amount} (class standard is Rs. ${plan.amount}).`);
       }
@@ -251,6 +252,7 @@ export function ManageStudents() {
     setForm(emptyForm);
     resetGuardianForms();
     setMonthlyFee("");
+    setFeeReason("");
     setNotice(null);
     setError(null);
     setFormOpen(true);
@@ -259,10 +261,15 @@ export function ManageStudents() {
     setEditing(s);
     // Prefill the fee field with this student's effective monthly amount.
     setMonthlyFee("");
+    setFeeReason("");
     listStudentFeeOverrides(orgId, s.id)
       .then((r) => {
         const monthly = r.plans.find((p) => p.plan.frequency === "monthly");
-        if (monthly) setMonthlyFee(String(monthly.effectiveAmount));
+        if (monthly) {
+          setMonthlyFee(String(monthly.effectiveAmount));
+          const notes = (monthly.override as any)?.notes;
+          if (monthly.override && notes && notes !== "Set from student form") setFeeReason(notes);
+        }
       })
       .catch(() => { /* field stays blank — saving blank leaves fees untouched */ });
     // Pull the linked parents so the edit dialog mirrors the parent side
@@ -517,7 +524,7 @@ export function ManageStudents() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="sm:col-span-2">
+            <div>
               <Label>Monthly fee (Rs.)</Label>
               <Input
                 type="number"
@@ -528,14 +535,23 @@ export function ManageStudents() {
                 onChange={(e) => setMonthlyFee(e.target.value)}
                 disabled={!form.classSectionId}
               />
-              <p className="mt-1 text-xs text-slate-500">
-                {!form.classSectionId
-                  ? "Pick a class first — fee is set per class."
-                  : feePlan
-                    ? `Class standard: Rs. ${feePlan.amount}. A different amount saves as this student's individual fee. Leave blank to keep unchanged.`
-                    : "No fee plan for this class yet — the first amount entered becomes the class standard."}
-              </p>
             </div>
+            <div>
+              <Label>Fee reason (optional)</Label>
+              <Input
+                placeholder="e.g. sibling discount, scholarship"
+                value={feeReason}
+                onChange={(e) => setFeeReason(e.target.value)}
+                disabled={!form.classSectionId}
+              />
+            </div>
+            <p className="sm:col-span-2 -mt-2 text-xs text-slate-500">
+              {!form.classSectionId
+                ? "Pick a class first — fee is set per class."
+                : feePlan
+                  ? `Class standard: Rs. ${feePlan.amount}. A different amount saves as this student's individual fee (add a reason so future you knows why). Leave blank to keep unchanged.`
+                  : "No fee plan for this class yet — the first amount entered becomes the class standard."}
+            </p>
             <div><Label>Date of birth</Label><Input type="date" value={form.dateOfBirth} onChange={(e) => setForm({ ...form, dateOfBirth: e.target.value })} /></div>
             <div>
               <Label>Gender</Label>
