@@ -21,7 +21,7 @@
 
 import { Hono } from "npm:hono";
 import { serviceRoleClient, requireAuth, getAuthUserId } from "./middleware.tsx";
-import { isPrincipalOf, todayUtcDate, isRoleActiveNow } from "./schoolAuth.ts";
+import { isPrincipalOf, hasAdminOrPrincipal, todayUtcDate, isRoleActiveNow } from "./schoolAuth.ts";
 import { logAuditWithLookup } from "./schoolAudit.ts";
 import { installPhaseA } from "./schoolPhaseA.tsx";
 import { installPhaseB } from "./schoolPhaseB.tsx";
@@ -489,11 +489,25 @@ school.patch("/orgs/:orgId", async (c) => {
   if (!userId) return c.json({ error: "unauthenticated" }, 401);
   const orgId = c.req.param("orgId");
 
-  if (!(await isPrincipalOf(userId, orgId))) {
-    return c.json({ error: "forbidden" }, 403);
-  }
-
   const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+
+  // Split gate (pilot: the admin building the timetable was blocked by
+  // the blanket principal check because the week template saves through
+  // this endpoint). IDENTITY changes — name, slug — stay principal-only;
+  // OPERATIONAL settings (schedule, hours, timezone, branding, contact,
+  // substitute pool …) are admin work and open to admins too.
+  const wantsIdentityChange =
+    typeof body.name === "string" || typeof body.slug === "string";
+  if (wantsIdentityChange) {
+    if (!(await isPrincipalOf(userId, orgId))) {
+      return c.json({
+        error: "Only the principal can change the school's name or URL.",
+        code: "FORBIDDEN_ROLE",
+      }, 403);
+    }
+  } else if (!(await hasAdminOrPrincipal(userId, orgId))) {
+    return c.json({ error: "forbidden", code: "FORBIDDEN_ROLE" }, 403);
+  }
   // Expanded in PR C (gap #5): timezone, branding (logo URL + theme color),
   // school_motto. All stored in the organizations.settings jsonb so we don't
   // need a migration. Frontend OrgSettings exposes editors for each.
