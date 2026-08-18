@@ -42,6 +42,12 @@ import {
   linkStudentParent,
   unlinkStudentParent,
   uploadSchoolPhoto,
+  listClassFeePlans,
+  createClassFeePlan,
+  listStudentFeeOverrides,
+  upsertStudentFeeOverride,
+  deleteStudentFeeOverride,
+  type ClassFeePlan,
   type AdminParent,
   type AdminClass,
   type AdminStudent,
@@ -53,7 +59,7 @@ import {
 import { useOrgPermissionState } from "./useOrgPermission";
 import { CsvUploadDialog } from "./components/CsvUploadDialog";
 
-type SectionOption = { id: string; label: string; className: string; sectionName: string };
+type SectionOption = { id: string; label: string; className: string; sectionName: string; classId: string };
 
 const emptyForm: CreateStudentBody = {
   grNumber: "",
@@ -165,10 +171,66 @@ export function ManageStudents() {
   const sectionOptions: SectionOption[] = useMemo(() => {
     const out: SectionOption[] = [];
     for (const c of classes) for (const s of c.sections || []) {
-      out.push({ id: s.id, label: `${c.name} - ${s.name}`, className: c.name, sectionName: s.name });
+      out.push({ id: s.id, label: `${c.name} - ${s.name}`, className: c.name, sectionName: s.name, classId: c.id });
     }
     return out;
   }, [classes]);
+
+  // ─── Monthly fee (pilot request: capture fee right on the admission
+  // form). The fee model is class plan + per-student override — this
+  // field reads/writes that: matching the class standard clears the
+  // override, differing sets one, and the very first fee entered for a
+  // class with no plan CREATES the plan at that amount.
+  const [monthlyFee, setMonthlyFee] = useState("");
+  const [feePlan, setFeePlan] = useState<ClassFeePlan | null>(null);
+  useEffect(() => {
+    if (!formOpen || !form.classSectionId) { setFeePlan(null); return; }
+    const classId = sectionOptions.find((o) => o.id === form.classSectionId)?.classId;
+    if (!classId) { setFeePlan(null); return; }
+    let cancelled = false;
+    listClassFeePlans(orgId, classId)
+      .then((r) => {
+        if (cancelled) return;
+        const monthly = r.plans.filter((p) => p.frequency === "monthly" && !p.archivedAt);
+        setFeePlan(monthly.find((p) => p.name === "Monthly Tuition") ?? monthly[0] ?? null);
+      })
+      .catch(() => { if (!cancelled) setFeePlan(null); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formOpen, form.classSectionId, sectionOptions, orgId]);
+
+  /** After the student row is saved, reconcile the fee field with the
+   *  plan/override model. Empty input = leave fees untouched. */
+  const applyMonthlyFee = async (studentId: string, classSectionId: string) => {
+    const raw = monthlyFee.trim();
+    if (!raw) return;
+    const amount = Number(raw);
+    if (!Number.isFinite(amount) || amount < 0) { toast.error("Monthly fee must be a number."); return; }
+    try {
+      let plan = feePlan;
+      if (!plan) {
+        const classId = sectionOptions.find((o) => o.id === classSectionId)?.classId;
+        if (!classId) return;
+        const created = await createClassFeePlan(orgId, classId, {
+          name: "Monthly Tuition", amount, frequency: "monthly", defaultDueDay: 10,
+        });
+        toast.success(`Monthly Tuition plan created for this class at Rs. ${amount}.`);
+        plan = created.plan;
+        return; // first student defines the class standard — no override needed
+      }
+      if (amount === plan.amount) {
+        await deleteStudentFeeOverride(orgId, studentId, plan.id).catch(() => {});
+        toast.success(`Fee: Rs. ${amount} (class standard).`);
+      } else {
+        await upsertStudentFeeOverride(orgId, studentId, plan.id, {
+          overrideAmount: amount, notes: "Set from student form",
+        });
+        toast.success(`Fee set: Rs. ${amount} (class standard is Rs. ${plan.amount}).`);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Student saved, but the fee could not be saved.");
+    }
+  };
 
   // Permission-aware gate. isOrgAdmin still short-circuits for
   // principal/admin; other roles resolve through the effective matrix
@@ -188,12 +250,21 @@ export function ManageStudents() {
     setEditing(null);
     setForm(emptyForm);
     resetGuardianForms();
+    setMonthlyFee("");
     setNotice(null);
     setError(null);
     setFormOpen(true);
   };
   const startEdit = (s: AdminStudent) => {
     setEditing(s);
+    // Prefill the fee field with this student's effective monthly amount.
+    setMonthlyFee("");
+    listStudentFeeOverrides(orgId, s.id)
+      .then((r) => {
+        const monthly = r.plans.find((p) => p.plan.frequency === "monthly");
+        if (monthly) setMonthlyFee(String(monthly.effectiveAmount));
+      })
+      .catch(() => { /* field stays blank — saving blank leaves fees untouched */ });
     // Pull the linked parents so the edit dialog mirrors the parent side
     // (pilot feedback: linking was invisible from the student's edit view).
     setEditParents(null);
@@ -242,11 +313,15 @@ export function ManageStudents() {
           ...form,
           dateOfBirth: form.dateOfBirth || null,
         } as any);
+        if (form.classSectionId) await applyMonthlyFee(editing.id, form.classSectionId);
       } else {
         const res = await adminCreateStudent(orgId, {
           ...form,
           guardians: guardians.length > 0 ? guardians : undefined,
         });
+        if ((res as any)?.id && form.classSectionId) {
+          await applyMonthlyFee((res as any).id, form.classSectionId);
+        }
         // Surface backend warning(s) — guardian step can fail
         // independently of the student insert, e.g. NIC clash. We
         // intentionally don't block the success path on that.
@@ -441,6 +516,25 @@ export function ManageStudents() {
                   {sectionOptions.map((o) => <SelectItem key={o.id} value={o.id}>{o.label}</SelectItem>)}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="sm:col-span-2">
+              <Label>Monthly fee (Rs.)</Label>
+              <Input
+                type="number"
+                min="0"
+                inputMode="numeric"
+                placeholder={feePlan ? String(feePlan.amount) : "e.g. 3500"}
+                value={monthlyFee}
+                onChange={(e) => setMonthlyFee(e.target.value)}
+                disabled={!form.classSectionId}
+              />
+              <p className="mt-1 text-xs text-slate-500">
+                {!form.classSectionId
+                  ? "Pick a class first — fee is set per class."
+                  : feePlan
+                    ? `Class standard: Rs. ${feePlan.amount}. A different amount saves as this student's individual fee. Leave blank to keep unchanged.`
+                    : "No fee plan for this class yet — the first amount entered becomes the class standard."}
+              </p>
             </div>
             <div><Label>Date of birth</Label><Input type="date" value={form.dateOfBirth} onChange={(e) => setForm({ ...form, dateOfBirth: e.target.value })} /></div>
             <div>
