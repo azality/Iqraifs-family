@@ -301,10 +301,15 @@ export function installTimetable(school: Hono): void {
       .eq("org_id", orgId);
     const usedSlotIds = new Set((usedSlotRows ?? []).map((r: any) => r.slot_id).filter(Boolean));
 
+    // Scope the replace to the DAYS this template covers. Iqra IFS runs a
+    // different Friday (30-min periods, done by Jumu'ah) inserted outside
+    // the template — an org-wide delete here would silently wipe such
+    // per-day schedules every time the Mon–Thu template republished.
     const { data: existingSlots } = await serviceRoleClient
       .from("timetable_slot")
-      .select("id")
-      .eq("org_id", orgId);
+      .select("id, day_of_week")
+      .eq("org_id", orgId)
+      .in("day_of_week", days);
     const safeToDeleteIds = (existingSlots ?? [])
       .map((s: any) => s.id)
       .filter((id: string) => !usedSlotIds.has(id));
