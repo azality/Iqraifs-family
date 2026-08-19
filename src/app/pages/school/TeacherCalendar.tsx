@@ -68,7 +68,11 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
   const { orgId = "" } = useParams<{ orgId: string }>();
   const [cells, setCells] = useState<MyTimetableCell[] | null>(cellsOverride ?? null);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<ViewMode>("week");
+  // Phones default to the day agenda — the week canvas is unreadable at
+  // 375px (pilot feedback: "too congested, not pleasing on the eye").
+  const [view, setView] = useState<ViewMode>(() =>
+    typeof window !== "undefined" && window.innerWidth < 640 ? "day" : "week",
+  );
   const [showConflicts, setShowConflicts] = useState(false);
   const [showTimeOff, setShowTimeOff] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -317,6 +321,61 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
       ) : cells.length === 0 ? (
         <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
           No timetable entries assigned to you yet.
+        </div>
+      ) : view === "day" ? (
+        // Day agenda — one card per period. On a phone this reads far
+        // better than the absolute-positioned canvas (blocks collided at
+        // 48px/hour). Gaps ≥ 10 min render as quiet prep dividers.
+        <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+          <div className="bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-800">
+            {DAYS.find((d) => d.num === todayDow)?.short ?? "Today"} · today
+          </div>
+          {(byDay[todayDow] ?? []).length === 0 ? (
+            <div className="p-8 text-center text-sm text-slate-500">
+              No periods today.
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {(byDay[todayDow] ?? [])
+                .slice()
+                .sort((a, b) => toMin(a.slot.startTime) - toMin(b.slot.startTime))
+                .map((c, i, arr) => {
+                  const hue = hueFor(c.entry.subjectName);
+                  const conflict = conflicts.has(c.entry.id);
+                  const prev = i > 0 ? arr[i - 1] : null;
+                  const gap = prev ? toMin(c.slot.startTime) - toMin(prev.slot.endTime) : 0;
+                  return (
+                    <div key={c.entry.id}>
+                      {gap >= 10 && (
+                        <div className="px-4 py-1.5 text-center text-[11px] text-slate-400 bg-slate-50/60">
+                          ☕ {gap} min break
+                        </div>
+                      )}
+                      <div className={"flex items-center gap-3 px-4 py-3 " + (conflict ? "bg-rose-50" : "")}>
+                        <div
+                          className="w-1.5 self-stretch rounded-full shrink-0"
+                          style={{ background: `hsl(${hue} 55% 45%)` }}
+                        />
+                        <div className="w-[74px] shrink-0 text-xs tabular-nums text-slate-500 leading-5">
+                          <div className="font-semibold text-slate-800">{c.slot.startTime.slice(0, 5)}</div>
+                          <div>{c.slot.endTime.slice(0, 5)}</div>
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-semibold text-slate-900">
+                            {c.entry.subjectName ?? "Period"}
+                          </div>
+                          <div className="truncate text-xs text-slate-500">
+                            {c.scopeLabel}
+                            {c.entry.room ? ` · ${c.entry.room}` : ""}
+                          </div>
+                        </div>
+                        {conflict && <AlertTriangle className="h-4 w-4 shrink-0 text-rose-500" />}
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          )}
         </div>
       ) : (
         <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
