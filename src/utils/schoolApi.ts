@@ -3261,15 +3261,19 @@ export interface GradeBatchResponse {
   results: Array<{ studentId: string; ok: boolean; error?: string }>;
 }
 
-export const postAssignment = (
+export const postAssignment = async (
   orgId: string,
   sectionId: string,
   body: AssignmentInput,
-): Promise<Assignment> =>
-  apiCall(`/school/orgs/${orgId}/sections/${sectionId}/assignments`, {
+): Promise<Assignment> => {
+  const r = await apiCall<any>(`/school/orgs/${orgId}/sections/${sectionId}/assignments`, {
     method: "POST",
     body: JSON.stringify(body),
   });
+  // Create endpoint wraps: { assignment }. Without unwrapping, the
+  // post-save redirect went to /assignments/undefined.
+  return normalizeAssignment(r?.assignment ?? r);
+};
 
 export const getSectionAssignments = (
   orgId: string,
@@ -3290,24 +3294,53 @@ export const getSectionAssignments = (
   if (opts.limit) q.append("limit", String(opts.limit));
   if (opts.subjectId) q.append("subjectId", opts.subjectId);
   const qs = q.toString() ? `?${q}` : "";
-  return apiCall(`/school/orgs/${orgId}/sections/${sectionId}/assignments${qs}`);
+  return apiCall<any>(`/school/orgs/${orgId}/sections/${sectionId}/assignments${qs}`).then(
+    (r: any) => ({ ...r, assignments: (r?.assignments ?? []).map(normalizeAssignment) }),
+  );
 };
 
-export const getAssignment = (
+/** Backend assignment JSON is camelCase (sectionId, maxScore, dueDate…)
+ *  while this file's Assignment type declares snake_case — and the detail
+ *  endpoint additionally wraps the row in { assignment, section }. This
+ *  mismatch made `a.class_section_id` undefined on the grading page, so
+ *  the roster fell back to the WHOLE school (pilot bug: a Class I
+ *  assignment listed every student in the org). Normalize both styles. */
+function normalizeAssignment(j: any): Assignment {
+  if (!j) return j;
+  return {
+    ...j,
+    org_id: j.org_id ?? j.orgId,
+    class_section_id: j.class_section_id ?? j.sectionId,
+    max_score: j.max_score ?? j.maxScore,
+    due_date: j.due_date ?? j.dueDate ?? null,
+    assigned_date: j.assigned_date ?? j.assignedDate,
+    related_topic: j.related_topic ?? j.relatedTopic ?? null,
+    created_by: j.created_by ?? j.createdBy ?? null,
+    created_at: j.created_at ?? j.createdAt,
+    updated_at: j.updated_at ?? j.updatedAt,
+  } as Assignment;
+}
+
+export const getAssignment = async (
   orgId: string,
   assignmentId: string,
-): Promise<Assignment> =>
-  apiCall(`/school/orgs/${orgId}/assignments/${assignmentId}`);
+): Promise<Assignment> => {
+  const r = await apiCall<any>(`/school/orgs/${orgId}/assignments/${assignmentId}`);
+  // Detail endpoint wraps: { assignment, section }.
+  return normalizeAssignment(r?.assignment ?? r);
+};
 
-export const patchAssignment = (
+export const patchAssignment = async (
   orgId: string,
   assignmentId: string,
   partial: Partial<AssignmentInput>,
-): Promise<Assignment> =>
-  apiCall(`/school/orgs/${orgId}/assignments/${assignmentId}`, {
+): Promise<Assignment> => {
+  const r = await apiCall<any>(`/school/orgs/${orgId}/assignments/${assignmentId}`, {
     method: "PATCH",
     body: JSON.stringify(partial),
   });
+  return normalizeAssignment(r?.assignment ?? r);
+};
 
 export const deleteAssignment = (
   orgId: string,
