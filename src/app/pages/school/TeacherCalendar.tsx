@@ -303,8 +303,7 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
         <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 flex items-start gap-2">
           <AlertTriangle className="h-4 w-4 mt-0.5 text-amber-600 shrink-0" />
           <span>
-            You have <strong>{insights.backToBackToday} back-to-back periods</strong> today —
-            plan a quick stretch / water break between them.
+            You have <strong>{insights.backToBackToday} back-to-back periods</strong> today.
           </span>
         </div>
       )}
@@ -356,7 +355,7 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
                     <div key={c.entry.id}>
                       {gap >= 10 && (
                         <div className="px-4 py-1.5 text-center text-[11px] text-slate-400 bg-slate-50/60">
-                          ☕ {gap} min break
+                          {gap} min — no period scheduled
                         </div>
                       )}
                       <div className={"flex items-center gap-3 px-4 py-3 " + (conflict ? "bg-rose-50" : "")}>
@@ -490,7 +489,7 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
                       <div key={p.key}
                            className="absolute left-1 right-1 rounded border border-dashed border-emerald-300 bg-emerald-50/60 flex items-center justify-center text-[10px] font-semibold text-emerald-800"
                            style={{ top: `${p.top}px`, height: `${p.height}px` }}>
-                        ☕ Prep · {p.mins} min
+                        Free · {p.mins} min
                       </div>
                     ));
                   })()}
