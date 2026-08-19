@@ -234,6 +234,7 @@ export function HifzLogEntry({
               <Label>Ayah from</Label>
               <Input
                 type="number"
+                inputMode="numeric"
                 min={1}
                 max={maxAyah}
                 value={ayahFrom}
@@ -246,6 +247,7 @@ export function HifzLogEntry({
               <Label>Ayah to</Label>
               <Input
                 type="number"
+                inputMode="numeric"
                 min={ayahFrom}
                 max={maxAyah}
                 value={ayahTo}
@@ -353,6 +355,7 @@ export function HifzLogEntry({
                   <Label>Mistakes today</Label>
                   <Input
                     type="number"
+                inputMode="numeric"
                     min={0}
                     value={mistakesCount === "" ? "" : mistakesCount}
                     onChange={(e) => {
@@ -376,6 +379,7 @@ export function HifzLogEntry({
                   <Label>Juz / Para</Label>
                   <Input
                     type="number"
+                inputMode="numeric"
                     min={1}
                     max={30}
                     value={juzNumber === "" ? "" : juzNumber}
@@ -391,6 +395,7 @@ export function HifzLogEntry({
                   <Label>Mushaf page</Label>
                   <Input
                     type="number"
+                inputMode="numeric"
                     min={1}
                     value={pageNumber === "" ? "" : pageNumber}
                     onChange={(e) => {
