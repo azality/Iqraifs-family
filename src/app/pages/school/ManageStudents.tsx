@@ -353,30 +353,38 @@ export function ManageStudents() {
     }
   };
 
-  const handleMarkLeft = async (s: AdminStudent) => {
-    const reason = prompt(
-      `Mark "${s.full_name}" (GR# ${s.gr_number}) as left?\n\nTheir record and history stay; they are removed from the class roster, attendance and fee billing.\n\nReason (optional):`,
-    );
-    if (reason === null) return; // cancelled
+  // Mark-as-left runs through a real in-app dialog. The first version
+  // used window.prompt(), which browsers silently block in some setups —
+  // the admin clicked and nothing happened (pilot: "ye nai horahaa").
+  const [markLeftTarget, setMarkLeftTarget] = useState<AdminStudent | null>(null);
+  const [leftReason, setLeftReason] = useState("");
+  const [markLeftBusy, setMarkLeftBusy] = useState(false);
+
+  const confirmMarkLeft = async () => {
+    if (!markLeftTarget) return;
+    setMarkLeftBusy(true);
     try {
-      const res = await markStudentLeft(orgId, s.id, reason.trim() || undefined);
+      const res = await markStudentLeft(orgId, markLeftTarget.id, leftReason.trim() || undefined);
       const cancelled = (res as any)?.cancelledVouchers ?? 0;
       toast.success(
         cancelled > 0
-          ? `${s.full_name} marked as left. ${cancelled} unpaid voucher${cancelled === 1 ? "" : "s"} cancelled.`
-          : `${s.full_name} marked as left.`,
+          ? `${markLeftTarget.full_name} marked as left. ${cancelled} unpaid voucher${cancelled === 1 ? "" : "s"} cancelled.`
+          : `${markLeftTarget.full_name} marked as left.`,
       );
+      setMarkLeftTarget(null);
+      setLeftReason("");
+      refresh();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not mark the student as left.");
+    } finally {
+      setMarkLeftBusy(false);
     }
-    refresh();
   };
 
   const handleReadmit = async (s: AdminStudent) => {
-    if (!confirm(`Re-admit "${s.full_name}" (GR# ${s.gr_number})? They rejoin the class they left from.`)) return;
     try {
       await readmitStudent(orgId, s.id);
-      toast.success(`${s.full_name} re-admitted.`);
+      toast.success(`${s.full_name} re-admitted to the class they left from.`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not re-admit the student.");
     }
@@ -511,7 +519,7 @@ export function ManageStudents() {
               <UserPlus className="h-3.5 w-3.5 text-emerald-600" />
             </Button>
           ) : (
-            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Mark as left" onClick={() => handleMarkLeft(s)}>
+            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Mark as left" onClick={() => { setLeftReason(""); setMarkLeftTarget(s); }}>
               <UserMinus className="h-3.5 w-3.5 text-amber-600" />
             </Button>
           )}
@@ -586,6 +594,47 @@ export function ManageStudents() {
         onRowClick={(s) => navigate(`/school/orgs/${orgId}/admin/students/${s.id}`)}
         emptyMessage="No students yet."
       />
+
+      {/* Mark-as-left dialog */}
+      <Dialog open={!!markLeftTarget} onOpenChange={(o) => { if (!o) setMarkLeftTarget(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Mark student as left</DialogTitle>
+          </DialogHeader>
+          {markLeftTarget && (
+            <div className="space-y-3">
+              <p className="text-sm text-slate-700">
+                <strong>{markLeftTarget.full_name}</strong> (GR# {markLeftTarget.gr_number}) will be
+                removed from the class roster, attendance and fee billing.
+                Their record and full history stay — you can re-admit them
+                anytime from the "Left" filter.
+              </p>
+              <div>
+                <Label htmlFor="left-reason">Reason (optional)</Label>
+                <Input
+                  id="left-reason"
+                  value={leftReason}
+                  onChange={(e) => setLeftReason(e.target.value)}
+                  placeholder="e.g. family moved, transferred to another school"
+                  autoFocus
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setMarkLeftTarget(null)} disabled={markLeftBusy}>
+                  Cancel
+                </Button>
+                <Button
+                  className="bg-amber-600 hover:bg-amber-700"
+                  onClick={() => void confirmMarkLeft()}
+                  disabled={markLeftBusy}
+                >
+                  {markLeftBusy ? "Saving…" : "Mark as left"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Add/Edit dialog */}
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
