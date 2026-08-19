@@ -62,6 +62,7 @@ const QUALITY_STYLES: Record<string, { label: string; cls: string; Icon: typeof 
   good:      { label: "Good",      cls: "bg-sky-100 text-sky-800 border-sky-200", Icon: CheckCircle2 },
   needs_practice: { label: "Needs practice", cls: "bg-amber-100 text-amber-800 border-amber-200", Icon: AlertCircle },
   weak:      { label: "Weak",      cls: "bg-rose-100 text-rose-800 border-rose-200", Icon: AlertCircle },
+  not_learned: { label: "Not learned today", cls: "bg-slate-200 text-slate-700 border-slate-300", Icon: AlertCircle },
 };
 
 function QualityBadge({ quality }: { quality: string | null | undefined }) {
@@ -86,6 +87,7 @@ function cellClass(c: MyStudentHifzDayCell): string {
     case "good":      return "bg-emerald-400 text-white";
     case "needs_practice": return "bg-amber-400 text-white";
     case "weak":      return "bg-rose-400 text-white";
+    case "not_learned": return "bg-slate-400 text-white";
     default:          return "bg-indigo-400 text-white";
   }
 }

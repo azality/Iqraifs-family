@@ -58,6 +58,7 @@ const QUALITY_OPTIONS: Array<{ value: HifzQuality; label: string }> = [
   { value: "good", label: "Good" },
   { value: "needs_practice", label: "Needs practice" },
   { value: "weak", label: "Weak" },
+  { value: "not_learned", label: "Not learned today" },
 ];
 
 export function HifzLogEntry({
