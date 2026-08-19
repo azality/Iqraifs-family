@@ -437,7 +437,7 @@ export function ManageStudents() {
           <div>
             <div className="flex items-center gap-2">
               <span className="font-medium text-slate-900">{s.full_name}</span>
-              {s.status === "left" && (
+              {s.status === "withdrawn" && (
                 <span
                   className="inline-flex items-center rounded-full bg-slate-200 text-slate-600 text-[10px] font-medium px-1.5 py-0.5"
                   title={s.left_reason || undefined}
@@ -485,7 +485,7 @@ export function ManageStudents() {
       header: "Section",
       className: "text-xs text-slate-600",
       cell: (s) =>
-        s.status === "left" ? (
+        s.status === "withdrawn" ? (
           <span className="text-slate-400">
             was {sectionOptions.find((o) => o.id === s.left_from_section_id)?.label || "—"}
           </span>
@@ -515,7 +515,7 @@ export function ManageStudents() {
           <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => startEdit(s)}>
             <Pencil className="h-3.5 w-3.5" />
           </Button>
-          {s.status === "left" ? (
+          {s.status === "withdrawn" ? (
             <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Re-admit" onClick={() => handleReadmit(s)}>
               <UserPlus className="h-3.5 w-3.5 text-emerald-600" />
             </Button>
@@ -538,9 +538,9 @@ export function ManageStudents() {
         <div>
           <div className={sectionTitleClasses}>Students</div>
           <p className="mt-1 text-sm text-slate-500">
-            Manage roster · <span className="tabular-nums text-slate-700">{students.filter((s) => s.status !== "left").length}</span> active
-            {students.some((s) => s.status === "left") && (
-              <span className="text-slate-400"> · {students.filter((s) => s.status === "left").length} left</span>
+            Manage roster · <span className="tabular-nums text-slate-700">{students.filter((s) => s.status !== "withdrawn").length}</span> active
+            {students.some((s) => s.status === "withdrawn") && (
+              <span className="text-slate-400"> · {students.filter((s) => s.status === "withdrawn").length} left</span>
             )}
           </p>
         </div>
@@ -589,7 +589,7 @@ export function ManageStudents() {
       <DataTable
         columns={columns}
         rows={students.filter((s) =>
-          statusFilter === "all" ? true : statusFilter === "left" ? s.status === "left" : s.status !== "left",
+          statusFilter === "all" ? true : statusFilter === "left" ? s.status === "withdrawn" : s.status !== "withdrawn",
         )}
         rowKey={(s) => s.id}
         onRowClick={(s) => navigate(`/school/orgs/${orgId}/admin/students/${s.id}`)}

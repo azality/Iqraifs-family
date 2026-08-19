@@ -1314,7 +1314,8 @@ export interface AdminStudent {
   /** Backend returns select("*") — present when the student is in a hifz
    *  group (PR feat/hifz-groups). Used by TeacherHome's group rosters. */
   hifz_group_id?: string | null;
-  /** 'active' | 'left'. Left students keep their record + history but are
+  /** 'active' | 'withdrawn' | 'graduated' | 'transferred'. Withdrawn ("left")
+   *  students keep their record + history but are
    *  cleared from their section, so rosters and billing skip them. */
   status?: string;
   left_at?: string | null;

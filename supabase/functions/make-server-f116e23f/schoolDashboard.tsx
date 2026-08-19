@@ -224,7 +224,7 @@ async function loadOrgSkeleton(orgId: string): Promise<{
     .from("student")
     .select("id, class_section_id")
     .eq("org_id", orgId)
-    .neq("status", "left");
+    .eq("status", "active");
   const studentRows = (students ?? []) as Array<{
     id: string;
     class_section_id: string | null;

@@ -67,7 +67,7 @@ export function installOffice(school: Hono) {
         "id, full_name, gr_number, class_section:class_section_id(name, class:class_id(name))",
       )
       .eq("org_id", orgId)
-      .neq("status", "left");
+      .eq("status", "active");
     const studentIds = (allStudents ?? []).map((s: any) => s.id);
     const linkedIds = new Set<string>();
     if (studentIds.length > 0) {
