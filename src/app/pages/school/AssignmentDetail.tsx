@@ -302,59 +302,110 @@ export function AssignmentDetail() {
           {rows.length === 0 ? (
             <p className="text-sm text-muted-foreground p-4">No students in this section.</p>
           ) : (
-            <table className="w-full text-sm">
-              <thead className="bg-muted/50 text-left">
-                <tr>
-                  <th className="px-3 py-2">Student</th>
-                  <th className="px-3 py-2">GR#</th>
-                  <th className="px-3 py-2 w-32">Score</th>
-                  <th className="px-3 py-2 w-36">Status</th>
-                  <th className="px-3 py-2">Feedback</th>
-                </tr>
-              </thead>
-              <tbody>
+            <>
+              {/* Phones: card per student. The 5-column table squeezed the
+                  score input to ~1 digit on a 375px screen (pilot bug). */}
+              <div className="sm:hidden divide-y">
                 {rows.map((r, idx) => (
-                  <tr key={r.studentId} className={"border-t " + (r.dirty ? "bg-amber-50/40" : "")}>
-                    <td className="px-3 py-2 font-medium">{r.studentName}</td>
-                    <td className="px-3 py-2 text-xs font-mono text-muted-foreground">{r.grNumber}</td>
-                    <td className="px-3 py-2">
+                  <div key={r.studentId} className={"px-3 py-2.5 " + (r.dirty ? "bg-amber-50/40" : "")}>
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="min-w-0 truncate text-sm font-medium">{r.studentName}</span>
+                      <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{r.grNumber}</span>
+                    </div>
+                    <div className="mt-1.5 flex items-center gap-2">
                       <Input
                         type="number"
+                        inputMode="decimal"
                         step="0.01"
                         min="0"
                         max={assignment.max_score}
                         value={r.score}
                         disabled={r.status !== "graded"}
                         onChange={(e) => markDirty(idx, { score: e.target.value })}
-                        className="h-8"
+                        className="h-9 w-24 text-center tabular-nums"
+                        placeholder={`/ ${assignment.max_score}`}
                       />
-                    </td>
-                    <td className="px-3 py-2">
                       <Select
                         value={r.status}
                         onValueChange={(v) => markDirty(idx, { status: v as GradeStatus })}
                       >
-                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectTrigger className="h-9 flex-1 text-xs"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           {STATUS_OPTIONS.map((s) => (
                             <SelectItem key={s} value={s}>{s}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
-                    </td>
-                    <td className="px-3 py-2">
+                    </div>
+                    {(r.feedback || r.dirty) && (
                       <Textarea
                         rows={1}
                         value={r.feedback}
                         onChange={(e) => markDirty(idx, { feedback: e.target.value })}
-                        className="min-h-[32px] text-xs"
-                        placeholder="optional"
+                        className="mt-1.5 min-h-[32px] text-xs"
+                        placeholder="Feedback (optional)"
                       />
-                    </td>
-                  </tr>
+                    )}
+                  </div>
                 ))}
-              </tbody>
-            </table>
+              </div>
+
+              {/* Desktop: the original table. */}
+              <table className="hidden w-full text-sm sm:table">
+                <thead className="bg-muted/50 text-left">
+                  <tr>
+                    <th className="px-3 py-2">Student</th>
+                    <th className="px-3 py-2">GR#</th>
+                    <th className="px-3 py-2 w-32">Score</th>
+                    <th className="px-3 py-2 w-36">Status</th>
+                    <th className="px-3 py-2">Feedback</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r, idx) => (
+                    <tr key={r.studentId} className={"border-t " + (r.dirty ? "bg-amber-50/40" : "")}>
+                      <td className="px-3 py-2 font-medium">{r.studentName}</td>
+                      <td className="px-3 py-2 text-xs font-mono text-muted-foreground">{r.grNumber}</td>
+                      <td className="px-3 py-2">
+                        <Input
+                          type="number"
+                          inputMode="decimal"
+                          step="0.01"
+                          min="0"
+                          max={assignment.max_score}
+                          value={r.score}
+                          disabled={r.status !== "graded"}
+                          onChange={(e) => markDirty(idx, { score: e.target.value })}
+                          className="h-8 w-24 tabular-nums"
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <Select
+                          value={r.status}
+                          onValueChange={(v) => markDirty(idx, { status: v as GradeStatus })}
+                        >
+                          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {STATUS_OPTIONS.map((s) => (
+                              <SelectItem key={s} value={s}>{s}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </td>
+                      <td className="px-3 py-2">
+                        <Textarea
+                          rows={1}
+                          value={r.feedback}
+                          onChange={(e) => markDirty(idx, { feedback: e.target.value })}
+                          className="min-h-[32px] text-xs"
+                          placeholder="optional"
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
           )}
         </CardContent>
       </Card>
