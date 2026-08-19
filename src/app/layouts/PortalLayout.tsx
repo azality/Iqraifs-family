@@ -92,6 +92,14 @@ export function PortalLayout() {
 
   const subjectName = subject?.parent?.fullName || subject?.student?.fullName || "";
 
+  // Tab title = the school's name while inside the parent/student portal.
+  useEffect(() => {
+    const name = subject?.orgName?.trim();
+    if (!name) return;
+    document.title = /iqra/i.test(name) ? name : `Iqra — ${name}`;
+    return () => { document.title = "Iqra — Islamic Family System"; };
+  }, [subject?.orgName]);
+
   // Parent-only: fetch unanswered-forms count once for the nav badge.
   const [unansweredForms, setUnansweredForms] = useState<number>(0);
   useEffect(() => {

@@ -63,7 +63,12 @@ export function SchoolUnifiedLogin() {
     let cancelled = false;
     getOrgBySlug(orgSlug)
       .then((b) => {
-        if (!cancelled) setBranding(b);
+        if (cancelled) return;
+        setBranding(b);
+        // Tab title = the school's name from the moment the login page
+        // resolves (pilot feedback: "Family Growth System" is wrong here).
+        const name = b?.name?.trim();
+        if (name) document.title = /iqra/i.test(name) ? name : `Iqra — ${name}`;
       })
       .catch(() => {
         if (!cancelled) setBranding(null);
