@@ -11,9 +11,24 @@
 // the context hasn't resolved yet — keeps the principal-only toolbar items
 // (Permissions, Settings) accurate.
 
+import { useEffect } from "react";
 import { Outlet } from "react-router";
-import { OrgBrandingProvider } from "../contexts/OrgBrandingContext";
+import { OrgBrandingProvider, useOrgBranding } from "../contexts/OrgBrandingContext";
 import { CmdKPalette } from "../components/school-ui/CmdKPalette";
+
+// Tab title = the school's own name while inside the school workspace
+// (pilot feedback: "Family Growth System" is wrong for a school user).
+// If the school's name doesn't already carry the Iqra brand, suffix it.
+function SchoolTabTitle() {
+  const branding = useOrgBranding();
+  useEffect(() => {
+    const name = branding.schoolName?.trim();
+    if (!name) return;
+    document.title = /iqra/i.test(name) ? name : `Iqra — ${name}`;
+    return () => { document.title = "Iqra — Islamic Family System"; };
+  }, [branding.schoolName]);
+  return null;
+}
 
 // Per user feedback: the ManageToolbar + WorkspaceSwitcher now live inline
 // in RootLayout's top bar (see RootLayout.tsx, "Row 1") so we don't burn a
@@ -23,6 +38,7 @@ import { CmdKPalette } from "../components/school-ui/CmdKPalette";
 export function SchoolAdminShell() {
   return (
     <OrgBrandingProvider>
+      <SchoolTabTitle />
       <Outlet />
       {/* Global Cmd-K / Ctrl-K search palette. Self-contained — listens
           to its own keyboard shortcut and reads :orgId from useParams. */}
