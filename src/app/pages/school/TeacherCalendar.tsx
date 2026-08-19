@@ -68,8 +68,15 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
   const { orgId = "" } = useParams<{ orgId: string }>();
   const [cells, setCells] = useState<MyTimetableCell[] | null>(cellsOverride ?? null);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<ViewMode>("week");
+  // Phones default to the day agenda — the week canvas is unreadable at
+  // 375px (pilot feedback: "too congested, not pleasing on the eye").
+  const [view, setView] = useState<ViewMode>(() =>
+    typeof window !== "undefined" && window.innerWidth < 640 ? "day" : "week",
+  );
   const [showConflicts, setShowConflicts] = useState(false);
+  // Tapped week-grid block → detail popover. Hover tooltips don't exist
+  // on phones, so times were unreachable there (pilot feedback).
+  const [selectedCell, setSelectedCell] = useState<MyTimetableCell | null>(null);
   const [showTimeOff, setShowTimeOff] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -318,6 +325,61 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
         <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
           No timetable entries assigned to you yet.
         </div>
+      ) : view === "day" ? (
+        // Day agenda — one card per period. On a phone this reads far
+        // better than the absolute-positioned canvas (blocks collided at
+        // 48px/hour). Gaps ≥ 10 min render as quiet prep dividers.
+        <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+          <div className="bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-800">
+            {DAYS.find((d) => d.num === todayDow)?.short ?? "Today"} · today
+          </div>
+          {(byDay[todayDow] ?? []).length === 0 ? (
+            <div className="p-8 text-center text-sm text-slate-500">
+              No periods today.
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {(byDay[todayDow] ?? [])
+                .slice()
+                .sort((a, b) => toMin(a.slot.startTime) - toMin(b.slot.startTime))
+                .map((c, i, arr) => {
+                  const hue = hueFor(c.entry.subjectName);
+                  const conflict = conflicts.has(c.entry.id);
+                  const prev = i > 0 ? arr[i - 1] : null;
+                  const gap = prev ? toMin(c.slot.startTime) - toMin(prev.slot.endTime) : 0;
+                  return (
+                    <div key={c.entry.id}>
+                      {gap >= 10 && (
+                        <div className="px-4 py-1.5 text-center text-[11px] text-slate-400 bg-slate-50/60">
+                          ☕ {gap} min break
+                        </div>
+                      )}
+                      <div className={"flex items-center gap-3 px-4 py-3 " + (conflict ? "bg-rose-50" : "")}>
+                        <div
+                          className="w-1.5 self-stretch rounded-full shrink-0"
+                          style={{ background: `hsl(${hue} 55% 45%)` }}
+                        />
+                        <div className="w-[74px] shrink-0 text-xs tabular-nums text-slate-500 leading-5">
+                          <div className="font-semibold text-slate-800">{c.slot.startTime.slice(0, 5)}</div>
+                          <div>{c.slot.endTime.slice(0, 5)}</div>
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-semibold text-slate-900">
+                            {c.entry.subjectName ?? "Period"}
+                          </div>
+                          <div className="truncate text-xs text-slate-500">
+                            {c.scopeLabel}
+                            {c.entry.room ? ` · ${c.entry.room}` : ""}
+                          </div>
+                        </div>
+                        {conflict && <AlertTriangle className="h-4 w-4 shrink-0 text-rose-500" />}
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          )}
+        </div>
       ) : (
         <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
           {/* Header row */}
@@ -438,8 +500,12 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
                     return (
                       <div
                         key={c.entry.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setSelectedCell(c)}
+                        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setSelectedCell(c); }}
                         className={
-                          "absolute left-1 right-1 rounded-md px-2 py-1.5 text-[11px] text-white overflow-hidden " +
+                          "absolute left-1 right-1 rounded-md px-2 py-1.5 text-[11px] text-white overflow-hidden cursor-pointer " +
                           (conflict ? "ring-2 ring-rose-500 z-10" : "ring-1 ring-black/5")
                         }
                         style={{
@@ -462,6 +528,64 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* Tapped-period detail sheet (week grid on phones has no hover) */}
+      {selectedCell && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-4"
+          onClick={() => setSelectedCell(null)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3">
+              <div
+                className="h-10 w-1.5 rounded-full"
+                style={{ background: `hsl(${hueFor(selectedCell.entry.subjectName)} 55% 45%)` }}
+              />
+              <div className="min-w-0">
+                <div className="text-base font-semibold text-slate-900">
+                  {selectedCell.entry.subjectName ?? "Period"}
+                </div>
+                <div className="text-sm text-slate-500">{selectedCell.scopeLabel}</div>
+              </div>
+            </div>
+            <div className="mt-4 space-y-2 text-sm">
+              <div className="flex justify-between rounded-lg bg-slate-50 px-3 py-2">
+                <span className="text-slate-500">Day</span>
+                <span className="font-medium text-slate-800">
+                  {DAYS.find((d) => d.num === selectedCell.slot.dayOfWeek)?.short ?? ""}
+                </span>
+              </div>
+              <div className="flex justify-between rounded-lg bg-slate-50 px-3 py-2">
+                <span className="text-slate-500">Time</span>
+                <span className="font-medium tabular-nums text-slate-800">
+                  {selectedCell.slot.startTime.slice(0, 5)} – {selectedCell.slot.endTime.slice(0, 5)}
+                </span>
+              </div>
+              {selectedCell.entry.room && (
+                <div className="flex justify-between rounded-lg bg-slate-50 px-3 py-2">
+                  <span className="text-slate-500">Room</span>
+                  <span className="font-medium text-slate-800">{selectedCell.entry.room}</span>
+                </div>
+              )}
+              {conflicts.has(selectedCell.entry.id) && (
+                <div className="rounded-lg bg-rose-50 px-3 py-2 text-rose-700">
+                  ⚠️ This period overlaps another — talk to the admin.
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              className="mt-4 w-full rounded-lg bg-slate-900 py-2.5 text-sm font-medium text-white"
+              onClick={() => setSelectedCell(null)}
+            >
+              Close
+            </button>
           </div>
         </div>
       )}
