@@ -29,6 +29,7 @@ import {
   getSchoolMe,
   isOrgAdmin,
   getStudent,
+  readmitStudent,
   listParents,
   createParent,
   linkStudentParent,
@@ -208,8 +209,35 @@ export function StudentDetail() {
         </Link>
       </div>
 
+      {student.status === "withdrawn" && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
+          <div className="text-sm text-amber-900">
+            <strong>This student has left the school</strong>
+            {student.left_at ? ` on ${new Date(student.left_at).toLocaleDateString()}` : ""}
+            {student.left_reason ? ` — "${student.left_reason}"` : ""}.
+            {" "}Record and history are read-only reference; they are excluded
+            from rosters, attendance and fee billing.
+          </div>
+          <Button
+            size="sm"
+            className="bg-emerald-600 hover:bg-emerald-700"
+            onClick={async () => {
+              try {
+                await readmitStudent(orgId, studentId);
+                toast.success(`${student.full_name} re-admitted to the class they left from.`);
+                getStudent(orgId, studentId).then(setStudent).catch(() => {});
+              } catch (e) {
+                toast.error(e instanceof Error ? e.message : "Could not re-admit.");
+              }
+            }}
+          >
+            Re-admit
+          </Button>
+        </div>
+      )}
+
       <HeroCard
-        eyebrow="Student"
+        eyebrow={student.status === "withdrawn" ? "Student · Left" : "Student"}
         title={student.full_name}
         subtitle={
           <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-0.5">
@@ -234,6 +262,7 @@ export function StudentDetail() {
               </div>
             )}
             <div className="flex flex-col gap-1.5">
+              {student.status !== "withdrawn" && (
               <Button
                 size="sm"
                 className="h-7 bg-white text-slate-900 hover:bg-slate-100"
@@ -241,6 +270,7 @@ export function StudentDetail() {
               >
                 <BookMarked className="h-3.5 w-3.5 mr-1" /> Log Hifz
               </Button>
+              )}
               <Link to={`/school/orgs/${orgId}/admin/students/${studentId}/report-card`}>
                 <Button
                   size="sm"
@@ -250,6 +280,8 @@ export function StudentDetail() {
                   <FileText className="h-3.5 w-3.5 mr-1" /> Report card
                 </Button>
               </Link>
+              {student.status !== "withdrawn" && (
+                <>
               <Button
                 size="sm"
                 variant="outline"
@@ -266,7 +298,9 @@ export function StudentDetail() {
               >
                 <Link2 className="h-3.5 w-3.5 mr-1" /> Link code
               </Button>
-              {transferTargets.length > 0 && (
+                </>
+              )}
+              {student.status !== "withdrawn" && transferTargets.length > 0 && (
                 <Button
                   size="sm"
                   variant="outline"

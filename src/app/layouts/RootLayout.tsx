@@ -740,7 +740,9 @@ export function RootLayout() {
       <footer className="hidden sm:block border-t bg-slate-50/60 mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <p className="text-center text-xs text-slate-400">
-            Family Growth System · Consistency, accountability, growth
+            {isSchoolWorkspace
+              ? (workspace.kind === "school" ? workspace.orgName : "Iqra") + " · powered by Iqra"
+              : "Iqra — Islamic Family System · Consistency, accountability, growth"}
           </p>
         </div>
       </footer>
