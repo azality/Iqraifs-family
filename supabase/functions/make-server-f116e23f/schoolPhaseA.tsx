@@ -359,13 +359,14 @@ function studentRowToColumns(
     org_id: orgId,
     gr_number: row.grNumber,
     full_name: row.fullName,
-    class_section_id: row.classSectionId ?? null,
+    class_section_id: row.classSectionId || null,
     photo_url: row.photoUrl ?? null,
-    date_of_birth: row.dateOfBirth ?? null,
-    gender: row.gender ?? null,
+    date_of_birth: row.dateOfBirth || null,
+    gender: row.gender || null,
     guardian_phone: row.guardianPhone ?? null,
     guardian_email: row.guardianEmail ?? null,
-    program: row.program ?? null,
+    // '' violates student_program_check — coerce falsy to null.
+    program: row.program || null,
     registration_no: row.registrationNo ?? null,
     applying_for_grade: row.applyingForGrade ?? null,
     academic_term: row.academicTerm ?? null,
@@ -1245,6 +1246,10 @@ export function installPhaseA(school: Hono) {
     // typed columns; text columns keep "" semantics.
     const EMPTY_IS_NULL = new Set([
       "date_of_birth", "admission_date", "class_section_id", "hifz_group_id",
+      // student_program_check rejects '' — the edit form's "—" program
+      // option sends an empty string (pilot bug: every save failed with
+      // "violates check constraint student_program_check").
+      "program", "gender",
     ]);
     const patch: Record<string, unknown> = {};
     for (const [k, col] of Object.entries(map)) {
