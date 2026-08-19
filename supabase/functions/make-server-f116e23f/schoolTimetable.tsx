@@ -44,6 +44,7 @@ function slotToJson(r: any) {
     endTime: r.end_time,
     kind: r.kind,
     displayOrder: r.display_order,
+    scheduleKey: r.schedule_key ?? "default",
   };
 }
 
@@ -309,6 +310,10 @@ export function installTimetable(school: Hono): void {
       .from("timetable_slot")
       .select("id, day_of_week")
       .eq("org_id", orgId)
+      // The template editor manages ONLY the default schedule. Named
+      // schedules (e.g. the primary section's bell times) are never
+      // touched by a template republish.
+      .eq("schedule_key", "default")
       .in("day_of_week", days);
     const safeToDeleteIds = (existingSlots ?? [])
       .map((s: any) => s.id)
@@ -772,10 +777,23 @@ export function installTimetable(school: Hono): void {
   // through with `entry: null` so the UI can render the slot as
   // "free" / "no class".
   async function weeklyView(orgId: string, scope: "section" | "group", scopeId: string) {
+    // Sections follow exactly ONE named bell schedule (schedule_key).
+    // Without this filter, a primary section's editor showed the
+    // secondary schedule's slots as empty "+ Assign" ghosts too.
+    let scheduleKey = "default";
+    if (scope === "section") {
+      const { data: sec } = await serviceRoleClient
+        .from("class_section")
+        .select("schedule_key")
+        .eq("id", scopeId)
+        .maybeSingle();
+      scheduleKey = (sec as any)?.schedule_key ?? "default";
+    }
     const { data: slots, error: slotErr } = await serviceRoleClient
       .from("timetable_slot")
       .select("*")
       .eq("org_id", orgId)
+      .eq("schedule_key", scheduleKey)
       .is("archived_at", null)
       .order("day_of_week", { ascending: true })
       .order("start_time", { ascending: true });

@@ -737,11 +737,23 @@ export function installPortal(school: Hono): void {
       .maybeSingle();
     if (!stu) return c.json({ error: "student not found" }, 404);
 
-    // Pull all slots for the org so empty cells render too.
+    // Pull the slots of the SECTION's bell schedule so empty cells render
+    // too — without the schedule_key filter a primary-section student saw
+    // the secondary schedule's slots as extra empty rows.
+    let scheduleKey = "default";
+    if ((stu as any).class_section_id) {
+      const { data: sec } = await serviceRoleClient
+        .from("class_section")
+        .select("schedule_key")
+        .eq("id", (stu as any).class_section_id)
+        .maybeSingle();
+      scheduleKey = (sec as any)?.schedule_key ?? "default";
+    }
     const { data: slots } = await serviceRoleClient
       .from("timetable_slot")
       .select("*")
       .eq("org_id", (stu as any).org_id)
+      .eq("schedule_key", scheduleKey)
       .is("archived_at", null)
       .order("day_of_week", { ascending: true })
       .order("start_time", { ascending: true });
