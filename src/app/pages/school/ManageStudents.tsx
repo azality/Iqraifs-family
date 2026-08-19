@@ -359,8 +359,13 @@ export function ManageStudents() {
     );
     if (reason === null) return; // cancelled
     try {
-      await markStudentLeft(orgId, s.id, reason.trim() || undefined);
-      toast.success(`${s.full_name} marked as left.`);
+      const res = await markStudentLeft(orgId, s.id, reason.trim() || undefined);
+      const cancelled = (res as any)?.cancelledVouchers ?? 0;
+      toast.success(
+        cancelled > 0
+          ? `${s.full_name} marked as left. ${cancelled} unpaid voucher${cancelled === 1 ? "" : "s"} cancelled.`
+          : `${s.full_name} marked as left.`,
+      );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not mark the student as left.");
     }

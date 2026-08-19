@@ -1308,7 +1308,22 @@ export function installPhaseA(school: Hono) {
       .eq("id", studentId).eq("org_id", orgId)
       .select().single();
     if (error) return c.json({ error: error.message }, 500);
-    return c.json(data);
+
+    // Cancel this month's + future unpaid vouchers (zero paid). Reuses the
+    // 'waived' status so finance surfaces already exclude them from
+    // outstanding. Past-month arrears and partially-paid vouchers are left
+    // alone — the office decides those case by case.
+    const currentPeriod = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Karachi" }).slice(0, 7);
+    const { data: cancelled } = await serviceRoleClient
+      .from("fee_status")
+      .update({ status: "waived", notes: "Cancelled - student left" })
+      .eq("org_id", orgId)
+      .eq("student_id", studentId)
+      .eq("status", "unpaid")
+      .eq("amount_paid", 0)
+      .gte("period", currentPeriod)
+      .select("id");
+    return c.json({ ...data, cancelledVouchers: (cancelled ?? []).length });
   });
 
   // ---------------------------------------------------------------------------
