@@ -1351,15 +1351,24 @@ export function installPhaseA(school: Hono) {
     const sectionId =
       (typeof body?.classSectionId === "string" && body.classSectionId) ||
       (existing as any).left_from_section_id || null;
+    const patch: Record<string, unknown> = {
+      status: "active",
+      class_section_id: sectionId,
+      // left_at / left_reason are PRESERVED — the record reads as a
+      // timeline (admitted → left → re-admitted), mirroring paper GR
+      // registers. Only the restore pointer is cleared.
+      left_from_section_id: null,
+      readmitted_at: new Date().toISOString(),
+      readmit_note:
+        typeof body?.note === "string" && body.note.trim() ? body.note.trim() : null,
+    };
+    if (typeof body?.program === "string") {
+      patch.program =
+        body.program === "hifz" || body.program === "conventional" ? body.program : null;
+    }
     const { data, error } = await serviceRoleClient
       .from("student")
-      .update({
-        status: "active",
-        left_at: null,
-        left_reason: null,
-        left_from_section_id: null,
-        class_section_id: sectionId,
-      })
+      .update(patch)
       .eq("id", studentId).eq("org_id", orgId)
       .select().single();
     if (error) return c.json({ error: error.message }, 500);

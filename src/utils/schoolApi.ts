@@ -1525,11 +1525,11 @@ export const markStudentLeft = (
 export const readmitStudent = (
   orgId: string,
   studentId: string,
-  classSectionId?: string,
+  opts: { classSectionId?: string; program?: string | null; note?: string } = {},
 ): Promise<AdminStudent> =>
   apiCall(`/school/orgs/${orgId}/students/${studentId}/readmit`, {
     method: "POST",
-    body: JSON.stringify({ classSectionId }),
+    body: JSON.stringify(opts),
   });
 
 export interface BulkResult {

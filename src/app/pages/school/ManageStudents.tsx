@@ -4,6 +4,7 @@
 // add/edit/delete and CSV bulk import.
 
 import { toast } from "sonner";
+import { ReadmitDialog } from "./components/ReadmitDialog";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { Button } from "../../components/ui/button";
@@ -46,7 +47,6 @@ import {
   createClassFeePlan,
   listStudentFeeOverrides,
   markStudentLeft,
-  readmitStudent,
   upsertStudentFeeOverride,
   deleteStudentFeeOverride,
   type ClassFeePlan,
@@ -248,6 +248,7 @@ export function ManageStudents() {
   const [markLeftTarget, setMarkLeftTarget] = useState<AdminStudent | null>(null);
   const [leftReason, setLeftReason] = useState("");
   const [markLeftBusy, setMarkLeftBusy] = useState(false);
+  const [readmitTarget, setReadmitTarget] = useState<AdminStudent | null>(null);
 
   const viewerRole = me ? viewerRoleForOrg(me, orgId) : null;
   const perm = useOrgPermissionState(orgId, viewerRole, "manage_students");
@@ -382,15 +383,9 @@ export function ManageStudents() {
     }
   };
 
-  const handleReadmit = async (s: AdminStudent) => {
-    try {
-      await readmitStudent(orgId, s.id);
-      toast.success(`${s.full_name} re-admitted to the class they left from.`);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not re-admit the student.");
-    }
-    refresh();
-  };
+  // Re-admission goes through the placement dialog (class, program, fee,
+  // note) — a returnee from a past year must not silently land back in
+  // their old class. State lives with the other dialog state above.
 
   const handleDelete = async (s: AdminStudent) => {
     if (!confirm(`Delete student "${s.full_name}" (GR# ${s.gr_number})?`)) return;
@@ -516,7 +511,7 @@ export function ManageStudents() {
             <Pencil className="h-3.5 w-3.5" />
           </Button>
           {s.status === "withdrawn" ? (
-            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Re-admit" onClick={() => handleReadmit(s)}>
+            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Re-admit" onClick={() => setReadmitTarget(s)}>
               <UserPlus className="h-3.5 w-3.5 text-emerald-600" />
             </Button>
           ) : (
@@ -595,6 +590,16 @@ export function ManageStudents() {
         onRowClick={(s) => navigate(`/school/orgs/${orgId}/admin/students/${s.id}`)}
         emptyMessage="No students yet."
       />
+
+      {readmitTarget && (
+        <ReadmitDialog
+          orgId={orgId}
+          student={readmitTarget}
+          open={!!readmitTarget}
+          onClose={() => setReadmitTarget(null)}
+          onDone={refresh}
+        />
+      )}
 
       {/* Mark-as-left dialog */}
       <Dialog open={!!markLeftTarget} onOpenChange={(o) => { if (!o) setMarkLeftTarget(null); }}>
