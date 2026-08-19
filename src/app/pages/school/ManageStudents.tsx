@@ -241,6 +241,14 @@ export function ManageStudents() {
   // (manage_students) so the Permissions editor's toggles govern this page.
   // While the matrix fetch is in flight we render nothing rather than
   // bouncing a legitimately-permitted user.
+  // Mark-as-left dialog state. MUST live above the early permission
+  // returns below — hooks after a conditional return crash React with
+  // "Rendered more hooks than during the previous render" (pilot bug:
+  // the whole Students page died with "Something went wrong").
+  const [markLeftTarget, setMarkLeftTarget] = useState<AdminStudent | null>(null);
+  const [leftReason, setLeftReason] = useState("");
+  const [markLeftBusy, setMarkLeftBusy] = useState(false);
+
   const viewerRole = me ? viewerRoleForOrg(me, orgId) : null;
   const perm = useOrgPermissionState(orgId, viewerRole, "manage_students");
 
@@ -352,13 +360,6 @@ export function ManageStudents() {
       setError(e instanceof Error ? e.message : String(e));
     }
   };
-
-  // Mark-as-left runs through a real in-app dialog. The first version
-  // used window.prompt(), which browsers silently block in some setups —
-  // the admin clicked and nothing happened (pilot: "ye nai horahaa").
-  const [markLeftTarget, setMarkLeftTarget] = useState<AdminStudent | null>(null);
-  const [leftReason, setLeftReason] = useState("");
-  const [markLeftBusy, setMarkLeftBusy] = useState(false);
 
   const confirmMarkLeft = async () => {
     if (!markLeftTarget) return;
