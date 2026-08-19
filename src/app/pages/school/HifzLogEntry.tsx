@@ -133,7 +133,12 @@ export function HifzLogEntry({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [surahNumber]);
 
-  const handleSubmit = async () => {
+  // stayOpen: "Save & log next" — the daily trio (sabaq → sabqi → manzil)
+  // is three entries per child; closing the dialog after each save meant
+  // ~60 dialog-openings a day for a 20-child class. Keeps the dialog
+  // open, advances Kind to the next of the trio, clears per-entry fields.
+  const KIND_SEQUENCE: string[] = ["sabaq", "sabqi", "manzil"];
+  const handleSubmit = async (stayOpen = false) => {
     if (ayahFrom < 1 || ayahFrom > maxAyah) {
       toast.error(`Ayah from must be 1–${maxAyah}`);
       return;
@@ -165,9 +170,24 @@ export function HifzLogEntry({
         parentAction: parentAction.trim() || undefined,
         missed: missed || undefined,
       });
-      toast.success("Hifz entry logged");
-      onOpenChange(false);
       onSuccess?.();
+      if (stayOpen) {
+        const idx = KIND_SEQUENCE.indexOf(kind);
+        const next = idx >= 0 && idx < KIND_SEQUENCE.length - 1 ? KIND_SEQUENCE[idx + 1] : null;
+        toast.success(
+          `${kind.charAt(0).toUpperCase() + kind.slice(1)} logged` +
+            (next ? ` — now ${next}` : ""),
+        );
+        // Per-entry fields reset; surah/ayah stay (teacher adjusts them
+        // for the next portion anyway, keeping them beats retyping).
+        setQuality("");
+        setNotes("");
+        setMissed(false);
+        if (next) setKind(next as typeof kind);
+      } else {
+        toast.success("Hifz entry logged");
+        onOpenChange(false);
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Log failed");
     } finally {
@@ -465,8 +485,11 @@ export function HifzLogEntry({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleSubmit} disabled={submitting}>
-            {submitting ? "Saving…" : "Log entry"}
+          <Button variant="outline" onClick={() => void handleSubmit(true)} disabled={submitting}>
+            {submitting ? "Saving…" : "Save & log next"}
+          </Button>
+          <Button onClick={() => void handleSubmit(false)} disabled={submitting}>
+            {submitting ? "Saving…" : "Save & close"}
           </Button>
         </DialogFooter>
       </DialogContent>
