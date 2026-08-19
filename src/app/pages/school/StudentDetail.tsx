@@ -2,6 +2,7 @@
 // link-code generator. Reached from ManageStudents.
 
 import { useEffect, useState } from "react";
+import { ReadmitDialog } from "./components/ReadmitDialog";
 import { Link, Navigate, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
@@ -29,7 +30,6 @@ import {
   getSchoolMe,
   isOrgAdmin,
   getStudent,
-  readmitStudent,
   listParents,
   createParent,
   linkStudentParent,
@@ -72,6 +72,7 @@ export function StudentDetail() {
   // backend requires admin at both source and target.
   const navigate = useNavigate();
   const [transferOpen, setTransferOpen] = useState(false);
+  const [readmitOpen, setReadmitOpen] = useState(false);
   const [transferOrgId, setTransferOrgId] = useState("");
   const [transferSectionId, setTransferSectionId] = useState("");
   const [transferReason, setTransferReason] = useState("");
@@ -221,19 +222,21 @@ export function StudentDetail() {
           <Button
             size="sm"
             className="bg-emerald-600 hover:bg-emerald-700"
-            onClick={async () => {
-              try {
-                await readmitStudent(orgId, studentId);
-                toast.success(`${student.full_name} re-admitted to the class they left from.`);
-                getStudent(orgId, studentId).then(setStudent).catch(() => {});
-              } catch (e) {
-                toast.error(e instanceof Error ? e.message : "Could not re-admit.");
-              }
-            }}
+            onClick={() => setReadmitOpen(true)}
           >
             Re-admit
           </Button>
         </div>
+      )}
+
+      {student.status === "withdrawn" && (
+        <ReadmitDialog
+          orgId={orgId}
+          student={student as any}
+          open={readmitOpen}
+          onClose={() => setReadmitOpen(false)}
+          onDone={() => getStudent(orgId, studentId).then(setStudent).catch(() => {})}
+        />
       )}
 
       <HeroCard
