@@ -974,7 +974,7 @@ export interface DashboardResponse {
     hifzProgress: DashboardTile;
     formsAwaiting: DashboardTile;
   };
-  health: { healthy: number; watch: number; flagged: number };
+  health: { healthy: number; watch: number; flagged: number; noData?: number };
   alerts: DashboardAlert[];
   /** Scope of the data returned. Org view = full school; sections view = only
    *  the sections the caller teaches. Added with role-aware alerts. */
@@ -1000,7 +1000,7 @@ export interface LeaderboardRow {
   concernCount: number;
   last10Days: number[];
   last10Dates: string[];
-  status: "compliant" | "watch" | "flagged";
+  status: "compliant" | "watch" | "flagged" | "no_data";
 }
 
 export interface InsightsResponse {

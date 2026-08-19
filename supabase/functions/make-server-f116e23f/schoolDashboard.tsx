@@ -339,8 +339,16 @@ function endOfDayIso(d: Date): string {
 // -----------------------------------------------------------------------------
 // Status thresholds — kept in one place so health rollup and leaderboard agree.
 // -----------------------------------------------------------------------------
-function sectionStatus(attendancePct: number, concernCount: number):
-  "compliant" | "watch" | "flagged" {
+function sectionStatus(attendancePct: number, concernCount: number, hasAttendance: boolean):
+  "compliant" | "watch" | "flagged" | "no_data" {
+  // A section with no attendance taken yet is unknown, not failing —
+  // 18 red "Flagged" chips on a fresh org read as a crisis that isn't there.
+  // Concerns alone can still flag/watch a no-attendance section.
+  if (!hasAttendance) {
+    if (concernCount >= 6) return "flagged";
+    if (concernCount >= 3) return "watch";
+    return "no_data";
+  }
   if (attendancePct < 75 || concernCount >= 6) return "flagged";
   if (attendancePct < 85 || concernCount >= 3) return "watch";
   return "compliant";
@@ -572,21 +580,22 @@ export function installDashboard(school: Hono): void {
       attBySection.set(r.class_section_id, arr);
     }
 
-    let healthy = 0, watch = 0, flagged = 0;
+    let healthy = 0, watch = 0, flagged = 0, noData = 0;
     const sectionStatuses: Array<{
       section: SectionRow;
       pct: number;
       concerns: number;
-      status: "compliant" | "watch" | "flagged";
+      status: "compliant" | "watch" | "flagged" | "no_data";
     }> = [];
     for (const sec of skeleton.sections) {
       const rows = attBySection.get(sec.id) ?? [];
       const pct = attendancePct(rows);
       const concerns = concernsBySection.get(sec.id) ?? 0;
-      const status = sectionStatus(pct, concerns);
+      const status = sectionStatus(pct, concerns, rows.length > 0);
       if (status === "compliant") healthy += 1;
       else if (status === "watch") watch += 1;
-      else flagged += 1;
+      else if (status === "flagged") flagged += 1;
+      else noData += 1;
       sectionStatuses.push({ section: sec, pct, concerns, status });
     }
 
@@ -939,7 +948,7 @@ export function installDashboard(school: Hono): void {
         },
         formsAwaiting: formsTile,
       },
-      health: { healthy, watch, flagged },
+      health: { healthy, watch, flagged, noData },
       alerts: cappedAlerts,
       viewScope: {
         kind: scope.kind,
@@ -1101,7 +1110,7 @@ export function installDashboard(school: Hono): void {
         concernCount: behavior.concern,
         last10Days,
         last10Dates: last10Dates.map(fmtDate),
-        status: sectionStatus(pct, behavior.concern),
+        status: sectionStatus(pct, behavior.concern, periodRows.length > 0),
       };
     });
 
