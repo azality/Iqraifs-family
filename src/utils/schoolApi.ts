@@ -3042,7 +3042,7 @@ export type HifzKind =
   | "sabqi"
   | "manzil";
 
-export type HifzQuality = "excellent" | "good" | "needs_practice" | "weak";
+export type HifzQuality = "excellent" | "good" | "needs_practice" | "weak" | "not_learned";
 
 export interface HifzEntry {
   id: string;
