@@ -1926,6 +1926,9 @@ export interface TimetableSlot {
   endTime: string;
   kind: TimetableSlotKind;
   displayOrder: number;
+  /** Named bell schedule this slot belongs to ('default' | 'primary' | …).
+   *  Sections follow exactly one schedule via class_section.schedule_key. */
+  scheduleKey?: string;
 }
 
 export interface TimetableEntry {
