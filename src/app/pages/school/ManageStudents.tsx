@@ -603,14 +603,14 @@ export function ManageStudents() {
             <DialogTitle>Mark student as left</DialogTitle>
           </DialogHeader>
           {markLeftTarget && (
-            <div className="space-y-3">
-              <p className="text-sm text-slate-700">
+            <div className="space-y-4 pt-1">
+              <p className="text-sm leading-relaxed text-slate-700">
                 <strong>{markLeftTarget.full_name}</strong> (GR# {markLeftTarget.gr_number}) will be
                 removed from the class roster, attendance and fee billing.
                 Their record and full history stay — you can re-admit them
                 anytime from the "Left" filter.
               </p>
-              <div>
+              <div className="space-y-1.5">
                 <Label htmlFor="left-reason">Reason (optional)</Label>
                 <Input
                   id="left-reason"
@@ -620,7 +620,7 @@ export function ManageStudents() {
                   autoFocus
                 />
               </div>
-              <div className="flex justify-end gap-2">
+              <div className="flex justify-end gap-2 pt-1">
                 <Button variant="outline" onClick={() => setMarkLeftTarget(null)} disabled={markLeftBusy}>
                   Cancel
                 </Button>
