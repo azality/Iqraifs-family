@@ -1299,11 +1299,11 @@ export function installPhaseA(school: Hono) {
       .from("student").select("id, class_section_id, status")
       .eq("id", studentId).eq("org_id", orgId).maybeSingle();
     if (!existing) return c.json({ error: "student not found" }, 404);
-    if ((existing as any).status === "left") return c.json({ error: "student is already marked as left" }, 409);
+    if ((existing as any).status === "withdrawn") return c.json({ error: "student is already marked as left" }, 409);
     const { data, error } = await serviceRoleClient
       .from("student")
       .update({
-        status: "left",
+        status: "withdrawn",
         left_at: new Date().toISOString(),
         left_reason: typeof body?.reason === "string" && body.reason.trim() ? body.reason.trim() : null,
         left_from_section_id: (existing as any).class_section_id ?? null,
@@ -1347,7 +1347,7 @@ export function installPhaseA(school: Hono) {
       .from("student").select("id, status, left_from_section_id")
       .eq("id", studentId).eq("org_id", orgId).maybeSingle();
     if (!existing) return c.json({ error: "student not found" }, 404);
-    if ((existing as any).status !== "left") return c.json({ error: "student is not marked as left" }, 409);
+    if ((existing as any).status !== "withdrawn") return c.json({ error: "student is not marked as left" }, 409);
     const sectionId =
       (typeof body?.classSectionId === "string" && body.classSectionId) ||
       (existing as any).left_from_section_id || null;
