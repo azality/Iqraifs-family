@@ -429,6 +429,16 @@ export function ManageStudents() {
                   title={s.left_reason || undefined}
                 >
                   Left{s.left_at ? ` ${new Date(s.left_at).toLocaleDateString()}` : ""}
+                  {(() => {
+                    // Tenure: admission date (fall back to record creation) → left date.
+                    const from = s.admission_date || s.created_at;
+                    if (!from || !s.left_at) return null;
+                    const months = Math.max(
+                      0,
+                      Math.round((new Date(s.left_at).getTime() - new Date(from).getTime()) / (30.44 * 86400000)),
+                    );
+                    return ` · ${months >= 12 ? `${Math.floor(months / 12)}y ${months % 12}m` : `${months}m`}`;
+                  })()}
                 </span>
               )}
               {pending && (
@@ -460,7 +470,14 @@ export function ManageStudents() {
       key: "section",
       header: "Section",
       className: "text-xs text-slate-600",
-      cell: (s) => sectionOptions.find((o) => o.id === s.class_section_id)?.label || "—",
+      cell: (s) =>
+        s.status === "left" ? (
+          <span className="text-slate-400">
+            was {sectionOptions.find((o) => o.id === s.left_from_section_id)?.label || "—"}
+          </span>
+        ) : (
+          sectionOptions.find((o) => o.id === s.class_section_id)?.label || "—"
+        ),
     },
     {
       key: "actions",
@@ -507,7 +524,10 @@ export function ManageStudents() {
         <div>
           <div className={sectionTitleClasses}>Students</div>
           <p className="mt-1 text-sm text-slate-500">
-            Manage roster · <span className="tabular-nums text-slate-700">{students.length}</span> on file
+            Manage roster · <span className="tabular-nums text-slate-700">{students.filter((s) => s.status !== "left").length}</span> active
+            {students.some((s) => s.status === "left") && (
+              <span className="text-slate-400"> · {students.filter((s) => s.status === "left").length} left</span>
+            )}
           </p>
         </div>
         <div className="flex gap-2">

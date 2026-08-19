@@ -1320,6 +1320,9 @@ export interface AdminStudent {
   left_at?: string | null;
   left_reason?: string | null;
   left_from_section_id?: string | null;
+  /** Backend select("*") — used to show tenure on withdrawn students. */
+  admission_date?: string | null;
+  created_at?: string;
 }
 
 export interface AdminParent {

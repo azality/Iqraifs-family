@@ -223,7 +223,8 @@ async function loadOrgSkeleton(orgId: string): Promise<{
   const { data: students } = await serviceRoleClient
     .from("student")
     .select("id, class_section_id")
-    .eq("org_id", orgId);
+    .eq("org_id", orgId)
+    .neq("status", "left");
   const studentRows = (students ?? []) as Array<{
     id: string;
     class_section_id: string | null;
