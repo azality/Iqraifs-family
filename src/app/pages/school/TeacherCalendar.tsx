@@ -33,6 +33,11 @@ const DAYS = [
 ];
 
 // Time conversion helpers — "HH:MM" → minutes since midnight.
+// Vertical scale of the week canvas. 48px/hour gave a 45-min period just
+// 36px for three lines of text — blocks collided (pilot feedback). 88px
+// puts a full period at ~66px: subject, class, and time all fit.
+const PX_PER_HOUR = 88;
+
 function toMin(t: string | undefined): number {
   if (!t) return 0;
   const [h, m] = t.split(":").map((n) => parseInt(n, 10) || 0);
@@ -400,14 +405,14 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
           <div
             className={"grid relative " +
               (view === "day" ? "grid-cols-[60px_minmax(0,1fr)]" : "grid-cols-[60px_repeat(6,minmax(0,1fr))]")}
-            style={{ height: `${(endHour - startHour) * 48}px` }}
+            style={{ height: `${(endHour - startHour) * PX_PER_HOUR}px` }}
           >
             {/* Hour ticks (left col + horizontal lines) */}
             <div className="border-r border-slate-200">
               {hours.map((h, i) => (
                 <div key={h}
                      className="text-[10px] text-slate-400 px-2 border-b border-slate-100"
-                     style={{ height: i === hours.length - 1 ? "0" : "48px" }}>
+                     style={{ height: i === hours.length - 1 ? "0" : `${PX_PER_HOUR}px` }}>
                   {String(h).padStart(2, "0")}:00
                 </div>
               ))}
@@ -422,20 +427,20 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
                   {hours.map((h) => (
                     <div key={`h-${h}`}
                          className="absolute inset-x-0 border-t border-slate-100"
-                         style={{ top: `${(h - startHour) * 48}px`, height: "0" }} />
+                         style={{ top: `${(h - startHour) * PX_PER_HOUR}px`, height: "0" }} />
                   ))}
                   {hours.slice(0, -1).map((h) => (
                     <div key={`h30-${h}`}
                          className="absolute inset-x-0 border-t border-slate-50"
-                         style={{ top: `${(h - startHour) * 48 + 24}px`, height: "0" }} />
+                         style={{ top: `${(h - startHour) * PX_PER_HOUR + PX_PER_HOUR / 2}px`, height: "0" }} />
                   ))}
                   {/* School-hours shading — outside of school hours is
                       faintly grey so the office-only window stands out. */}
                   {schoolRange.start && schoolRange.end && (() => {
                     const sStart = toMin(schoolRange.start);
                     const sEnd = toMin(schoolRange.end);
-                    const before = ((sStart - minMin) / Math.max(1, maxMin - minMin)) * (endHour - startHour) * 48;
-                    const after = ((maxMin - sEnd) / Math.max(1, maxMin - minMin)) * (endHour - startHour) * 48;
+                    const before = ((sStart - minMin) / Math.max(1, maxMin - minMin)) * (endHour - startHour) * PX_PER_HOUR;
+                    const after = ((maxMin - sEnd) / Math.max(1, maxMin - minMin)) * (endHour - startHour) * PX_PER_HOUR;
                     return (
                       <>
                         {before > 0 && (
@@ -458,7 +463,7 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
                   {/* Now line */}
                   {d.num === todayDow && showNow && (
                     <div className="absolute inset-x-0 z-20 pointer-events-none"
-                         style={{ top: `${nowFrac * (endHour - startHour) * 48}px` }}>
+                         style={{ top: `${nowFrac * (endHour - startHour) * PX_PER_HOUR}px` }}>
                       <div className="h-px bg-rose-500" />
                       <div className="absolute -left-1 -top-1 h-2 w-2 rounded-full bg-rose-500" />
                     </div>
@@ -476,8 +481,8 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
                       const bStart = toMin(sorted[i + 1].slot.startTime);
                       const gap = bStart - aEnd;
                       if (gap >= 20) {
-                        const gapTop = ((aEnd - minMin) / Math.max(1, maxMin - minMin)) * (endHour - startHour) * 48;
-                        const gapH = (gap / Math.max(1, maxMin - minMin)) * (endHour - startHour) * 48;
+                        const gapTop = ((aEnd - minMin) / Math.max(1, maxMin - minMin)) * (endHour - startHour) * PX_PER_HOUR;
+                        const gapH = (gap / Math.max(1, maxMin - minMin)) * (endHour - startHour) * PX_PER_HOUR;
                         pills.push({ key: `gap-${i}`, top: gapTop, height: gapH, mins: gap });
                       }
                     }
@@ -493,8 +498,8 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
                   {dayCells.map((c) => {
                     const startM = toMin(c.slot.startTime);
                     const endM = toMin(c.slot.endTime);
-                    const top = ((startM - minMin) / Math.max(1, maxMin - minMin)) * (endHour - startHour) * 48;
-                    const height = Math.max(20, ((endM - startM) / Math.max(1, maxMin - minMin)) * (endHour - startHour) * 48);
+                    const top = ((startM - minMin) / Math.max(1, maxMin - minMin)) * (endHour - startHour) * PX_PER_HOUR;
+                    const height = Math.max(20, ((endM - startM) / Math.max(1, maxMin - minMin)) * (endHour - startHour) * PX_PER_HOUR);
                     const hue = hueFor(c.entry.subjectName);
                     const conflict = conflicts.has(c.entry.id);
                     return (
