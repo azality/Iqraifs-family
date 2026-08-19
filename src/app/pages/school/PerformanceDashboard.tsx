@@ -669,6 +669,33 @@ export function PerformanceDashboard() {
     getSchoolMe().then(setMe).catch(() => setMe(null));
   }, []);
 
+  // Admin-who-also-teaches (e.g. Amna: admin + Catch Up class teacher).
+  // Admins land here, not on TeacherHome, so their own class's attendance
+  // and subjects had no entry point. Surface a compact "My classes" strip
+  // for any section this viewer personally owns.
+  const [myOwnSections, setMyOwnSections] = useState<
+    Array<{ id: string; label: string }>
+  >([]);
+  useEffect(() => {
+    if (!orgId || !me?.userId) return;
+    listClasses(orgId)
+      .then((classes) => {
+        const mine: Array<{ id: string; label: string }> = [];
+        for (const c of classes) {
+          for (const s of c.sections ?? []) {
+            if (
+              (s as any).class_teacher_user_id === me.userId ||
+              (s as any).hifz_teacher_user_id === me.userId
+            ) {
+              mine.push({ id: s.id, label: `${c.name} – ${s.name}` });
+            }
+          }
+        }
+        setMyOwnSections(mine);
+      })
+      .catch(() => setMyOwnSections([]));
+  }, [orgId, me?.userId]);
+
   // Multi-campus: if this user belongs to any school group (head-office
   // principal/admin), surface the "All campuses" entry — the group
   // dashboard route previously had no inbound link anywhere in the app.
@@ -905,6 +932,37 @@ export function PerformanceDashboard() {
       {error && !loading && (
         <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
           Could not load dashboard: {error}
+        </div>
+      )}
+
+      {/* Admin-who-also-teaches: quick actions for sections they own. */}
+      {myOwnSections.length > 0 && (
+        <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-4">
+          <div className="text-xs font-semibold uppercase tracking-wider text-indigo-700">
+            My classes
+          </div>
+          <div className="mt-2 space-y-2">
+            {myOwnSections.map((s) => (
+              <div key={s.id} className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-medium text-slate-900">{s.label}</span>
+                <Link to={`/school/orgs/${orgId}/sections/${s.id}/attendance`}>
+                  <Button size="sm" className="h-7 bg-indigo-600 hover:bg-indigo-700 text-xs">
+                    Take attendance
+                  </Button>
+                </Link>
+                <Link to={`/school/orgs/${orgId}/sections/${s.id}`}>
+                  <Button size="sm" variant="outline" className="h-7 text-xs">
+                    Overview & subjects
+                  </Button>
+                </Link>
+                <Link to={`/school/orgs/${orgId}/sections/${s.id}/lessons`}>
+                  <Button size="sm" variant="outline" className="h-7 text-xs">
+                    Lessons
+                  </Button>
+                </Link>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
