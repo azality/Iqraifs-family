@@ -276,15 +276,26 @@ function AlertCard({ alert }: { alert: DashboardAlert }) {
 
 // ─── Leaderboard ─────────────────────────────────────────────────────────
 
-type LeaderboardFilter = "all" | "compliant" | "watch" | "flagged";
+type LeaderboardFilter = "all" | "compliant" | "watch" | "flagged" | "no_data";
 
 const STATUS_PILL: Record<LeaderboardRow["status"], string> = {
   compliant: "bg-emerald-100 text-emerald-700 border-emerald-200",
   watch: "bg-amber-100 text-amber-700 border-amber-200",
   flagged: "bg-rose-100 text-rose-700 border-rose-200",
+  no_data: "bg-slate-100 text-slate-500 border-slate-200",
+};
+
+const STATUS_LABEL: Record<LeaderboardRow["status"], string> = {
+  compliant: "Compliant",
+  watch: "Watch",
+  flagged: "Flagged",
+  no_data: "No data",
 };
 
 function AttendanceBar({ pct, status }: { pct: number; status: LeaderboardRow["status"] }) {
+  if (status === "no_data") {
+    return <span className="text-xs text-slate-400">not taken yet</span>;
+  }
   const color =
     status === "compliant" ? "bg-emerald-500" : status === "watch" ? "bg-amber-500" : "bg-rose-500";
   const clamped = Math.max(0, Math.min(100, pct));
@@ -331,6 +342,7 @@ function Leaderboard({
     { key: "compliant", label: "Compliant" },
     { key: "watch", label: "Watch" },
     { key: "flagged", label: "Flagged" },
+    { key: "no_data", label: "No data" },
   ];
 
   return (
@@ -441,11 +453,11 @@ function Leaderboard({
                     <td className="px-4 py-3">
                       <span
                         className={
-                          "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium capitalize " +
+                          "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium " +
                           STATUS_PILL[row.status]
                         }
                       >
-                        {row.status}
+                        {STATUS_LABEL[row.status]}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right">
@@ -912,6 +924,12 @@ export function PerformanceDashboard() {
                 <span className="font-medium text-amber-300">{health.watch} watch</span>
                 <span className="text-slate-500">·</span>
                 <span className="font-medium text-rose-300">{health.flagged} flagged</span>
+                {(health.noData ?? 0) > 0 && (
+                  <>
+                    <span className="text-slate-500">·</span>
+                    <span className="font-medium text-slate-400">{health.noData} no data</span>
+                  </>
+                )}
               </div>
             )}
           </div>

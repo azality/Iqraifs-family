@@ -80,6 +80,7 @@ function todayLabel(): string {
 function statusTone(status: LeaderboardRow["status"]): string {
   if (status === "flagged") return "bg-rose-50 text-rose-700 ring-rose-200";
   if (status === "watch") return "bg-amber-50 text-amber-800 ring-amber-200";
+  if (status === "no_data") return "bg-slate-50 text-slate-500 ring-slate-200";
   return "bg-emerald-50 text-emerald-700 ring-emerald-200";
 }
 
@@ -289,7 +290,7 @@ export function TeacherHome({ orgId, me }: Props) {
   const sectionsToWatch = useMemo(() => {
     if (!sections) return [];
     return sections
-      .filter((s) => s.status !== "compliant")
+      .filter((s) => s.status === "watch" || s.status === "flagged")
       .sort((a, b) => a.attendancePct - b.attendancePct)
       .slice(0, 4);
   }, [sections]);

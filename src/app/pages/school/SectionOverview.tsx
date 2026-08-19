@@ -177,10 +177,11 @@ export function SectionOverview() {
     );
   }
 
-  const status = row.status; // compliant | watch | flagged
+  const status = row.status; // compliant | watch | flagged | no_data
   const statusColor =
     status === "compliant" ? "text-emerald-600"
     : status === "watch"   ? "text-amber-600"
+    : status === "no_data" ? "text-slate-400"
     : "text-rose-600";
 
   const tileBase = "rounded-xl border border-slate-200 bg-white p-4 shadow-sm";
@@ -260,9 +261,9 @@ export function SectionOverview() {
             <div className="mb-1 flex items-center gap-2 text-[10px] uppercase tracking-wider text-slate-300">
               <Activity className="h-3 w-3" /> Last 10 schooldays
             </div>
-            <Sparkline values={row.last10Days} color={status === "flagged" ? "#fb7185" : status === "watch" ? "#fbbf24" : "#34d399"} />
+            <Sparkline values={row.last10Days} color={status === "flagged" ? "#fb7185" : status === "watch" ? "#fbbf24" : status === "no_data" ? "#94a3b8" : "#34d399"} />
             <div className={"mt-1 text-[10px] font-medium uppercase tracking-wide " + statusColor}>
-              {status}
+              {status === "no_data" ? "no data" : status}
             </div>
           </div>
         </div>
