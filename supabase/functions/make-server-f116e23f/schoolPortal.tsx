@@ -620,12 +620,16 @@ export function installPortal(school: Hono): void {
       title: string;
       kind: string;
       dueDate: string;
+      description: string | null;
+      videoUrl: string | null;
+      audioUrl: string | null;
+      attachments: Array<{ label: string; url: string }>;
     }> = [];
     if (sectionId) {
       const { data: asg } = await serviceRoleClient
         .from("assignment")
         .select(
-          "id, title, kind, due_date, section_subject:section_subject_id(class_subject:class_subject_id(name))",
+          "id, title, kind, due_date, description, video_url, audio_url, attachments, section_subject:section_subject_id(class_subject:class_subject_id(name))",
         )
         .eq("class_section_id", sectionId)
         .in("due_date", [today, tomorrowIso])
@@ -637,6 +641,10 @@ export function installPortal(school: Hono): void {
         title: r.title,
         kind: r.kind,
         dueDate: r.due_date,
+        description: r.description ?? null,
+        videoUrl: r.video_url ?? null,
+        audioUrl: r.audio_url ?? null,
+        attachments: r.attachments ?? [],
       }));
     }
 

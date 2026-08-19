@@ -74,6 +74,9 @@ function assignmentToJson(r: any) {
     dueDate: r.due_date,
     assignedDate: r.assigned_date,
     relatedTopic: r.related_topic,
+    videoUrl: r.video_url ?? null,
+    audioUrl: r.audio_url ?? null,
+    attachments: r.attachments ?? [],
     createdBy: r.created_by,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
@@ -135,6 +138,16 @@ export function installPhaseC2(school: Hono): void {
     if (body.dueDate && !isIsoDate(body.dueDate)) {
       return c.json({ error: "dueDate must be YYYY-MM-DD" }, 400);
     }
+    if (body.attachments !== undefined && !Array.isArray(body.attachments)) {
+      return c.json({ error: "attachments must be an array" }, 400);
+    }
+    if (Array.isArray(body.attachments)) {
+      for (const a of body.attachments) {
+        if (!a || typeof a !== "object" || typeof a.url !== "string") {
+          return c.json({ error: "each attachment needs { label, url }" }, 400);
+        }
+      }
+    }
 
     const section = await loadSection(sectionId);
     if (!section) return c.json({ error: "section not found" }, 404);
@@ -186,6 +199,9 @@ export function installPhaseC2(school: Hono): void {
         weight,
         due_date: body.dueDate ?? null,
         related_topic: body.relatedTopic ?? null,
+        video_url: typeof body.videoUrl === "string" && body.videoUrl.trim() ? body.videoUrl.trim() : null,
+        audio_url: typeof body.audioUrl === "string" && body.audioUrl.trim() ? body.audioUrl.trim() : null,
+        attachments: Array.isArray(body.attachments) ? body.attachments : [],
         created_by: userId,
       })
       .select()
@@ -274,7 +290,10 @@ export function installPhaseC2(school: Hono): void {
       .from("assignment")
       .select(
         // Phase 3: pull subject + topic names alongside section context.
-        "*, class_section:class_section_id(id, name, class_id, class:class_id(id, name, grade_level)), section_subject:section_subject_id(class_subject:class_subject_id(name)), curriculum_topic:curriculum_topic_id(name)",
+        // NOTE: the school `class` table has no grade_level column — selecting
+        // it made PostgREST 500 with "column class_2.grade_level does not
+        // exist" (pilot bug: every assignment detail page crashed).
+        "*, class_section:class_section_id(id, name, class_id, class:class_id(id, name)), section_subject:section_subject_id(class_subject:class_subject_id(name)), curriculum_topic:curriculum_topic_id(name)",
       )
       .eq("id", assignmentId)
       .maybeSingle();
@@ -298,7 +317,7 @@ export function installPhaseC2(school: Hono): void {
             name: cs.name,
             classId: cs.class_id,
             className: cs.class?.name ?? null,
-            gradeLevel: cs.class?.grade_level ?? null,
+            gradeLevel: null,
           }
         : null,
     });
@@ -368,6 +387,21 @@ export function installPhaseC2(school: Hono): void {
       update.due_date = body.dueDate;
     }
     if (body.relatedTopic !== undefined) update.related_topic = body.relatedTopic ?? null;
+    if (body.videoUrl !== undefined) {
+      update.video_url = typeof body.videoUrl === "string" && body.videoUrl.trim() ? body.videoUrl.trim() : null;
+    }
+    if (body.audioUrl !== undefined) {
+      update.audio_url = typeof body.audioUrl === "string" && body.audioUrl.trim() ? body.audioUrl.trim() : null;
+    }
+    if (body.attachments !== undefined) {
+      if (!Array.isArray(body.attachments)) return c.json({ error: "attachments must be an array" }, 400);
+      for (const a of body.attachments) {
+        if (!a || typeof a !== "object" || typeof a.url !== "string") {
+          return c.json({ error: "each attachment needs { label, url }" }, 400);
+        }
+      }
+      update.attachments = body.attachments;
+    }
     // Phase 3 — subject + topic re-tagging with cross-validation.
     if ("sectionSubjectId" in body) {
       if (body.sectionSubjectId === null) {

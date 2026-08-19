@@ -118,6 +118,19 @@ function DiaryCard({ diary }: { diary: MyStudentDiaryResponse }) {
                 </span>{" "}
                 <span className="text-slate-700">{a.title}</span>{" "}
                 <span className="text-[11px] text-amber-700 italic">({dueLabel})</span>
+                {(((a as any).videoUrl || (a as any).audioUrl || ((a as any).attachments ?? []).length > 0)) && (
+                  <div className="mt-0.5 flex flex-wrap gap-2">
+                    {(a as any).videoUrl && (
+                      <a href={(a as any).videoUrl} target="_blank" rel="noreferrer" className="text-[11px] text-indigo-600 underline">▶ Video</a>
+                    )}
+                    {(a as any).audioUrl && (
+                      <a href={(a as any).audioUrl} target="_blank" rel="noreferrer" className="text-[11px] text-indigo-600 underline">🎧 Audio</a>
+                    )}
+                    {(((a as any).attachments ?? []) as Array<{ label: string; url: string }>).map((att, i) => (
+                      <a key={i} href={att.url} target="_blank" rel="noreferrer" className="text-[11px] text-indigo-600 underline">📎 {att.label || "Attachment"}</a>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           );
