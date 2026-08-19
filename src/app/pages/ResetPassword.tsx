@@ -28,10 +28,19 @@ export function ResetPassword() {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Scanner-proof flow: ?token_hash=...&type=recovery in the URL. The
+  // token is NOT redeemed on page load (Gmail's link scanner pre-fetches
+  // emailed links and was burning the one-time token before the user
+  // tapped it). It's redeemed only when the user submits a password.
+  const [tokenHash] = useState<string | null>(() =>
+    new URLSearchParams(window.location.search).get("token_hash"),
+  );
 
   useEffect(() => {
-    // The recovery hash is consumed asynchronously by the client. Poll
-    // briefly rather than racing getSession once.
+    if (tokenHash) { setReady("ok"); return; }
+    // Legacy hash-fragment flow: the recovery hash is consumed
+    // asynchronously by the client. Poll briefly rather than racing
+    // getSession once.
     let cancelled = false;
     let tries = 0;
     const check = async () => {
@@ -44,7 +53,7 @@ export function ResetPassword() {
     };
     void check();
     return () => { cancelled = true; };
-  }, []);
+  }, [tokenHash]);
 
   const submit = async () => {
     setError(null);
@@ -52,6 +61,23 @@ export function ResetPassword() {
     if (pwd !== confirm) { setError("Passwords don't match."); return; }
     setBusy(true);
     try {
+      if (tokenHash) {
+        // Redeem the one-time token now, at submit time. If it fails the
+        // token is spent/expired → clear guidance to self-serve a new one.
+        const { data: s } = await supabase.auth.getSession();
+        if (!s.session) {
+          const { error: vErr } = await supabase.auth.verifyOtp({
+            token_hash: tokenHash,
+            type: "recovery",
+          });
+          if (vErr) {
+            setReady("no-session");
+            throw new Error(
+              "This link has expired or was already used. Tap \"Forgot password?\" on your sign-in page for a fresh one.",
+            );
+          }
+        }
+      }
       const { error: err } = await supabase.auth.updateUser({ password: pwd });
       if (err) throw err;
       setDone(true);
