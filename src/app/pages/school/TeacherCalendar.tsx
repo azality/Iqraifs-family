@@ -74,6 +74,9 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
     typeof window !== "undefined" && window.innerWidth < 640 ? "day" : "week",
   );
   const [showConflicts, setShowConflicts] = useState(false);
+  // Tapped week-grid block → detail popover. Hover tooltips don't exist
+  // on phones, so times were unreachable there (pilot feedback).
+  const [selectedCell, setSelectedCell] = useState<MyTimetableCell | null>(null);
   const [showTimeOff, setShowTimeOff] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -497,8 +500,12 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
                     return (
                       <div
                         key={c.entry.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setSelectedCell(c)}
+                        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setSelectedCell(c); }}
                         className={
-                          "absolute left-1 right-1 rounded-md px-2 py-1.5 text-[11px] text-white overflow-hidden " +
+                          "absolute left-1 right-1 rounded-md px-2 py-1.5 text-[11px] text-white overflow-hidden cursor-pointer " +
                           (conflict ? "ring-2 ring-rose-500 z-10" : "ring-1 ring-black/5")
                         }
                         style={{
@@ -521,6 +528,64 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* Tapped-period detail sheet (week grid on phones has no hover) */}
+      {selectedCell && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-4"
+          onClick={() => setSelectedCell(null)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3">
+              <div
+                className="h-10 w-1.5 rounded-full"
+                style={{ background: `hsl(${hueFor(selectedCell.entry.subjectName)} 55% 45%)` }}
+              />
+              <div className="min-w-0">
+                <div className="text-base font-semibold text-slate-900">
+                  {selectedCell.entry.subjectName ?? "Period"}
+                </div>
+                <div className="text-sm text-slate-500">{selectedCell.scopeLabel}</div>
+              </div>
+            </div>
+            <div className="mt-4 space-y-2 text-sm">
+              <div className="flex justify-between rounded-lg bg-slate-50 px-3 py-2">
+                <span className="text-slate-500">Day</span>
+                <span className="font-medium text-slate-800">
+                  {DAYS.find((d) => d.num === selectedCell.slot.dayOfWeek)?.short ?? ""}
+                </span>
+              </div>
+              <div className="flex justify-between rounded-lg bg-slate-50 px-3 py-2">
+                <span className="text-slate-500">Time</span>
+                <span className="font-medium tabular-nums text-slate-800">
+                  {selectedCell.slot.startTime.slice(0, 5)} – {selectedCell.slot.endTime.slice(0, 5)}
+                </span>
+              </div>
+              {selectedCell.entry.room && (
+                <div className="flex justify-between rounded-lg bg-slate-50 px-3 py-2">
+                  <span className="text-slate-500">Room</span>
+                  <span className="font-medium text-slate-800">{selectedCell.entry.room}</span>
+                </div>
+              )}
+              {conflicts.has(selectedCell.entry.id) && (
+                <div className="rounded-lg bg-rose-50 px-3 py-2 text-rose-700">
+                  ⚠️ This period overlaps another — talk to the admin.
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              className="mt-4 w-full rounded-lg bg-slate-900 py-2.5 text-sm font-medium text-white"
+              onClick={() => setSelectedCell(null)}
+            >
+              Close
+            </button>
           </div>
         </div>
       )}
