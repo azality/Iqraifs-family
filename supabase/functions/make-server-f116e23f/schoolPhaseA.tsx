@@ -1275,6 +1275,77 @@ export function installPhaseA(school: Hono) {
     return c.json({ ok: true });
   });
 
+  // ---------------------------------------------------------------------------
+  // POST /school/orgs/:orgId/students/:studentId/mark-left
+  // Body: { reason?: string }
+  // Soft "student left the school": keeps the row and every historical
+  // record, but clears the section + hifz group so rosters, attendance
+  // and billing (all section-keyed) drop the student automatically.
+  // The former section is remembered for re-admission.
+  // ---------------------------------------------------------------------------
+  school.post("/orgs/:orgId/students/:studentId/mark-left", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const studentId = c.req.param("studentId");
+    if (!(await userCanInOrg(userId, orgId, "manage_students"))) return c.json({ error: "forbidden" }, 403);
+    let body: any = {};
+    try { body = await c.req.json(); } catch { /* empty body ok */ }
+    const { data: existing } = await serviceRoleClient
+      .from("student").select("id, class_section_id, status")
+      .eq("id", studentId).eq("org_id", orgId).maybeSingle();
+    if (!existing) return c.json({ error: "student not found" }, 404);
+    if ((existing as any).status === "left") return c.json({ error: "student is already marked as left" }, 409);
+    const { data, error } = await serviceRoleClient
+      .from("student")
+      .update({
+        status: "left",
+        left_at: new Date().toISOString(),
+        left_reason: typeof body?.reason === "string" && body.reason.trim() ? body.reason.trim() : null,
+        left_from_section_id: (existing as any).class_section_id ?? null,
+        class_section_id: null,
+        hifz_group_id: null,
+      })
+      .eq("id", studentId).eq("org_id", orgId)
+      .select().single();
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json(data);
+  });
+
+  // ---------------------------------------------------------------------------
+  // POST /school/orgs/:orgId/students/:studentId/readmit
+  // Body: { classSectionId?: string }  — defaults to the section the
+  // student left from (if it still exists).
+  // ---------------------------------------------------------------------------
+  school.post("/orgs/:orgId/students/:studentId/readmit", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const studentId = c.req.param("studentId");
+    if (!(await userCanInOrg(userId, orgId, "manage_students"))) return c.json({ error: "forbidden" }, 403);
+    let body: any = {};
+    try { body = await c.req.json(); } catch { /* empty body ok */ }
+    const { data: existing } = await serviceRoleClient
+      .from("student").select("id, status, left_from_section_id")
+      .eq("id", studentId).eq("org_id", orgId).maybeSingle();
+    if (!existing) return c.json({ error: "student not found" }, 404);
+    if ((existing as any).status !== "left") return c.json({ error: "student is not marked as left" }, 409);
+    const sectionId =
+      (typeof body?.classSectionId === "string" && body.classSectionId) ||
+      (existing as any).left_from_section_id || null;
+    const { data, error } = await serviceRoleClient
+      .from("student")
+      .update({
+        status: "active",
+        left_at: null,
+        left_reason: null,
+        left_from_section_id: null,
+        class_section_id: sectionId,
+      })
+      .eq("id", studentId).eq("org_id", orgId)
+      .select().single();
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json(data);
+  });
+
   school.post("/orgs/:orgId/students/bulk", async (c) => {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");

@@ -23,7 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../components/ui/select";
-import { Plus, Upload, Search, Trash2, Pencil, Eye, MessageSquare } from "lucide-react";
+import { Plus, Upload, Search, Trash2, Pencil, Eye, MessageSquare, UserMinus, UserPlus } from "lucide-react";
 import { BehaviorLogEntry } from "./BehaviorLogEntry";
 import { DataTable, sectionTitleClasses, type DataTableColumn, NoAccessRedirect } from "../../components/school-ui";
 import {
@@ -45,6 +45,8 @@ import {
   listClassFeePlans,
   createClassFeePlan,
   listStudentFeeOverrides,
+  markStudentLeft,
+  readmitStudent,
   upsertStudentFeeOverride,
   deleteStudentFeeOverride,
   type ClassFeePlan,
@@ -111,6 +113,7 @@ export function ManageStudents() {
   const [hifzGroups, setHifzGroups] = useState<HifzGroup[]>([]);
   const [search, setSearch] = useState("");
   const [sectionFilter, setSectionFilter] = useState<string>("__all__");
+  const [statusFilter, setStatusFilter] = useState<"active" | "left" | "all">("active");
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<AdminStudent | null>(null);
   const [form, setForm] = useState<CreateStudentBody>(emptyForm);
@@ -350,6 +353,31 @@ export function ManageStudents() {
     }
   };
 
+  const handleMarkLeft = async (s: AdminStudent) => {
+    const reason = prompt(
+      `Mark "${s.full_name}" (GR# ${s.gr_number}) as left?\n\nTheir record and history stay; they are removed from the class roster, attendance and fee billing.\n\nReason (optional):`,
+    );
+    if (reason === null) return; // cancelled
+    try {
+      await markStudentLeft(orgId, s.id, reason.trim() || undefined);
+      toast.success(`${s.full_name} marked as left.`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not mark the student as left.");
+    }
+    refresh();
+  };
+
+  const handleReadmit = async (s: AdminStudent) => {
+    if (!confirm(`Re-admit "${s.full_name}" (GR# ${s.gr_number})? They rejoin the class they left from.`)) return;
+    try {
+      await readmitStudent(orgId, s.id);
+      toast.success(`${s.full_name} re-admitted.`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not re-admit the student.");
+    }
+    refresh();
+  };
+
   const handleDelete = async (s: AdminStudent) => {
     if (!confirm(`Delete student "${s.full_name}" (GR# ${s.gr_number})?`)) return;
     try {
@@ -395,6 +423,14 @@ export function ManageStudents() {
           <div>
             <div className="flex items-center gap-2">
               <span className="font-medium text-slate-900">{s.full_name}</span>
+              {s.status === "left" && (
+                <span
+                  className="inline-flex items-center rounded-full bg-slate-200 text-slate-600 text-[10px] font-medium px-1.5 py-0.5"
+                  title={s.left_reason || undefined}
+                >
+                  Left{s.left_at ? ` ${new Date(s.left_at).toLocaleDateString()}` : ""}
+                </span>
+              )}
               {pending && (
                 <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-800 text-[10px] font-medium px-1.5 py-0.5">
                   {status === "guardians_pending"
@@ -448,7 +484,16 @@ export function ManageStudents() {
           <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => startEdit(s)}>
             <Pencil className="h-3.5 w-3.5" />
           </Button>
-          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleDelete(s)}>
+          {s.status === "left" ? (
+            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Re-admit" onClick={() => handleReadmit(s)}>
+              <UserPlus className="h-3.5 w-3.5 text-emerald-600" />
+            </Button>
+          ) : (
+            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Mark as left" onClick={() => handleMarkLeft(s)}>
+              <UserMinus className="h-3.5 w-3.5 text-amber-600" />
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Delete permanently" onClick={() => handleDelete(s)}>
             <Trash2 className="h-3.5 w-3.5 text-rose-600" />
           </Button>
         </div>
@@ -495,13 +540,23 @@ export function ManageStudents() {
             ))}
           </SelectContent>
         </Select>
+        <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
+          <SelectTrigger className="h-9 w-32"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="active">Active</SelectItem>
+            <SelectItem value="left">Left</SelectItem>
+            <SelectItem value="all">All</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {error && <p className="text-sm text-rose-600">{error}</p>}
 
       <DataTable
         columns={columns}
-        rows={students}
+        rows={students.filter((s) =>
+          statusFilter === "all" ? true : statusFilter === "left" ? s.status === "left" : s.status !== "left",
+        )}
         rowKey={(s) => s.id}
         onRowClick={(s) => navigate(`/school/orgs/${orgId}/admin/students/${s.id}`)}
         emptyMessage="No students yet."
