@@ -88,7 +88,9 @@ export function HeroCard({
             )}
           </div>
         </div>
-        {rightSlot && <div className="shrink-0">{rightSlot}</div>}
+        {/* min-w-0, not shrink-0 — a wide button row (e.g. Assignments'
+            three actions) must wrap on phones instead of overflowing. */}
+        {rightSlot && <div className="min-w-0">{rightSlot}</div>}
       </div>
       {children && <div className="mt-6">{children}</div>}
     </div>

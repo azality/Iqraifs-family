@@ -67,7 +67,11 @@ export function AssignmentForm() {
     assignedDate: todayIso(),
     sectionSubjectId: null,
     curriculumTopicId: null,
+    videoUrl: "",
+    audioUrl: "",
   });
+  // Attachment rows (label + url). Mirrors LessonForm.
+  const [attachments, setAttachments] = useState<Array<{ label: string; url: string }>>([]);
 
   // Phase 3: subject + topic dropdowns mirror LessonForm.
   const [subjects, setSubjects] = useState<SectionSubject[]>([]);
@@ -91,7 +95,10 @@ export function AssignmentForm() {
           assignedDate: a.assigned_date,
           sectionSubjectId: a.sectionSubjectId ?? null,
           curriculumTopicId: a.curriculumTopicId ?? null,
+          videoUrl: (a as any).videoUrl ?? "",
+          audioUrl: (a as any).audioUrl ?? "",
         });
+        setAttachments(((a as any).attachments ?? []) as Array<{ label: string; url: string }>);
       })
       .catch((e) => setError(e?.message || "Failed to load assignment"))
       .finally(() => setLoading(false));
@@ -147,6 +154,9 @@ export function AssignmentForm() {
         // Phase 3 — subject + topic. null clears on PATCH.
         sectionSubjectId: form.sectionSubjectId || null,
         curriculumTopicId: form.curriculumTopicId || null,
+        videoUrl: form.videoUrl?.trim() || null,
+        audioUrl: form.audioUrl?.trim() || null,
+        attachments: attachments.filter((a) => a.url.trim()),
       };
       let saved;
       if (editMode) {
@@ -300,6 +310,57 @@ export function AssignmentForm() {
                 rows={3}
                 placeholder="Instructions, learning objective, etc."
               />
+            </div>
+
+            {/* Media — same trio as lessons, so homework can carry a
+                YouTube video, an audio link, or PDF/file links. */}
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <Label htmlFor="video">Video URL (YouTube etc.)</Label>
+                <Input
+                  id="video"
+                  type="url"
+                  value={form.videoUrl ?? ""}
+                  onChange={(e) => setForm({ ...form, videoUrl: e.target.value })}
+                  placeholder="https://youtube.com/watch?v=…"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="audio">Audio URL</Label>
+                <Input
+                  id="audio"
+                  type="url"
+                  value={form.audioUrl ?? ""}
+                  onChange={(e) => setForm({ ...form, audioUrl: e.target.value })}
+                  placeholder="https://…"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <Label>Attachments (PDF / worksheet links)</Label>
+              {attachments.map((a, i) => (
+                <div key={i} className="flex gap-2">
+                  <Input
+                    className="w-40"
+                    value={a.label}
+                    onChange={(e) => setAttachments(attachments.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))}
+                    placeholder="Label (e.g. Worksheet)"
+                  />
+                  <Input
+                    type="url"
+                    value={a.url}
+                    onChange={(e) => setAttachments(attachments.map((x, j) => (j === i ? { ...x, url: e.target.value } : x)))}
+                    placeholder="https://… (Google Drive, PDF link)"
+                  />
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setAttachments(attachments.filter((_, j) => j !== i))}>
+                    ✕
+                  </Button>
+                </div>
+              ))}
+              <Button type="button" variant="outline" size="sm" onClick={() => setAttachments([...attachments, { label: "", url: "" }])}>
+                + Add attachment
+              </Button>
             </div>
 
             <div className="grid sm:grid-cols-3 gap-4">

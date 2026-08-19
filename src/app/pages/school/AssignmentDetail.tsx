@@ -240,6 +240,29 @@ export function AssignmentDetail() {
         </Card>
       )}
 
+      {(assignment.videoUrl || assignment.audioUrl || (assignment.attachments ?? []).length > 0) && (
+        <Card className={`${cardBase} ${cardElev}`}>
+          <CardHeader className="pb-2"><CardTitle className="text-base">Materials</CardTitle></CardHeader>
+          <CardContent className="space-y-1.5">
+            {assignment.videoUrl && (
+              <a href={assignment.videoUrl} target="_blank" rel="noreferrer" className="block text-sm text-indigo-600 hover:underline">
+                ▶ Video
+              </a>
+            )}
+            {assignment.audioUrl && (
+              <a href={assignment.audioUrl} target="_blank" rel="noreferrer" className="block text-sm text-indigo-600 hover:underline">
+                🎧 Audio
+              </a>
+            )}
+            {(assignment.attachments ?? []).map((a, i) => (
+              <a key={i} href={a.url} target="_blank" rel="noreferrer" className="block text-sm text-indigo-600 hover:underline">
+                📎 {a.label || "Attachment"}
+              </a>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <KpiTile
           variant="light"

@@ -3193,6 +3193,9 @@ export interface Assignment {
   due_date: string | null;
   assigned_date: string;
   related_topic: string | null;
+  videoUrl?: string | null;
+  audioUrl?: string | null;
+  attachments?: Array<{ label: string; url: string }>;
   created_by: string | null;
   created_by_name?: string | null;
   created_at: string;
@@ -3211,6 +3214,10 @@ export interface AssignmentInput {
   sectionSubjectId?: string | null;
   /** Phase 3: optional curriculum topic. */
   curriculumTopicId?: string | null;
+  /** Media — same trio as lessons: YouTube/video link, audio link, files. */
+  videoUrl?: string | null;
+  audioUrl?: string | null;
+  attachments?: Array<{ label: string; url: string }>;
 }
 
 export type GradeStatus = "graded" | "missing" | "excused" | "late";
