@@ -345,18 +345,70 @@ export function SectionAssignmentsList() {
       {loading ? (
         <div className={`${cardBase} py-8 text-center text-sm text-slate-500`}>Loading assignments…</div>
       ) : (
-        <div className={cardBase}>
-          <DataTable<Assignment>
-            columns={columns}
-            rows={filtered}
-            rowKey={(a) => a.id}
-            emptyMessage={
-              assignments.length === 0
-                ? 'No assignments yet. Click "New Assignment" to add one.'
-                : "No assignments match this filter."
-            }
-          />
-        </div>
+        <>
+          {/* Phones: card per assignment — the 7-column table forced a
+              sideways scroll that hid the title while reading the stats. */}
+          <div className="sm:hidden space-y-2">
+            {filtered.length === 0 && (
+              <div className={`${cardBase} py-8 text-center text-sm text-slate-500`}>
+                {assignments.length === 0
+                  ? 'No assignments yet. Tap "New Assignment" to add one.'
+                  : "No assignments match this filter."}
+              </div>
+            )}
+            {filtered.map((a) => {
+              const s = summary[a.id];
+              return (
+                <Link
+                  key={a.id}
+                  to={`/school/orgs/${orgId}/assignments/${a.id}`}
+                  className={`${cardBase} block p-3`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="min-w-0 text-sm font-semibold text-slate-900">{a.title}</span>
+                    <KindChip kind={a.kind} />
+                  </div>
+                  {(a.subjectName || a.topicName) && (
+                    <div className="mt-1 flex flex-wrap items-center gap-1">
+                      {a.subjectName && (
+                        <span className="inline-flex items-center gap-0.5 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 ring-1 ring-indigo-200">
+                          <BookOpen className="h-2.5 w-2.5" />
+                          {a.subjectName}
+                        </span>
+                      )}
+                      {a.topicName && (
+                        <span className="inline-flex items-center gap-0.5 rounded-full bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-700 ring-1 ring-violet-200">
+                          <ListChecks className="h-2.5 w-2.5" />
+                          {a.topicName}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
+                    {a.due_date && <span>Due {a.due_date}</span>}
+                    <span>Max {a.max_score}</span>
+                    <span>Graded {s ? `${s.graded}/${s.total}` : "…"}</span>
+                    {s?.avgPct != null && <span className="font-medium text-slate-700">Avg {s.avgPct.toFixed(0)}%</span>}
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+
+          {/* Desktop: the full table. */}
+          <div className={`${cardBase} hidden sm:block`}>
+            <DataTable<Assignment>
+              columns={columns}
+              rows={filtered}
+              rowKey={(a) => a.id}
+              emptyMessage={
+                assignments.length === 0
+                  ? 'No assignments yet. Click "New Assignment" to add one.'
+                  : "No assignments match this filter."
+              }
+            />
+          </div>
+        </>
       )}
     </div>
   );
