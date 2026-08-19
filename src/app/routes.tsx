@@ -164,16 +164,29 @@ function RouterErrorBoundary() {
       <div className="max-w-md w-full bg-card p-8 rounded-lg shadow-lg">
         <h2 className="text-2xl font-bold text-foreground mb-4">Something went wrong</h2>
         <p className="text-muted-foreground mb-4">
-          An unexpected error occurred. Please try refreshing the page.
+          An unexpected error occurred — usually a refresh fixes it (the app
+          may have just been updated).
         </p>
-        <button
-          onClick={() => {
-            window.location.href = '/parent-login';
-          }}
-          className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
-        >
-          Go to Login
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
+          >
+            Refresh
+          </button>
+          <button
+            onClick={() => {
+              // School staff/parents came in via a per-school slug login —
+              // send them back there, not to the family parent login.
+              let slug: string | null = null;
+              try { slug = localStorage.getItem("fgs_last_org_slug"); } catch { /* ignore */ }
+              window.location.href = slug ? `/${slug}/login` : "/parent-login";
+            }}
+            className="px-4 py-2 border border-input bg-background rounded-md hover:bg-accent transition-colors"
+          >
+            Go to Login
+          </button>
+        </div>
       </div>
     </div>
   );
