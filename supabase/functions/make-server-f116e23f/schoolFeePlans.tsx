@@ -410,6 +410,7 @@ export function installFeePlans(school: Hono): void {
           .from("student")
           .select("id, class_section_id")
           .in("class_section_id", sectionIds)
+          .neq("status", "left")
       : { data: [] as any[] };
 
     // 4. Pull all existing overrides for the plans in one shot.

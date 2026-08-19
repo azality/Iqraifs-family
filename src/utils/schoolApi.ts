@@ -1314,6 +1314,15 @@ export interface AdminStudent {
   /** Backend returns select("*") — present when the student is in a hifz
    *  group (PR feat/hifz-groups). Used by TeacherHome's group rosters. */
   hifz_group_id?: string | null;
+  /** 'active' | 'left'. Left students keep their record + history but are
+   *  cleared from their section, so rosters and billing skip them. */
+  status?: string;
+  left_at?: string | null;
+  left_reason?: string | null;
+  left_from_section_id?: string | null;
+  /** Backend select("*") — used to show tenure on withdrawn students. */
+  admission_date?: string | null;
+  created_at?: string;
 }
 
 export interface AdminParent {
@@ -1501,6 +1510,26 @@ export const updateStudent = (
 
 export const deleteStudent = (orgId: string, studentId: string): Promise<void> =>
   apiCall(`/school/orgs/${orgId}/students/${studentId}`, { method: "DELETE" });
+
+export const markStudentLeft = (
+  orgId: string,
+  studentId: string,
+  reason?: string,
+): Promise<AdminStudent> =>
+  apiCall(`/school/orgs/${orgId}/students/${studentId}/mark-left`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+
+export const readmitStudent = (
+  orgId: string,
+  studentId: string,
+  classSectionId?: string,
+): Promise<AdminStudent> =>
+  apiCall(`/school/orgs/${orgId}/students/${studentId}/readmit`, {
+    method: "POST",
+    body: JSON.stringify({ classSectionId }),
+  });
 
 export interface BulkResult {
   inserted: number;
