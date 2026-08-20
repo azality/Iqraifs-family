@@ -168,7 +168,7 @@ export function SectionLessonsFeed() {
   return (
     <div className="space-y-4">
       <HeroCard
-        title="Daily Sabaq"
+        title="Lessons"
         subtitle="Lessons posted for this section"
         rightSlot={
           <div className="flex flex-wrap items-end gap-2">
