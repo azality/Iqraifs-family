@@ -397,7 +397,8 @@ export function AssignmentForm() {
                 </Button>
               </div>
               <p className="text-[11px] text-muted-foreground">
-                PDF, Word, Excel, PowerPoint, InPage, or image — up to 5 MB.
+                PDF, Word, Excel, PowerPoint, InPage, or image — up to 15 MB;
+                photos are compressed automatically.
               </p>
             </div>
 

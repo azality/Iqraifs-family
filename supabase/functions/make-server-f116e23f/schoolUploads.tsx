@@ -82,7 +82,10 @@ export function installUploads(school: Hono): void {
     ["image/png", "png"],
     ["image/webp", "webp"],
   ]);
-  const FILE_MAX_BYTES = 5 * 1024 * 1024;
+  // 15 MB (raised from 5 on pilot feedback). The frontend auto-compresses
+  // images before upload; documents come through as-is. Videos still
+  // belong in the Video URL field, never in storage.
+  const FILE_MAX_BYTES = 15 * 1024 * 1024;
   const FILES_BUCKET = "school-files";
 
   school.post("/orgs/:orgId/file-upload", async (c) => {
@@ -113,7 +116,7 @@ export function installUploads(school: Hono): void {
       }, 400);
     }
     if (file.size > FILE_MAX_BYTES) {
-      return c.json({ error: "File is too large — maximum 5 MB. For videos, use the Video URL field instead." }, 400);
+      return c.json({ error: "File is too large — maximum 15 MB. For videos, use the Video URL field instead." }, 400);
     }
 
     const path = `${orgId}/${crypto.randomUUID()}.${ext}`;
@@ -125,6 +128,16 @@ export function installUploads(school: Hono): void {
     if (upErr && /not found/i.test(upErr.message)) {
       // First-ever upload: create the bucket, then retry once.
       await (serviceRoleClient.storage as any).createBucket(FILES_BUCKET, {
+        public: true,
+        fileSizeLimit: FILE_MAX_BYTES,
+      });
+      ({ error: upErr } = await serviceRoleClient.storage
+        .from(FILES_BUCKET)
+        .upload(path, bytes, { contentType, upsert: false }));
+    } else if (upErr && /maximum allowed size/i.test(upErr.message)) {
+      // Bucket was created back when the cap was 5 MB — raise its
+      // bucket-side limit to match and retry once.
+      await (serviceRoleClient.storage as any).updateBucket(FILES_BUCKET, {
         public: true,
         fileSizeLimit: FILE_MAX_BYTES,
       });

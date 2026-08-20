@@ -35,13 +35,42 @@ export async function uploadSchoolPhoto(orgId: string, file: File): Promise<{ ur
  *  before the network round-trip. */
 export const SCHOOL_FILE_ACCEPT =
   ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png,.webp,.inp";
-export const SCHOOL_FILE_MAX_BYTES = 5 * 1024 * 1024;
+export const SCHOOL_FILE_MAX_BYTES = 15 * 1024 * 1024;
+
+/** Shrink a photo before upload: cap the long edge at 2000px and
+ *  re-encode as JPEG. Phone photos (5–12 MB) come out well under 1 MB;
+ *  the original is kept whenever re-encoding doesn't actually help
+ *  (small images, screenshots, diagrams). Never throws — any failure
+ *  falls back to the untouched file. */
+async function compressImageFile(file: File): Promise<File> {
+  try {
+    if (!/^image\/(jpeg|png|webp)$/.test(file.type)) return file;
+    const bmp = await createImageBitmap(file);
+    const MAX_EDGE = 2000;
+    const scale = Math.min(1, MAX_EDGE / Math.max(bmp.width, bmp.height));
+    // Small file AND small dimensions — nothing to gain.
+    if (scale === 1 && file.size <= 1.5 * 1024 * 1024) return file;
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bmp.width * scale);
+    canvas.height = Math.round(bmp.height * scale);
+    canvas.getContext("2d")!.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/jpeg", 0.82),
+    );
+    if (!blob || blob.size >= file.size) return file;
+    return new File([blob], file.name.replace(/\.\w+$/, "") + ".jpg", { type: "image/jpeg" });
+  } catch {
+    return file;
+  }
+}
 
 /** Multipart document/image upload for lesson & assignment attachments.
- *  Same hand-rolled fetch as uploadSchoolPhoto (apiCall forces JSON). */
-export async function uploadSchoolFile(orgId: string, file: File): Promise<{ url: string }> {
+ *  Same hand-rolled fetch as uploadSchoolPhoto (apiCall forces JSON).
+ *  Images are auto-compressed before the size check. */
+export async function uploadSchoolFile(orgId: string, rawFile: File): Promise<{ url: string }> {
+  const file = await compressImageFile(rawFile);
   if (file.size > SCHOOL_FILE_MAX_BYTES) {
-    throw new Error("File is too large — maximum 5 MB. For videos, use the Video URL field instead.");
+    throw new Error("File is too large — maximum 15 MB. For videos, use the Video URL field instead.");
   }
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
