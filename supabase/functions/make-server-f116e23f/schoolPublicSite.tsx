@@ -74,6 +74,8 @@ function siteToJson(orgRow: any) {
     whatsappPhone: ps.whatsapp_phone ?? null,
     visitHours: ps.visit_hours ?? null,
     instagramUrl: ps.instagram_url ?? null,
+    // Connection status for the editor (username only - never the token).
+    instagramConnectedUsername: orgSettings.instagram?.username ?? null,
     ayah: (ps.ayah_arabic || ps.ayah_translation)
       ? {
           arabic: ps.ayah_arabic ?? null,

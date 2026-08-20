@@ -83,6 +83,7 @@ export function ManagePublicSite() {
         setWhatsappPhone(s.whatsappPhone ?? "");
         setVisitHours(s.visitHours ?? "");
         setInstagramUrl(s.instagramUrl ?? "");
+        setIgConnected(s.instagramConnectedUsername ?? null);
         setAyahArabic(s.ayah?.arabic ?? "");
         setAyahTranslation(s.ayah?.translation ?? "");
         setAyahReference(s.ayah?.reference ?? "");

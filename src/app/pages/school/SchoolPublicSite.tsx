@@ -15,6 +15,7 @@
 // at the bottom of this file.
 
 import { useEffect, useMemo, useState } from "react";
+import { setFavicon } from "../../../utils/favicon";
 import { Link, useParams } from "react-router";
 import {
   getPublicSite,
@@ -60,6 +61,14 @@ export function SchoolPublicSite() {
       .then(setSite)
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load"));
   }, [orgSlug]);
+
+  // Browser-tab identity: title + favicon from the school's own branding.
+  useEffect(() => {
+    if (!site?.org) return;
+    document.title = site.org.name;
+    const restore = site.org.logoUrl ? setFavicon(site.org.logoUrl) : undefined;
+    return () => restore?.();
+  }, [site?.org?.name, site?.org?.logoUrl]);
 
   // Live Instagram grid — non-blocking; [] when no account connected.
   const [igPosts, setIgPosts] = useState<PublicInstagramPost[]>([]);
