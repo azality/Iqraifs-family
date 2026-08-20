@@ -16,9 +16,23 @@ export function SchoolSlugEntry() {
 
   useEffect(() => {
     if (!orgSlug) { setDecision("login"); return; }
-    getPublicSite(orgSlug)
-      .then((s) => setDecision(s.enabled ? "public" : "login"))
-      .catch(() => setDecision("login"));
+    let cancelled = false;
+    (async () => {
+      // A cold edge function or flaky network can fail the first fetch;
+      // falling straight back to login strands visitors of an enabled
+      // public site on the login page. Retry before giving up.
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const s = await getPublicSite(orgSlug);
+          if (!cancelled) setDecision(s.enabled ? "public" : "login");
+          return;
+        } catch {
+          if (attempt < 2) await new Promise((r) => setTimeout(r, 700 * (attempt + 1)));
+        }
+      }
+      if (!cancelled) setDecision("login");
+    })();
+    return () => { cancelled = true; };
   }, [orgSlug]);
 
   if (decision === "loading") {
