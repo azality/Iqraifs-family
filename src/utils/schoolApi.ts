@@ -3262,6 +3262,34 @@ export interface GradeBatchResponse {
   results: Array<{ studentId: string; ok: boolean; error?: string }>;
 }
 
+// The Phase C2 backend serializes assignments and grades in camelCase
+// (assignmentToJson / gradeToJson) and wraps single rows in
+// { assignment } / { grade }, while this file's interfaces — and every
+// consumer page — were written against snake_case rows. Normalize at
+// the API boundary so the mismatch can't leak into pages again.
+// (Field aliasing, not renaming: camel keys are kept alongside.)
+const assignmentFromApi = (a: any): Assignment => ({
+  ...a,
+  org_id: a?.org_id ?? a?.orgId,
+  class_section_id: a?.class_section_id ?? a?.sectionId,
+  max_score: a?.max_score ?? a?.maxScore,
+  due_date: a?.due_date ?? a?.dueDate ?? null,
+  assigned_date: a?.assigned_date ?? a?.assignedDate,
+  related_topic: a?.related_topic ?? a?.relatedTopic ?? null,
+  created_by: a?.created_by ?? a?.createdBy ?? null,
+  created_at: a?.created_at ?? a?.createdAt,
+  updated_at: a?.updated_at ?? a?.updatedAt,
+});
+
+const gradeFromApi = (g: any): GradeEntry => ({
+  ...g,
+  assignment_id: g?.assignment_id ?? g?.assignmentId,
+  student_id: g?.student_id ?? g?.studentId,
+  graded_by: g?.graded_by ?? g?.gradedBy ?? null,
+  graded_by_name: g?.graded_by_name ?? g?.gradedByName ?? null,
+  graded_at: g?.graded_at ?? g?.gradedAt ?? null,
+});
+
 export const postAssignment = (
   orgId: string,
   sectionId: string,
@@ -3270,7 +3298,7 @@ export const postAssignment = (
   apiCall(`/school/orgs/${orgId}/sections/${sectionId}/assignments`, {
     method: "POST",
     body: JSON.stringify(body),
-  });
+  }).then((r: any) => assignmentFromApi(r?.assignment ?? r));
 
 export const getSectionAssignments = (
   orgId: string,
@@ -3291,14 +3319,18 @@ export const getSectionAssignments = (
   if (opts.limit) q.append("limit", String(opts.limit));
   if (opts.subjectId) q.append("subjectId", opts.subjectId);
   const qs = q.toString() ? `?${q}` : "";
-  return apiCall(`/school/orgs/${orgId}/sections/${sectionId}/assignments${qs}`);
+  return apiCall(`/school/orgs/${orgId}/sections/${sectionId}/assignments${qs}`).then(
+    (r: any) => ({ ...r, assignments: (r?.assignments ?? []).map(assignmentFromApi) }),
+  );
 };
 
 export const getAssignment = (
   orgId: string,
   assignmentId: string,
 ): Promise<Assignment> =>
-  apiCall(`/school/orgs/${orgId}/assignments/${assignmentId}`);
+  apiCall(`/school/orgs/${orgId}/assignments/${assignmentId}`).then(
+    (r: any) => assignmentFromApi(r?.assignment ?? r),
+  );
 
 export const patchAssignment = (
   orgId: string,
@@ -3308,7 +3340,7 @@ export const patchAssignment = (
   apiCall(`/school/orgs/${orgId}/assignments/${assignmentId}`, {
     method: "PATCH",
     body: JSON.stringify(partial),
-  });
+  }).then((r: any) => assignmentFromApi(r?.assignment ?? r));
 
 export const deleteAssignment = (
   orgId: string,
@@ -3342,7 +3374,9 @@ export const getAssignmentGrades = (
   orgId: string,
   assignmentId: string,
 ): Promise<{ grades: GradeEntry[] }> =>
-  apiCall(`/school/orgs/${orgId}/assignments/${assignmentId}/grades`);
+  apiCall(`/school/orgs/${orgId}/assignments/${assignmentId}/grades`).then(
+    (r: any) => ({ ...r, grades: (r?.grades ?? []).map(gradeFromApi) }),
+  );
 
 export const getStudentGrades = (
   orgId: string,
@@ -3355,7 +3389,15 @@ export const getStudentGrades = (
   if (opts.kind) q.append("kind", opts.kind);
   if (opts.limit) q.append("limit", String(opts.limit));
   const qs = q.toString() ? `?${q}` : "";
-  return apiCall(`/school/orgs/${orgId}/students/${studentId}/grades${qs}`);
+  return apiCall(`/school/orgs/${orgId}/students/${studentId}/grades${qs}`).then(
+    (r: any) => ({
+      ...r,
+      grades: (r?.grades ?? []).map((g: any) => ({
+        ...gradeFromApi(g),
+        assignment: g?.assignment ? assignmentFromApi(g.assignment) : g?.assignment,
+      })),
+    }),
+  );
 };
 
 export const getStudentGradesSummary = (
@@ -3374,7 +3416,28 @@ export const getSectionGradebook = (
   if (opts.endDate) q.append("endDate", opts.endDate);
   if (opts.subjectId) q.append("subjectId", opts.subjectId);
   const qs = q.toString() ? `?${q}` : "";
-  return apiCall(`/school/orgs/${orgId}/sections/${sectionId}/gradebook${qs}`);
+  return apiCall(`/school/orgs/${orgId}/sections/${sectionId}/gradebook${qs}`).then(
+    (r: any) => ({
+      ...r,
+      assignments: (r?.assignments ?? []).map(assignmentFromApi),
+      students: (r?.students ?? []).map((s: any) => ({
+        ...s,
+        full_name: s?.full_name ?? s?.fullName,
+        gr_number: s?.gr_number ?? s?.grNumber,
+      })),
+      grades: Object.fromEntries(
+        Object.entries(r?.grades ?? {}).map(([aId, byStudent]) => [
+          aId,
+          Object.fromEntries(
+            Object.entries((byStudent as Record<string, any>) ?? {}).map(([sId, g]) => [
+              sId,
+              gradeFromApi(g),
+            ]),
+          ),
+        ]),
+      ),
+    }),
+  );
 };
 
 export const deleteGrade = (
