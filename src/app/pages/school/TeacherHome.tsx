@@ -694,7 +694,7 @@ export function TeacherHome({ orgId, me }: Props) {
               return (
                 <Link
                   key={s.id}
-                  to={`/school/orgs/${s.orgId}/sections/${s.classSectionId}/assignments`}
+                  to={`/school/orgs/${s.orgId}/sections/${s.classSectionId}?openSubject=${encodeURIComponent(s.classSubjectId)}`}
                   className="block rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:shadow"
                 >
                   <div className="flex items-start justify-between gap-3">
@@ -739,9 +739,13 @@ export function TeacherHome({ orgId, me }: Props) {
                   )}
 
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] font-medium text-slate-700 hover:bg-slate-50">
+                    <Link
+                      to={`/school/orgs/${s.orgId}/sections/${s.classSectionId}/assignments?subjectId=${encodeURIComponent(s.id)}`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] font-medium text-slate-700 hover:bg-slate-50"
+                    >
                       Assignments
-                    </span>
+                    </Link>
                     <Link
                       to={`/school/orgs/${s.orgId}/sections/${s.classSectionId}/gradebook`}
                       onClick={(e) => e.stopPropagation()}
@@ -750,7 +754,7 @@ export function TeacherHome({ orgId, me }: Props) {
                       Gradebook
                     </Link>
                     <Link
-                      to={`/school/orgs/${s.orgId}/sections/${s.classSectionId}/lessons`}
+                      to={`/school/orgs/${s.orgId}/sections/${s.classSectionId}/lessons?subjectId=${encodeURIComponent(s.id)}`}
                       onClick={(e) => e.stopPropagation()}
                       className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] font-medium text-slate-700 hover:bg-slate-50"
                     >

@@ -6,8 +6,8 @@
 // This component is read-only for teachers — they see the syllabus the
 // admin set up and can drill into lessons or log new ones inline.
 
-import { useEffect, useState } from "react";
-import { Link } from "react-router";
+import { useEffect, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router";
 import {
   BookOpen,
   UserCog,
@@ -64,6 +64,23 @@ export function SectionSubjectsManager({ orgId, sectionId, canManage, canEditCur
       .catch((e) => setError(e?.message || "Could not load subjects"))
       .finally(() => setLoading(false));
   }, [sectionId]);
+
+  // ?openSubject=<classSubjectId|sectionSubjectId> auto-expands that
+  // subject on arrival — used by TeacherHome's "My subjects" cards so
+  // "English · 0/19 topics" lands the teacher on the actual topic list.
+  const [searchParams] = useSearchParams();
+  const autoOpened = useRef(false);
+  useEffect(() => {
+    if (autoOpened.current || subjects.length === 0) return;
+    autoOpened.current = true;
+    const want = searchParams.get("openSubject");
+    if (!want) return;
+    const s = subjects.find(
+      (x) => x.classSubjectId === want || x.sectionSubjectId === want,
+    );
+    if (s) void toggleExpand(s);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subjects]);
 
   // Direct tick/untick on a syllabus row. Backend PATCH is gated on the
   // define_curriculum permission, which class teachers hold by default —
