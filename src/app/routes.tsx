@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate, useLocation } from "react-router";
+import { createBrowserRouter, Navigate, useLocation, useRouteError } from "react-router";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { RequireParentRole } from "./components/RequireParentRole";
 import { Welcome } from "./pages/Welcome";
@@ -159,6 +159,17 @@ import { getStorage, getStorageSync, STORAGE_KEYS } from "../utils/storage";
 
 // Custom error element that's wrapped with providers
 function RouterErrorBoundary() {
+  // Surface the real error — a bare "something went wrong" turns every
+  // production crash into a guessing game (pilot lesson, twice).
+  const err = useRouteError() as unknown;
+  const detail =
+    err instanceof Error
+      ? `${err.message}${err.stack ? "\n" + err.stack.split("\n").slice(1, 4).join("\n") : ""}`
+      : typeof err === "string"
+        ? err
+        : err
+          ? JSON.stringify(err).slice(0, 400)
+          : null;
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="max-w-md w-full bg-card p-8 rounded-lg shadow-lg">
@@ -167,6 +178,11 @@ function RouterErrorBoundary() {
           An unexpected error occurred — usually a refresh fixes it (the app
           may have just been updated).
         </p>
+        {detail && (
+          <pre className="mb-4 max-h-40 overflow-auto whitespace-pre-wrap rounded-md bg-slate-100 p-3 text-[11px] leading-snug text-slate-600">
+            {detail}
+          </pre>
+        )}
         <div className="flex gap-2">
           <button
             onClick={() => window.location.reload()}
