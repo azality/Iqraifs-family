@@ -24,6 +24,8 @@ import {
   postAssignment,
   listSectionSubjects,
   getClassSubjectCurriculum,
+  uploadSchoolFile,
+  SCHOOL_FILE_ACCEPT,
   type AssignmentInput,
   type AssignmentKind,
   type SectionSubject,
@@ -72,6 +74,7 @@ export function AssignmentForm() {
   });
   // Attachment rows (label + url). Mirrors LessonForm.
   const [attachments, setAttachments] = useState<Array<{ label: string; url: string }>>([]);
+  const [uploadingFile, setUploadingFile] = useState(false);
 
   // Phase 3: subject + topic dropdowns mirror LessonForm.
   const [subjects, setSubjects] = useState<SectionSubject[]>([]);
@@ -358,9 +361,44 @@ export function AssignmentForm() {
                   </Button>
                 </div>
               ))}
-              <Button type="button" variant="outline" size="sm" onClick={() => setAttachments([...attachments, { label: "", url: "" }])}>
-                + Add attachment
-              </Button>
+              <div className="flex gap-2">
+                <input
+                  id="assignment-file-input"
+                  type="file"
+                  accept={SCHOOL_FILE_ACCEPT}
+                  className="hidden"
+                  onChange={async (e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = "";
+                    if (!f) return;
+                    setUploadingFile(true);
+                    try {
+                      const { url } = await uploadSchoolFile(orgId, f);
+                      setAttachments((a) => [...a, { label: f.name, url }]);
+                      toast.success(`"${f.name}" uploaded`);
+                    } catch (err) {
+                      toast.error(err instanceof Error ? err.message : "Upload failed");
+                    } finally {
+                      setUploadingFile(false);
+                    }
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={uploadingFile}
+                  onClick={() => document.getElementById("assignment-file-input")?.click()}
+                >
+                  {uploadingFile ? "Uploading…" : "⇧ Upload file"}
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => setAttachments([...attachments, { label: "", url: "" }])}>
+                  + Add link
+                </Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                PDF, Word, Excel, PowerPoint, InPage, or image — up to 5 MB.
+              </p>
             </div>
 
             <div className="grid sm:grid-cols-3 gap-4">

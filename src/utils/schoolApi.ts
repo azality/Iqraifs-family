@@ -30,6 +30,37 @@ export async function uploadSchoolPhoto(orgId: string, file: File): Promise<{ ur
   return json as { url: string };
 }
 
+/** Accept list + size cap for lesson/assignment attachment uploads —
+ *  mirror of the backend's /file-upload validation so failures surface
+ *  before the network round-trip. */
+export const SCHOOL_FILE_ACCEPT =
+  ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png,.webp,.inp";
+export const SCHOOL_FILE_MAX_BYTES = 5 * 1024 * 1024;
+
+/** Multipart document/image upload for lesson & assignment attachments.
+ *  Same hand-rolled fetch as uploadSchoolPhoto (apiCall forces JSON). */
+export async function uploadSchoolFile(orgId: string, file: File): Promise<{ url: string }> {
+  if (file.size > SCHOOL_FILE_MAX_BYTES) {
+    throw new Error("File is too large — maximum 5 MB. For videos, use the Video URL field instead.");
+  }
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) throw new Error("Not signed in.");
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(
+    `https://${PUBLIC_INFO.projectId}.supabase.co/functions/v1/make-server-f116e23f/school/orgs/${orgId}/file-upload`,
+    {
+      method: "POST",
+      headers: { apikey: PUBLIC_INFO.publicAnonKey, Authorization: `Bearer ${token}` },
+      body: form,
+    },
+  );
+  const json = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(json?.error ?? `Upload failed (${res.status})`);
+  return json as { url: string };
+}
+
 // ─── /me ─────────────────────────────────────────────────────────────────
 
 export type RoleType = "principal" | "teacher" | "parent" | "student";

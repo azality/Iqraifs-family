@@ -10,7 +10,7 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { Textarea } from "../../components/ui/textarea";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Upload } from "lucide-react";
 import { HeroCard, cardBase, cardElev } from "../../components/school-ui";
 import { toast } from "sonner";
 import {
@@ -19,6 +19,8 @@ import {
   postLesson,
   listSectionSubjects,
   getClassSubjectCurriculum,
+  uploadSchoolFile,
+  SCHOOL_FILE_ACCEPT,
   type LessonInput,
   type SectionSubject,
   type ClassCurriculumTopic,
@@ -50,6 +52,7 @@ export function LessonForm() {
   const [audioUrl, setAudioUrl] = useState("");
   const [lessonDate, setLessonDate] = useState(todayIso());
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [uploadingFile, setUploadingFile] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(editMode);
   const [error, setError] = useState<string | null>(null);
@@ -367,18 +370,53 @@ export function LessonForm() {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label>Attachments</Label>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={addAttachment}
-                >
-                  <Plus className="h-3.5 w-3.5 mr-1" /> Add
-                </Button>
+                <div className="flex gap-2">
+                  <input
+                    id="lesson-file-input"
+                    type="file"
+                    accept={SCHOOL_FILE_ACCEPT}
+                    className="hidden"
+                    onChange={async (e) => {
+                      const f = e.target.files?.[0];
+                      e.target.value = ""; // allow re-picking the same file
+                      if (!f) return;
+                      setUploadingFile(true);
+                      try {
+                        const { url } = await uploadSchoolFile(orgId, f);
+                        setAttachments((a) => [...a, { label: f.name, url }]);
+                        toast.success(`"${f.name}" uploaded`);
+                      } catch (err) {
+                        toast.error(err instanceof Error ? err.message : "Upload failed");
+                      } finally {
+                        setUploadingFile(false);
+                      }
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={uploadingFile}
+                    onClick={() => document.getElementById("lesson-file-input")?.click()}
+                  >
+                    <Upload className="h-3.5 w-3.5 mr-1" />
+                    {uploadingFile ? "Uploading…" : "Upload file"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={addAttachment}
+                  >
+                    <Plus className="h-3.5 w-3.5 mr-1" /> Add link
+                  </Button>
+                </div>
               </div>
               {attachments.length === 0 && (
                 <p className="text-xs text-muted-foreground">
-                  No attachments. Click "Add" to attach a worksheet or link.
+                  No attachments. Upload a worksheet (PDF, Word, Excel,
+                  PowerPoint, InPage, or image — up to 5 MB) or add a link.
+                  For videos, use the Video URL field above.
                 </p>
               )}
               {attachments.map((a, i) => (
