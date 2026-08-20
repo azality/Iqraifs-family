@@ -339,9 +339,14 @@ export function installPhaseC2(school: Hono): void {
       return c.json({ error: "invalid JSON body" }, 400);
     }
 
+    // class_section_id + section_subject_id are read by the subject/topic
+    // cross-validation below — leaving them out of this select made
+    // existing.class_section_id undefined, so EVERY edit carrying a
+    // sectionSubjectId was rejected as "not in this section" (pilot bug:
+    // teacher couldn't add attachments to her own assignment).
     const { data: existing, error: exErr } = await serviceRoleClient
       .from("assignment")
-      .select("id, org_id, created_by")
+      .select("id, org_id, created_by, class_section_id, section_subject_id")
       .eq("id", assignmentId)
       .maybeSingle();
     if (exErr) return c.json({ error: exErr.message }, 500);
