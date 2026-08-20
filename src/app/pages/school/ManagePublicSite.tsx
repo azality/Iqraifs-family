@@ -8,6 +8,7 @@
 // the manage_public_site key without granting them anything else.
 
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { Link, useParams } from "react-router";
 import { ArrowLeft, Eye, Save, CheckCircle2 } from "lucide-react";
 import { Button } from "../../components/ui/button";
@@ -18,7 +19,7 @@ import { Card, CardContent } from "../../components/ui/card";
 import {
   getSchoolMe,
   getOrganization,
-  getPublicSite, savePublicSite, setInstagramToken,
+  getPublicSite, savePublicSite, setInstagramToken, getInstagramOauthUrl,
   type PublicSiteResponse, type SchoolMeResponse,
 } from "../../../utils/schoolApi";
 import { sectionTitleClasses } from "../../components/school-ui";
@@ -59,6 +60,18 @@ export function ManagePublicSite() {
 
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
+  }, []);
+
+  // Returning from the Instagram OAuth callback (?ig=connected / error).
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const ig = q.get("ig");
+    if (!ig) return;
+    if (ig === "connected") toast.success("Instagram connected! Posts appear on the public site within the hour.");
+    else if (ig === "denied") toast.error("Instagram connection was cancelled.");
+    else toast.error("Instagram connection failed (" + ig + ") - try again or contact support.");
+    q.delete("ig");
+    window.history.replaceState(null, "", window.location.pathname + (q.toString() ? "?" + q : ""));
   }, []);
 
   useEffect(() => {
@@ -323,49 +336,19 @@ export function ManagePublicSite() {
                     Shown as a "Follow us" section next to the gallery, and in the footer.
                   </p>
                 </div>
-                <div className="space-y-1 rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+                <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50/60 p-3">
                   <Label className="text-xs">Live Instagram feed (optional)</Label>
                   <p className="text-[11px] text-slate-500">
-                    Paste a long-lived Instagram access token to show the school's latest
-                    posts as a photo grid on the public site — new posts appear
-                    automatically (refreshed hourly). Paste and Connect; the token is
-                    stored securely and never shown again.
+                    Show the school's latest Instagram posts as a photo grid on the
+                    public site — new posts appear automatically (refreshed hourly).
                   </p>
-                  <div className="flex gap-2">
-                    <Input
-                      type="password"
-                      value={igToken}
-                      onChange={(e) => setIgToken(e.target.value)}
-                      placeholder={igConnected ? `Connected: @${igConnected}` : "IGQV… access token"}
-                    />
-                    <Button
-                      type="button"
-                      size="sm"
-                      className="shrink-0"
-                      disabled={igBusy || !igToken.trim()}
-                      onClick={async () => {
-                        setIgBusy(true);
-                        try {
-                          const r = await setInstagramToken(orgId, igToken.trim());
-                          setIgConnected(r.username ?? "connected");
-                          setIgToken("");
-                          toast.success(`Instagram connected${r.username ? ` — @${r.username}` : ""}. Posts appear on the site within the hour.`);
-                        } catch (e) {
-                          toast.error(e instanceof Error ? e.message : "Could not connect Instagram");
-                        } finally {
-                          setIgBusy(false);
-                        }
-                      }}
-                    >
-                      {igBusy ? "Checking…" : "Connect"}
-                    </Button>
-                    {igConnected && (
+                  {igConnected ? (
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200">
+                        ✓ Connected — @{igConnected}
+                      </span>
                       <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="shrink-0"
-                        disabled={igBusy}
+                        type="button" size="sm" variant="outline" disabled={igBusy}
                         onClick={async () => {
                           setIgBusy(true);
                           try {
@@ -374,15 +357,80 @@ export function ManagePublicSite() {
                             toast.success("Instagram disconnected.");
                           } catch (e) {
                             toast.error(e instanceof Error ? e.message : "Could not disconnect");
-                          } finally {
-                            setIgBusy(false);
-                          }
+                          } finally { setIgBusy(false); }
                         }}
                       >
                         Disconnect
                       </Button>
-                    )}
-                  </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      <Button
+                        type="button" size="sm" disabled={igBusy}
+                        className="bg-gradient-to-r from-[#e6683c] via-[#dc2743] to-[#bc1888] text-white hover:opacity-90"
+                        onClick={async () => {
+                          setIgBusy(true);
+                          try {
+                            const r = await getInstagramOauthUrl(orgId);
+                            if (!r.configured || !r.url) {
+                              toast.error("Instagram connect isn't configured on the platform yet — contact support.");
+                              return;
+                            }
+                            // Full-page redirect to Instagram's Allow screen;
+                            // the callback bounces back to this page.
+                            window.location.href = r.url;
+                          } catch (e) {
+                            toast.error(e instanceof Error ? e.message : "Could not start Instagram connect");
+                          } finally { setIgBusy(false); }
+                        }}
+                      >
+                        {igBusy ? "Opening…" : "Connect with Instagram"}
+                      </Button>
+                      <p className="text-[11px] text-slate-500">
+                        Sign in with the <strong>school's</strong> Instagram account and tap
+                        Allow — that's it. Note: the account must be a{" "}
+                        <strong>professional account</strong> (Business or Creator). If it's
+                        a personal account, switch it first in the Instagram app: Settings →
+                        Account type and tools → Switch to professional account (free).
+                      </p>
+                    </div>
+                  )}
+                  {!igConnected && (
+                    <details className="pt-1">
+                      <summary className="cursor-pointer text-[11px] text-slate-400 hover:text-slate-600">
+                        Advanced: paste an access token manually
+                      </summary>
+                      <div className="mt-2 flex gap-2">
+                        <Input
+                          type="password"
+                          value={igToken}
+                          onChange={(e) => setIgToken(e.target.value)}
+                          placeholder="IGQV… long-lived access token"
+                        />
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="shrink-0"
+                          disabled={igBusy || !igToken.trim()}
+                          onClick={async () => {
+                            setIgBusy(true);
+                            try {
+                              const r = await setInstagramToken(orgId, igToken.trim());
+                              setIgConnected(r.username ?? "connected");
+                              setIgToken("");
+                              toast.success(`Instagram connected${r.username ? ` — @${r.username}` : ""}. Posts appear on the site within the hour.`);
+                            } catch (e) {
+                              toast.error(e instanceof Error ? e.message : "Could not connect Instagram");
+                            } finally {
+                              setIgBusy(false);
+                            }
+                          }}
+                        >
+                          {igBusy ? "Checking…" : "Save token"}
+                        </Button>
+                      </div>
+                    </details>
+                  )}
                 </div>
               </div>
               <div className="space-y-1">
