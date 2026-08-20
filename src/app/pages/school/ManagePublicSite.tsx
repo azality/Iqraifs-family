@@ -48,6 +48,7 @@ export function ManagePublicSite() {
   const [contactAddress, setContactAddress] = useState("");
   const [whatsappPhone, setWhatsappPhone] = useState("");
   const [visitHours, setVisitHours] = useState("");
+  const [instagramUrl, setInstagramUrl] = useState("");
   const [ayahArabic, setAyahArabic] = useState("");
   const [ayahTranslation, setAyahTranslation] = useState("");
   const [ayahReference, setAyahReference] = useState("");
@@ -78,6 +79,7 @@ export function ManagePublicSite() {
         setContactAddress(s.contactAddress ?? "");
         setWhatsappPhone(s.whatsappPhone ?? "");
         setVisitHours(s.visitHours ?? "");
+        setInstagramUrl(s.instagramUrl ?? "");
         setAyahArabic(s.ayah?.arabic ?? "");
         setAyahTranslation(s.ayah?.translation ?? "");
         setAyahReference(s.ayah?.reference ?? "");
@@ -106,7 +108,7 @@ export function ManagePublicSite() {
         heroTitle, heroTagline, heroImageUrl, heroKicker,
         about,
         contactEmail, contactPhone, contactAddress,
-        whatsappPhone, visitHours,
+        whatsappPhone, visitHours, instagramUrl,
         ayah: {
           arabic: ayahArabic.trim() || undefined,
           translation: ayahTranslation.trim() || undefined,
@@ -308,6 +310,14 @@ export function ManagePublicSite() {
                   <Label className="text-xs">Visit hours (optional)</Label>
                   <Input value={visitHours} onChange={(e) => setVisitHours(e.target.value)}
                          placeholder="Mon–Fri 9 AM – 1 PM. Pause for Zuhr." />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Instagram page (optional)</Label>
+                  <Input value={instagramUrl} onChange={(e) => setInstagramUrl(e.target.value)}
+                         placeholder="https://instagram.com/yourschool" />
+                  <p className="text-[11px] text-slate-500">
+                    Shown as a "Follow us" section next to the gallery, and in the footer.
+                  </p>
                 </div>
               </div>
               <div className="space-y-1">

@@ -26,8 +26,10 @@ import {
   DialogDescription,
 } from "../../components/ui/dialog";
 import { AlertTriangle } from "lucide-react";
+import { toast } from "sonner";
 import {
   deleteSchool,
+  uploadSchoolPhoto,
   getOrganization,
   getSchoolMe,
   isOrgPrincipal,
@@ -70,6 +72,7 @@ export function OrgSettings() {
   const [org, setOrg] = useState<OrgWithCounts | null>(null);
   const [orgLoading, setOrgLoading] = useState(true);
 
+  const [logoUploading, setLogoUploading] = useState(false);
   const [orgForm, setOrgForm] = useState<OrgFormState>({
     name: "",
     contact_email: "",
@@ -547,16 +550,46 @@ export function OrgSettings() {
             </p>
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="org-logo">Logo URL</Label>
-            <Input
-              id="org-logo"
-              type="url"
-              placeholder="https://…/logo.png"
-              value={orgForm.logo_url}
-              onChange={(e) => setOrgForm((s) => ({ ...s, logo_url: e.target.value }))}
-            />
+            <Label htmlFor="org-logo">Logo</Label>
+            <div className="flex items-center gap-2">
+              {orgForm.logo_url && (
+                <img src={orgForm.logo_url} alt="" className="h-10 w-10 rounded-lg border border-slate-200 object-cover" />
+              )}
+              <Input
+                id="org-logo"
+                type="url"
+                placeholder="https://…/logo.png"
+                value={orgForm.logo_url}
+                onChange={(e) => setOrgForm((s) => ({ ...s, logo_url: e.target.value }))}
+              />
+              <label className="inline-flex shrink-0 cursor-pointer items-center rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                {logoUploading ? "Uploading…" : "Upload"}
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="hidden"
+                  disabled={logoUploading}
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (!file) return;
+                    setLogoUploading(true);
+                    try {
+                      const { url } = await uploadSchoolPhoto(orgId, file);
+                      setOrgForm((s) => ({ ...s, logo_url: url }));
+                      toast.success("Logo uploaded — press Save to apply.");
+                    } catch (err) {
+                      toast.error(err instanceof Error ? err.message : "Upload failed");
+                    } finally {
+                      setLogoUploading(false);
+                    }
+                  }}
+                />
+              </label>
+            </div>
             <p className="text-xs text-slate-500">
-              Public URL to your school's logo. Shown on the dashboard hero card and parent portal.
+              Upload a PNG/JPG (up to 2 MB) or paste a public URL. Shown on the dashboard,
+              parent portal and public site.
             </p>
           </div>
           <div className="grid gap-1.5">

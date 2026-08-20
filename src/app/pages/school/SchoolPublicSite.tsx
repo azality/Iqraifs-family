@@ -191,7 +191,7 @@ export function SchoolPublicSite() {
               site.about && ["#about", "About"] as const,
               ["#programs", "Programs"] as const,
               facultyGroups.length > 0 && ["#faculty", "Faculty"] as const,
-              (site.gallery?.length ?? 0) > 0 && ["#campuses", "Gallery"] as const,
+              ((site.gallery?.length ?? 0) > 0 || !!site.instagramUrl) && ["#campuses", "Gallery"] as const,
               ["#contact", "Contact"] as const,
             ].filter(Boolean) as Array<readonly [string, string]>).map(([href, label]) => (
               <a key={href} href={href} style={{ color: "rgba(250,246,238,0.85)", textDecoration: "none", font: `500 14px/1 ${fontSans}`, padding: "10px 12px", borderRadius: 8 }}>{label}</a>
@@ -508,22 +508,52 @@ export function SchoolPublicSite() {
           </section>
         )}
 
-        {/* ============ GALLERY ============ */}
-        {(site.gallery?.length ?? 0) > 0 && (
+        {/* ============ GALLERY / INSTAGRAM ============ */}
+        {((site.gallery?.length ?? 0) > 0 || site.instagramUrl) && (
           <section id="campuses" style={{ background: PALETTE.creamHi, borderBlock: "1px solid rgba(201,162,74,0.25)", paddingBlock: 88, paddingInline: 24 }}>
             <div style={{ ...containerMax, display: "flex", flexDirection: "column", gap: 36 }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 12, maxWidth: 640 }}>
-                <span style={kicker}>Come see for yourself</span>
-                <h2 style={h2}>Around our campuses</h2>
+              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", justifyContent: "space-between", gap: 16 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 12, maxWidth: 640 }}>
+                  <span style={kicker}>Come see for yourself</span>
+                  <h2 style={h2}>{(site.gallery?.length ?? 0) > 0 ? "Around our campuses" : "Life at our school"}</h2>
+                </div>
+                {site.instagramUrl && (
+                  <a
+                    href={site.instagramUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 10,
+                      background: "linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888)",
+                      color: "#fff", borderRadius: 999, padding: "12px 22px",
+                      font: `600 14px/1 ${fontSans}`, textDecoration: "none",
+                      boxShadow: "0 4px 14px rgba(188,24,136,0.3)",
+                    }}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <rect x="2" y="2" width="20" height="20" rx="5" /><circle cx="12" cy="12" r="4.2" /><circle cx="17.4" cy="6.6" r="1.1" fill="currentColor" stroke="none" />
+                    </svg>
+                    Follow us on Instagram
+                  </a>
+                )}
               </div>
-              <div style={{ columns: "3 280px", columnGap: 18 }}>
-                {site.gallery!.map((ph, i) => (
-                  <figure key={i} style={{ breakInside: "avoid", margin: "0 0 18px 0", display: "flex", flexDirection: "column", gap: 8 }}>
-                    <img src={ph.url} alt={ph.caption ?? ""} style={{ display: "block", width: "100%", borderRadius: 14, border: "1px solid rgba(201,162,74,0.3)" }} loading="lazy" />
-                    {ph.caption && <figcaption style={{ font: `500 12.5px/1.4 ${fontSans}`, color: PALETTE.mutedLight }}>{ph.caption}</figcaption>}
-                  </figure>
-                ))}
-              </div>
+              {(site.gallery?.length ?? 0) > 0 ? (
+                <div style={{ columns: "3 280px", columnGap: 18 }}>
+                  {site.gallery!.map((ph, i) => (
+                    <figure key={i} style={{ breakInside: "avoid", margin: "0 0 18px 0", display: "flex", flexDirection: "column", gap: 8 }}>
+                      <img src={ph.url} alt={ph.caption ?? ""} style={{ display: "block", width: "100%", borderRadius: 14, border: "1px solid rgba(201,162,74,0.3)" }} loading="lazy" />
+                      {ph.caption && <figcaption style={{ font: `500 12.5px/1.4 ${fontSans}`, color: PALETTE.mutedLight }}>{ph.caption}</figcaption>}
+                    </figure>
+                  ))}
+                </div>
+              ) : (
+                site.instagramUrl && (
+                  <p style={{ font: `400 15px/1.7 ${fontSans}`, color: PALETTE.mutedInk, maxWidth: 640, margin: 0 }}>
+                    Our day-to-day — classrooms, events and student moments — lives on our
+                    Instagram page. Follow along to see the school in action.
+                  </p>
+                )
+              )}
             </div>
           </section>
         )}
@@ -639,7 +669,12 @@ export function SchoolPublicSite() {
                 ...(facultyGroups.length > 0 ? [["Faculty", "#faculty"] as [string, string]] : []),
                 ...((site.gallery?.length ?? 0) > 0 ? [["Gallery", "#campuses"] as [string, string]] : []),
               ]} />
-              <FooterGroup title="Parents" links={[["Admissions", "#admissions"], ["Contact", "#contact"], ...(whatsappHref ? [["WhatsApp", whatsappHref] as [string, string]] : [])]} />
+              <FooterGroup title="Parents" links={[
+                ["Admissions", "#admissions"],
+                ["Contact", "#contact"],
+                ...(whatsappHref ? [["WhatsApp", whatsappHref] as [string, string]] : []),
+                ...(site.instagramUrl ? [["Instagram", site.instagramUrl] as [string, string]] : []),
+              ]} />
             </nav>
           </div>
           <div style={{ borderBlockStart: "1px solid rgba(250,246,238,0.12)", paddingBlockStart: 24, display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
