@@ -4389,6 +4389,8 @@ export interface PublicSiteResponse {
   whatsappPhone: string | null;
   visitHours: string | null;
   instagramUrl: string | null;
+  /** @username of the connected Instagram account (editor status only). */
+  instagramConnectedUsername?: string | null;
   ayah: PublicSiteAyah | null;
   org: {
     id: string; name: string; slug: string;

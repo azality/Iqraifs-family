@@ -12,6 +12,7 @@
 // and applied to the header so each school's URL feels owned by them.
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { setFavicon } from "../../../utils/favicon";
 import { useNavigate, useParams } from "react-router";
 import { GraduationCap, Eye, EyeOff } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -69,6 +70,7 @@ export function SchoolUnifiedLogin() {
         // resolves (pilot feedback: "Family Growth System" is wrong here).
         const name = b?.name?.trim();
         if (name) document.title = /iqra/i.test(name) ? name : `Iqra — ${name}`;
+        if (b?.logoUrl) setFavicon(b.logoUrl);
       })
       .catch(() => {
         if (!cancelled) setBranding(null);
