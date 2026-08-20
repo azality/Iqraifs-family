@@ -95,7 +95,11 @@ async function hydrateTeacherNames(ids: string[]): Promise<Map<string, string>> 
     Array.from(new Set(ids.filter(Boolean))).map(async (uid) => {
       try {
         const { data } = await serviceRoleClient.auth.admin.getUserById(uid);
+        // user_metadata.name is what account creation writes everywhere
+        // (teachers/bulk, admins, seed). full_name kept as a fallback for
+        // any account created outside those paths.
         const name =
+          ((data?.user as any)?.user_metadata?.name as string | undefined) ??
           ((data?.user as any)?.user_metadata?.full_name as string | undefined) ??
           ((data?.user as any)?.email as string | undefined) ??
           "Teacher";
