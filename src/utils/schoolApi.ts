@@ -4388,6 +4388,7 @@ export interface PublicSiteResponse {
   contactAddress: string | null;
   whatsappPhone: string | null;
   visitHours: string | null;
+  instagramUrl: string | null;
   ayah: PublicSiteAyah | null;
   org: {
     id: string; name: string; slug: string;
@@ -4427,7 +4428,7 @@ export const savePublicSite = (
     heroTitle: string; heroTagline: string; heroImageUrl: string; heroKicker: string;
     about: string;
     contactEmail: string; contactPhone: string; contactAddress: string;
-    whatsappPhone: string; visitHours: string;
+    whatsappPhone: string; visitHours: string; instagramUrl: string;
     ayah: { arabic?: string; translation?: string; reference?: string };
     programs: PublicSiteProgram[];
     highlights: Array<{ label: string; value: string }>;

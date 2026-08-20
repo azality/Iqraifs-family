@@ -46,6 +46,7 @@ type PublicSiteSettings = {
   // Phase 4 (design handoff)
   whatsapp_phone?: string;
   visit_hours?: string;
+  instagram_url?: string;
   ayah_arabic?: string;
   ayah_translation?: string;
   ayah_reference?: string;
@@ -72,6 +73,7 @@ function siteToJson(orgRow: any) {
     contactAddress: ps.contact_address || orgSettings.address || null,
     whatsappPhone: ps.whatsapp_phone ?? null,
     visitHours: ps.visit_hours ?? null,
+    instagramUrl: ps.instagram_url ?? null,
     ayah: (ps.ayah_arabic || ps.ayah_translation)
       ? {
           arabic: ps.ayah_arabic ?? null,
@@ -190,6 +192,7 @@ export function installPublicSite(school: Hono): void {
     if (typeof body?.contactAddress === "string") next.contact_address = body.contactAddress.trim().slice(0, 500);
     if (typeof body?.whatsappPhone === "string") next.whatsapp_phone = body.whatsappPhone.trim().slice(0, 50);
     if (typeof body?.visitHours === "string") next.visit_hours = body.visitHours.trim().slice(0, 500);
+    if (typeof body?.instagramUrl === "string") next.instagram_url = body.instagramUrl.trim().slice(0, 300);
     if (body?.ayah && typeof body.ayah === "object") {
       const a: any = body.ayah;
       if (typeof a.arabic === "string") next.ayah_arabic = a.arabic.trim().slice(0, 500);
