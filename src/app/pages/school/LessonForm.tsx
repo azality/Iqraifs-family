@@ -415,7 +415,8 @@ export function LessonForm() {
               {attachments.length === 0 && (
                 <p className="text-xs text-muted-foreground">
                   No attachments. Upload a worksheet (PDF, Word, Excel,
-                  PowerPoint, InPage, or image — up to 5 MB) or add a link.
+                  PowerPoint, InPage, or image — up to 15 MB; photos are
+                  compressed automatically) or add a link.
                   For videos, use the Video URL field above.
                 </p>
               )}
