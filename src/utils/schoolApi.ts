@@ -4455,6 +4455,13 @@ export const setInstagramToken = (
     body: JSON.stringify({ accessToken }),
   });
 
+/** Authorize URL for the self-serve "Connect with Instagram" flow.
+ *  { configured:false } when the platform Meta app env isn't set. */
+export const getInstagramOauthUrl = (
+  orgId: string,
+): Promise<{ configured: boolean; url?: string }> =>
+  apiCall(`/school/orgs/${orgId}/instagram/oauth-url`);
+
 export const savePublicSite = (
   orgId: string,
   patch: Partial<{

@@ -390,4 +390,118 @@ export function installPublicSite(school: Hono): void {
     if (error) return c.json({ error: error.message }, 500);
     return c.json({ ok: true, connected: tokenRaw !== "", username: tokenRaw ? settings.instagram?.username ?? null : null });
   });
+
+  // ─── Instagram OAuth (self-serve "Connect with Instagram") ─────────
+  // One platform-level Meta app (env: IG_APP_ID / IG_APP_SECRET) serves
+  // every school: the admin clicks Connect, logs into the SCHOOL's
+  // Instagram, taps Allow, and lands back in the editor connected. The
+  // code→token exchange happens here, server-side; nothing secret ever
+  // reaches the browser.
+  //
+  // Security: `state` = orgId.expiry.HMAC(secret) minted only for callers
+  // holding manage_public_site — the callback verifies it, so an attacker
+  // can't attach their own Instagram to someone else's school.
+
+  const IG_APP_ID = Deno.env.get("IG_APP_ID") ?? "";
+  const IG_APP_SECRET = Deno.env.get("IG_APP_SECRET") ?? "";
+  const FUNC_BASE = `${Deno.env.get("SUPABASE_URL")}/functions/v1/make-server-f116e23f`;
+  const IG_REDIRECT = `${FUNC_BASE}/school/instagram/callback`;
+
+  async function hmac(msg: string): Promise<string> {
+    const key = await crypto.subtle.importKey(
+      "raw", new TextEncoder().encode(IG_APP_SECRET || "unset"),
+      { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
+    );
+    const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(msg));
+    return Array.from(new Uint8Array(sig)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+
+  // Step 1 — the editor asks for the authorize URL (auth required).
+  school.get("/orgs/:orgId/instagram/oauth-url", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    if (!(await userCanInOrg(userId, orgId, "manage_public_site"))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    if (!IG_APP_ID || !IG_APP_SECRET) {
+      return c.json({ configured: false });
+    }
+    const payload = `${orgId}.${Date.now() + 15 * 60 * 1000}`;
+    const state = `${payload}.${await hmac(payload)}`;
+    const url =
+      "https://www.instagram.com/oauth/authorize" +
+      `?client_id=${encodeURIComponent(IG_APP_ID)}` +
+      `&redirect_uri=${encodeURIComponent(IG_REDIRECT)}` +
+      "&scope=instagram_business_basic" +
+      "&response_type=code" +
+      `&state=${encodeURIComponent(state)}`;
+    return c.json({ configured: true, url });
+  });
+
+  // Step 2 — Instagram redirects back here (PUBLIC path; browser hit).
+  // Exchanges code → short token → long-lived token, stores it on the
+  // org from the verified state, then bounces to the editor.
+  school.get("/instagram/callback", async (c) => {
+    const back = (orgId: string | null, q: string) => {
+      // Send the human back to the editor with a status flag. Falls back
+      // to the site root when the state was invalid.
+      const target = orgId
+        ? `https://iqraifs.com/school/orgs/${orgId}/admin/public-site?ig=${q}`
+        : `https://iqraifs.com/?ig=${q}`;
+      return c.redirect(target, 302);
+    };
+    const state = c.req.query("state") ?? "";
+    const code = c.req.query("code");
+    const [orgId, expiry, sig] = state.split(".");
+    if (!orgId || !expiry || !sig || sig !== (await hmac(`${orgId}.${expiry}`))) {
+      return back(null, "invalid-state");
+    }
+    if (Number(expiry) < Date.now()) return back(orgId, "expired");
+    if (!code) return back(orgId, "denied");
+
+    try {
+      // code → short-lived token
+      const form = new URLSearchParams({
+        client_id: IG_APP_ID,
+        client_secret: IG_APP_SECRET,
+        grant_type: "authorization_code",
+        redirect_uri: IG_REDIRECT,
+        code,
+      });
+      const shortRes = await fetch("https://api.instagram.com/oauth/access_token", {
+        method: "POST", body: form,
+      });
+      if (!shortRes.ok) return back(orgId, "exchange-failed");
+      const short = await shortRes.json();
+
+      // short → long-lived (60 days; our feed endpoint auto-refreshes monthly)
+      const longRes = await fetch(
+        "https://graph.instagram.com/access_token?grant_type=ig_exchange_token" +
+          `&client_secret=${encodeURIComponent(IG_APP_SECRET)}` +
+          `&access_token=${encodeURIComponent(short.access_token)}`,
+      );
+      if (!longRes.ok) return back(orgId, "exchange-failed");
+      const long = await longRes.json();
+
+      const who = await (await fetch(
+        "https://graph.instagram.com/me?fields=id,username&access_token=" +
+          encodeURIComponent(long.access_token),
+      )).json();
+
+      const { data: cur } = await serviceRoleClient
+        .from("organizations").select("settings").eq("id", orgId).maybeSingle();
+      const settings = (cur as any)?.settings ?? {};
+      settings.instagram = {
+        access_token: long.access_token,
+        username: who?.username ?? null,
+        token_refreshed_at: new Date().toISOString(),
+        cache: null,
+      };
+      await serviceRoleClient.from("organizations").update({ settings }).eq("id", orgId);
+      return back(orgId, "connected");
+    } catch (_) {
+      return back(orgId, "error");
+    }
+  });
 }

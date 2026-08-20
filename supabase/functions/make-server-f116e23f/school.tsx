@@ -104,6 +104,11 @@ school.use("*", async (c, next) => {
   // Public school site lookup — anyone can fetch a school's marketing
   // content by slug, no auth.
   // Also covers the /instagram feed sub-path (same public surface).
+  // The OAuth callback is hit by the user's browser mid-redirect - no JWT.
+  if (tail === "/instagram/callback") {
+    await next();
+    return;
+  }
   if (/^\/public-site\/[^/]+(\/instagram)?$/.test(tail)) {
     await next();
     return;
