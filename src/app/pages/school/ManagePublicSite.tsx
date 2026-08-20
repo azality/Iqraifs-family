@@ -18,7 +18,7 @@ import { Card, CardContent } from "../../components/ui/card";
 import {
   getSchoolMe,
   getOrganization,
-  getPublicSite, savePublicSite,
+  getPublicSite, savePublicSite, setInstagramToken,
   type PublicSiteResponse, type SchoolMeResponse,
 } from "../../../utils/schoolApi";
 import { sectionTitleClasses } from "../../components/school-ui";
@@ -49,6 +49,9 @@ export function ManagePublicSite() {
   const [whatsappPhone, setWhatsappPhone] = useState("");
   const [visitHours, setVisitHours] = useState("");
   const [instagramUrl, setInstagramUrl] = useState("");
+  const [igToken, setIgToken] = useState("");
+  const [igConnected, setIgConnected] = useState<string | null>(null);
+  const [igBusy, setIgBusy] = useState(false);
   const [ayahArabic, setAyahArabic] = useState("");
   const [ayahTranslation, setAyahTranslation] = useState("");
   const [ayahReference, setAyahReference] = useState("");
@@ -318,6 +321,67 @@ export function ManagePublicSite() {
                   <p className="text-[11px] text-slate-500">
                     Shown as a "Follow us" section next to the gallery, and in the footer.
                   </p>
+                </div>
+                <div className="space-y-1 rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+                  <Label className="text-xs">Live Instagram feed (optional)</Label>
+                  <p className="text-[11px] text-slate-500">
+                    Paste a long-lived Instagram access token to show the school's latest
+                    posts as a photo grid on the public site — new posts appear
+                    automatically (refreshed hourly). Paste and Connect; the token is
+                    stored securely and never shown again.
+                  </p>
+                  <div className="flex gap-2">
+                    <Input
+                      type="password"
+                      value={igToken}
+                      onChange={(e) => setIgToken(e.target.value)}
+                      placeholder={igConnected ? `Connected: @${igConnected}` : "IGQV… access token"}
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="shrink-0"
+                      disabled={igBusy || !igToken.trim()}
+                      onClick={async () => {
+                        setIgBusy(true);
+                        try {
+                          const r = await setInstagramToken(orgId, igToken.trim());
+                          setIgConnected(r.username ?? "connected");
+                          setIgToken("");
+                          toast.success(`Instagram connected${r.username ? ` — @${r.username}` : ""}. Posts appear on the site within the hour.`);
+                        } catch (e) {
+                          toast.error(e instanceof Error ? e.message : "Could not connect Instagram");
+                        } finally {
+                          setIgBusy(false);
+                        }
+                      }}
+                    >
+                      {igBusy ? "Checking…" : "Connect"}
+                    </Button>
+                    {igConnected && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="shrink-0"
+                        disabled={igBusy}
+                        onClick={async () => {
+                          setIgBusy(true);
+                          try {
+                            await setInstagramToken(orgId, "");
+                            setIgConnected(null);
+                            toast.success("Instagram disconnected.");
+                          } catch (e) {
+                            toast.error(e instanceof Error ? e.message : "Could not disconnect");
+                          } finally {
+                            setIgBusy(false);
+                          }
+                        }}
+                      >
+                        Disconnect
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </div>
               <div className="space-y-1">

@@ -4421,6 +4421,38 @@ export async function getPublicSite(slug: string): Promise<PublicSiteResponse> {
   return res.json();
 }
 
+export interface PublicInstagramPost {
+  id: string;
+  imageUrl: string;
+  permalink: string;
+  caption: string | null;
+  isVideo: boolean;
+}
+
+/** Latest posts from the school's connected Instagram account. Server-side
+ *  proxied + cached (1h); returns [] when no token is connected. No auth. */
+export async function getPublicSiteInstagram(slug: string): Promise<PublicInstagramPost[]> {
+  const url = `https://${PUBLIC_INFO.projectId}.supabase.co/functions/v1/make-server-f116e23f/school/public-site/${encodeURIComponent(slug)}/instagram`;
+  const res = await fetch(url, {
+    headers: { apikey: PUBLIC_INFO.publicAnonKey, Authorization: `Bearer ${PUBLIC_INFO.publicAnonKey}` },
+  });
+  if (!res.ok) return [];
+  const json = await res.json().catch(() => null);
+  return Array.isArray(json?.posts) ? json.posts : [];
+}
+
+/** Connect (or disconnect with "") the school's Instagram account by
+ *  saving a long-lived access token. Validated server-side; the token is
+ *  never returned by any endpoint. */
+export const setInstagramToken = (
+  orgId: string,
+  accessToken: string,
+): Promise<{ ok: boolean; connected: boolean; username: string | null }> =>
+  apiCall(`/school/orgs/${orgId}/instagram-token`, {
+    method: "PUT",
+    body: JSON.stringify({ accessToken }),
+  });
+
 export const savePublicSite = (
   orgId: string,
   patch: Partial<{
