@@ -472,9 +472,6 @@ export function SchoolPublicSite() {
                     </span>
                     <h3 style={{ font: `600 24px/1.2 ${fontSerif}`, color: PALETTE.ink, margin: 0 }}>{p.name}</h3>
                     <p style={{ font: `400 15px/1.65 ${fontSans}`, color: PALETTE.muted, margin: 0, flex: 1 }}>{p.summary}</p>
-                    <a href="#admissions" style={{ font: `700 14px/1 ${fontSans}`, color: PALETTE.emerald, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6 }}>
-                      Learn more <span aria-hidden>→</span>
-                    </a>
                   </article>
                 );
               })}
