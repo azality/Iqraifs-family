@@ -22,6 +22,7 @@ import {
 import {
   getSectionCurriculumProgress,
   getClassSubjectCurriculum,
+  updateClassCurriculumTopic,
   type SectionSubjectProgress,
   type ClassCurriculumTopic,
 } from "../../../../utils/schoolApi";
@@ -63,6 +64,30 @@ export function SectionSubjectsManager({ orgId, sectionId, canManage, canEditCur
       .catch((e) => setError(e?.message || "Could not load subjects"))
       .finally(() => setLoading(false));
   }, [sectionId]);
+
+  // Direct tick/untick on a syllabus row. Backend PATCH is gated on the
+  // define_curriculum permission, which class teachers hold by default —
+  // same permission that mounts the full curriculum editor above.
+  const [togglingTopicId, setTogglingTopicId] = useState<string | null>(null);
+  const toggleTopicCompleted = async (csId: string, t: ClassCurriculumTopic) => {
+    if (togglingTopicId) return;
+    setTogglingTopicId(t.id);
+    try {
+      const { topic } = await updateClassCurriculumTopic(t.id, { completed: !t.completed });
+      setTopicsByCsId((prev) => ({
+        ...prev,
+        [csId]: (prev[csId] ?? []).map((x) => (x.id === topic.id ? topic : x)),
+      }));
+      // Refresh the per-subject progress bars in the headers.
+      getSectionCurriculumProgress(sectionId)
+        .then((r) => setSubjects(r.subjects))
+        .catch(() => {});
+    } catch (_) {
+      /* leave the row as-is; the next expand refetches truth */
+    } finally {
+      setTogglingTopicId(null);
+    }
+  };
 
   const toggleExpand = async (s: SectionSubjectProgress) => {
     if (openSubject === s.classSubjectId) {
@@ -276,7 +301,21 @@ export function SectionSubjectsManager({ orgId, sectionId, canManage, canEditCur
                               <span className="flex h-4 w-4 items-center justify-center rounded-full bg-slate-100 text-[9px] font-semibold text-slate-700 flex-shrink-0">
                                 {idx + 1}
                               </span>
-                              {t.completed ? (
+                              {canEditCurriculum ? (
+                                <button
+                                  type="button"
+                                  onClick={() => toggleTopicCompleted(s.classSubjectId, t)}
+                                  disabled={togglingTopicId === t.id}
+                                  aria-label={t.completed ? `Mark "${t.name}" not done` : `Mark "${t.name}" done`}
+                                  className="flex-shrink-0 rounded-full p-0.5 -m-0.5 hover:bg-slate-100 disabled:opacity-50"
+                                >
+                                  {t.completed ? (
+                                    <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                                  ) : (
+                                    <Circle className="h-4 w-4 text-slate-300 hover:text-emerald-400" />
+                                  )}
+                                </button>
+                              ) : t.completed ? (
                                 <CheckCircle2 className="h-3 w-3 text-emerald-600 flex-shrink-0" />
                               ) : (
                                 <Circle className="h-3 w-3 text-slate-300 flex-shrink-0" />
