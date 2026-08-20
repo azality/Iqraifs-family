@@ -5,7 +5,7 @@
 // teacher or to org admin/principal.
 
 import { useEffect, useMemo, useState } from "react";
-import { Link, Navigate, useParams } from "react-router";
+import { Link, Navigate, useParams, useSearchParams } from "react-router";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -100,7 +100,11 @@ export function SectionLessonsFeed() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   // Phase 2: subject filter chips. Empty string = "All subjects".
-  const [subjectFilter, setSubjectFilter] = useState<string>("");
+  // Honor ?subjectId=… so links from subject cards land pre-filtered.
+  const [searchParams] = useSearchParams();
+  const [subjectFilter, setSubjectFilter] = useState<string>(
+    () => searchParams.get("subjectId") || "",
+  );
   const [subjects, setSubjects] = useState<SectionSubject[]>([]);
 
   useEffect(() => {

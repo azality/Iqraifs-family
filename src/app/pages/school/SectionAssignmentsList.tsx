@@ -2,7 +2,7 @@
 // Filter by kind. Quick actions: Open / Grade / Edit / Delete.
 
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
@@ -78,7 +78,11 @@ export function SectionAssignmentsList() {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<AssignmentKind | "all">("all");
   // Phase 3: subject filter chip row. Empty string = all subjects.
-  const [subjectFilter, setSubjectFilter] = useState<string>("");
+  // Honor ?subjectId=… so links from subject cards land pre-filtered.
+  const [searchParams] = useSearchParams();
+  const [subjectFilter, setSubjectFilter] = useState<string>(
+    () => searchParams.get("subjectId") || "",
+  );
   const [subjects, setSubjects] = useState<SectionSubject[]>([]);
   // per-assignment grade summary cache: { graded, total, avgPct }
   const [summary, setSummary] = useState<Record<string, { graded: number; total: number; avgPct: number | null }>>({});
