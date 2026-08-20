@@ -103,7 +103,8 @@ school.use("*", async (c, next) => {
   }
   // Public school site lookup — anyone can fetch a school's marketing
   // content by slug, no auth.
-  if (/^\/public-site\/[^/]+$/.test(tail)) {
+  // Also covers the /instagram feed sub-path (same public surface).
+  if (/^\/public-site\/[^/]+(\/instagram)?$/.test(tail)) {
     await next();
     return;
   }
