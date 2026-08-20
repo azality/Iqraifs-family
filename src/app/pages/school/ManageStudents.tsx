@@ -6,7 +6,7 @@
 import { toast } from "sonner";
 import { ReadmitDialog } from "./components/ReadmitDialog";
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
@@ -112,7 +112,12 @@ export function ManageStudents() {
   const [classes, setClasses] = useState<AdminClass[]>([]);
   const [hifzGroups, setHifzGroups] = useState<HifzGroup[]>([]);
   const [search, setSearch] = useState("");
-  const [sectionFilter, setSectionFilter] = useState<string>("__all__");
+  // Honor ?classSectionId=… so links from a section dashboard ("Students
+  // (39)") land pre-filtered to that section instead of the whole org.
+  const [searchParams] = useSearchParams();
+  const [sectionFilter, setSectionFilter] = useState<string>(
+    () => searchParams.get("classSectionId") || "__all__",
+  );
   const [statusFilter, setStatusFilter] = useState<"active" | "left" | "all">("active");
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<AdminStudent | null>(null);
