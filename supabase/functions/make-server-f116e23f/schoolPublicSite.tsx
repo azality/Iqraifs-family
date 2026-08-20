@@ -263,4 +263,129 @@ export function installPublicSite(school: Hono): void {
       .maybeSingle();
     return c.json(siteToJson(updated));
   });
+
+  // ─── PUBLIC Instagram feed ──────────────────────────────────────────
+  // GET /school/public-site/:slug/instagram → { posts: [...] }
+  //
+  // Self-hosted IG feed (like the grid design): the school authorizes
+  // once via the Instagram API with Instagram Login, and the resulting
+  // long-lived token is stored in settings.instagram.access_token
+  // (set by an admin; never returned by any endpoint). We proxy +
+  // cache the media list server-side so:
+  //   - the token never reaches the browser
+  //   - Instagram sees one fetch/hour, not one per visitor
+  // Token refresh: long-lived tokens last 60 days; we refresh whenever
+  // the cached token is older than 30 days (refresh endpoint returns a
+  // new 60-day token, so monthly refresh keeps it alive forever).
+  school.get("/public-site/:slug/instagram", async (c) => {
+    const slug = c.req.param("slug");
+    const { data: org } = await serviceRoleClient
+      .from("organizations")
+      .select("id, settings")
+      .eq("slug", slug)
+      .maybeSingle();
+    if (!org) return c.json({ error: "school not found" }, 404);
+    const settings = (org as any).settings ?? {};
+    const ig = settings.instagram ?? {};
+    const token: string | undefined = ig.access_token;
+    if (!token) return c.json({ posts: [] });
+
+    // 1h cache in settings.instagram.cache.
+    const CACHE_MS = 60 * 60 * 1000;
+    const cache = ig.cache;
+    if (cache?.fetchedAt && Date.now() - new Date(cache.fetchedAt).getTime() < CACHE_MS) {
+      return c.json({ posts: cache.posts ?? [] });
+    }
+
+    try {
+      const res = await fetch(
+        "https://graph.instagram.com/me/media?fields=id,caption,media_type,media_url,thumbnail_url,permalink,timestamp&limit=12&access_token=" +
+          encodeURIComponent(token),
+      );
+      if (!res.ok) {
+        // Token dead/expired — serve stale cache if any, else empty.
+        return c.json({ posts: cache?.posts ?? [] });
+      }
+      const json = await res.json();
+      const posts = ((json?.data ?? []) as any[])
+        .filter((m) => m.media_type === "IMAGE" || m.media_type === "CAROUSEL_ALBUM" || m.media_type === "VIDEO")
+        .slice(0, 9)
+        .map((m) => ({
+          id: m.id,
+          // Videos: show the thumbnail; the permalink opens the reel.
+          imageUrl: m.media_type === "VIDEO" ? (m.thumbnail_url ?? m.media_url) : m.media_url,
+          permalink: m.permalink,
+          caption: typeof m.caption === "string" ? m.caption.slice(0, 200) : null,
+          isVideo: m.media_type === "VIDEO",
+        }));
+
+      // Refresh the long-lived token monthly so it never expires.
+      let accessToken = token;
+      const tokenAge = ig.token_refreshed_at ? Date.now() - new Date(ig.token_refreshed_at).getTime() : Infinity;
+      if (tokenAge > 30 * 24 * 3600 * 1000) {
+        try {
+          const rr = await fetch(
+            "https://graph.instagram.com/refresh_access_token?grant_type=ig_refresh_token&access_token=" +
+              encodeURIComponent(token),
+          );
+          if (rr.ok) {
+            const rj = await rr.json();
+            if (rj?.access_token) accessToken = rj.access_token;
+          }
+        } catch (_) { /* keep old token */ }
+      }
+
+      settings.instagram = {
+        ...ig,
+        access_token: accessToken,
+        token_refreshed_at: accessToken !== token ? new Date().toISOString() : (ig.token_refreshed_at ?? new Date().toISOString()),
+        cache: { fetchedAt: new Date().toISOString(), posts },
+      };
+      await serviceRoleClient.from("organizations").update({ settings }).eq("id", (org as any).id);
+      return c.json({ posts });
+    } catch (_) {
+      return c.json({ posts: cache?.posts ?? [] });
+    }
+  });
+
+  // ─── Set the Instagram token (admin) ────────────────────────────────
+  // PUT /school/orgs/:orgId/instagram-token  { accessToken }
+  // Separate from the public-site PUT so the token never round-trips
+  // through the editor form. Empty string disconnects.
+  school.put("/orgs/:orgId/instagram-token", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    if (!(await userCanInOrg(userId, orgId, "manage_public_site"))) {
+      return c.json({ error: "forbidden — needs manage_public_site permission" }, 403);
+    }
+    const body = await c.req.json().catch(() => ({}));
+    const tokenRaw = typeof body?.accessToken === "string" ? body.accessToken.trim() : null;
+    if (tokenRaw === null) return c.json({ error: "accessToken (string) required" }, 400);
+
+    const { data: cur } = await serviceRoleClient
+      .from("organizations").select("settings").eq("id", orgId).maybeSingle();
+    const settings = (cur as any)?.settings ?? {};
+    if (tokenRaw === "") {
+      delete settings.instagram;
+    } else {
+      // Validate before saving — a broken paste should fail loudly here,
+      // not silently render an empty feed.
+      const test = await fetch(
+        "https://graph.instagram.com/me?fields=id,username&access_token=" + encodeURIComponent(tokenRaw),
+      );
+      if (!test.ok) return c.json({ error: "Instagram rejected this token — check it and try again" }, 400);
+      const who = await test.json();
+      settings.instagram = {
+        access_token: tokenRaw,
+        username: who?.username ?? null,
+        token_refreshed_at: new Date().toISOString(),
+        cache: null,
+      };
+    }
+    const { error } = await serviceRoleClient
+      .from("organizations").update({ settings }).eq("id", orgId);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ ok: true, connected: tokenRaw !== "", username: tokenRaw ? settings.instagram?.username ?? null : null });
+  });
 }

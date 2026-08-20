@@ -18,7 +18,9 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import {
   getPublicSite,
+  getPublicSiteInstagram,
   type PublicSiteResponse,
+  type PublicInstagramPost,
 } from "../../../utils/schoolApi";
 
 const PALETTE = {
@@ -57,6 +59,13 @@ export function SchoolPublicSite() {
     getPublicSite(orgSlug)
       .then(setSite)
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load"));
+  }, [orgSlug]);
+
+  // Live Instagram grid — non-blocking; [] when no account connected.
+  const [igPosts, setIgPosts] = useState<PublicInstagramPost[]>([]);
+  useEffect(() => {
+    if (!orgSlug) return;
+    getPublicSiteInstagram(orgSlug).then(setIgPosts).catch(() => {});
   }, [orgSlug]);
 
   // Animate stat counters once data has loaded.
@@ -509,7 +518,7 @@ export function SchoolPublicSite() {
         )}
 
         {/* ============ GALLERY / INSTAGRAM ============ */}
-        {((site.gallery?.length ?? 0) > 0 || site.instagramUrl) && (
+        {((site.gallery?.length ?? 0) > 0 || site.instagramUrl || igPosts.length > 0) && (
           <section id="campuses" style={{ background: PALETTE.creamHi, borderBlock: "1px solid rgba(201,162,74,0.25)", paddingBlock: 88, paddingInline: 24 }}>
             <div style={{ ...containerMax, display: "flex", flexDirection: "column", gap: 36 }}>
               <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", justifyContent: "space-between", gap: 16 }}>
@@ -537,7 +546,7 @@ export function SchoolPublicSite() {
                   </a>
                 )}
               </div>
-              {(site.gallery?.length ?? 0) > 0 ? (
+              {(site.gallery?.length ?? 0) > 0 && (
                 <div style={{ columns: "3 280px", columnGap: 18 }}>
                   {site.gallery!.map((ph, i) => (
                     <figure key={i} style={{ breakInside: "avoid", margin: "0 0 18px 0", display: "flex", flexDirection: "column", gap: 8 }}>
@@ -546,13 +555,47 @@ export function SchoolPublicSite() {
                     </figure>
                   ))}
                 </div>
-              ) : (
-                site.instagramUrl && (
-                  <p style={{ font: `400 15px/1.7 ${fontSans}`, color: PALETTE.mutedInk, maxWidth: 640, margin: 0 }}>
-                    Our day-to-day — classrooms, events and student moments — lives on our
-                    Instagram page. Follow along to see the school in action.
-                  </p>
-                )
+              )}
+
+              {/* Live Instagram grid — latest posts from the school's
+                  connected account, each opening the post on Instagram. */}
+              {igPosts.length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+                  {(site.gallery?.length ?? 0) > 0 && (
+                    <span style={{ ...kicker }}>Latest on Instagram</span>
+                  )}
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 18 }}>
+                    {igPosts.map((p) => (
+                      <a
+                        key={p.id}
+                        href={p.permalink}
+                        target="_blank"
+                        rel="noreferrer"
+                        title={p.caption ?? "View on Instagram"}
+                        style={{ position: "relative", display: "block", borderRadius: 16, overflow: "hidden", border: "1px solid rgba(201,162,74,0.3)", aspectRatio: "1 / 1", background: "#eee" }}
+                      >
+                        <img
+                          src={p.imageUrl}
+                          alt={p.caption ?? ""}
+                          loading="lazy"
+                          style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
+                        />
+                        {p.isVideo && (
+                          <span style={{ position: "absolute", top: 10, insetInlineEnd: 10, background: "rgba(0,0,0,0.55)", color: "#fff", borderRadius: 999, width: 28, height: 28, display: "grid", placeItems: "center" }}>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
+                          </span>
+                        )}
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {(site.gallery?.length ?? 0) === 0 && igPosts.length === 0 && site.instagramUrl && (
+                <p style={{ font: `400 15px/1.7 ${fontSans}`, color: PALETTE.mutedInk, maxWidth: 640, margin: 0 }}>
+                  Our day-to-day — classrooms, events and student moments — lives on our
+                  Instagram page. Follow along to see the school in action.
+                </p>
               )}
             </div>
           </section>
