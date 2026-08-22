@@ -1,0 +1,43 @@
+{
+  // Type-check gate for the Vite frontend only (`npm run typecheck`).
+  // esbuild/Vite strip types without checking them, so a missing import or a
+  // bad prop can ship as a runtime ReferenceError. This config lets
+  // `tsc --noEmit` catch that before a build. It is not used for emit.
+  //
+  // Scope: src/ and the root-level `utils/` it imports. The Deno code under
+  // supabase/functions is deliberately excluded — it has its own runtime
+  // types and is checked by `npm run test:backend`.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "allowJs": false,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": ["vite/client"],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      // Vite resolves root-absolute imports ("/utils/supabase/info") against
+      // the project root; mirror that so tsc sees the same files.
+      "/utils/*": ["./utils/*"]
+    },
+
+    // Strictness: off for now. The codebase was never type-checked, so the
+    // gate starts at "must resolve and be well-formed" — the level that
+    // catches the missing-import class of crash. Tighten incrementally.
+    "strict": false,
+    "noImplicitAny": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src", "utils", "vite.config.ts", "vitest.config.ts"],
+  "exclude": ["node_modules", "dist", "supabase", "ios", "ios-parent", "ios-kids", ".claude"]
+}

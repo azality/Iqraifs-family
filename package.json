@@ -5,6 +5,9 @@
   "type": "module",
   "scripts": {
     "build": "vite build",
+    "typecheck": "node scripts/typecheck.mjs",
+    "typecheck:update": "node scripts/typecheck.mjs --update",
+    "typecheck:strict": "tsc --noEmit -p tsconfig.json",
     "build:parent": "cross-env VITE_APP_MODE=parent vite build",
     "build:kids": "cross-env VITE_APP_MODE=kids vite build",
     "sync:parent": "npm run build:parent && xcopy /E /I /Y dist ios-parent\\App\\App\\public",

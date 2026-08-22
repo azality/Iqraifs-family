@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typecheck-and-build:
+    name: typecheck + build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      # Gate: fails on any type error not already in tsc-baseline.json.
+      # (esbuild/Vite don't type-check, so `npm run build` alone lets
+      # missing-import ReferenceErrors ship.)
+      - run: npm run typecheck
+
+      - run: npm run build
