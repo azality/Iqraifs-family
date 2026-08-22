@@ -4657,7 +4657,14 @@ export interface LessonPrepItem {
   scopeLabel: string;
   room: string | null;
   prepState: LessonPrepState;
-  topic: { id: string; name: string; sequenceNo: number } | null;
+  /** Calendar date (YYYY-MM-DD) of this occurrence — the value a
+   *  "plan this topic for that day" action writes to target_date. */
+  entryDate: string;
+  classSubjectId: string | null;
+  /** "planned" = teacher set target_date for this day; "next" = fallback
+   *  to the next incomplete topic in sequence. */
+  topicSource: "planned" | "next" | null;
+  topic: { id: string; name: string; sequenceNo: number; targetDate: string | null } | null;
   lesson: { id: string; title: string; lessonDate: string; publishedAt: string | null } | null;
   resources: { total: number; worksheets: number; videos: number; quizzes: number; pdfs: number; links: number };
 }
