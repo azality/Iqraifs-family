@@ -22,7 +22,7 @@
 
 import type { Hono, Context } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
-import { userHasRoleRow, hasAdminOrPrincipal, hasAnyRoleInOrg } from "./schoolAuth.ts";
+import { userHasRoleRow, hasAdminOrPrincipal, hasAnyRoleInOrg, teachesSubjectInSection } from "./schoolAuth.ts";
 import { verifyPinToken } from "./schoolPhaseA.tsx";
 import type { PinTokenPayload } from "./schoolPhaseA.tsx";
 
@@ -780,6 +780,8 @@ export function installAnnounce(school: Hono): void {
     let allowed = isAdmin;
     if (!allowed) {
       if ((sec as any).class_teacher_user_id === userId) {
+        allowed = true;
+      } else if (await teachesSubjectInSection(userId, sectionId)) {
         allowed = true;
       } else if (await userHasRoleRow(userId, "visiting_teacher", "class", sectionId)) {
         allowed = true;

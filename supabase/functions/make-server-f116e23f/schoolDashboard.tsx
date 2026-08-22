@@ -155,6 +155,21 @@ async function determineScope(
     scopedSectionIds.add(s.id);
   }
 
+  // 2a.6. section_subject.teacher_user_id — subject teachers (the
+  // specialist model: one teacher, one subject, many sections). Without
+  // this a teacher taking Maths in IV-A while class teacher of VII-A
+  // never saw IV-A anywhere: dashboard, leaderboard, section overview
+  // ("Section not found" — pilot report).
+  const { data: taught } = await serviceRoleClient
+    .from("section_subject")
+    .select("class_section_id")
+    .eq("teacher_user_id", userId)
+    .eq("org_id", orgId)
+    .is("archived_at", null);
+  for (const r of (taught ?? []) as Array<{ class_section_id: string }>) {
+    if (r.class_section_id) scopedSectionIds.add(r.class_section_id);
+  }
+
   // 2b. user_roles rows: visiting_teacher class-scoped
   const { data: classScoped } = await serviceRoleClient
     .from("user_roles")

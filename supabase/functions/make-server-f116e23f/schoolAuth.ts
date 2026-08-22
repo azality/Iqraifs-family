@@ -232,6 +232,25 @@ export async function loadSection(sectionId: string): Promise<
   };
 }
 
+/** Subject teacher of this section — holds an active section_subject row
+ *  (teacher_user_id) for it. The specialist model (one teacher, one
+ *  subject, many sections) lives entirely in section_subject; a teacher
+ *  who takes Maths in IV-A while being class teacher of VII-A must see and
+ *  act on IV-A too. Pilot bug: subject teachers got "Section not found". */
+export async function teachesSubjectInSection(
+  userId: string,
+  sectionId: string,
+): Promise<boolean> {
+  const { data } = await serviceRoleClient
+    .from("section_subject")
+    .select("id")
+    .eq("class_section_id", sectionId)
+    .eq("teacher_user_id", userId)
+    .is("archived_at", null)
+    .limit(1);
+  return (data?.length ?? 0) > 0;
+}
+
 export async function requireTeacherOfSection(
   userId: string,
   orgId: string,
@@ -266,6 +285,9 @@ export async function requireTeacherOfSection(
   // Class teacher of this exact section.
   if (sec.class_teacher_user_id === userId) return { ok: true };
 
+  // Subject teacher of this section (section_subject.teacher_user_id).
+  if (await teachesSubjectInSection(userId, sectionId)) return { ok: true };
+
   // Visiting teacher scoped to this section.
   if (await userHasRoleRow(userId, "visiting_teacher", "class", sectionId)) return { ok: true };
 
@@ -297,6 +319,7 @@ export async function isTeacherOfSection(
     .eq("id", sectionId)
     .maybeSingle();
   if (sec?.class_teacher_user_id === userId) return true;
+  if (await teachesSubjectInSection(userId, sectionId)) return true;
   if (await userHasRoleRow(userId, "visiting_teacher", "class", sectionId)) return true;
   if (await userHasRoleRow(userId, "visiting_teacher", "organization", orgId)) return true;
   return false;
