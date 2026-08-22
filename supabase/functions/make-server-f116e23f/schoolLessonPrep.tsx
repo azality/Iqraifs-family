@@ -53,7 +53,17 @@ interface PrepItem {
   room: string | null;
   /** Status helps the UI render the right CTA. */
   prepState: "lesson_ready" | "topic_pending" | "no_curriculum" | "no_subject";
-  topic: { id: string; name: string; sequenceNo: number } | null;
+  /** Concrete calendar date (YYYY-MM-DD) of this occurrence of the slot —
+   *  what a "plan this topic for that day" action should write to
+   *  curriculum_topic.target_date. */
+  entryDate: string;
+  /** For the planner UI to list the subject's topics. */
+  classSubjectId: string | null;
+  /** "planned" = a topic carries target_date == entryDate (teacher chose
+   *  it for this day); "next" = fallback to the next incomplete topic in
+   *  sequence; null when there is no topic. */
+  topicSource: "planned" | "next" | null;
+  topic: { id: string; name: string; sequenceNo: number; targetDate: string | null } | null;
   lesson: { id: string; title: string; lessonDate: string; publishedAt: string | null } | null;
   resources: { total: number; worksheets: number; videos: number; quizzes: number; pdfs: number; links: number };
 }
@@ -91,7 +101,11 @@ async function decorate(entries: EntryRow[], limit: number): Promise<PrepItem[]>
       // future today = small positive, other day = larger.
       const dayOffset = (slot.day_of_week - todayDow + 7) % 7;
       const score = dayOffset * 24 * 60 + (toMin(slot.start_time));
-      return { entry: e, score, endedToday, minutesUntil };
+      // Concrete date of this occurrence (same clock the ranking uses).
+      const d = new Date();
+      d.setDate(d.getDate() + dayOffset);
+      const entryDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      return { entry: e, score, endedToday, minutesUntil, entryDate };
     })
     .filter((r) => !r.endedToday)
     .sort((a, b) => a.score - b.score)
@@ -137,30 +151,42 @@ async function decorate(entries: EntryRow[], limit: number): Promise<PrepItem[]>
     }
   }
 
-  // Next incomplete topic per curriculum.
+  // All incomplete topics per curriculum, in sequence. Per entry we then
+  // pick: the topic the teacher PLANNED for that day (target_date ==
+  // entryDate), else the next incomplete topic in sequence. Pilot ask:
+  // "I want to see what I'm teaching Monday / Tuesday / Wednesday so I
+  // can prepare" — target_date is the plan, this is where it surfaces.
+  type TopicRow = { id: string; name: string; order: number; targetDate: string | null };
   const curIds = Array.from(currByClassSubject.values()).map((c) => c.id);
-  const nextTopicByCur = new Map<string, { id: string; name: string; order: number }>();
+  const incompleteByCur = new Map<string, TopicRow[]>();
   if (curIds.length > 0) {
     const { data: topics } = await serviceRoleClient
       .from("curriculum_topic")
-      .select("id, curriculum_id, name, display_order, completed")
+      .select("id, curriculum_id, name, display_order, completed, target_date")
       .in("curriculum_id", curIds)
       .eq("completed", false)
       .order("display_order", { ascending: true });
     for (const t of (topics ?? []) as any[]) {
-      if (!nextTopicByCur.has(t.curriculum_id)) {
-        nextTopicByCur.set(t.curriculum_id, {
-          id: t.id, name: t.name, order: t.display_order,
-        });
-      }
+      const arr = incompleteByCur.get(t.curriculum_id) ?? [];
+      arr.push({ id: t.id, name: t.name, order: t.display_order, targetDate: t.target_date ?? null });
+      incompleteByCur.set(t.curriculum_id, arr);
     }
+  }
+  const chosenByEntry = new Map<string, { topic: TopicRow; source: "planned" | "next" }>();
+  for (const r of ranked) {
+    const csId = r.entry.section_subject?.class_subject?.id;
+    const cur = csId ? currByClassSubject.get(csId) : undefined;
+    const list = cur ? incompleteByCur.get(cur.id) ?? [] : [];
+    if (list.length === 0) continue;
+    const planned = list.find((t) => t.targetDate === r.entryDate);
+    chosenByEntry.set(r.entry.id, planned ? { topic: planned, source: "planned" } : { topic: list[0], source: "next" });
   }
 
   // Latest lesson tagged to each surfaced topic, scoped to the section
   // the entry belongs to (we want THIS section's lesson, not a sibling's).
   type LessonRow = { id: string; title: string; lesson_date: string; published_at: string | null;
                      curriculum_topic_id: string; class_section_id: string };
-  const topicIds = Array.from(nextTopicByCur.values()).map((t) => t.id);
+  const topicIds = Array.from(new Set(Array.from(chosenByEntry.values()).map((c) => c.topic.id)));
   const latestLessonByTopicSection = new Map<string, LessonRow>();
   if (topicIds.length > 0 && sectionIds.length > 0) {
     const { data: lessons } = await serviceRoleClient
@@ -208,6 +234,7 @@ async function decorate(entries: EntryRow[], limit: number): Promise<PrepItem[]>
 
     let prepState: PrepItem["prepState"] = "no_subject";
     let topic: PrepItem["topic"] = null;
+    let topicSource: PrepItem["topicSource"] = null;
     let lesson: PrepItem["lesson"] = null;
     let resources: PrepItem["resources"] = { total: 0, worksheets: 0, videos: 0, quizzes: 0, pdfs: 0, links: 0 };
 
@@ -218,11 +245,13 @@ async function decorate(entries: EntryRow[], limit: number): Promise<PrepItem[]>
       if (!cur) {
         prepState = "no_curriculum";
       } else {
-        const t = nextTopicByCur.get(cur.id);
-        if (!t) {
+        const chosen = chosenByEntry.get(e.id);
+        if (!chosen) {
           prepState = "no_curriculum"; // every topic done — show neutral state
         } else {
-          topic = { id: t.id, name: t.name, sequenceNo: t.order };
+          const t = chosen.topic;
+          topicSource = chosen.source;
+          topic = { id: t.id, name: t.name, sequenceNo: t.order, targetDate: t.targetDate };
           resources = resByTopic.get(t.id) ?? resources;
           const lkey = sectionId ? `${t.id}:${sectionId}` : null;
           const l = lkey ? latestLessonByTopicSection.get(lkey) ?? null : null;
@@ -249,6 +278,9 @@ async function decorate(entries: EntryRow[], limit: number): Promise<PrepItem[]>
       scopeLabel,
       room: e.room,
       prepState,
+      entryDate: r.entryDate,
+      classSubjectId,
+      topicSource,
       topic,
       lesson,
       resources,

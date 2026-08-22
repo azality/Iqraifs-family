@@ -1,21 +1,32 @@
-// TeacherWeekView — full weekly timetable for the signed-in teacher.
+// TeacherWeekView — full weekly timetable for the signed-in teacher,
+// with the topic queued for each period and a per-period planner.
 //
 // The "Today" card on TeacherHome covers the next-action case
 // (what am I teaching in the next hour). This page covers planning:
-// "where am I on Thursday afternoon, do I have a gap before lunch."
+// "where am I on Thursday afternoon, what am I teaching Monday, let me
+// put Fractions on Wednesday." Pilot ask: teachers want to see the
+// coming week's topics so they can prepare, and choose which day a
+// topic is taught.
 //
-// Reuses the same /me/timetable endpoint, just with no `day` filter.
-// Substitution badges from the endpoint are shown only on today's
-// column so the rest of the week reads as the canonical schedule
-// (subs are per-date and don't apply to future-day cells).
+// Data: /me/timetable for the grid (no `day` filter), /me/upcoming for
+// the topic queued on each period — "planned" when the teacher set a
+// target date on a topic for that day, "next" (next incomplete in
+// sequence) otherwise. Planning writes curriculum_topic.target_date via
+// the existing PATCH (define_curriculum — class teachers have it).
 
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
-import { ArrowLeft, BookOpen, MapPin, Calendar } from "lucide-react";
+import { ArrowLeft, BookOpen, MapPin, Calendar, CalendarCheck, X } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "../../components/ui/button";
 import {
   getMyTeacherTimetable,
+  getMyUpcoming,
+  getClassSubjectCurriculum,
+  updateClassCurriculumTopic,
   type MyTimetableCell,
+  type LessonPrepItem,
+  type ClassCurriculumTopic,
 } from "../../../utils/schoolApi";
 import { sectionTitleClasses } from "../../components/school-ui";
 
@@ -30,22 +41,38 @@ function todayIso(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
+function shortDate(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}
 
 export function TeacherWeekView() {
   const { orgId = "" } = useParams<{ orgId: string }>();
   const [cells, setCells] = useState<MyTimetableCell[]>([]);
+  const [prep, setPrep] = useState<Map<string, LessonPrepItem>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Planner state: which period is being planned, its topic list.
+  const [planningEntryId, setPlanningEntryId] = useState<string | null>(null);
+  const [planTopics, setPlanTopics] = useState<ClassCurriculumTopic[]>([]);
+  const [planBusy, setPlanBusy] = useState(false);
+
+  const loadPrep = () =>
+    getMyUpcoming(orgId, 60)
+      .then((r) => setPrep(new Map(r.upcoming.map((p) => [p.entryId, p]))))
+      .catch(() => {});
 
   useEffect(() => {
     if (!orgId) return;
     let cancelled = false;
     setLoading(true);
-    getMyTeacherTimetable(orgId, { date: todayIso() })
-      .then((r) => { if (!cancelled) { setCells(r.cells); setError(null); } })
+    Promise.all([getMyTeacherTimetable(orgId, { date: todayIso() }), loadPrep()])
+      .then(([r]) => { if (!cancelled) { setCells(r.cells); setError(null); } })
       .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load"); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId]);
 
   const byDay = useMemo(() => {
@@ -55,7 +82,6 @@ export function TeacherWeekView() {
       arr.push(c);
       m.set(c.slot.dayOfWeek, arr);
     }
-    // Sort each day's cells by start time so the grid reads top-down.
     for (const arr of m.values()) {
       arr.sort((a, b) => a.slot.startTime.localeCompare(b.slot.startTime));
     }
@@ -63,9 +89,40 @@ export function TeacherWeekView() {
   }, [cells]);
 
   const today = todayDow();
-
-  // Total class hours this week — quick at-a-glance load indicator.
   const totalSlots = cells.length;
+
+  const openPlanner = async (p: LessonPrepItem) => {
+    if (!p.classSubjectId) return;
+    if (planningEntryId === p.entryId) { setPlanningEntryId(null); return; }
+    setPlanningEntryId(p.entryId);
+    setPlanTopics([]);
+    try {
+      const r = await getClassSubjectCurriculum(p.classSubjectId);
+      setPlanTopics(r.topics.filter((t) => !t.completed));
+    } catch {
+      toast.error("Couldn't load this subject's topics");
+      setPlanningEntryId(null);
+    }
+  };
+
+  const planTopic = async (p: LessonPrepItem, topicId: string | null) => {
+    setPlanBusy(true);
+    try {
+      if (topicId) {
+        await updateClassCurriculumTopic(topicId, { targetDate: p.entryDate });
+        toast.success(`Planned for ${DAY_FULL[p.slot.dayOfWeek - 1]} ${shortDate(p.entryDate)}`);
+      } else if (p.topic && p.topicSource === "planned") {
+        await updateClassCurriculumTopic(p.topic.id, { targetDate: null });
+        toast.success("Plan cleared — back to the next topic in sequence");
+      }
+      await loadPrep();
+      setPlanningEntryId(null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't save the plan");
+    } finally {
+      setPlanBusy(false);
+    }
+  };
 
   return (
     <div className="space-y-5">
@@ -81,7 +138,8 @@ export function TeacherWeekView() {
         <h1 className={sectionTitleClasses}>My week</h1>
         <p className="mt-1 text-sm text-slate-600">
           {totalSlots} period{totalSlots === 1 ? "" : "s"} scheduled across the week.
-          Substitutions only show for today.
+          Each period shows the topic queued for it — tap <span className="font-medium">Plan</span> to
+          choose which topic you'll teach that day. Substitutions only show for today.
         </p>
       </div>
 
@@ -133,11 +191,11 @@ export function TeacherWeekView() {
                 ) : (
                   <div className="p-2 space-y-1.5">
                     {dayCells.map((c) => {
-                      // substitution badges only on today's column — for
-                      // other days they're stale and confusing.
                       const sub = isToday ? c.substitution : null;
                       const covering = sub?.role === "covering";
                       const covered = sub?.role === "covered";
+                      const p = prep.get(c.entry.id) ?? null;
+                      const planning = planningEntryId === c.entry.id;
                       return (
                         <div
                           key={c.entry.id + (covering ? ":cov" : "")}
@@ -161,6 +219,91 @@ export function TeacherWeekView() {
                             {c.entry.subjectName ?? "Class"}
                           </div>
                           <div className="text-[11px] text-slate-600">{c.scopeLabel}</div>
+
+                          {/* Topic queued for this period + planner. Past
+                              periods (today, already ended) have no prep
+                              item — the planner only targets what's ahead. */}
+                          {p && (
+                            <div className="mt-1.5 rounded-md border border-slate-200/70 bg-white px-2 py-1.5">
+                              {p.topic ? (
+                                <div className="flex items-start gap-1.5">
+                                  <CalendarCheck
+                                    className={
+                                      "mt-0.5 h-3 w-3 shrink-0 " +
+                                      (p.topicSource === "planned" ? "text-emerald-600" : "text-slate-400")
+                                    }
+                                  />
+                                  <div className="min-w-0 flex-1">
+                                    <div className="text-[10px] uppercase tracking-wide text-slate-500">
+                                      {p.topicSource === "planned" ? "Planned for this day" : "Next in sequence"}
+                                    </div>
+                                    <div className="text-[11px] font-medium text-slate-800">
+                                      {p.topic.sequenceNo + 1}. {p.topic.name}
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="text-[11px] text-slate-500">
+                                  {p.prepState === "no_curriculum"
+                                    ? "All topics done — or no syllabus set up for this subject yet."
+                                    : "No subject linked to this period."}
+                                </div>
+                              )}
+                              {p.classSubjectId && (
+                                <div className="mt-1 flex flex-wrap gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => openPlanner(p)}
+                                    className="rounded border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 hover:bg-indigo-100"
+                                  >
+                                    {planning ? "Close" : "Plan…"}
+                                  </button>
+                                  {p.topicSource === "planned" && (
+                                    <button
+                                      type="button"
+                                      disabled={planBusy}
+                                      onClick={() => planTopic(p, null)}
+                                      className="inline-flex items-center gap-0.5 rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                                    >
+                                      <X className="h-2.5 w-2.5" /> Clear plan
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                              {planning && (
+                                <div className="mt-1.5 border-t border-slate-100 pt-1.5">
+                                  <div className="mb-1 text-[10px] text-slate-500">
+                                    Teach on {DAY_FULL[p.slot.dayOfWeek - 1]} {shortDate(p.entryDate)}:
+                                  </div>
+                                  {planTopics.length === 0 ? (
+                                    <div className="text-[11px] text-slate-400">Loading topics…</div>
+                                  ) : (
+                                    <ul className="max-h-40 space-y-0.5 overflow-y-auto">
+                                      {planTopics.map((t, idx) => (
+                                        <li key={t.id}>
+                                          <button
+                                            type="button"
+                                            disabled={planBusy}
+                                            onClick={() => planTopic(p, t.id)}
+                                            className={
+                                              "w-full rounded px-1.5 py-1 text-left text-[11px] hover:bg-indigo-50 disabled:opacity-50 " +
+                                              (t.id === p.topic?.id ? "bg-indigo-50 font-medium text-indigo-800" : "text-slate-700")
+                                            }
+                                          >
+                                            {idx + 1}. {t.name}
+                                            {t.targetDate && (
+                                              <span className="ml-1 text-[10px] text-slate-400">· {shortDate(t.targetDate)}</span>
+                                            )}
+                                          </button>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
                           <div className="mt-0.5 flex flex-wrap gap-1.5 items-center">
                             {c.entry.room && (
                               <span className="inline-flex items-center gap-0.5 text-[10px] text-slate-500">
