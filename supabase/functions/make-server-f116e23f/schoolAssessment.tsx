@@ -27,10 +27,12 @@
 
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
-import { hasAnyRoleInOrg as hasAnyOrgRole, hasAdminOrPrincipal as isAdminOrPrincipal } from "./schoolAuth.ts";
+import { hasAnyRoleInOrg as hasAnyOrgRole, hasAdminOrPrincipal as isAdminOrPrincipal, teachesSubjectInSection } from "./schoolAuth.ts";
 
 async function isTeacherOfSection(userId: string, sectionId: string): Promise<boolean> {
-  // Class teacher of the section's class OR section's class_teacher_user_id.
+  // Class teacher of the section's class OR section's class_teacher_user_id,
+  // OR subject teacher of the section (marks entry is per subject — the
+  // specialist who teaches it must be able to enter them).
   const { data: sec } = await serviceRoleClient
     .from("class_section")
     .select("class_teacher_user_id, class:class_id(class_teacher_user_id)")
@@ -38,6 +40,7 @@ async function isTeacherOfSection(userId: string, sectionId: string): Promise<bo
   if (!sec) return false;
   if ((sec as any).class_teacher_user_id === userId) return true;
   if ((sec as any).class?.class_teacher_user_id === userId) return true;
+  if (await teachesSubjectInSection(userId, sectionId)) return true;
   return false;
 }
 
