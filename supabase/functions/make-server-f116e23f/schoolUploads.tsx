@@ -152,4 +152,58 @@ export function installUploads(school: Hono): void {
       .getPublicUrl(path);
     return c.json({ url: pub.publicUrl });
   });
+
+  // ---------------------------------------------------------------------------
+  // POST /school/orgs/:orgId/file-upload-url   { fileName, contentType, size }
+  //   → { path, token, publicUrl }
+  //
+  // Direct-to-Storage variant. The browser PUTs the bytes straight to the
+  // bucket with a signed upload URL, so the file never transits this
+  // function: no function body buffering, no function wall-clock limit on
+  // slow 4G — pilot report was "Failed to fetch" on multi-MB PDFs from
+  // phones while <1 MB compressed images went through. Same allowlist +
+  // size cap as /file-upload; the bucket enforces the cap server-side too.
+  // ---------------------------------------------------------------------------
+  school.post("/orgs/:orgId/file-upload-url", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    if (!(await hasAnyRoleInOrg(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    const fileName = String(body?.fileName ?? "");
+    const contentType = String(body?.contentType ?? "");
+    const size = Number(body?.size ?? 0);
+
+    let ext = FILE_ALLOWED.get(contentType);
+    if (!ext && /\.inp$/i.test(fileName)) ext = "inp";
+    if (!ext) {
+      return c.json({
+        error: "Only PDF, Word, Excel, PowerPoint, InPage, or image (JPG/PNG/WebP) files are allowed. For videos, paste a YouTube link in the Video URL field.",
+      }, 400);
+    }
+    if (!Number.isFinite(size) || size <= 0) return c.json({ error: "size required" }, 400);
+    if (size > FILE_MAX_BYTES) {
+      return c.json({ error: "File is too large — maximum 15 MB. For videos, use the Video URL field instead." }, 400);
+    }
+
+    // Make sure the bucket exists with the right cap (idempotent).
+    const storage = serviceRoleClient.storage as any;
+    const { data: bucket } = await storage.getBucket(FILES_BUCKET);
+    if (!bucket) {
+      await storage.createBucket(FILES_BUCKET, { public: true, fileSizeLimit: FILE_MAX_BYTES });
+    } else if ((bucket.file_size_limit ?? 0) < FILE_MAX_BYTES) {
+      await storage.updateBucket(FILES_BUCKET, { public: true, fileSizeLimit: FILE_MAX_BYTES });
+    }
+
+    const path = `${orgId}/${crypto.randomUUID()}.${ext}`;
+    const { data: signed, error: sErr } = await serviceRoleClient.storage
+      .from(FILES_BUCKET)
+      .createSignedUploadUrl(path);
+    if (sErr || !signed) return c.json({ error: sErr?.message ?? "could not create upload URL" }, 500);
+    const { data: pub } = serviceRoleClient.storage.from(FILES_BUCKET).getPublicUrl(path);
+    return c.json({ path: signed.path, token: signed.token, publicUrl: pub.publicUrl });
+  });
 }

@@ -64,9 +64,16 @@ async function compressImageFile(file: File): Promise<File> {
   }
 }
 
-/** Multipart document/image upload for lesson & assignment attachments.
- *  Same hand-rolled fetch as uploadSchoolPhoto (apiCall forces JSON).
- *  Images are auto-compressed before the size check. */
+/** Document/image upload for lesson & assignment attachments.
+ *
+ *  Path: (1) compress images, (2) read the file fully into memory — a
+ *  cloud-backed "virtual" file (Google Drive picker on Android) fails
+ *  HERE with a clear message instead of dying mid-request as "Failed to
+ *  fetch", (3) ask the function for a signed upload URL (tiny JSON call,
+ *  does the type/size validation), (4) PUT the bytes straight to Storage
+ *  — no function in the data path, so slow 4G can't hit the function
+ *  gateway's wall-clock limit. Falls back to the multipart endpoint if
+ *  the signed path isn't available. */
 export async function uploadSchoolFile(orgId: string, rawFile: File): Promise<{ url: string }> {
   const file = await compressImageFile(rawFile);
   if (file.size > SCHOOL_FILE_MAX_BYTES) {
@@ -75,16 +82,50 @@ export async function uploadSchoolFile(orgId: string, rawFile: File): Promise<{ 
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
   if (!token) throw new Error("Not signed in.");
+
+  let bytes: ArrayBuffer;
+  try {
+    bytes = await file.arrayBuffer();
+  } catch {
+    throw new Error(
+      "Couldn't read that file from your phone. If it's in Google Drive or another cloud app, save it to your Downloads first and pick it from there.",
+    );
+  }
+  const contentType = file.type || "application/octet-stream";
+  const blob = new Blob([bytes], { type: contentType });
+  const base = `https://${PUBLIC_INFO.projectId}.supabase.co/functions/v1/make-server-f116e23f/school/orgs/${orgId}`;
+  const authHeaders = { apikey: PUBLIC_INFO.publicAnonKey, Authorization: `Bearer ${token}` };
+
+  // Signed direct-to-storage path.
+  const urlRes = await fetch(`${base}/file-upload-url`, {
+    method: "POST",
+    headers: { ...authHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({ fileName: file.name, contentType, size: file.size }),
+  }).catch(() => null);
+  const urlJson = urlRes ? await urlRes.json().catch(() => null) : null;
+  if (urlRes && !urlRes.ok && urlRes.status !== 404) {
+    // Validation errors (type / size) come back as 400 with a message.
+    throw new Error(urlJson?.error ?? `Upload failed (${urlRes.status})`);
+  }
+  if (urlRes?.ok && urlJson?.path && urlJson?.token) {
+    const { error } = await supabase.storage
+      .from("school-files")
+      .uploadToSignedUrl(urlJson.path, urlJson.token, blob, { contentType, upsert: false });
+    if (!error) return { url: urlJson.publicUrl as string };
+    // fall through to multipart on storage-side failure
+  }
+
+  // Fallback: multipart through the function (pre-v1.0.40 behavior).
   const form = new FormData();
-  form.append("file", file);
-  const res = await fetch(
-    `https://${PUBLIC_INFO.projectId}.supabase.co/functions/v1/make-server-f116e23f/school/orgs/${orgId}/file-upload`,
-    {
-      method: "POST",
-      headers: { apikey: PUBLIC_INFO.publicAnonKey, Authorization: `Bearer ${token}` },
-      body: form,
-    },
-  );
+  form.append("file", blob, file.name);
+  let res: Response;
+  try {
+    res = await fetch(`${base}/file-upload`, { method: "POST", headers: authHeaders, body: form });
+  } catch {
+    throw new Error(
+      "Upload didn't go through — the connection dropped before it finished. Check your internet and try again; large files need a stable connection.",
+    );
+  }
   const json = await res.json().catch(() => null);
   if (!res.ok) throw new Error(json?.error ?? `Upload failed (${res.status})`);
   return json as { url: string };
