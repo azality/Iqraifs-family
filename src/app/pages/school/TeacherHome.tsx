@@ -639,29 +639,52 @@ export function TeacherHome({ orgId, me }: Props) {
                   </div>
                 </div>
 
-                <div className="mt-4 flex gap-2">
-                  <Link
-                    to={`/school/orgs/${orgId}/sections/${s.sectionId}/attendance`}
-                    className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
-                  >
-                    <CheckCircle className="h-3.5 w-3.5" />
-                    Take attendance
-                  </Link>
-                  <Link
-                    to={`/school/orgs/${orgId}/sections/${s.sectionId}/hifz`}
-                    className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
-                  >
-                    <BookMarked className="h-3.5 w-3.5" />
-                    Hifz
-                  </Link>
-                  <Link
-                    to={`/school/orgs/${orgId}/sections/${s.sectionId}`}
-                    className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                  >
-                    <Eye className="h-3.5 w-3.5" />
-                    Overview
-                  </Link>
-                </div>
+                {/* Roll-call CTAs belong to the section's OWN class/Hifz
+                    teacher. A subject teacher sees the section (their
+                    syllabus, lessons, gradebook live behind Overview) but
+                    not "Take attendance" — attendance is per-day, a class-
+                    teacher duty. Missing ids = older cached backend; keep
+                    the buttons rather than lock a real CT out. */}
+                {(() => {
+                  const isOwn =
+                    s.classTeacherUserId === undefined ||
+                    s.classTeacherUserId === me?.userId ||
+                    s.hifzTeacherUserId === me?.userId;
+                  return (
+                    <div className="mt-4 flex gap-2">
+                      {isOwn && (
+                        <>
+                          <Link
+                            to={`/school/orgs/${orgId}/sections/${s.sectionId}/attendance`}
+                            className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
+                          >
+                            <CheckCircle className="h-3.5 w-3.5" />
+                            Take attendance
+                          </Link>
+                          <Link
+                            to={`/school/orgs/${orgId}/sections/${s.sectionId}/hifz`}
+                            className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
+                          >
+                            <BookMarked className="h-3.5 w-3.5" />
+                            Hifz
+                          </Link>
+                        </>
+                      )}
+                      {!isOwn && (
+                        <span className="inline-flex flex-1 items-center justify-center rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-500">
+                          Subject teacher{s.classTeacherName ? ` · CT: ${s.classTeacherName}` : ""}
+                        </span>
+                      )}
+                      <Link
+                        to={`/school/orgs/${orgId}/sections/${s.sectionId}`}
+                        className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                        Overview
+                      </Link>
+                    </div>
+                  );
+                })()}
               </div>
             ))}
           </div>
