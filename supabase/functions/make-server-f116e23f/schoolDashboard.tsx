@@ -203,6 +203,7 @@ type SectionRow = {
   class_id: string;
   name: string;
   class_teacher_user_id: string | null;
+  hifz_teacher_user_id: string | null;
   class_name: string;
   student_count: number;
 };
@@ -226,11 +227,12 @@ async function loadOrgSkeleton(orgId: string): Promise<{
     class_id: string;
     name: string;
     class_teacher_user_id: string | null;
+    hifz_teacher_user_id: string | null;
   }> = [];
   if (classIds.length > 0) {
     const { data } = await serviceRoleClient
       .from("class_section")
-      .select("id, class_id, name, class_teacher_user_id")
+      .select("id, class_id, name, class_teacher_user_id, hifz_teacher_user_id")
       .in("class_id", classIds);
     sectionRows = (data ?? []) as typeof sectionRows;
   }
@@ -257,6 +259,7 @@ async function loadOrgSkeleton(orgId: string): Promise<{
     class_id: s.class_id,
     name: s.name,
     class_teacher_user_id: s.class_teacher_user_id,
+    hifz_teacher_user_id: s.hifz_teacher_user_id,
     class_name: classById.get(s.class_id) ?? "",
     student_count: (studentsBySection.get(s.id) ?? []).length,
   }));
@@ -1118,6 +1121,13 @@ export function installDashboard(school: Hono): void {
         classTeacherName: sec.class_teacher_user_id
           ? teacherNames.get(sec.class_teacher_user_id) ?? null
           : null,
+        // Viewer-relationship inputs: the frontend compares these against
+        // the signed-in user to decide whether class-teacher actions
+        // (take attendance, Hifz) belong on this section's card. Subject
+        // teachers see the section but not roll-call CTAs (pilot report:
+        // every taught class suddenly showed "Take attendance").
+        classTeacherUserId: sec.class_teacher_user_id ?? null,
+        hifzTeacherUserId: sec.hifz_teacher_user_id ?? null,
         attendancePct: pct,
         attendanceDelta: delta,
         behaviorScore: behavior.net,

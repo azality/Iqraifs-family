@@ -380,32 +380,42 @@ export function SectionOverview() {
           )}
         </div>
 
-        {/* Drill-in nav cards */}
+        {/* Drill-in nav cards. Attendance + Hifz are the section's own
+            class/Hifz teacher's (or admin's) tools — a subject teacher
+            works through Subjects / lessons / gradebook instead. Missing
+            ids = older cached backend; show rather than lock out. */}
         <div className="flex flex-col gap-3">
-          <Link to={`/school/orgs/${orgId}/sections/${sectionId}/attendance`} className={navCardBase}>
-            <div className="flex items-center gap-3">
-              <div className="rounded-lg bg-indigo-50 p-2"><Calendar className="h-5 w-5 text-indigo-600" /></div>
-              <div className="flex-1">
-                <div className="text-sm font-semibold text-slate-900">Attendance</div>
-                <div className="text-xs text-slate-500">Roll call + history</div>
-              </div>
-            </div>
-          </Link>
+          {(viewerRole === "admin" || viewerRole === "principal" ||
+            row.classTeacherUserId === undefined ||
+            row.classTeacherUserId === me?.userId ||
+            row.hifzTeacherUserId === me?.userId) && (
+            <>
+              <Link to={`/school/orgs/${orgId}/sections/${sectionId}/attendance`} className={navCardBase}>
+                <div className="flex items-center gap-3">
+                  <div className="rounded-lg bg-indigo-50 p-2"><Calendar className="h-5 w-5 text-indigo-600" /></div>
+                  <div className="flex-1">
+                    <div className="text-sm font-semibold text-slate-900">Attendance</div>
+                    <div className="text-xs text-slate-500">Roll call + history</div>
+                  </div>
+                </div>
+              </Link>
+              <Link to={`/school/orgs/${orgId}/sections/${sectionId}/hifz`} className={navCardBase}>
+                <div className="flex items-center gap-3">
+                  <div className="rounded-lg bg-emerald-50 p-2"><BookOpen className="h-5 w-5 text-emerald-600" /></div>
+                  <div className="flex-1">
+                    <div className="text-sm font-semibold text-slate-900">Hifz progress</div>
+                    <div className="text-xs text-slate-500">Sabaq · Sabqi · Manzil</div>
+                  </div>
+                </div>
+              </Link>
+            </>
+          )}
           <Link to={`/school/orgs/${orgId}/sections/${sectionId}/behavior`} className={navCardBase}>
             <div className="flex items-center gap-3">
               <div className="rounded-lg bg-rose-50 p-2"><Sparkles className="h-5 w-5 text-rose-600" /></div>
               <div className="flex-1">
                 <div className="text-sm font-semibold text-slate-900">Behavior feed</div>
                 <div className="text-xs text-slate-500">All positive + concern notes</div>
-              </div>
-            </div>
-          </Link>
-          <Link to={`/school/orgs/${orgId}/sections/${sectionId}/hifz`} className={navCardBase}>
-            <div className="flex items-center gap-3">
-              <div className="rounded-lg bg-emerald-50 p-2"><BookOpen className="h-5 w-5 text-emerald-600" /></div>
-              <div className="flex-1">
-                <div className="text-sm font-semibold text-slate-900">Hifz progress</div>
-                <div className="text-xs text-slate-500">Sabaq · Sabqi · Manzil</div>
               </div>
             </div>
           </Link>

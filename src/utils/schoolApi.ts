@@ -1093,6 +1093,11 @@ export interface LeaderboardRow {
   sectionName: string;
   studentCount: number;
   classTeacherName: string | null;
+  /** Ids for viewer-relationship checks (CT/Hifz actions vs. subject-
+   *  teacher view). Optional: older cached backends omit them — treat
+   *  missing as "relationship unknown" and keep the actions visible. */
+  classTeacherUserId?: string | null;
+  hifzTeacherUserId?: string | null;
   attendancePct: number;
   /** Null when there is no prior-period data to compare against. */
   attendanceDelta: number | null;
