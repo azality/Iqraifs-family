@@ -163,11 +163,15 @@ function UpNextItem({ item, audience, orgId, studentId }: {
 }
 
 function PrepStateBadge({ item, audience }: { item: LessonPrepItem; audience: "teacher" | "student" }) {
+  // "Planned" = the teacher chose this topic for this day (target_date);
+  // otherwise it's the next topic in sequence. Teachers see the
+  // distinction; students just see the topic.
+  const planned = audience === "teacher" && item.topicSource === "planned";
   if (item.prepState === "lesson_ready") {
     return (
       <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">
         <CheckCircle2 className="h-3 w-3" />
-        Lesson ready · {item.topic?.name ?? "topic"}
+        Lesson ready · {item.topic?.name ?? "topic"}{planned ? " · planned" : ""}
       </span>
     );
   }
@@ -175,7 +179,8 @@ function PrepStateBadge({ item, audience }: { item: LessonPrepItem; audience: "t
     return (
       <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full">
         <Lightbulb className="h-3 w-3" />
-        {audience === "teacher" ? "Prepare:" : "Topic:"} {item.topic?.name ?? "next topic"}
+        {audience === "teacher" ? (planned ? "Planned:" : "Prepare (next in sequence):") : "Topic:"}{" "}
+        {item.topic?.name ?? "next topic"}
       </span>
     );
   }
@@ -183,7 +188,7 @@ function PrepStateBadge({ item, audience }: { item: LessonPrepItem; audience: "t
     return (
       <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full">
         <ListChecks className="h-3 w-3" />
-        {audience === "teacher" ? "No curriculum topics queued" : "Topic to be announced"}
+        {audience === "teacher" ? "No topics left — all ticked done, or no syllabus yet" : "Topic to be announced"}
       </span>
     );
   }
