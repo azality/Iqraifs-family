@@ -856,8 +856,15 @@ export function installTimetable(school: Hono): void {
     }
 
     // Entries with teacher names (batched, one lookup per unique uid).
+    // Sandbox (QA) sections are excluded — see band filter below.
+    const sandboxSectionIds = new Set(
+      sections.filter((s) => s.scheduleKey === "sandbox").map((s) => s.id),
+    );
     const dayEntries = ((entriesRes.data ?? []) as any[]).filter(
-      (e) => e.slot && !e.slot.archived_at,
+      (e) =>
+        e.slot &&
+        !e.slot.archived_at &&
+        !(e.scope_section_id && sandboxSectionIds.has(e.scope_section_id)),
     );
     const uids = Array.from(new Set(dayEntries.map((e) => e.teacher_user_id).filter(Boolean)));
     const nameMap = new Map<string, string | null>();
@@ -897,6 +904,9 @@ export function installTimetable(school: Hono): void {
     }
 
     const bands = Array.from(bandsMap.values())
+      // 'sandbox' is the QA class's schedule — regression-suite scaffolding,
+      // never shown to the school.
+      .filter((b) => b.key !== "sandbox")
       .filter((b) => b.slots.length > 0 || b.sections.length > 0)
       .sort((a, b) => (a.key === "default" ? -1 : b.key === "default" ? 1 : a.key.localeCompare(b.key)));
     return c.json({ day, days, bands, entries, conflicts });
