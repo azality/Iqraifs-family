@@ -3430,6 +3430,13 @@ export const getSectionAssignments = (
   );
 };
 
+/** Next free GR number in the org's numeric sequence (Add-student
+ *  pre-fill). `suggested` is null when no numeric GR numbers exist. */
+export const getNextGrNumber = (
+  orgId: string,
+): Promise<{ suggested: string | null; maxExisting: string | null }> =>
+  apiCall(`/school/orgs/${orgId}/students-next-gr`);
+
 export const getAssignment = (
   orgId: string,
   assignmentId: string,

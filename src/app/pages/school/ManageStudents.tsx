@@ -33,6 +33,7 @@ import {
   viewerRoleForOrg,
   listClasses,
   listStudents,
+  getNextGrNumber,
   adminCreateStudent,
   updateStudent,
   deleteStudent,
@@ -250,6 +251,7 @@ export function ManageStudents() {
   // returns below — hooks after a conditional return crash React with
   // "Rendered more hooks than during the previous render" (pilot bug:
   // the whole Students page died with "Something went wrong").
+  const [grSuggestion, setGrSuggestion] = useState<string | null>(null);
   const [markLeftTarget, setMarkLeftTarget] = useState<AdminStudent | null>(null);
   const [leftReason, setLeftReason] = useState("");
   const [markLeftBusy, setMarkLeftBusy] = useState(false);
@@ -270,6 +272,15 @@ export function ManageStudents() {
     resetGuardianForms();
     setMonthlyFee("");
     setFeeReason("");
+    // Pre-fill the next GR number in the org's sequence (editable).
+    setGrSuggestion(null);
+    getNextGrNumber(orgId)
+      .then((r) => {
+        if (!r.suggested) return;
+        setGrSuggestion(r.suggested);
+        setForm((f) => (f.grNumber ? f : { ...f, grNumber: r.suggested! }));
+      })
+      .catch(() => {});
     setNotice(null);
     setError(null);
     setFormOpen(true);
@@ -652,7 +663,15 @@ export function ManageStudents() {
         <DialogContent className="max-w-2xl">
           <DialogHeader><DialogTitle>{editing ? "Edit student" : "Add student"}</DialogTitle></DialogHeader>
           <div className="grid gap-3 sm:grid-cols-2">
-            <div><Label>GR#*</Label><Input value={form.grNumber} onChange={(e) => setForm({ ...form, grNumber: e.target.value })} /></div>
+            <div>
+              <Label>GR#*</Label>
+              <Input value={form.grNumber} onChange={(e) => setForm({ ...form, grNumber: e.target.value })} />
+              {!editing && grSuggestion && form.grNumber === grSuggestion && (
+                <p className="mt-0.5 text-[11px] text-slate-500">
+                  Next in sequence (last used: {Number(grSuggestion) - 1}). Change it if this student has a different GR#.
+                </p>
+              )}
+            </div>
             <div><Label>Full name*</Label><Input value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} /></div>
             <div className="sm:col-span-2">
               <Label>Class &amp; section</Label>
