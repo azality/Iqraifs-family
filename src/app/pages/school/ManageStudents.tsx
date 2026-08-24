@@ -595,7 +595,10 @@ export function ManageStudents() {
         </Select>
       </div>
 
-      {error && <p className="text-sm text-rose-600">{error}</p>}
+      {/* Page-level errors only when no dialog is open — a submit error
+          while the Add/Edit dialog is up renders INSIDE the dialog
+          (pilot bug: the GR-conflict message appeared behind it). */}
+      {error && !formOpen && <p className="text-sm text-rose-600">{error}</p>}
 
       <DataTable
         columns={columns}
@@ -659,7 +662,7 @@ export function ManageStudents() {
       </Dialog>
 
       {/* Add/Edit dialog */}
-      <Dialog open={formOpen} onOpenChange={setFormOpen}>
+      <Dialog open={formOpen} onOpenChange={(o) => { setFormOpen(o); if (!o) setError(null); }}>
         <DialogContent className="max-w-2xl">
           <DialogHeader><DialogTitle>{editing ? "Edit student" : "Add student"}</DialogTitle></DialogHeader>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -1165,6 +1168,11 @@ export function ManageStudents() {
             </div>
           )}
 
+          {error && (
+            <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+              {error}
+            </div>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setFormOpen(false)}>Cancel</Button>
             <Button onClick={submitForm}>{editing ? "Save" : "Create"}</Button>

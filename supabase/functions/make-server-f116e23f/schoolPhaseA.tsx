@@ -1029,15 +1029,25 @@ export function installPhaseA(school: Hono) {
   async function grConflictResponse(c: any, orgId: string, gr: string) {
     const { data: holder } = await serviceRoleClient
       .from("student")
-      .select("full_name, status, class_section:class_section_id(name, class:class_id(name))")
+      .select("full_name, status, left_at, class_section:class_section_id(name, class:class_id(name))")
       .eq("org_id", orgId)
       .eq("gr_number", gr)
       .maybeSingle();
     const sec = (holder as any)?.class_section;
     const cls = sec ? `${sec.class?.name ?? ""} · ${sec.name ?? ""}`.trim() : null;
-    const who = holder
-      ? ` — it belongs to ${(holder as any).full_name}${cls ? ` (${cls})` : ""}${(holder as any).status === "withdrawn" ? ", withdrawn" : ""}`
-      : "";
+    // A withdrawn holder usually means "this student is coming back" —
+    // the right move is Re-admit (keeps history), not a duplicate record.
+    if (holder && (holder as any).status === "withdrawn") {
+      const left = (holder as any).left_at ? ` on ${String((holder as any).left_at).slice(0, 10)}` : "";
+      return c.json({
+        error:
+          `GR# ${gr} belongs to ${(holder as any).full_name}, who left the school${left}. ` +
+          `If this is the same student returning, find them under the "Left" filter and use Re-admit — that keeps their history. ` +
+          `If this is a different student, use a different GR number.`,
+        code: "GR_EXISTS_WITHDRAWN",
+      }, 409);
+    }
+    const who = holder ? ` — it belongs to ${(holder as any).full_name}${cls ? ` (${cls})` : ""}` : "";
     return c.json({
       error: `GR# ${gr} already exists${who}. Every student needs a unique GR number.`,
       code: "GR_EXISTS",
