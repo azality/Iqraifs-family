@@ -2069,6 +2069,61 @@ export interface TimetableWeekCell {
   entry: (TimetableEntry & { subjectName: string | null; teacherName: string | null }) | null;
 }
 
+// ─── Master timetable (admin/principal) ─────────────────────────────
+export interface MasterTimetableEntry {
+  id: string;
+  slotId: string;
+  sectionId: string | null;
+  hifzGroupId: string | null;
+  subjectName: string | null;
+  teacherUserId: string | null;
+  teacherName: string | null;
+  room: string | null;
+}
+export interface MasterTimetableConflict {
+  aId: string;
+  bId: string;
+  teacherUserId: string;
+  teacherName: string | null;
+  /** true when an admin marked this overlap as an intentional merge. */
+  merged: boolean;
+}
+export interface MasterTimetableResponse {
+  day: number;
+  days: number[];
+  bands: Array<{
+    key: string;
+    label: string;
+    slots: TimetableSlot[];
+    sections: Array<{ id: string; label: string }>;
+  }>;
+  entries: MasterTimetableEntry[];
+  conflicts: MasterTimetableConflict[];
+}
+export const getMasterTimetable = (
+  orgId: string,
+  day: number,
+): Promise<MasterTimetableResponse> =>
+  apiCall(`/school/orgs/${orgId}/timetable/master?day=${day}`);
+export const postTimetableMergeMark = (
+  orgId: string,
+  entryAId: string,
+  entryBId: string,
+): Promise<{ ok: boolean }> =>
+  apiCall(`/school/orgs/${orgId}/timetable/merge-marks`, {
+    method: "POST",
+    body: JSON.stringify({ entryAId, entryBId }),
+  });
+export const deleteTimetableMergeMark = (
+  orgId: string,
+  a: string,
+  b: string,
+): Promise<{ ok: boolean }> =>
+  apiCall(
+    `/school/orgs/${orgId}/timetable/merge-marks?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`,
+    { method: "DELETE" },
+  );
+
 export const listTimetableSlots = async (orgId: string): Promise<TimetableSlot[]> => {
   const r = await apiCall<{ slots: TimetableSlot[] }>(`/school/orgs/${orgId}/timetable-slots`);
   return r?.slots ?? [];
