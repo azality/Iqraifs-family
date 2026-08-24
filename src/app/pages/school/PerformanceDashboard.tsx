@@ -76,11 +76,11 @@ import { pickTourForUser } from "../../../utils/tours";
 // ─── Period selector ─────────────────────────────────────────────────────
 
 const PERIODS: ReadonlyArray<{ value: DashboardPeriod; label: string }> = [
-  { value: "T", label: "T" },
-  { value: "WTD", label: "WTD" },
-  { value: "MTD", label: "MTD" },
-  { value: "QTD", label: "QTD" },
-  { value: "YTD", label: "YTD" },
+  { value: "T", label: "Today" },
+  { value: "WTD", label: "Week" },
+  { value: "MTD", label: "Month" },
+  { value: "QTD", label: "Quarter" },
+  { value: "YTD", label: "Year" },
 ];
 
 function PeriodSelector({
@@ -170,7 +170,7 @@ function KpiTile({ label, tile, Icon, asPercent, signed, bound, to }: KpiTilePro
             }
             title={
               bound === "period"
-                ? "Updates when you change T / WTD / MTD / QTD / YTD"
+                ? "Updates when you change the Today / Week / Month / Quarter / Year window"
                 : "Current-state snapshot; not affected by the period toggle"
             }
           >

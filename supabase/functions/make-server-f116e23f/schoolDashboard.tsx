@@ -206,7 +206,18 @@ type SectionRow = {
   hifz_teacher_user_id: string | null;
   class_name: string;
   student_count: number;
+  schedule_key: string;
 };
+
+// The QA Sandbox class (regression-suite scaffolding) is invisible to
+// org-level viewers — admins should never wonder what "Sandbox" is. The
+// QA accounts still see it via their own teacher scope.
+function withoutSandbox<T extends { sections: SectionRow[] }>(skel: T): T {
+  return {
+    ...skel,
+    sections: skel.sections.filter((s) => s.schedule_key !== "sandbox"),
+  };
+}
 
 async function loadOrgSkeleton(orgId: string): Promise<{
   classes: Array<{ id: string; name: string }>;
@@ -232,7 +243,7 @@ async function loadOrgSkeleton(orgId: string): Promise<{
   if (classIds.length > 0) {
     const { data } = await serviceRoleClient
       .from("class_section")
-      .select("id, class_id, name, class_teacher_user_id, hifz_teacher_user_id")
+      .select("id, class_id, name, class_teacher_user_id, hifz_teacher_user_id, schedule_key")
       .in("class_id", classIds);
     sectionRows = (data ?? []) as typeof sectionRows;
   }
@@ -254,7 +265,7 @@ async function loadOrgSkeleton(orgId: string): Promise<{
     studentsBySection.set(s.class_section_id, arr);
   }
 
-  const sections: SectionRow[] = sectionRows.map((s) => ({
+  const sections: SectionRow[] = sectionRows.map((s: any) => ({
     id: s.id,
     class_id: s.class_id,
     name: s.name,
@@ -262,6 +273,7 @@ async function loadOrgSkeleton(orgId: string): Promise<{
     hifz_teacher_user_id: s.hifz_teacher_user_id,
     class_name: classById.get(s.class_id) ?? "",
     student_count: (studentsBySection.get(s.id) ?? []).length,
+    schedule_key: s.schedule_key ?? "default",
   }));
 
   return {
@@ -415,7 +427,7 @@ export function installDashboard(school: Hono): void {
 
     // Skeleton restricted to scope (sections/students the caller can see).
     const skeleton = isOrgView
-      ? fullSkeleton
+      ? withoutSandbox(fullSkeleton)
       : (() => {
           const sections = fullSkeleton.sections.filter((s) =>
             scopeSet.has(s.id),
@@ -1001,7 +1013,7 @@ export function installDashboard(school: Hono): void {
     const scopeSet = new Set(scope.sectionIds);
     const skeleton =
       scope.kind === "org"
-        ? fullSkeleton
+        ? withoutSandbox(fullSkeleton)
         : {
             ...fullSkeleton,
             sections: fullSkeleton.sections.filter((s) => scopeSet.has(s.id)),
@@ -1252,7 +1264,8 @@ export function installDashboard(school: Hono): void {
     ]);
 
     // Build a section-id -> label map for activity summaries.
-    const skeleton = fullSkeletonForScope;
+    const skeleton =
+      scope.kind === "org" ? withoutSandbox(fullSkeletonForScope) : fullSkeletonForScope;
     const sectionLabel = new Map<string, string>();
     for (const s of skeleton.sections) {
       sectionLabel.set(s.id, `${s.class_name}-${s.name}`);

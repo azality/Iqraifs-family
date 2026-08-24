@@ -51,11 +51,9 @@ import { SectionSubjectsManager } from "./components/SectionSubjectsManager";
 import { useOrgPermission } from "./useOrgPermission";
 
 const PERIODS: ReadonlyArray<{ value: DashboardPeriod; label: string }> = [
-  { value: "T", label: "T" },
-  { value: "WTD", label: "WTD" },
-  { value: "MTD", label: "MTD" },
-  { value: "QTD", label: "QTD" },
-  { value: "YTD", label: "YTD" },
+  { value: "T", label: "Today" },
+  { value: "WTD", label: "Week" },
+  { value: "MTD", label: "Month" },
 ];
 
 function relativeDate(iso: string): string {
