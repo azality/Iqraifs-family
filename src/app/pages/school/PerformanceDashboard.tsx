@@ -245,27 +245,30 @@ function AlertCard({ alert }: { alert: DashboardAlert }) {
     }
   };
 
+  // Equal-height cards: flex column with the action pinned to the bottom
+  // via mt-auto, so a short body doesn't leave the link floating mid-card
+  // next to taller siblings (pilot polish request).
   return (
-    <div className={"min-w-[260px] flex-1 rounded-xl border p-4 shadow-sm " + s.wrap}>
-      <div className="flex items-center gap-2">
+    <div className={"flex h-full min-w-0 flex-col rounded-xl border p-5 shadow-sm " + s.wrap}>
+      <div className="flex flex-wrap items-center gap-2">
         <Badge
           variant="outline"
           className={"border-transparent bg-white/60 text-[10px] uppercase tracking-wide " + s.title}
         >
           {alert.severity}
         </Badge>
-        <span className={"inline-flex items-center gap-1 text-xs font-medium " + s.title}>
-          <s.Icon className="h-3.5 w-3.5" />
+        <span className={"inline-flex items-center gap-1.5 text-xs font-medium " + s.title}>
+          <s.Icon className="h-3.5 w-3.5 shrink-0" />
           {friendlyKind(alert.kind)}
         </span>
       </div>
-      <div className={"mt-2 text-sm font-semibold " + s.title}>{alert.title}</div>
-      <p className="mt-1 line-clamp-2 text-xs text-slate-700">{alert.body}</p>
+      <div className={"mt-2.5 text-sm font-semibold leading-snug " + s.title}>{alert.title}</div>
+      <p className="mt-1.5 line-clamp-3 text-xs leading-relaxed text-slate-700">{alert.body}</p>
       {alert.actionPath && (
         <Link
           to={alert.actionPath}
           onClick={handleActionClick}
-          className={"mt-2 inline-flex items-center gap-1 text-xs font-medium " + s.title}
+          className={"mt-auto inline-flex items-center gap-1 pt-3 text-xs font-medium hover:underline " + s.title}
         >
           {alert.actionLabel || "Open"}
           <ChevronRight className="h-3 w-3" />
@@ -1044,7 +1047,7 @@ export function PerformanceDashboard() {
           </div>
         ) : (
           <div
-            className="flex gap-4 overflow-x-auto pb-1 lg:grid lg:grid-cols-5 lg:overflow-visible"
+            className="grid gap-4 md:grid-cols-2 xl:grid-cols-3"
             data-tour="alerts-row"
           >
             {dashboard.alerts.map((a) => (
