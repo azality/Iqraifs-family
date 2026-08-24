@@ -445,6 +445,8 @@ export interface ClassCurriculumTopic {
   displayOrder: number;
   targetDate: string | null;
   completed: boolean;
+  /** Assessment-term attribution; null = whole-year syllabus. */
+  academicTermId?: string | null;
   createdAt: string;
 }
 
@@ -528,6 +530,8 @@ export const addClassCurriculumTopic = (
     description?: string;
     targetDate?: string | null;
     displayOrder?: number;
+    /** Omit to inherit the curriculum's dominant term; null = whole-year. */
+    academicTermId?: string | null;
   },
 ): Promise<{ topic: ClassCurriculumTopic }> =>
   apiCall(`/school/class-curriculum/${curriculumId}/topics`, {
@@ -543,10 +547,11 @@ export const addClassCurriculumTopic = (
 export const bulkAddClassCurriculumTopics = (
   curriculumId: string,
   names: string[],
+  opts: { academicTermId?: string | null } = {},
 ): Promise<{ added: number; topics: ClassCurriculumTopic[] }> =>
   apiCall(`/school/class-curriculum/${curriculumId}/topics/bulk`, {
     method: "POST",
-    body: JSON.stringify({ names }),
+    body: JSON.stringify({ names, ...opts }),
   });
 
 export const updateClassCurriculumTopic = (
@@ -557,6 +562,7 @@ export const updateClassCurriculumTopic = (
     targetDate: string | null;
     displayOrder: number;
     completed: boolean;
+    academicTermId: string | null;
   }>,
 ): Promise<{ topic: ClassCurriculumTopic }> =>
   apiCall(`/school/curriculum-topics/${topicId}`, {

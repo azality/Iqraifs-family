@@ -68,10 +68,25 @@ export function installAcademics(school: Hono) {
       }
     }
 
+    // Current term first — topic tallies below are term-aware.
+    const { data: currentTerm } = await serviceRoleClient
+      .from("academic_term")
+      .select("id, name, start_date, end_date")
+      .eq("org_id", orgId)
+      .eq("is_current", true)
+      .is("archived_at", null)
+      .limit(1)
+      .maybeSingle();
+
     // Bulk topic counts for the latest curricula — paginated (PostgREST
     // caps a single select at 1000 rows; the school is already at 700+
     // topics, so one unpaged query would silently undercount soon).
     // Tally per curriculum so we can rank class-subjects by pace below.
+    //
+    // Term-aware: topics tagged to a DIFFERENT term (e.g. 2nd Assessment
+    // loaded early) are excluded from coverage/pace so future syllabi can
+    // sit in the system without deflating live numbers. Untagged topics
+    // (whole-year syllabi — Junior/Reception) always count.
     const latestCurIds = Array.from(latestCurriculumByClassSubject.values());
     let totalTopics = 0;
     let completedTopics = 0;
@@ -81,11 +96,12 @@ export function installAcademics(school: Hono) {
       for (let from = 0; ; from += pageSize) {
         const { data: topics } = await serviceRoleClient
           .from("curriculum_topic")
-          .select("curriculum_id, completed")
+          .select("curriculum_id, completed, academic_term_id")
           .in("curriculum_id", latestCurIds)
           .range(from, from + pageSize - 1);
         const rows = (topics ?? []) as any[];
         for (const t of rows) {
+          if (t.academic_term_id && t.academic_term_id !== (currentTerm as any)?.id) continue;
           totalTopics += 1;
           if (t.completed) completedTopics += 1;
           const cur = tallyByCurriculum.get(t.curriculum_id) ?? { done: 0, total: 0 };
@@ -104,14 +120,6 @@ export function installAcademics(school: Hono) {
     //     both dates exists; otherwise expectedPct is null and the UI
     //     prompts setup instead of pretending.
     // ────────────────────────────────────────────────────────────────────────
-    const { data: currentTerm } = await serviceRoleClient
-      .from("academic_term")
-      .select("name, start_date, end_date")
-      .eq("org_id", orgId)
-      .eq("is_current", true)
-      .is("archived_at", null)
-      .limit(1)
-      .maybeSingle();
 
     let expectedPct: number | null = null;
     if (currentTerm?.start_date && currentTerm?.end_date) {
