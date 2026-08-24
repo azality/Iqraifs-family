@@ -339,6 +339,14 @@ await check("12. principal cockpit: academics pace block + insights activity dig
   const i = await api(principal.token, `/school/orgs/${ORG}/insights?period=MTD`);
   const ij = await i.json();
   assert(i.status === 200 && Array.isArray(ij.recentActivity), `insights ${i.status}`);
+  // Sandbox must not leak into org-level leaderboard rows either.
+  const lb = await api(principal.token, `/school/orgs/${ORG}/sections/leaderboard?period=MTD`);
+  const lbj = await lb.json();
+  assert(lb.status === 200, `leaderboard ${lb.status}`);
+  assert(
+    !JSON.stringify(lbj).toLowerCase().includes("sandbox"),
+    "Sandbox section leaked into org leaderboard",
+  );
   const attRows = ij.recentActivity.filter((r: any) => r.kind === "attendance");
   for (const r of attRows) {
     assert(
