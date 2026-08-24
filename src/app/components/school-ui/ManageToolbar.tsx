@@ -265,6 +265,29 @@ function isActive(pathname: string, to: string): boolean {
   return cleanPath === cleanTo || cleanPath.startsWith(cleanTo + "/");
 }
 
+// Full school nav for a role, as groups — consumed by the mobile drawer
+// (RootLayout) so phones get the SAME destinations as the desktop
+// toolbar. Before this, the drawer hardcoded a single "Dashboard" item
+// and a principal on a phone could not reach any admin page.
+export function schoolNavGroupsForRole(
+  orgId: string,
+  role: SchoolViewerRole,
+  t: (k: string) => string,
+): ToolbarGroup[] {
+  const dashboard: ToolbarGroup = {
+    key: "dashboard",
+    label: "Dashboard",
+    Icon: Home,
+    items: [I("dashboard", "Dashboard", `/school/orgs/${orgId}`, Home)],
+  };
+  if (role === "principal" || role === "admin") {
+    return [dashboard, ...groupsForAdmin(orgId, role, t)];
+  }
+  const flat = flatItemsForRole(orgId, role, t);
+  if (flat.length === 0) return [dashboard];
+  return [{ key: "menu", label: "Menu", Icon: Home, items: flat }];
+}
+
 export function ManageToolbar({ orgId, viewerRole }: ManageToolbarProps) {
   const { pathname } = useLocation();
   const { t } = useTranslation();
