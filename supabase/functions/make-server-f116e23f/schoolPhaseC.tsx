@@ -96,6 +96,7 @@ function lessonToJson(r: any) {
     audioUrl: r.audio_url,
     attachments: r.attachments ?? [],
     taughtBy: r.taught_by,
+    taughtByName: (r as any).taught_by_name ?? undefined,
     // Phase 7 (visibility): publish state. Staff endpoints return all
     // lessons regardless of visibility; the LessonForm + feed render a
     // Hidden / Published / Scheduled badge based on these two fields.
@@ -341,6 +342,19 @@ export function installPhaseC(school: Hono): void {
         topic_resources: topicResources,
       };
     });
+    // Hydrate the teacher's display name ("Taught by —" pilot bug: the
+    // serializer never carried a name). user_metadata.name per convention.
+    const teacherIds = Array.from(new Set(lessons.map((l) => l.taught_by).filter(Boolean))) as string[];
+    const tNames = new Map<string, string>();
+    for (const tid of teacherIds) {
+      try {
+        const { data: u } = await (serviceRoleClient as any).auth.admin.getUserById(tid);
+        tNames.set(tid, u?.user?.user_metadata?.name ?? u?.user?.email ?? "Teacher");
+      } catch { /* non-fatal */ }
+    }
+    for (const l of lessons) {
+      (l as any).taught_by_name = l.taught_by ? tNames.get(l.taught_by) ?? null : null;
+    }
     // Augment with completion_count and section_size for the teacher feed.
     const lessonIds = lessons.map((l) => l.id);
     const countMap = new Map<string, number>();

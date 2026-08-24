@@ -3141,7 +3141,7 @@ export const postLesson = (
   apiCall(`/school/orgs/${orgId}/sections/${sectionId}/lessons`, {
     method: "POST",
     body: JSON.stringify(body),
-  });
+  }).then((r: any) => lessonFromApi(r?.lesson ?? r));
 
 export const getRosterRequests = (
   orgId: string,
@@ -3169,6 +3169,24 @@ export const patchRosterRequest = (
     body: JSON.stringify(body),
   });
 
+// Lesson payloads are serialized camelCase (lessonToJson) while this
+// file's interface + consumers (SectionLessonsFeed, LessonForm prefill)
+// read snake_case — same mismatch family as assignments (#329). The
+// feed's "Invalid Date" header and "Taught by —" were this. Alias at
+// the boundary, keeping both key sets.
+const lessonFromApi = (l: any): Lesson => ({
+  ...l,
+  org_id: l?.org_id ?? l?.orgId,
+  class_section_id: l?.class_section_id ?? l?.sectionId,
+  lesson_date: l?.lesson_date ?? l?.lessonDate,
+  video_url: l?.video_url ?? l?.videoUrl ?? null,
+  audio_url: l?.audio_url ?? l?.audioUrl ?? null,
+  taught_by: l?.taught_by ?? l?.taughtBy ?? null,
+  taught_by_name: l?.taught_by_name ?? l?.taughtByName ?? null,
+  created_at: l?.created_at ?? l?.createdAt,
+  updated_at: l?.updated_at ?? l?.updatedAt,
+});
+
 export const getSectionLessons = (
   orgId: string,
   sectionId: string,
@@ -3180,11 +3198,15 @@ export const getSectionLessons = (
   if (opts.limit) q.append("limit", String(opts.limit));
   if (opts.subjectId) q.append("subjectId", opts.subjectId);
   const qs = q.toString() ? `?${q}` : "";
-  return apiCall(`/school/orgs/${orgId}/sections/${sectionId}/lessons${qs}`);
+  return apiCall(`/school/orgs/${orgId}/sections/${sectionId}/lessons${qs}`).then(
+    (r: any) => ({ ...r, lessons: (r?.lessons ?? []).map(lessonFromApi) }),
+  );
 };
 
 export const getLesson = (orgId: string, lessonId: string): Promise<Lesson> =>
-  apiCall(`/school/orgs/${orgId}/lessons/${lessonId}`);
+  apiCall(`/school/orgs/${orgId}/lessons/${lessonId}`).then((r: any) =>
+    lessonFromApi(r?.lesson ?? r),
+  );
 
 export const patchLesson = (
   orgId: string,
@@ -3194,7 +3216,7 @@ export const patchLesson = (
   apiCall(`/school/orgs/${orgId}/lessons/${lessonId}`, {
     method: "PATCH",
     body: JSON.stringify(partial),
-  });
+  }).then((r: any) => lessonFromApi(r?.lesson ?? r));
 
 export const deleteLesson = (
   orgId: string,
