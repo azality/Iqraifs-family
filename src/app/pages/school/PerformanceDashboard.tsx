@@ -47,6 +47,7 @@ import {
   getDashboard,
   getInsights,
   getOrgAcademics,
+  getAtRiskAttendance,
   getOrganization,
   getSchoolMe,
   getSectionsLeaderboard,
@@ -66,6 +67,7 @@ import {
   type LeaderboardRow,
   type OrgWithCounts,
   type AcademicsResponse,
+  type AtRiskAttendanceResponse,
   type SchoolMeResponse,
   type SchoolGroupSummary,
 } from "../../../utils/schoolApi";
@@ -725,6 +727,8 @@ export function PerformanceDashboard() {
   // Phase 6a: academic aggregates (curriculum coverage, resources, hygiene,
   // subjects at risk). Loaded in parallel with the existing dashboard fetch.
   const [academics, setAcademics] = useState<AcademicsResponse | null>(null);
+  const [atRisk, setAtRisk] = useState<AtRiskAttendanceResponse | null>(null);
+  const [atRiskPeriod, setAtRiskPeriod] = useState<string>("TERM");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [me, setMe] = useState<SchoolMeResponse | null>(null);
@@ -778,6 +782,15 @@ export function PerformanceDashboard() {
       .then(setAcademics)
       .catch(() => setAcademics(null));
   }, [orgId]);
+
+  // Chronic absentees — per-student attendance below threshold. Also
+  // non-blocking; its own window selector (term is the report-card window).
+  useEffect(() => {
+    if (!orgId) return;
+    getAtRiskAttendance(orgId, atRiskPeriod)
+      .then(setAtRisk)
+      .catch(() => setAtRisk(null));
+  }, [orgId, atRiskPeriod]);
 
   const tourRole = me ? pickTourForUser(me, isOrgPrincipal(me, orgId)) : null;
 
@@ -1205,6 +1218,87 @@ export function PerformanceDashboard() {
                 );
               })}
             </ul>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Chronic absentees — the actionable version of the attendance
+          aggregate: which students are driving the number down. */}
+      {atRisk && (
+        <Card className={atRisk.rows.length > 0 ? "border-rose-200" : undefined}>
+          <CardHeader className="pb-3">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <CardTitle className="text-base">Chronic absentees</CardTitle>
+                <CardDescription className="text-xs">
+                  Below {atRisk.threshold}% attendance{" "}
+                  {atRisk.period === "TERM" && atRisk.termName
+                    ? `this term (${atRisk.termName}, since ${atRisk.windowStart})`
+                    : atRisk.period === "YTD"
+                      ? "this year"
+                      : "this month"}
+                  {" · "}students with at least {atRisk.minDays} marked days
+                </CardDescription>
+              </div>
+              <div className="inline-flex items-center rounded-lg border border-slate-200 bg-white p-0.5">
+                {[["TERM", "Term"], ["MTD", "Month"], ["YTD", "Year"]].map(([val, label]) => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => setAtRiskPeriod(val)}
+                    className={
+                      "rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors " +
+                      (atRiskPeriod === val
+                        ? "bg-slate-800 text-white"
+                        : "text-slate-600 hover:bg-slate-100")
+                    }
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-0">
+            {atRisk.rows.length === 0 ? (
+              <p className="py-3 text-center text-xs text-emerald-700">
+                No students below {atRisk.threshold}% in this window — attendance healthy.
+              </p>
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {atRisk.rows.map((r) => (
+                  <li key={r.studentId}>
+                    <Link
+                      to={`/school/orgs/${orgId}/admin/students/${r.studentId}`}
+                      className="flex items-center justify-between gap-3 py-2 hover:bg-slate-50 -mx-2 px-2 rounded"
+                    >
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-slate-900 truncate">
+                          {r.name}
+                          {r.grNumber && (
+                            <span className="ml-1.5 text-[10px] font-normal text-slate-400">
+                              GR {r.grNumber}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[10px] text-slate-500">
+                          {r.sectionLabel} · present {r.presentDays}/{r.totalDays} days
+                          {r.excusedDays > 0 ? ` · ${r.excusedDays} excused` : ""}
+                        </div>
+                      </div>
+                      <span
+                        className={
+                          "text-base font-semibold tabular-nums " +
+                          (r.pct < 60 ? "text-rose-700" : "text-amber-700")
+                        }
+                      >
+                        {r.pct}%
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
           </CardContent>
         </Card>
       )}

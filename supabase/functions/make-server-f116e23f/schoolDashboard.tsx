@@ -989,6 +989,126 @@ export function installDashboard(school: Hono): void {
   });
 
   // ---------------------------------------------------------------------------
+  // ─── Chronic absentees ──────────────────────────────────────────────
+  // Per-STUDENT attendance over a window — the actionable version of the
+  // aggregate tiles: "81% this month" is a fact, "these 9 children are
+  // below 75%" is a to-do list. period=TERM uses the current academic
+  // term (start_date → today) — that window doubles as the report-card
+  // attendance figure. Scope-aware: admins see the school, teachers see
+  // their own sections.
+  school.get("/orgs/:orgId/attendance/at-risk", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    if (!(await hasAnyRoleInOrg(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+
+    const rawPeriod = (c.req.query("period") ?? "TERM").toUpperCase();
+    const threshold = Math.min(100, Math.max(1, parseInt(c.req.query("threshold") ?? "75", 10) || 75));
+    // A student needs a few marked days before a percentage means anything
+    // (a new admission absent on day one is not "0% chronic").
+    const MIN_DAYS = 4;
+    const now = new Date();
+
+    let windowStart: Date;
+    let windowEnd: Date = startOfDay(now);
+    let termName: string | null = null;
+    if (rawPeriod === "TERM") {
+      const { data: term } = await serviceRoleClient
+        .from("academic_term")
+        .select("name, start_date")
+        .eq("org_id", orgId)
+        .eq("is_current", true)
+        .is("archived_at", null)
+        .limit(1)
+        .maybeSingle();
+      if (term?.start_date) {
+        windowStart = startOfDay(new Date(term.start_date));
+        termName = term.name;
+      } else {
+        // No term configured — fall back to month-to-date.
+        windowStart = periodWindows(now, "MTD").start;
+      }
+    } else {
+      windowStart = periodWindows(now, parsePeriod(rawPeriod)).start;
+    }
+
+    const fullSkeleton = await loadOrgSkeleton(orgId);
+    const scope = await determineScope(
+      userId,
+      orgId,
+      fullSkeleton.sections.map((s) => s.id),
+    );
+    const scopeSet = new Set(scope.sectionIds);
+    const skeleton =
+      scope.kind === "org"
+        ? withoutSandbox(fullSkeleton)
+        : {
+            ...fullSkeleton,
+            sections: fullSkeleton.sections.filter((s) => scopeSet.has(s.id)),
+          };
+    const visibleSections = new Set(skeleton.sections.map((s) => s.id));
+    const sectionLabel = new Map(
+      skeleton.sections.map((s) => [s.id, `${s.class_name} ${s.name}`]),
+    );
+
+    const rows = await fetchAttendance(orgId, windowStart, windowEnd);
+    type Tally = { present: number; excused: number; total: number; sectionId: string | null };
+    const byStudent = new Map<string, Tally>();
+    for (const r of rows) {
+      if (!r.class_section_id || !visibleSections.has(r.class_section_id)) continue;
+      const t = byStudent.get(r.student_id) ?? { present: 0, excused: 0, total: 0, sectionId: r.class_section_id };
+      t.total += 1;
+      if (r.status === "present" || r.status === "late") t.present += 1;
+      if (r.status === "excused") t.excused += 1;
+      t.sectionId = r.class_section_id;
+      byStudent.set(r.student_id, t);
+    }
+
+    const flagged = Array.from(byStudent.entries())
+      .map(([studentId, t]) => ({
+        studentId,
+        ...t,
+        pct: t.total > 0 ? Math.round((t.present / t.total) * 100) : 0,
+      }))
+      .filter((r) => r.total >= MIN_DAYS && r.pct < threshold)
+      .sort((a, b) => a.pct - b.pct)
+      .slice(0, 30);
+
+    // Hydrate names in one query.
+    const nameById = new Map<string, { name: string; gr: string | null }>();
+    if (flagged.length > 0) {
+      const { data: students } = await serviceRoleClient
+        .from("student")
+        .select("id, full_name, gr_number")
+        .in("id", flagged.map((r) => r.studentId));
+      for (const s of (students ?? []) as any[]) {
+        nameById.set(s.id, { name: s.full_name, gr: s.gr_number ?? null });
+      }
+    }
+
+    return c.json({
+      threshold,
+      minDays: MIN_DAYS,
+      period: rawPeriod === "TERM" && termName ? "TERM" : rawPeriod === "TERM" ? "MTD" : parsePeriod(rawPeriod),
+      termName,
+      windowStart: windowStart.toISOString().slice(0, 10),
+      windowEnd: windowEnd.toISOString().slice(0, 10),
+      rows: flagged.map((r) => ({
+        studentId: r.studentId,
+        name: nameById.get(r.studentId)?.name ?? "Student",
+        grNumber: nameById.get(r.studentId)?.gr ?? null,
+        sectionId: r.sectionId,
+        sectionLabel: r.sectionId ? sectionLabel.get(r.sectionId) ?? "" : "",
+        presentDays: r.present,
+        excusedDays: r.excused,
+        totalDays: r.total,
+        pct: r.pct,
+      })),
+    });
+  });
+
   // GET /orgs/:orgId/sections/leaderboard
   // ---------------------------------------------------------------------------
   school.get("/orgs/:orgId/sections/leaderboard", async (c) => {
