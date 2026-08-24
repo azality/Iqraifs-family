@@ -126,6 +126,8 @@ interface KpiTileProps {
   asPercent?: boolean;
   /** If true, show the value with a + prefix when positive. */
   signed?: boolean;
+  /** Route to open on click — tile renders as a Link when set. */
+  to?: string;
   /** "period" responds to the WTD/MTD/QTD/YTD pills; "current" is a
    *  snapshot of right-now and intentionally ignores the period. The
    *  badge tells the user which to expect so they stop wondering why
@@ -133,7 +135,7 @@ interface KpiTileProps {
   bound?: "period" | "current";
 }
 
-function KpiTile({ label, tile, Icon, asPercent, signed, bound }: KpiTileProps) {
+function KpiTile({ label, tile, Icon, asPercent, signed, bound, to }: KpiTileProps) {
   const muted = tile.value === null;
   const displayValue = muted
     ? "—"
@@ -143,11 +145,16 @@ function KpiTile({ label, tile, Icon, asPercent, signed, bound }: KpiTileProps) 
     ? `+${tile.value}`
     : String(tile.value);
   const delta = tile.deltaPp ?? null;
+  // Tiles with a management surface behind them are links; the rest are
+  // read-only stats (attendance/behavior have no single landing page).
+  const Wrapper: any = to ? Link : "div";
   return (
-    <div
+    <Wrapper
+      {...(to ? { to } : {})}
       className={
-        "rounded-xl border border-white/10 bg-white/5 p-3 backdrop-blur-sm transition-colors " +
-        (muted ? "opacity-60" : "hover:bg-white/10")
+        "block rounded-xl border border-white/10 bg-white/5 p-3 backdrop-blur-sm transition-colors " +
+        (muted ? "opacity-60 " : "hover:bg-white/10 ") +
+        (to ? "cursor-pointer hover:border-white/25" : "")
       }
     >
       <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-slate-300">
@@ -187,7 +194,7 @@ function KpiTile({ label, tile, Icon, asPercent, signed, bound }: KpiTileProps) 
         )}
       </div>
       <div className="mt-1 text-[11px] text-slate-400">{tile.hint}</div>
-    </div>
+    </Wrapper>
   );
 }
 
@@ -1049,16 +1056,16 @@ export function PerformanceDashboard() {
             )}
           </div>
           <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5" data-tour="kpi-grid">
-            <KpiTile label={t("dashboard.tiles.students")} tile={dashboard.tiles.students} Icon={Users} bound="current" />
+            <KpiTile label={t("dashboard.tiles.students")} tile={dashboard.tiles.students} Icon={Users} bound="current" to={`/school/orgs/${orgId}/admin/students`} />
             <KpiTile label={t("dashboard.tiles.attendanceToday")} tile={dashboard.tiles.attendanceToday} Icon={CheckCircle} asPercent bound="current" />
             <KpiTile label={t("dashboard.tiles.attendancePeriod")} tile={dashboard.tiles.attendancePeriod} Icon={TrendingUp} asPercent bound="period" />
-            <KpiTile label={t("dashboard.tiles.teachers")} tile={dashboard.tiles.teachers} Icon={GraduationCap} bound="current" />
+            <KpiTile label={t("dashboard.tiles.teachers")} tile={dashboard.tiles.teachers} Icon={GraduationCap} bound="current" to={`/school/orgs/${orgId}/admin/teachers`} />
             <KpiTile label={t("dashboard.tiles.behaviorScore")} tile={dashboard.tiles.behaviorScore} Icon={Sparkles} signed bound="period" />
-            <KpiTile label={t("dashboard.tiles.pendingApprovals")} tile={dashboard.tiles.pendingApprovals} Icon={Clock} bound="current" />
+            <KpiTile label={t("dashboard.tiles.pendingApprovals")} tile={dashboard.tiles.pendingApprovals} Icon={Clock} bound="current" to={`/school/orgs/${orgId}/admin/roster-requests`} />
             <KpiTile label={t("dashboard.tiles.concernsOpen")} tile={dashboard.tiles.concernsOpen} Icon={AlertTriangle} bound="period" />
-            <KpiTile label={t("dashboard.tiles.feesPaidPct")} tile={dashboard.tiles.feesPaidPct} Icon={DollarSign} asPercent bound="current" />
-            <KpiTile label={t("dashboard.tiles.hifzProgress")} tile={dashboard.tiles.hifzProgress} Icon={BookOpen} asPercent bound="current" />
-            <KpiTile label={t("dashboard.tiles.formsAwaiting")} tile={dashboard.tiles.formsAwaiting} Icon={FileText} bound="current" />
+            <KpiTile label={t("dashboard.tiles.feesPaidPct")} tile={dashboard.tiles.feesPaidPct} Icon={DollarSign} asPercent bound="current" to={`/school/orgs/${orgId}/admin/fees`} />
+            <KpiTile label={t("dashboard.tiles.hifzProgress")} tile={dashboard.tiles.hifzProgress} Icon={BookOpen} asPercent bound="current" to={`/school/orgs/${orgId}/admin/hifz-groups`} />
+            <KpiTile label={t("dashboard.tiles.formsAwaiting")} tile={dashboard.tiles.formsAwaiting} Icon={FileText} bound="current" to={`/school/orgs/${orgId}/admin/forms`} />
             {/* Phase 6a: curriculum coverage + resources tiles */}
             {academics && (
               <>
