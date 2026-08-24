@@ -6,6 +6,7 @@
   "scripts": {
     "build": "vite build",
     "typecheck": "node scripts/typecheck.mjs",
+    "test:regression": "npx deno run --allow-net --allow-env --allow-read --env=.env scripts/regression-suite.ts",
     "typecheck:update": "node scripts/typecheck.mjs --update",
     "typecheck:strict": "tsc --noEmit -p tsconfig.json",
     "build:parent": "cross-env VITE_APP_MODE=parent vite build",
