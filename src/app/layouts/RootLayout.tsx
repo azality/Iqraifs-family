@@ -683,7 +683,33 @@ export function RootLayout() {
               })}
             </nav>
 
-            <div className="p-3 border-t bg-slate-50/50">
+            <div className="p-3 border-t bg-slate-50/50 space-y-1">
+              {/* Profile row — the mobile counterpart of the desktop user
+                  chip. In school workspace it opens My account (name +
+                  password self-service); elsewhere it's identity display. */}
+              <button
+                type="button"
+                onClick={
+                  isSchoolWorkspace
+                    ? () => { setMobileMenuOpen(false); navigate("/school/account"); }
+                    : undefined
+                }
+                className={cn(
+                  "w-full flex items-center gap-2.5 px-2 py-2 rounded-lg text-left",
+                  isSchoolWorkspace ? "hover:bg-slate-100 cursor-pointer" : "cursor-default",
+                )}
+              >
+                <span className="h-8 w-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
+                  {userInitial}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium text-slate-900 truncate">{userName}</span>
+                  {isSchoolWorkspace && (
+                    <span className="block text-[11px] text-slate-500">My account — name &amp; password</span>
+                  )}
+                </span>
+                {isSchoolWorkspace && <ChevronDown className="h-4 w-4 -rotate-90 text-slate-400 flex-shrink-0" />}
+              </button>
               <Button
                 variant="ghost"
                 size="sm"
