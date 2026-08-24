@@ -1024,6 +1024,52 @@ export function installPhaseA(school: Hono) {
   // -------------------------------------------------------------------------
   // STUDENTS
   // -------------------------------------------------------------------------
+  // GR-number conflict with context: WHO holds it, so the admin can act
+  // (pilot ask: "GR# 1223 exists" alone forces a manual hunt).
+  async function grConflictResponse(c: any, orgId: string, gr: string) {
+    const { data: holder } = await serviceRoleClient
+      .from("student")
+      .select("full_name, status, class_section:class_section_id(name, class:class_id(name))")
+      .eq("org_id", orgId)
+      .eq("gr_number", gr)
+      .maybeSingle();
+    const sec = (holder as any)?.class_section;
+    const cls = sec ? `${sec.class?.name ?? ""} · ${sec.name ?? ""}`.trim() : null;
+    const who = holder
+      ? ` — it belongs to ${(holder as any).full_name}${cls ? ` (${cls})` : ""}${(holder as any).status === "withdrawn" ? ", withdrawn" : ""}`
+      : "";
+    return c.json({
+      error: `GR# ${gr} already exists${who}. Every student needs a unique GR number.`,
+      code: "GR_EXISTS",
+    }, 409);
+  }
+
+  // Next free GR number in the org's numeric sequence — the Add-student
+  // form pre-fills it (editable). Non-numeric GR formats are ignored.
+  school.get("/orgs/:orgId/students-next-gr", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await userCanInOrg(userId, orgId, "manage_students"))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const { data } = await serviceRoleClient
+      .from("student")
+      .select("gr_number")
+      .eq("org_id", orgId);
+    let max = 0;
+    for (const r of (data ?? []) as Array<{ gr_number: string | null }>) {
+      const g = String(r.gr_number ?? "").trim();
+      if (/^\d+$/.test(g)) {
+        const n = parseInt(g, 10);
+        if (n > max) max = n;
+      }
+    }
+    return c.json({
+      suggested: max > 0 ? String(max + 1) : null,
+      maxExisting: max > 0 ? String(max) : null,
+    });
+  });
+
   school.post("/orgs/:orgId/students", async (c) => {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
@@ -1043,7 +1089,7 @@ export function installPhaseA(school: Hono) {
       .single();
     if (error) {
       if ((error as any).code === "23505") {
-        return c.json({ error: "a student with this GR number already exists" }, 409);
+        return await grConflictResponse(c, orgId, String(body?.grNumber ?? "").trim());
       }
       return c.json({ error: error.message }, 500);
     }
@@ -1263,7 +1309,9 @@ export function installPhaseA(school: Hono) {
       .from("student").update(patch).eq("id", studentId).eq("org_id", orgId)
       .select().single();
     if (error) {
-      if ((error as any).code === "23505") return c.json({ error: "GR number already in use" }, 409);
+      if ((error as any).code === "23505") {
+        return await grConflictResponse(c, orgId, String(body?.grNumber ?? "").trim());
+      }
       return c.json({ error: error.message }, 500);
     }
     return c.json(data);
