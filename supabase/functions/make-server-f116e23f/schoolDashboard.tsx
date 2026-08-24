@@ -1204,7 +1204,7 @@ export function installDashboard(school: Hono): void {
 
     // Recent activity — last 20 mixed events.
     const activityWindowStart = addDays(startOfDay(now), -30);
-    const [recentAtt, recentBehavior, recentRoster] = await Promise.all([
+    const [recentAtt, recentBehavior, recentRoster, recentFlags, recentEarly] = await Promise.all([
       // Attendance: group later in memory by (section, date).
       // FIX: column is `attendance_date`, not `date`. Alias to `date` after.
       serviceRoleClient
@@ -1232,6 +1232,23 @@ export function installDashboard(school: Hono): void {
         .gte("created_at", activityWindowStart.toISOString())
         .order("created_at", { ascending: false })
         .limit(40),
+      // Attendance discrepancy flags — exceptions, always surfaced.
+      serviceRoleClient
+        .from("attendance_flag")
+        .select("id, class_section_id, attendance_date, note, status, resolved_at, created_at, student:student_id(full_name)")
+        .eq("org_id", orgId)
+        .gte("created_at", activityWindowStart.toISOString())
+        .order("created_at", { ascending: false })
+        .limit(40),
+      // Early releases — custody exceptions, always surfaced.
+      serviceRoleClient
+        .from("school_attendance")
+        .select("id, class_section_id, attendance_date, left_early_at, left_early_reason, student:student_id(full_name)")
+        .eq("org_id", orgId)
+        .not("left_early_at", "is", null)
+        .gte("left_early_at", activityWindowStart.toISOString())
+        .order("left_early_at", { ascending: false })
+        .limit(40),
     ]);
 
     // Build a section-id -> label map for activity summaries.
@@ -1244,7 +1261,13 @@ export function installDashboard(school: Hono): void {
     type Activity = {
       id: string;
       at: string;
-      kind: "attendance" | "behavior" | "roster_request" | "roster_decision";
+      kind:
+        | "attendance"
+        | "behavior"
+        | "roster_request"
+        | "roster_decision"
+        | "flag"
+        | "early_release";
       summary: string;
       actorName: string | null;
     };
@@ -1281,13 +1304,92 @@ export function installDashboard(school: Hono): void {
       }
       attBuckets.set(key, cur);
     }
-    for (const b of attBuckets.values()) {
-      const label = b.sectionId ? sectionLabel.get(b.sectionId) ?? "Section" : "Section";
+    if (scope.kind === "org") {
+      // Principal view: routine roll-call is the school's heartbeat, not
+      // news. Collapse all sections into one digest line per day so the
+      // feed's space goes to exceptions (flags, early releases, behavior).
+      const dayDigest = new Map<string, {
+        sections: Set<string>;
+        present: number;
+        total: number;
+        latestAt: string;
+      }>();
+      for (const b of attBuckets.values()) {
+        const cur = dayDigest.get(b.date) ?? {
+          sections: new Set<string>(),
+          present: 0,
+          total: 0,
+          latestAt: b.latestAt,
+        };
+        if (b.sectionId) cur.sections.add(b.sectionId);
+        cur.present += b.present;
+        cur.total += b.total;
+        if (b.latestAt > cur.latestAt) cur.latestAt = b.latestAt;
+        dayDigest.set(b.date, cur);
+      }
+      const totalSections = skeleton.sections.length;
+      for (const [date, d] of dayDigest) {
+        const pct = d.total > 0 ? Math.round((d.present / d.total) * 100) : 0;
+        activity.push({
+          id: `attday_${date}`,
+          at: d.latestAt,
+          kind: "attendance",
+          summary: `Attendance taken in ${d.sections.size}/${totalSections} sections — ${d.present}/${d.total} present (${pct}%)`,
+          actorName: null,
+        });
+      }
+    } else {
+      // Teacher scope: only their own sections feed in — per-section rows
+      // are the useful granularity, not noise.
+      for (const b of attBuckets.values()) {
+        const label = b.sectionId ? sectionLabel.get(b.sectionId) ?? "Section" : "Section";
+        activity.push({
+          id: `att_${b.latestId}`,
+          at: b.latestAt,
+          kind: "attendance",
+          summary: `${label} attendance taken — ${b.present}/${b.total} present`,
+          actorName: null,
+        });
+      }
+    }
+
+    // Attendance flags: raised + resolved are separate events.
+    for (const f of (recentFlags.data ?? []) as Array<any>) {
+      if (!inScope(f.class_section_id)) continue;
+      const label = f.class_section_id
+        ? sectionLabel.get(f.class_section_id) ?? "Section"
+        : "Section";
+      const who = f.student?.full_name ? ` for ${f.student.full_name}` : "";
       activity.push({
-        id: `att_${b.latestId}`,
-        at: b.latestAt,
-        kind: "attendance",
-        summary: `${label} attendance taken — ${b.present}/${b.total} present`,
+        id: `flag_${f.id}`,
+        at: f.created_at,
+        kind: "flag",
+        summary: `${label}: attendance flag raised${who} (${f.attendance_date})${f.note ? ` — ${String(f.note).slice(0, 80)}` : ""}`,
+        actorName: null,
+      });
+      if (f.resolved_at) {
+        activity.push({
+          id: `flag_res_${f.id}`,
+          at: f.resolved_at,
+          kind: "flag",
+          summary: `${label}: attendance flag ${f.status}${who}`,
+          actorName: null,
+        });
+      }
+    }
+
+    // Early releases.
+    for (const r of (recentEarly.data ?? []) as Array<any>) {
+      if (!inScope(r.class_section_id)) continue;
+      const label = r.class_section_id
+        ? sectionLabel.get(r.class_section_id) ?? "Section"
+        : "Section";
+      const who = r.student?.full_name ?? "Student";
+      activity.push({
+        id: `early_${r.id}`,
+        at: r.left_early_at,
+        kind: "early_release",
+        summary: `${label}: ${who} left early${r.left_early_reason ? ` — ${String(r.left_early_reason).slice(0, 80)}` : ""}`,
         actorName: null,
       });
     }

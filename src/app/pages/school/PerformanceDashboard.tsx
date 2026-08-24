@@ -609,16 +609,63 @@ function relativeTime(iso: string): string {
   return `${d}d ago`;
 }
 
+const ACTIVITY_FILTERS: Array<{ key: string; label: string; kinds: string[] | null }> = [
+  { key: "all", label: "All", kinds: null },
+  { key: "exceptions", label: "Exceptions", kinds: ["flag", "early_release"] },
+  { key: "behavior", label: "Behavior", kinds: ["behavior"] },
+  { key: "attendance", label: "Attendance", kinds: ["attendance"] },
+  { key: "admin", label: "Admin", kinds: ["roster_request", "roster_decision"] },
+];
+
+const ACTIVITY_BADGE_TONE: Record<string, string> = {
+  flag: "border-amber-300 bg-amber-50 text-amber-800",
+  early_release: "border-sky-300 bg-sky-50 text-sky-800",
+};
+
+function activityKindLabel(kind: string): string {
+  if (kind === "early_release") return "early release";
+  if (kind === "roster_request" || kind === "roster_decision") return "roster";
+  return kind;
+}
+
 function RecentActivity({ rows }: { rows: InsightsResponse["recentActivity"] }) {
+  const [filter, setFilter] = useState("all");
+  const active = ACTIVITY_FILTERS.find((f) => f.key === filter) ?? ACTIVITY_FILTERS[0];
+  const visible = active.kinds ? rows.filter((r) => active.kinds!.includes(r.kind)) : rows;
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm">Recent Activity</CardTitle>
-        <CardDescription>Last {rows.length} events across the school</CardDescription>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <CardTitle className="text-sm">Recent Activity</CardTitle>
+            <CardDescription>
+              Routine roll-call is collapsed into a daily digest — exceptions stay individual.
+            </CardDescription>
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {ACTIVITY_FILTERS.map((f) => (
+              <button
+                key={f.key}
+                type="button"
+                onClick={() => setFilter(f.key)}
+                className={
+                  "rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors " +
+                  (filter === f.key
+                    ? "bg-indigo-600 text-white"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200")
+                }
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+        </div>
       </CardHeader>
       <CardContent className="p-0">
-        {rows.length === 0 ? (
-          <p className="px-4 py-6 text-center text-xs text-slate-500">No recent activity.</p>
+        {visible.length === 0 ? (
+          <p className="px-4 py-6 text-center text-xs text-slate-500">
+            {filter === "all" ? "No recent activity." : "Nothing in this category recently."}
+          </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -631,12 +678,18 @@ function RecentActivity({ rows }: { rows: InsightsResponse["recentActivity"] }) 
                 </tr>
               </thead>
               <tbody>
-                {rows.slice(0, 20).map((r) => (
+                {visible.slice(0, 20).map((r) => (
                   <tr key={r.id} className="border-b border-slate-50">
                     <td className="px-4 py-2 text-xs text-slate-500">{relativeTime(r.occurredAt)}</td>
                     <td className="px-4 py-2">
-                      <Badge variant="outline" className="text-[10px] uppercase tracking-wide">
-                        {r.kind}
+                      <Badge
+                        variant="outline"
+                        className={
+                          "text-[10px] uppercase tracking-wide " +
+                          (ACTIVITY_BADGE_TONE[r.kind] ?? "")
+                        }
+                      >
+                        {activityKindLabel(r.kind)}
                       </Badge>
                     </td>
                     <td className="px-4 py-2 text-slate-800">{r.summary}</td>
@@ -1014,7 +1067,10 @@ export function PerformanceDashboard() {
                   tile={{
                     value: academics.curriculum.progressPct,
                     deltaPp: null,
-                    hint: `${academics.curriculum.completedTopics}/${academics.curriculum.totalTopics} topics`,
+                    hint:
+                      academics.pace?.expectedPct != null
+                        ? `${academics.curriculum.completedTopics}/${academics.curriculum.totalTopics} topics · expected ~${academics.pace.expectedPct}% by ${academics.pace.termName}`
+                        : `${academics.curriculum.completedTopics}/${academics.curriculum.totalTopics} topics`,
                   }}
                   Icon={ListChecks}
                   asPercent
@@ -1055,6 +1111,95 @@ export function PerformanceDashboard() {
             ))}
           </div>
         )
+      )}
+
+      {/* Curriculum pace vs the assessment calendar — turns the raw
+          "N% complete" into "who is furthest behind and how far", which
+          is the actionable version for a principal. */}
+      {academics?.pace && academics.pace.laggards.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <CardTitle className="text-base">Curriculum pace — furthest behind</CardTitle>
+                <CardDescription className="text-xs">
+                  {academics.pace.expectedPct != null ? (
+                    <>
+                      School-wide {academics.curriculum.progressPct}% complete ·
+                      expected ~{academics.pace.expectedPct}% by this point of{" "}
+                      {academics.pace.termName}
+                      {academics.pace.termEnd ? ` (ends ${academics.pace.termEnd})` : ""}
+                    </>
+                  ) : (
+                    <>
+                      School-wide {academics.curriculum.progressPct}% complete — set the
+                      current term&apos;s dates in Assessments to see expected pace.
+                    </>
+                  )}
+                </CardDescription>
+              </div>
+              <Link
+                to={`/school/orgs/${orgId}/admin/classes`}
+                className="text-xs text-indigo-600 hover:underline whitespace-nowrap"
+              >
+                All classes →
+              </Link>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <ul className="divide-y divide-slate-100">
+              {academics.pace.laggards.map((l) => {
+                const behind =
+                  academics.pace!.expectedPct != null
+                    ? academics.pace!.expectedPct - l.pct
+                    : null;
+                const tone =
+                  behind != null && behind > 30
+                    ? "text-rose-700"
+                    : behind != null && behind > 15
+                      ? "text-amber-700"
+                      : "text-slate-700";
+                return (
+                  <li key={l.classSubjectId} className="flex items-center gap-3 py-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="truncate text-sm font-medium text-slate-900">
+                          {l.className} · {l.subjectName}
+                        </span>
+                        <span className={"text-sm font-semibold tabular-nums " + tone}>
+                          {l.pct}%
+                          {behind != null && behind > 0 && (
+                            <span className="ml-1 text-[10px] font-normal text-slate-400">
+                              ({behind} pts behind)
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                      <div className="mt-1 flex items-center gap-2">
+                        <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+                          <div
+                            className="absolute inset-y-0 left-0 rounded-full bg-indigo-500"
+                            style={{ width: `${l.pct}%` }}
+                          />
+                          {academics.pace!.expectedPct != null && (
+                            <div
+                              className="absolute inset-y-0 w-0.5 bg-slate-400"
+                              style={{ left: `${academics.pace!.expectedPct}%` }}
+                              title={`Expected ~${academics.pace!.expectedPct}%`}
+                            />
+                          )}
+                        </div>
+                        <span className="text-[10px] text-slate-500 tabular-nums whitespace-nowrap">
+                          {l.topicsDone}/{l.topicsTotal}
+                        </span>
+                      </div>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </CardContent>
+        </Card>
       )}
 
       {/* Leaderboard */}
@@ -1202,8 +1347,10 @@ export function PerformanceDashboard() {
                   </>
                 )}
                 {" "}
-                without a subject. Ask teachers to pick a subject on each entry
-                so curriculum coverage stays accurate.
+                (last 30 days) saved without a subject selected — so they are not
+                counted under any subject&apos;s coverage or gradebook. The teacher
+                (or an admin) can fix it by editing the entry and picking its
+                subject from the dropdown.
               </div>
             </div>
           </div>
