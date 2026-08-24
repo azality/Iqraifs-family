@@ -11,14 +11,18 @@ import { toast } from "sonner";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
-import { ChevronLeft, CheckCircle, Clock, XCircle, AlertCircle } from "lucide-react";
+import { ChevronLeft, CheckCircle, Clock, XCircle, AlertCircle, LogOut, Flag } from "lucide-react";
 import { HeroCard, KpiTile } from "../../components/school-ui";
 import {
   getSectionAttendance,
   listStudents,
   postSectionAttendance,
+  postEarlyRelease,
+  listAttendanceFlags,
+  resolveAttendanceFlag,
   type AdminStudent,
   type RollCallStatus,
+  type AttendanceFlag,
 } from "../../../utils/schoolApi";
 
 const STATUSES: ReadonlyArray<{ value: RollCallStatus; label: string; cls: string }> = [
@@ -53,6 +57,11 @@ export function AttendanceRollCall() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Early release (custody record) + discrepancy flags.
+  const [leftEarly, setLeftEarly] = useState<Record<string, { at: string; reason: string }>>({});
+  const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+  const [flags, setFlags] = useState<AttendanceFlag[]>([]);
+  const [reloadKey, setReloadKey] = useState(0);
 
   const max = todayIso();
   const min = minDateIso();
@@ -73,18 +82,71 @@ export function AttendanceRollCall() {
       .then((r) => {
         const byId = new Map(r.entries.map((e) => [e.studentId, e]));
         const init: Record<string, RowState> = {};
+        const le: Record<string, { at: string; reason: string }> = {};
+        const saved = new Set<string>();
         for (const s of students) {
           const existing = byId.get(s.id);
           init[s.id] = {
             status: existing?.status ?? null,
             notes: existing?.notes ?? "",
           };
+          if (existing) saved.add(s.id);
+          if (existing?.leftEarlyAt) {
+            le[s.id] = { at: existing.leftEarlyAt, reason: existing.leftEarlyReason ?? "" };
+          }
         }
         setRows(init);
+        setLeftEarly(le);
+        setSavedIds(saved);
       })
       .catch((e) => setError(e?.message || "Failed to load attendance"))
       .finally(() => setLoading(false));
-  }, [orgId, sectionId, date, students]);
+  }, [orgId, sectionId, date, students, reloadKey]);
+
+  // Open discrepancy flags for this section (raised by subject teachers).
+  useEffect(() => {
+    if (!orgId || !sectionId) return;
+    listAttendanceFlags(orgId, sectionId, { status: "open" })
+      .then((r) => setFlags(r.flags))
+      .catch(() => {});
+  }, [orgId, sectionId, reloadKey]);
+
+  const markEarlyRelease = async (s: AdminStudent) => {
+    const reason = window.prompt(
+      `Early release for ${s.full_name} — reason (required, e.g. "unwell, guardian informed"):`,
+    );
+    if (!reason || !reason.trim()) return;
+    try {
+      await postEarlyRelease(orgId, sectionId, { studentId: s.id, date, reason: reason.trim() });
+      toast.success(`${s.full_name}: early release recorded`);
+      setReloadKey((k) => k + 1);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not record early release");
+    }
+  };
+  const clearEarlyRelease = async (s: AdminStudent) => {
+    if (!window.confirm(`Clear the early-release record for ${s.full_name}?`)) return;
+    try {
+      await postEarlyRelease(orgId, sectionId, { studentId: s.id, date, clear: true });
+      toast.success("Early release cleared");
+      setReloadKey((k) => k + 1);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not clear");
+    }
+  };
+  const actOnFlag = async (f: AttendanceFlag, status: "resolved" | "dismissed") => {
+    const resolution =
+      status === "resolved"
+        ? window.prompt("What was the outcome? (optional, e.g. 'left early — recorded')") ?? undefined
+        : undefined;
+    try {
+      await resolveAttendanceFlag(orgId, f.id, { status, resolution: resolution || undefined });
+      toast.success(status === "resolved" ? "Flag resolved" : "Flag dismissed");
+      setReloadKey((k) => k + 1);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not update flag");
+    }
+  };
 
   const markAll = (status: RollCallStatus) => {
     setRows((s) => {
@@ -120,6 +182,8 @@ export function AttendanceRollCall() {
         `Saved — ${r.inserted} new, ${r.updated} updated` +
           (r.failed > 0 ? `, ${r.failed} failed` : ""),
       );
+      // Refresh saved-row tracking so "Left early…" becomes available.
+      setReloadKey((k) => k + 1);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -222,6 +286,39 @@ export function AttendanceRollCall() {
 
       {error && <p className="text-sm text-rose-600">{error}</p>}
 
+      {/* Discrepancy flags raised by subject teachers — the class teacher
+          decides: fix the register / record an early release / dismiss. */}
+      {flags.length > 0 && (
+        <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-4">
+          <div className="mb-2 inline-flex items-center gap-1.5 text-sm font-semibold text-amber-900">
+            <Flag className="h-4 w-4" />
+            {flags.length} attendance {flags.length === 1 ? "flag" : "flags"} to review
+          </div>
+          <ul className="space-y-2">
+            {flags.map((f) => (
+              <li key={f.id} className="rounded-lg border border-amber-200 bg-white p-3 text-sm">
+                <div className="text-slate-800">
+                  <span className="font-medium">{f.studentName ?? "General"}</span>
+                  {f.grNumber && <span className="text-xs text-slate-500"> · GR# {f.grNumber}</span>}
+                  <span className="text-xs text-slate-500"> · {f.date}</span>
+                </div>
+                <p className="mt-0.5 text-xs text-slate-600">
+                  “{f.note}” — {f.raisedByName ?? "a teacher"}
+                </p>
+                <div className="mt-2 flex gap-2">
+                  <Button size="sm" className="h-7 text-xs" onClick={() => actOnFlag(f, "resolved")}>
+                    Resolve
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => actOnFlag(f, "dismissed")}>
+                    Dismiss
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <Card>
         <CardContent className="p-0">
           {loading ? (
@@ -267,6 +364,30 @@ export function AttendanceRollCall() {
                       value={row.notes}
                       onChange={(e) => setNote(s.id, e.target.value)}
                     />
+                    {leftEarly[s.id] ? (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-sky-100 px-2 py-1 text-[11px] font-medium text-sky-800">
+                        <LogOut className="h-3 w-3" />
+                        Left {new Date(leftEarly[s.id].at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        {leftEarly[s.id].reason ? ` · ${leftEarly[s.id].reason}` : ""}
+                        <button
+                          type="button"
+                          className="ml-1 text-sky-600 hover:text-sky-900"
+                          title="Clear early release"
+                          onClick={() => clearEarlyRelease(s)}
+                        >
+                          ✕
+                        </button>
+                      </span>
+                    ) : savedIds.has(s.id) && (row.status === "present" || row.status === "late") ? (
+                      <button
+                        type="button"
+                        onClick={() => markEarlyRelease(s)}
+                        className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-50"
+                        title="Student attended but is leaving before close"
+                      >
+                        <LogOut className="h-3 w-3" /> Left early…
+                      </button>
+                    ) : null}
                   </li>
                 );
               })}

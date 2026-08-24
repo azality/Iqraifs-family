@@ -233,6 +233,71 @@ await check("8. lesson prep exposes entry + topic + planner fields (#339/#342)",
   assert(item.classSubjectId && item.entryDate && "sectionSubjectId" in item, "planner fields missing (#342/#343 contract)");
 });
 
+const today = (() => { const d = new Date(); const p = (n: number) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; })();
+let erStudentId: string | null = null;
+await check("9. early release: reason required, owner-gated, lifecycle", async () => {
+  const gr = `QA-ER-${Math.floor(Math.random() * 1e6)}`;
+  const mk = await api(office.token, `/school/orgs/${ORG}/students`, {
+    method: "POST", body: JSON.stringify({ grNumber: gr, fullName: "QA ER Student", classSectionId: sandboxSec.id }),
+  });
+  const mkj = await mk.json();
+  assert(mk.status === 201, `student ${mk.status}`);
+  erStudentId = mkj.id ?? mkj.student?.id;
+  const att = await api(office.token, `/school/orgs/${ORG}/sections/${sandboxSec.id}/attendance`, {
+    method: "POST", body: JSON.stringify({ date: today, entries: [{ studentId: erStudentId, status: "present" }] }),
+  });
+  assert(att.ok, `attendance save ${att.status}`);
+  const noReason = await api(office.token, `/school/orgs/${ORG}/sections/${sandboxSec.id}/attendance/early-release`, {
+    method: "POST", body: JSON.stringify({ studentId: erStudentId, date: today }),
+  });
+  assert(noReason.status === 400, `missing reason accepted?! ${noReason.status}`);
+  const asSubject = await api(teacher.token, `/school/orgs/${ORG}/sections/${sandboxSec.id}/attendance/early-release`, {
+    method: "POST", body: JSON.stringify({ studentId: erStudentId, date: today, reason: "test" }),
+  });
+  const asJ = await asSubject.json();
+  assert(asSubject.status === 403 && asJ.code === "NOT_ROLLCALL_OWNER", `subject teacher allowed?! ${asSubject.status}`);
+  const ok = await api(office.token, `/school/orgs/${ORG}/sections/${sandboxSec.id}/attendance/early-release`, {
+    method: "POST", body: JSON.stringify({ studentId: erStudentId, date: today, reason: "unwell, guardian informed" }),
+  });
+  const okJ = await ok.json();
+  assert(ok.status === 200 && okJ.leftEarlyAt, `early release ${ok.status}: ${JSON.stringify(okJ).slice(0, 120)}`);
+  const roll = await api(teacher.token, `/school/orgs/${ORG}/sections/${sandboxSec.id}/attendance?date=${today}`);
+  const rollJ = await roll.json();
+  const entry = (rollJ.entries ?? []).find((e: any) => e.studentId === erStudentId);
+  assert(entry?.leftEarlyAt && entry?.leftEarlyReason, "left-early fields missing from GET attendance");
+  const clear = await api(office.token, `/school/orgs/${ORG}/sections/${sandboxSec.id}/attendance/early-release`, {
+    method: "POST", body: JSON.stringify({ studentId: erStudentId, date: today, clear: true }),
+  });
+  const clearJ = await clear.json();
+  assert(clear.status === 200 && clearJ.leftEarlyAt === null, `clear failed ${clear.status}`);
+});
+
+await check("10. discrepancy flags: subject teacher raises, roll-call owner resolves", async () => {
+  const raise = await api(teacher.token, `/school/orgs/${ORG}/sections/${sandboxSec.id}/attendance-flags`, {
+    method: "POST", body: JSON.stringify({ date: today, studentId: erStudentId, note: "Marked present but not in my class" }),
+  });
+  const rj = await raise.json();
+  assert(raise.status === 201 && rj.flag?.status === "open", `raise ${raise.status}: ${JSON.stringify(rj).slice(0, 120)}`);
+  const list = await api(office.token, `/school/orgs/${ORG}/sections/${sandboxSec.id}/attendance-flags?status=open`);
+  const lj = await list.json();
+  const found = (lj.flags ?? []).find((f: any) => f.id === rj.flag.id);
+  assert(found && "raisedByName" in found, "flag missing from open list");
+  const asSubject = await api(teacher.token, `/school/orgs/${ORG}/attendance-flags/${rj.flag.id}/resolve`, {
+    method: "POST", body: JSON.stringify({ status: "resolved" }),
+  });
+  assert(asSubject.status === 403, `subject teacher resolved?! ${asSubject.status}`);
+  const res = await api(office.token, `/school/orgs/${ORG}/attendance-flags/${rj.flag.id}/resolve`, {
+    method: "POST", body: JSON.stringify({ status: "resolved", resolution: "early release recorded" }),
+  });
+  const resJ = await res.json();
+  assert(res.status === 200 && resJ.flag?.status === "resolved", `resolve ${res.status}`);
+  await admin.from("attendance_flag").delete().eq("id", rj.flag.id);
+});
+if (erStudentId) {
+  await admin.from("school_attendance").delete().eq("student_id", erStudentId);
+  await api(office.token, `/school/orgs/${ORG}/students/${erStudentId}`, { method: "DELETE" });
+}
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
