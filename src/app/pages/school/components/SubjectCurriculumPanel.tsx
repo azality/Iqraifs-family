@@ -112,10 +112,12 @@ export function SubjectCurriculumPanel({
         setCurriculum(r.curriculum);
         setTopics(r.topics);
         setAvailableYears(r.availableYears ?? []);
+        setLoadedOnce(true);
       })
       .catch((e) => setError(e?.message || "Could not load curriculum"))
       .finally(() => setLoading(false));
   };
+  const [loadedOnce, setLoadedOnce] = useState(false);
 
   /** Best candidate prior year to copy from: most recent year (newest first
    *  in availableYears) that's NOT the current year and has at least one
@@ -153,11 +155,14 @@ export function SubjectCurriculumPanel({
     }
   };
 
+  // Load eagerly (not only on expand) so the collapsed header can show
+  // the progress summary at a glance — pilot ask: admins scanning the
+  // Classes page shouldn't have to expand every subject to see
+  // "0/11 topics · 2026-27 · 0%" vs "No curriculum yet".
   useEffect(() => {
-    if (!open) return;
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, classSubjectId, year]);
+  }, [classSubjectId, year]);
 
   const ensureCurriculum = async (): Promise<ClassCurriculum | null> => {
     if (curriculum) return curriculum;
@@ -339,12 +344,15 @@ export function SubjectCurriculumPanel({
         )}
         <ListChecks className="h-3.5 w-3.5 text-indigo-600" />
         <span className="text-xs font-medium text-slate-700">Curriculum</span>
-        {topics.length > 0 && (
+        {topics.length > 0 ? (
           <span className="text-[10px] text-slate-500">
-            · {topics.length} topic{topics.length === 1 ? "" : "s"}
-            {progress > 0 && ` · ${progress}% done`}
+            · {topics.filter((t) => t.completed).length}/{topics.length} topics · {year} · {progress}%
           </span>
-        )}
+        ) : loadedOnce ? (
+          <span className="text-[10px] text-amber-700">
+            · No curriculum for {year} yet — expand to set it up
+          </span>
+        ) : null}
       </button>
 
       {open && (
