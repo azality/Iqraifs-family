@@ -110,7 +110,7 @@ if ((qaTopics?.length ?? 0) === 0) {
 const tomorrowDow = (((new Date().getDay() + 6) % 7) + 1) % 7 + 1; // 1..7, tomorrow
 let { data: qaSlot } = await admin.from("timetable_slot").select("id").eq("org_id", ORG).eq("name", "QA P1").eq("day_of_week", tomorrowDow).is("archived_at", null).maybeSingle();
 if (!qaSlot) {
-  const { data } = await admin.from("timetable_slot").insert({ org_id: ORG, name: "QA P1", day_of_week: tomorrowDow, start_time: "09:00", end_time: "09:30", kind: "academic", display_order: 60 }).select().single();
+  const { data } = await admin.from("timetable_slot").insert({ org_id: ORG, name: "QA P1", day_of_week: tomorrowDow, start_time: "09:00", end_time: "09:30", kind: "academic", display_order: 60, schedule_key: "sandbox" }).select().single();
   qaSlot = data;
 }
 let { data: qaEntry } = await admin.from("timetable_entry").select("id").eq("slot_id", qaSlot.id).eq("scope_section_id", sandboxSec.id).maybeSingle();
@@ -356,6 +356,12 @@ await check("13. master timetable: bands + conflicts contract, admin-gated", asy
   assert(Array.isArray(j.entries) && Array.isArray(j.conflicts), "entries/conflicts missing");
   const band = j.bands[0];
   assert(Array.isArray(band.slots) && Array.isArray(band.sections) && band.label, "band shape wrong");
+  // QA scaffolding must never leak into the school-facing view.
+  assert(!j.bands.some((b: any) => b.key === "sandbox"), "sandbox band leaked");
+  assert(
+    !j.bands.some((b: any) => b.sections.some((s: any) => /sandbox/i.test(s.label))),
+    "sandbox section leaked into a band",
+  );
   // class_teacher must NOT see the whole school's grid.
   const t = await api(teacher.token, `/school/orgs/${ORG}/timetable/master?day=1`);
   assert(t.status === 403, `teacher expected 403, got ${t.status}`);
