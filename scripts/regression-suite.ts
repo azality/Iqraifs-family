@@ -429,6 +429,28 @@ await check("15. chronic absentees: term window, shape, scope-aware", async () =
   assert(t.status === 200, `teacher at-risk ${t.status}`);
 });
 
+await check("16. today strip: ops rollup shape, admin-gated, sandbox excluded", async () => {
+  const r = await api(principal.token, `/school/orgs/${ORG}/today-ops`);
+  const j = await r.json();
+  assert(r.status === 200, `today-ops ${r.status}`);
+  assert(
+    typeof j.sectionsExpected === "number" &&
+      typeof j.sectionsTaken === "number" &&
+      Array.isArray(j.missingSections) &&
+      typeof j.openFlags === "number" &&
+      Array.isArray(j.teachersOnLeave),
+    "today-ops shape wrong",
+  );
+  assert(j.sectionsTaken <= j.sectionsExpected, "taken > expected");
+  assert(
+    !j.missingSections.some((m: string) => /sandbox/i.test(m)),
+    "sandbox section counted in today-ops",
+  );
+  // Teachers must not see the whole-school ops strip.
+  const t = await api(teacher.token, `/school/orgs/${ORG}/today-ops`);
+  assert(t.status === 403, `teacher expected 403, got ${t.status}`);
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

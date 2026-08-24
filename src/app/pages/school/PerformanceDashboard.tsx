@@ -48,6 +48,7 @@ import {
   getInsights,
   getOrgAcademics,
   getAtRiskAttendance,
+  getTodayOps,
   getOrganization,
   getSchoolMe,
   getSectionsLeaderboard,
@@ -68,6 +69,7 @@ import {
   type OrgWithCounts,
   type AcademicsResponse,
   type AtRiskAttendanceResponse,
+  type TodayOpsResponse,
   type SchoolMeResponse,
   type SchoolGroupSummary,
 } from "../../../utils/schoolApi";
@@ -728,6 +730,7 @@ export function PerformanceDashboard() {
   // subjects at risk). Loaded in parallel with the existing dashboard fetch.
   const [academics, setAcademics] = useState<AcademicsResponse | null>(null);
   const [atRisk, setAtRisk] = useState<AtRiskAttendanceResponse | null>(null);
+  const [todayOps, setTodayOps] = useState<TodayOpsResponse | null>(null);
   const [atRiskPeriod, setAtRiskPeriod] = useState<string>("TERM");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -781,6 +784,15 @@ export function PerformanceDashboard() {
     getOrgAcademics(orgId)
       .then(setAcademics)
       .catch(() => setAcademics(null));
+  }, [orgId]);
+
+  // Today strip — morning ops checklist. Admin/principal only (the
+  // endpoint 403s for teachers and the strip simply doesn't render).
+  useEffect(() => {
+    if (!orgId) return;
+    getTodayOps(orgId)
+      .then(setTodayOps)
+      .catch(() => setTodayOps(null));
   }, [orgId]);
 
   // Chronic absentees — per-student attendance below threshold. Also
@@ -1112,6 +1124,71 @@ export function PerformanceDashboard() {
         </div>
       )}
 
+      {/* Today strip — "is school running normally right now?" */}
+      {todayOps && (() => {
+        const attDone = todayOps.sectionsTaken >= todayOps.sectionsExpected;
+        const allClear =
+          attDone && todayOps.openFlags === 0 && todayOps.teachersOnLeave.length === 0;
+        const missPreview = todayOps.missingSections.slice(0, 3).join(", ");
+        const missMore = todayOps.missingSections.length - 3;
+        return (
+          <div
+            className={
+              "flex flex-wrap items-center gap-2 rounded-xl border px-4 py-2.5 text-sm " +
+              (allClear
+                ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                : "border-slate-200 bg-white")
+            }
+          >
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              Today
+            </span>
+            <span
+              className={
+                "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium " +
+                (attDone
+                  ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                  : "bg-amber-50 text-amber-800 ring-1 ring-amber-200")
+              }
+              title={
+                todayOps.missingSections.length > 0
+                  ? `Missing: ${todayOps.missingSections.join(", ")}`
+                  : undefined
+              }
+            >
+              Attendance {todayOps.sectionsTaken}/{todayOps.sectionsExpected}
+              {!attDone && missPreview && (
+                <span className="font-normal">
+                  {" — missing "}{missPreview}
+                  {missMore > 0 ? ` +${missMore} more` : ""}
+                </span>
+              )}
+            </span>
+            {todayOps.teachersOnLeave.length > 0 && (
+              <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+                On leave: {todayOps.teachersOnLeave.join(", ")}
+              </span>
+            )}
+            {todayOps.substitutionsToday > 0 && (
+              <span className="inline-flex items-center rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700 ring-1 ring-indigo-200">
+                {todayOps.substitutionsToday} substitution{todayOps.substitutionsToday === 1 ? "" : "s"}
+              </span>
+            )}
+            {todayOps.openFlags > 0 && (
+              <span className="inline-flex items-center rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800 ring-1 ring-amber-200">
+                {todayOps.openFlags} open flag{todayOps.openFlags === 1 ? "" : "s"}
+              </span>
+            )}
+            {todayOps.earlyReleasesToday > 0 && (
+              <span className="inline-flex items-center rounded-full bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700 ring-1 ring-sky-200">
+                {todayOps.earlyReleasesToday} early release{todayOps.earlyReleasesToday === 1 ? "" : "s"}
+              </span>
+            )}
+            {allClear && <span className="text-xs">All sections marked, no open flags — normal day.</span>}
+          </div>
+        );
+      })()}
+
       {/* Alerts row */}
       {dashboard && (
         dashboard.alerts.length === 0 ? (
@@ -1136,7 +1213,7 @@ export function PerformanceDashboard() {
       {/* Curriculum pace vs the assessment calendar — turns the raw
           "N% complete" into "who is furthest behind and how far", which
           is the actionable version for a principal. */}
-      {academics?.pace && academics.pace.laggards.length > 0 && (
+      {academics?.pace && (academics.pace.laggards.length > 0 || (academics.pace.notStartedCount ?? 0) > 0) && (
         <Card>
           <CardHeader className="pb-3">
             <div className="flex items-start justify-between gap-2">
@@ -1156,6 +1233,16 @@ export function PerformanceDashboard() {
                       current term&apos;s dates in Assessments to see expected pace.
                     </>
                   )}
+                  {(academics.pace.notStartedCount ?? 0) > 0 && (
+                    <>
+                      {" · "}
+                      <span className="font-medium text-amber-700">
+                        {academics.pace.notStartedCount} subject
+                        {academics.pace.notStartedCount === 1 ? " has" : "s have"} no topics
+                        ticked yet
+                      </span>
+                    </>
+                  )}
                 </CardDescription>
               </div>
               <Link
@@ -1167,6 +1254,12 @@ export function PerformanceDashboard() {
             </div>
           </CardHeader>
           <CardContent className="pt-0">
+            {academics.pace.laggards.length === 0 ? (
+              <p className="py-3 text-center text-xs text-slate-500">
+                No started subject is lagging — the amber count above is subjects
+                where teachers haven&apos;t begun ticking topics.
+              </p>
+            ) : (
             <ul className="divide-y divide-slate-100">
               {academics.pace.laggards.map((l) => {
                 const behind =
@@ -1218,6 +1311,7 @@ export function PerformanceDashboard() {
                 );
               })}
             </ul>
+            )}
           </CardContent>
         </Card>
       )}

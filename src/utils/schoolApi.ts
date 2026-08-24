@@ -1177,6 +1177,10 @@ export interface AcademicsResponse {
     termStart: string | null;
     termEnd: string | null;
     expectedPct: number | null;
+    /** Subjects with a curriculum but zero topics ticked — rolled up
+     *  into one count instead of flooding the laggards list with 0%s. */
+    notStartedCount?: number;
+    startedCount?: number;
     laggards: Array<{
       classSubjectId: string;
       className: string;
@@ -1208,6 +1212,20 @@ export interface AcademicsResponse {
 
 export const getOrgAcademics = (orgId: string): Promise<AcademicsResponse> =>
   apiCall(`/school/orgs/${orgId}/academics`);
+
+// ─── Today strip (admin/principal) ─────────────────────────────────────
+export interface TodayOpsResponse {
+  date: string;
+  sectionsExpected: number;
+  sectionsTaken: number;
+  missingSections: string[];
+  openFlags: number;
+  earlyReleasesToday: number;
+  teachersOnLeave: string[];
+  substitutionsToday: number;
+}
+export const getTodayOps = (orgId: string): Promise<TodayOpsResponse> =>
+  apiCall(`/school/orgs/${orgId}/today-ops`);
 
 // ─── Chronic absentees ─────────────────────────────────────────────────
 export interface AtRiskAttendanceRow {
