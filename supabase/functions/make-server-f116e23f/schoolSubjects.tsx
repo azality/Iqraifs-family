@@ -872,6 +872,17 @@ export function installSubjects(school: Hono) {
       .single();
     if (error) return c.json({ error: error.message }, 500);
 
+    // Propagate to timetable entries for this subject-in-section. Entries
+    // snapshot teacher_user_id at creation; without this they keep showing
+    // the OLD teacher forever (pilot bug: Class V grid showed the former
+    // class teacher on every subject after specialists were assigned).
+    // One-off per-date covers are the substitution system's job, so a
+    // blanket update here is correct.
+    await serviceRoleClient
+      .from("timetable_entry")
+      .update({ teacher_user_id: newTeacherId })
+      .eq("section_subject_id", id);
+
     // Sync subject-scoped user_roles grant.
     const now = new Date().toISOString();
     await serviceRoleClient
