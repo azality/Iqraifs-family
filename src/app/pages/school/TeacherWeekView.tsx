@@ -24,6 +24,7 @@ import {
   getMyUpcoming,
   getClassSubjectCurriculum,
   updateClassCurriculumTopic,
+  postLesson,
   type MyTimetableCell,
   type LessonPrepItem,
   type ClassCurriculumTopic,
@@ -57,6 +58,10 @@ export function TeacherWeekView() {
   const [planningEntryId, setPlanningEntryId] = useState<string | null>(null);
   const [planTopics, setPlanTopics] = useState<ClassCurriculumTopic[]>([]);
   const [planBusy, setPlanBusy] = useState(false);
+  // Free-text plan ("worksheet practice", "revision") — saved as a draft
+  // lesson for that subject + date, kept hidden from parents until the
+  // teacher publishes it from the lesson editor.
+  const [activityText, setActivityText] = useState("");
 
   const loadPrep = () =>
     getMyUpcoming(orgId, 60)
@@ -96,12 +101,34 @@ export function TeacherWeekView() {
     if (planningEntryId === p.entryId) { setPlanningEntryId(null); return; }
     setPlanningEntryId(p.entryId);
     setPlanTopics([]);
+    setActivityText("");
     try {
       const r = await getClassSubjectCurriculum(p.classSubjectId);
       setPlanTopics(r.topics.filter((t) => !t.completed));
     } catch {
       toast.error("Couldn't load this subject's topics");
       setPlanningEntryId(null);
+    }
+  };
+
+  const saveActivity = async (p: LessonPrepItem) => {
+    const title = activityText.trim();
+    if (!title || !p.sectionId) return;
+    setPlanBusy(true);
+    try {
+      await postLesson(orgId, p.sectionId, {
+        title,
+        lessonDate: p.entryDate,
+        sectionSubjectId: p.sectionSubjectId ?? undefined,
+        visibility: "hidden",
+      });
+      toast.success(`Activity planned for ${DAY_FULL[p.slot.dayOfWeek - 1]} ${shortDate(p.entryDate)} — hidden from parents until you publish it`);
+      await loadPrep();
+      setPlanningEntryId(null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't save the activity");
+    } finally {
+      setPlanBusy(false);
     }
   };
 
@@ -225,6 +252,15 @@ export function TeacherWeekView() {
                               item — the planner only targets what's ahead. */}
                           {p && (
                             <div className="mt-1.5 rounded-md border border-slate-200/70 bg-white px-2 py-1.5">
+                              {p.lesson && (
+                                <div className="mb-1 flex items-start gap-1.5">
+                                  <BookOpen className="mt-0.5 h-3 w-3 shrink-0 text-emerald-600" />
+                                  <div className="min-w-0 flex-1">
+                                    <div className="text-[10px] uppercase tracking-wide text-emerald-700">Lesson planned</div>
+                                    <div className="text-[11px] font-medium text-slate-800">{p.lesson.title}</div>
+                                  </div>
+                                </div>
+                              )}
                               {p.topic ? (
                                 <div className="flex items-start gap-1.5">
                                   <CalendarCheck
@@ -298,6 +334,29 @@ export function TeacherWeekView() {
                                         </li>
                                       ))}
                                     </ul>
+                                  )}
+                                  {p.sectionId && (
+                                    <div className="mt-1.5 border-t border-slate-100 pt-1.5">
+                                      <div className="mb-1 text-[10px] text-slate-500">
+                                        …or write your own activity (worksheet, revision, dictation):
+                                      </div>
+                                      <div className="flex gap-1.5">
+                                        <input
+                                          value={activityText}
+                                          onChange={(e) => setActivityText(e.target.value)}
+                                          placeholder="e.g. Worksheet practice — addition"
+                                          className="min-w-0 flex-1 rounded border border-slate-200 px-1.5 py-1 text-[11px] focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                                        />
+                                        <button
+                                          type="button"
+                                          disabled={planBusy || !activityText.trim()}
+                                          onClick={() => saveActivity(p)}
+                                          className="shrink-0 rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
+                                        >
+                                          Save activity
+                                        </button>
+                                      </div>
+                                    </div>
                                   )}
                                 </div>
                               )}

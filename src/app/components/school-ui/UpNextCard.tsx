@@ -171,7 +171,7 @@ function PrepStateBadge({ item, audience }: { item: LessonPrepItem; audience: "t
     return (
       <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">
         <CheckCircle2 className="h-3 w-3" />
-        Lesson ready · {item.topic?.name ?? "topic"}{planned ? " · planned" : ""}
+        Lesson ready · {item.lesson?.title ?? item.topic?.name ?? "topic"}{planned ? " · planned" : ""}
       </span>
     );
   }

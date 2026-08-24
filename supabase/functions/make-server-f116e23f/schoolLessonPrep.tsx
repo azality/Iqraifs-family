@@ -61,6 +61,9 @@ interface PrepItem {
   classSubjectId: string | null;
   /** For the "Prepare lesson" CTA — LessonForm lives under the section. */
   sectionId: string | null;
+  /** For the planner's "write your own activity" (creates a draft lesson
+   *  tagged to this subject-in-section). */
+  sectionSubjectId: string | null;
   /** "planned" = a topic carries target_date == entryDate (teacher chose
    *  it for this day); "next" = fallback to the next incomplete topic in
    *  sequence; null when there is no topic. */
@@ -203,6 +206,25 @@ async function decorate(entries: EntryRow[], limit: number): Promise<PrepItem[]>
     }
   }
 
+  // Date-planned lessons: a lesson saved for (subject-in-section, date)
+  // without a curriculum topic — the teacher's own activity ("worksheet
+  // practice", "revision") planned from the week view. Surfaced on the
+  // matching entry even though no topic points at it.
+  const entryDates = Array.from(new Set(ranked.map((r) => r.entryDate)));
+  const dateLessonByKey = new Map<string, LessonRow & { section_subject_id: string }>();
+  if (sectionIds.length > 0 && entryDates.length > 0) {
+    const { data: planned } = await serviceRoleClient
+      .from("lesson")
+      .select("id, title, lesson_date, published_at, curriculum_topic_id, class_section_id, section_subject_id")
+      .in("class_section_id", sectionIds)
+      .in("lesson_date", entryDates);
+    for (const l of (planned ?? []) as any[]) {
+      if (!l.section_subject_id) continue;
+      const k = `${l.section_subject_id}:${l.lesson_date}`;
+      if (!dateLessonByKey.has(k)) dateLessonByKey.set(k, l);
+    }
+  }
+
   // Resource counts per topic.
   type ResCounts = { total: number; worksheets: number; videos: number; quizzes: number; pdfs: number; links: number };
   const resByTopic = new Map<string, ResCounts>();
@@ -267,6 +289,16 @@ async function decorate(entries: EntryRow[], limit: number): Promise<PrepItem[]>
       }
     }
 
+    // Teacher-planned activity for this exact (subject, date) — takes
+    // precedence as the thing to show, whether or not a topic is queued.
+    if (!lesson && e.section_subject_id) {
+      const dl = dateLessonByKey.get(`${e.section_subject_id}:${r.entryDate}`);
+      if (dl) {
+        lesson = { id: dl.id, title: dl.title, lessonDate: dl.lesson_date, publishedAt: dl.published_at };
+        prepState = "lesson_ready";
+      }
+    }
+
     out.push({
       entryId: e.id,
       slot: {
@@ -283,6 +315,7 @@ async function decorate(entries: EntryRow[], limit: number): Promise<PrepItem[]>
       entryDate: r.entryDate,
       classSubjectId,
       sectionId,
+      sectionSubjectId: e.section_subject_id ?? null,
       topicSource,
       topic,
       lesson,

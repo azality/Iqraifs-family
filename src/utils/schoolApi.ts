@@ -4668,6 +4668,8 @@ export interface LessonPrepItem {
   classSubjectId: string | null;
   /** Section the entry belongs to — target for the Prepare-lesson CTA. */
   sectionId?: string | null;
+  /** Subject-in-section — target for planner-created activity lessons. */
+  sectionSubjectId?: string | null;
   /** "planned" = teacher set target_date for this day; "next" = fallback
    *  to the next incomplete topic in sequence. */
   topicSource: "planned" | "next" | null;
