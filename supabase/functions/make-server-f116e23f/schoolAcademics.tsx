@@ -146,7 +146,13 @@ export function installAcademics(school: Hono) {
         };
       })
       .filter((r): r is NonNullable<typeof r> => r !== null);
-    const paceLaggards = [...perClassSubject]
+    // "Furthest behind" is only meaningful among subjects that have
+    // STARTED — a wall of identical 0% rows tells the principal nothing
+    // actionable per-subject. Not-started subjects roll up into one
+    // count the UI shows as a single line.
+    const started = perClassSubject.filter((r) => r.topicsDone > 0);
+    const notStarted = perClassSubject.filter((r) => r.topicsDone === 0);
+    const paceLaggards = [...started]
       .sort((a, b) => a.pct - b.pct || b.topicsTotal - a.topicsTotal)
       .slice(0, 6);
 
@@ -304,6 +310,8 @@ export function installAcademics(school: Hono) {
         termEnd: currentTerm?.end_date ?? null,
         expectedPct,
         laggards: paceLaggards,
+        notStartedCount: notStarted.length,
+        startedCount: started.length,
       },
       resources,
       hygiene: {

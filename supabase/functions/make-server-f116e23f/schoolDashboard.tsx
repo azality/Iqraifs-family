@@ -22,7 +22,8 @@
 
 import { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
-import { hasAnyRoleInOrg } from "./schoolAuth.ts";
+import { hasAnyRoleInOrg, hasAdminOrPrincipal } from "./schoolAuth.ts";
+import { todayInOrgTz } from "./tz.ts";
 
 // -----------------------------------------------------------------------------
 // Period math — period boundaries computed server-side. All dates are
@@ -989,6 +990,92 @@ export function installDashboard(school: Hono): void {
   });
 
   // ---------------------------------------------------------------------------
+  // ─── Today strip ────────────────────────────────────────────────────
+  // "Is school running normally right now?" — one call for the morning
+  // checklist: attendance completion (with the laggard sections NAMED),
+  // teachers on approved leave, substitutions arranged, open discrepancy
+  // flags, early releases. Exception-based: a healthy morning is one
+  // green line. Admin/principal only — teachers have their own section
+  // cards for this.
+  school.get("/orgs/:orgId/today-ops", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    if (!(await hasAdminOrPrincipal(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const today = todayInOrgTz(); // school-day boundary = Karachi wall clock
+
+    const skeleton = withoutSandbox(await loadOrgSkeleton(orgId));
+    // Only sections with students can take attendance — empty sections
+    // (e.g. Junior B awaiting its student split) don't count as "missing".
+    const expected = skeleton.sections.filter((s) => s.student_count > 0);
+
+    const [attRes, flagsRes, earlyRes, leaveRes, subsRes] = await Promise.all([
+      serviceRoleClient
+        .from("school_attendance")
+        .select("class_section_id")
+        .eq("org_id", orgId)
+        .eq("attendance_date", today),
+      serviceRoleClient
+        .from("attendance_flag")
+        .select("id", { count: "exact", head: true })
+        .eq("org_id", orgId)
+        .eq("status", "open"),
+      serviceRoleClient
+        .from("school_attendance")
+        .select("id", { count: "exact", head: true })
+        .eq("org_id", orgId)
+        .eq("attendance_date", today)
+        .not("left_early_at", "is", null),
+      serviceRoleClient
+        .from("time_off_request")
+        .select("subject_id")
+        .eq("org_id", orgId)
+        .eq("subject_type", "teacher")
+        .eq("status", "approved")
+        .lte("start_date", today)
+        .gte("end_date", today),
+      serviceRoleClient
+        .from("timetable_substitution")
+        .select("id", { count: "exact", head: true })
+        .eq("org_id", orgId)
+        .eq("date", today),
+    ]);
+
+    const takenSet = new Set(
+      ((attRes.data ?? []) as any[])
+        .map((r) => r.class_section_id)
+        .filter(Boolean),
+    );
+    const missing = expected
+      .filter((s) => !takenSet.has(s.id))
+      .map((s) => `${s.class_name} ${s.name}`);
+
+    // Resolve on-leave teacher names (small list; one lookup each).
+    const leaveIds = Array.from(
+      new Set(((leaveRes.data ?? []) as any[]).map((r) => r.subject_id).filter(Boolean)),
+    );
+    const teachersOnLeave: string[] = [];
+    for (const uid of leaveIds) {
+      try {
+        const { data: u } = await (serviceRoleClient as any).auth.admin.getUserById(uid);
+        teachersOnLeave.push(u?.user?.user_metadata?.name || u?.user?.email || "Teacher");
+      } catch { /* skip */ }
+    }
+
+    return c.json({
+      date: today,
+      sectionsExpected: expected.length,
+      sectionsTaken: expected.length - missing.length,
+      missingSections: missing,
+      openFlags: flagsRes.count ?? 0,
+      earlyReleasesToday: earlyRes.count ?? 0,
+      teachersOnLeave,
+      substitutionsToday: subsRes.count ?? 0,
+    });
+  });
+
   // ─── Chronic absentees ──────────────────────────────────────────────
   // Per-STUDENT attendance over a window — the actionable version of the
   // aggregate tiles: "81% this month" is a fact, "these 9 children are
