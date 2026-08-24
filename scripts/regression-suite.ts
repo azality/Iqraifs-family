@@ -412,6 +412,23 @@ await check("14. topic-term tagging: create/patch with term, invalid term reject
   await api(teacher.token, `/school/curriculum-topics/${mkj.topic.id}`, { method: "DELETE" });
 });
 
+await check("15. chronic absentees: term window, shape, scope-aware", async () => {
+  const r = await api(principal.token, `/school/orgs/${ORG}/attendance/at-risk?period=TERM&threshold=75`);
+  const j = await r.json();
+  assert(r.status === 200, `at-risk ${r.status}`);
+  assert(Array.isArray(j.rows) && j.threshold === 75 && typeof j.windowStart === "string",
+    "at-risk shape wrong");
+  assert(j.period === "TERM" ? typeof j.termName === "string" : true,
+    "TERM period without termName");
+  for (const row of j.rows) {
+    assert(row.pct < 75 && row.totalDays >= j.minDays, `row violates threshold/minDays: ${JSON.stringify(row)}`);
+    assert(!/sandbox/i.test(row.sectionLabel ?? ""), "sandbox student in org at-risk list");
+  }
+  // Teacher gets a scoped (never erroring) view.
+  const t = await api(teacher.token, `/school/orgs/${ORG}/attendance/at-risk`);
+  assert(t.status === 200, `teacher at-risk ${t.status}`);
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

@@ -1209,6 +1209,39 @@ export interface AcademicsResponse {
 export const getOrgAcademics = (orgId: string): Promise<AcademicsResponse> =>
   apiCall(`/school/orgs/${orgId}/academics`);
 
+// ─── Chronic absentees ─────────────────────────────────────────────────
+export interface AtRiskAttendanceRow {
+  studentId: string;
+  name: string;
+  grNumber: string | null;
+  sectionId: string | null;
+  sectionLabel: string;
+  presentDays: number;
+  excusedDays: number;
+  totalDays: number;
+  pct: number;
+}
+export interface AtRiskAttendanceResponse {
+  threshold: number;
+  minDays: number;
+  period: string;
+  termName: string | null;
+  windowStart: string;
+  windowEnd: string;
+  rows: AtRiskAttendanceRow[];
+}
+/** period: "TERM" (current academic term, falls back to MTD when no term
+ *  is configured) or T/WTD/MTD/QTD/YTD. Scope-aware — teachers get only
+ *  their own sections. */
+export const getAtRiskAttendance = (
+  orgId: string,
+  period: string = "TERM",
+  threshold: number = 75,
+): Promise<AtRiskAttendanceResponse> =>
+  apiCall(
+    `/school/orgs/${orgId}/attendance/at-risk?period=${encodeURIComponent(period)}&threshold=${threshold}`,
+  );
+
 // ─── Phase 6c: office staff snapshot ───────────────────────────────────
 
 export interface OfficeSnapshot {
