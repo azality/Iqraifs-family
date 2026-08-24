@@ -306,6 +306,9 @@ export function ManageTimetable() {
               </Button>
             </Link>
           )}
+          <Link to={`/school/orgs/${orgId}/admin/timetable/master`}>
+            <Button variant="outline" size="sm">Master view</Button>
+          </Link>
           <Link to={`/school/orgs/${orgId}/admin/timetable/substitutions`}>
             <Button variant="outline" size="sm">Substitutions</Button>
           </Link>

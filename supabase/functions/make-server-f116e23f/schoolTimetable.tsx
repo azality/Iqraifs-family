@@ -29,6 +29,7 @@ import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { hasAnyRoleInOrg as hasAnyOrgRole, hasAdminOrPrincipal as isAdminOrPrincipal } from "./schoolAuth.ts";
 import { todayInOrgTz } from "./tz.ts";
+import * as kv from "./kv_store.tsx";
 
 const SLOT_KINDS = new Set([
   "academic", "break", "prayer", "hifz", "assembly", "other",
@@ -473,6 +474,18 @@ export function installTimetable(school: Hono): void {
     } catch { return null; }
   }
 
+  // ─── Intentional-merge marks ────────────────────────────────────────
+  // Some overlapping entries are deliberate (Qaidah merges Junior A+B;
+  // Senior Deeniyat runs both sections together). Admin marks the pair
+  // once; conflict scans then report it as merged instead of red. Stored
+  // in KV — it's a small per-org set of entry-id pairs, no DDL needed.
+  const mergeMarkKey = (orgId: string) => `school:${orgId}:timetable-merge-marks`;
+  const pairKey = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`);
+  async function loadMergeMarks(orgId: string): Promise<Set<string>> {
+    const raw = await kv.get(mergeMarkKey(orgId));
+    return new Set(Array.isArray(raw) ? raw : []);
+  }
+
   function conflictToJson(e: any) {
     return {
       entryId: e.id,
@@ -722,6 +735,7 @@ export function installTimetable(school: Hono): void {
     const rows = ((data ?? []) as any[]).filter(
       (e) => e.slot && !e.slot.archived_at && e.teacher_user_id,
     );
+    const mergeMarks = await loadMergeMarks(orgId);
     const seen = new Set<string>();
     type Pair = { teacherUserId: string; teacherName: string | null; dayOfWeek: number; a: any; b: any };
     const pairs: Pair[] = [];
@@ -731,6 +745,7 @@ export function installTimetable(school: Hono): void {
         if (a.teacher_user_id !== b.teacher_user_id) continue;
         if (a.slot.day_of_week !== b.slot.day_of_week) continue;
         if (!timesOverlap(a.slot.start_time, a.slot.end_time, b.slot.start_time, b.slot.end_time)) continue;
+        if (mergeMarks.has(pairKey(a.id, b.id))) continue;
         const key = a.id < b.id ? `${a.id}:${b.id}` : `${b.id}:${a.id}`;
         if (seen.has(key)) continue;
         seen.add(key);
@@ -751,6 +766,180 @@ export function installTimetable(school: Hono): void {
     }
     for (const p of pairs) p.teacherName = nameMap.get(p.teacherUserId) ?? null;
     return c.json({ conflicts: pairs });
+  });
+
+  // ─── Master timetable view ──────────────────────────────────────────
+  // One day, whole school: sections grouped into timing bands by
+  // schedule_key (main school / Junior-Senior / Hifz run different
+  // period clocks), every entry with subject + teacher name, plus
+  // teacher-overlap conflicts computed on actual clock time ACROSS
+  // bands — a slot-number comparison can never catch e.g. a teacher in
+  // Senior 10:30-11:00 and Junior 10:55-11:30. Admin/principal only.
+  school.get("/orgs/:orgId/timetable/master", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await isAdminOrPrincipal(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const day = Number(c.req.query("day") ?? "1");
+    if (!Number.isInteger(day) || day < 1 || day > 7) {
+      return c.json({ error: "day must be 1-7" }, 400);
+    }
+
+    const [slotsRes, allSlotDaysRes, classesRes, entriesRes] = await Promise.all([
+      serviceRoleClient
+        .from("timetable_slot")
+        .select("id, name, day_of_week, start_time, end_time, kind, display_order, schedule_key")
+        .eq("org_id", orgId)
+        .eq("day_of_week", day)
+        .is("archived_at", null)
+        .order("start_time"),
+      serviceRoleClient
+        .from("timetable_slot")
+        .select("day_of_week")
+        .eq("org_id", orgId)
+        .is("archived_at", null),
+      serviceRoleClient
+        .from("class")
+        .select("id, name, class_section(id, name, schedule_key)")
+        .eq("org_id", orgId)
+        .order("name"),
+      serviceRoleClient
+        .from("timetable_entry")
+        .select(
+          "id, slot_id, scope_section_id, scope_hifz_group_id, teacher_user_id, room, slot:slot_id!inner(day_of_week, archived_at), section_subject:section_subject_id(class_subject:class_subject_id(name))",
+        )
+        .eq("org_id", orgId)
+        .eq("slot.day_of_week", day),
+    ]);
+
+    const slots = (slotsRes.data ?? []) as any[];
+    const days = Array.from(
+      new Set(((allSlotDaysRes.data ?? []) as any[]).map((s) => s.day_of_week)),
+    ).sort((a, b) => a - b);
+
+    // Section labels + band via class_section.schedule_key — the
+    // authoritative bell-schedule assignment (see weeklyView).
+    const sections: Array<{ id: string; label: string; scheduleKey: string }> = [];
+    for (const cl of (classesRes.data ?? []) as any[]) {
+      for (const s of cl.class_section ?? []) {
+        sections.push({
+          id: s.id,
+          label: `${cl.name} ${s.name}`,
+          scheduleKey: s.schedule_key ?? "default",
+        });
+      }
+    }
+
+    const BAND_LABELS: Record<string, string> = {
+      default: "Main School",
+      primary: "Primary (I–III)",
+      junior: "Junior",
+      senior: "Senior",
+      hifz: "Hifz",
+    };
+    const bandsMap = new Map<string, { key: string; label: string; slots: any[]; sections: any[] }>();
+    const ensureBand = (key: string) => {
+      const b = bandsMap.get(key) ?? {
+        key,
+        label: BAND_LABELS[key] ?? key,
+        slots: [],
+        sections: [],
+      };
+      bandsMap.set(key, b);
+      return b;
+    };
+    for (const s of slots) ensureBand(s.schedule_key ?? "default").slots.push(slotToJson(s));
+    for (const sec of sections) {
+      const b = ensureBand(sec.scheduleKey);
+      b.sections.push({ id: sec.id, label: sec.label });
+    }
+
+    // Entries with teacher names (batched, one lookup per unique uid).
+    const dayEntries = ((entriesRes.data ?? []) as any[]).filter(
+      (e) => e.slot && !e.slot.archived_at,
+    );
+    const uids = Array.from(new Set(dayEntries.map((e) => e.teacher_user_id).filter(Boolean)));
+    const nameMap = new Map<string, string | null>();
+    for (const uid of uids) nameMap.set(uid, await resolveTeacherName(uid));
+    const slotById = new Map(slots.map((s: any) => [s.id, s]));
+    const entries = dayEntries.map((e) => ({
+      id: e.id,
+      slotId: e.slot_id,
+      sectionId: e.scope_section_id,
+      hifzGroupId: e.scope_hifz_group_id,
+      subjectName: e.section_subject?.class_subject?.name ?? null,
+      teacherUserId: e.teacher_user_id,
+      teacherName: e.teacher_user_id ? nameMap.get(e.teacher_user_id) ?? null : null,
+      room: e.room,
+    }));
+
+    // Cross-band teacher conflicts for this day, tagged merged/real.
+    const mergeMarks = await loadMergeMarks(orgId);
+    const conflicts: Array<{
+      aId: string; bId: string; teacherUserId: string; teacherName: string | null; merged: boolean;
+    }> = [];
+    for (let i = 0; i < dayEntries.length; i++) {
+      for (let j = i + 1; j < dayEntries.length; j++) {
+        const a = dayEntries[i], b = dayEntries[j];
+        if (!a.teacher_user_id || a.teacher_user_id !== b.teacher_user_id) continue;
+        const sa = slotById.get(a.slot_id), sb = slotById.get(b.slot_id);
+        if (!sa || !sb) continue;
+        if (!timesOverlap(sa.start_time, sa.end_time, sb.start_time, sb.end_time)) continue;
+        conflicts.push({
+          aId: a.id,
+          bId: b.id,
+          teacherUserId: a.teacher_user_id,
+          teacherName: nameMap.get(a.teacher_user_id) ?? null,
+          merged: mergeMarks.has(pairKey(a.id, b.id)),
+        });
+      }
+    }
+
+    const bands = Array.from(bandsMap.values())
+      .filter((b) => b.slots.length > 0 || b.sections.length > 0)
+      .sort((a, b) => (a.key === "default" ? -1 : b.key === "default" ? 1 : a.key.localeCompare(b.key)));
+    return c.json({ day, days, bands, entries, conflicts });
+  });
+
+  // Mark / unmark an entry pair as an intentional merge.
+  school.post("/orgs/:orgId/timetable/merge-marks", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await isAdminOrPrincipal(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const body = await c.req.json().catch(() => ({}));
+    const { entryAId, entryBId } = body ?? {};
+    if (!entryAId || !entryBId || entryAId === entryBId) {
+      return c.json({ error: "entryAId and entryBId required" }, 400);
+    }
+    const { data: pairRows } = await serviceRoleClient
+      .from("timetable_entry")
+      .select("id")
+      .eq("org_id", orgId)
+      .in("id", [entryAId, entryBId]);
+    if ((pairRows ?? []).length !== 2) {
+      return c.json({ error: "entries not found in this org" }, 404);
+    }
+    const marks = await loadMergeMarks(orgId);
+    marks.add(pairKey(entryAId, entryBId));
+    await kv.set(mergeMarkKey(orgId), Array.from(marks));
+    return c.json({ ok: true, marks: Array.from(marks) });
+  });
+
+  school.delete("/orgs/:orgId/timetable/merge-marks", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await isAdminOrPrincipal(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const a = c.req.query("a"), b = c.req.query("b");
+    if (!a || !b) return c.json({ error: "a and b query params required" }, 400);
+    const marks = await loadMergeMarks(orgId);
+    marks.delete(pairKey(a, b));
+    await kv.set(mergeMarkKey(orgId), Array.from(marks));
+    return c.json({ ok: true, marks: Array.from(marks) });
   });
 
   school.delete("/orgs/:orgId/timetable-entries/:entryId", async (c) => {

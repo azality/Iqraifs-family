@@ -64,6 +64,7 @@ import { StudentReportCard } from "./pages/school/StudentReportCard";
 import { ImportCenter } from "./pages/school/ImportCenter";
 import { ManageHifzGroups } from "./pages/school/ManageHifzGroups";
 import { ManageTimetable } from "./pages/school/ManageTimetable";
+import { MasterTimetable } from "./pages/school/MasterTimetable";
 import { TimetableSchedulePage } from "./pages/school/TimetableSchedulePage";
 import { TimetableSubstitutionsPage } from "./pages/school/TimetableSubstitutionsPage";
 import { TeacherWeekView } from "./pages/school/TeacherWeekView";
@@ -553,6 +554,7 @@ export const router = createBrowserRouter([
               { path: "admin/import", element: <ImportCenter /> },
               { path: "admin/hifz-groups", element: <ManageHifzGroups /> },
               { path: "admin/timetable", element: <ManageTimetable /> },
+              { path: "admin/timetable/master", element: <MasterTimetable /> },
               { path: "admin/timetable/substitutions", element: <TimetableSubstitutionsPage /> },
               // School schedule editor (one-time setup) lives under
               // Settings since principals only touch it at year-start.

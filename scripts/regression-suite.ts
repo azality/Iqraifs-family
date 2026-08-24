@@ -348,6 +348,25 @@ await check("12. principal cockpit: academics pace block + insights activity dig
   }
 });
 
+await check("13. master timetable: bands + conflicts contract, admin-gated", async () => {
+  const r = await api(principal.token, `/school/orgs/${ORG}/timetable/master?day=1`);
+  const j = await r.json();
+  assert(r.status === 200, `master ${r.status}`);
+  assert(Array.isArray(j.bands) && j.bands.length > 0, "bands missing");
+  assert(Array.isArray(j.entries) && Array.isArray(j.conflicts), "entries/conflicts missing");
+  const band = j.bands[0];
+  assert(Array.isArray(band.slots) && Array.isArray(band.sections) && band.label, "band shape wrong");
+  // class_teacher must NOT see the whole school's grid.
+  const t = await api(teacher.token, `/school/orgs/${ORG}/timetable/master?day=1`);
+  assert(t.status === 403, `teacher expected 403, got ${t.status}`);
+  // merge-mark validates entry ownership (fake ids -> 404, nothing stored).
+  const mk = await api(principal.token, `/school/orgs/${ORG}/timetable/merge-marks`, {
+    method: "POST",
+    body: JSON.stringify({ entryAId: crypto.randomUUID(), entryBId: crypto.randomUUID() }),
+  });
+  assert(mk.status === 404, `fake merge-mark expected 404, got ${mk.status}`);
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
