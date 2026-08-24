@@ -81,7 +81,7 @@ function toMin(t: string): number {
 
 /** Core: given a set of timetable_entry rows already fetched, decorate
  *  each with topic / lesson / resources and return ordered by time. */
-async function decorate(entries: EntryRow[], limit: number): Promise<PrepItem[]> {
+async function decorate(orgId: string, entries: EntryRow[], limit: number): Promise<PrepItem[]> {
   if (entries.length === 0) return [];
 
   // Compute the "is now or later today" window — we sort by upcoming
@@ -165,13 +165,26 @@ async function decorate(entries: EntryRow[], limit: number): Promise<PrepItem[]>
   const curIds = Array.from(currByClassSubject.values()).map((c) => c.id);
   const incompleteByCur = new Map<string, TopicRow[]>();
   if (curIds.length > 0) {
+    // Term-aware: a future term's topics (2nd Assessment loaded early)
+    // must not surface as "Up next" while the current term is running.
+    // Untagged topics (whole-year syllabi) always qualify.
+    const { data: curTerm } = await serviceRoleClient
+      .from("academic_term")
+      .select("id")
+      .eq("org_id", orgId)
+      .eq("is_current", true)
+      .is("archived_at", null)
+      .limit(1)
+      .maybeSingle();
+    const currentTermId = (curTerm as any)?.id ?? null;
     const { data: topics } = await serviceRoleClient
       .from("curriculum_topic")
-      .select("id, curriculum_id, name, display_order, completed, target_date")
+      .select("id, curriculum_id, name, display_order, completed, target_date, academic_term_id")
       .in("curriculum_id", curIds)
       .eq("completed", false)
       .order("display_order", { ascending: true });
     for (const t of (topics ?? []) as any[]) {
+      if (t.academic_term_id && t.academic_term_id !== currentTermId) continue;
       const arr = incompleteByCur.get(t.curriculum_id) ?? [];
       arr.push({ id: t.id, name: t.name, order: t.display_order, targetDate: t.target_date ?? null });
       incompleteByCur.set(t.curriculum_id, arr);
@@ -348,7 +361,7 @@ export function installLessonPrep(school: Hono): void {
       .select(ENTRY_SELECT)
       .eq("org_id", orgId)
       .eq("teacher_user_id", userId);
-    const items = await decorate((data ?? []) as EntryRow[], limit);
+    const items = await decorate(orgId, (data ?? []) as EntryRow[], limit);
     return c.json({ upcoming: items });
   });
 
@@ -393,7 +406,7 @@ export function installLessonPrep(school: Hono): void {
       .select(ENTRY_SELECT)
       .eq("org_id", (stu as any).org_id)
       .eq("scope_section_id", sectionId);
-    const items = await decorate((data ?? []) as EntryRow[], limit);
+    const items = await decorate((stu as any).org_id, (data ?? []) as EntryRow[], limit);
     return c.json({ upcoming: items });
   });
 

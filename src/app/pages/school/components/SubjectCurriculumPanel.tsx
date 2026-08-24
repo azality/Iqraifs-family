@@ -7,6 +7,7 @@
 // Teachers later log lessons against the topics defined here.
 
 import { useEffect, useMemo, useState } from "react";
+import { useParams } from "react-router";
 import {
   ChevronDown,
   ChevronRight,
@@ -33,6 +34,8 @@ import {
   updateClassCurriculumTopic,
   deleteClassCurriculumTopic,
   reorderClassCurriculumTopics,
+  listTerms,
+  type AcademicTerm,
   type ClassCurriculum,
   type ClassCurriculumTopic,
   type CurriculumYearSummary,
@@ -119,6 +122,25 @@ export function SubjectCurriculumPanel({
   };
   const [loadedOnce, setLoadedOnce] = useState(false);
 
+  // Assessment terms (for topic->term tagging). Loaded once per mount;
+  // orgId comes from the route. Empty for schools that never set up terms.
+  const { orgId = "" } = useParams();
+  const [terms, setTerms] = useState<AcademicTerm[]>([]);
+  const [draftTermId, setDraftTermId] = useState<string>(""); // "" = inherit
+  useEffect(() => {
+    if (!orgId) return;
+    listTerms(orgId)
+      .then((r) => setTerms((r.terms ?? []).filter((t) => !t.archivedAt)))
+      .catch(() => {});
+  }, [orgId]);
+  const currentTermId = useMemo(
+    () => terms.find((t) => t.isCurrent)?.id ?? null,
+    [terms],
+  );
+  const termName = (id: string) => terms.find((t) => t.id === id)?.name ?? "other term";
+  const draftTermValue = (): string | null | undefined =>
+    draftTermId === "" ? undefined : draftTermId === "whole-year" ? null : draftTermId;
+
   /** Best candidate prior year to copy from: most recent year (newest first
    *  in availableYears) that's NOT the current year and has at least one
    *  topic. Returns null if no usable source exists. */
@@ -189,9 +211,11 @@ export function SubjectCurriculumPanel({
     try {
       const c = await ensureCurriculum();
       if (!c) return;
+      const termVal = draftTermValue();
       await addClassCurriculumTopic(c.id, {
         name,
         targetDate: draftTargetDate || null,
+        ...(termVal !== undefined ? { academicTermId: termVal } : {}),
       });
       setDraftName("");
       setDraftTargetDate("");
@@ -249,7 +273,12 @@ export function SubjectCurriculumPanel({
     try {
       const c = await ensureCurriculum();
       if (!c) return;
-      const r = await bulkAddClassCurriculumTopics(c.id, names);
+      const termVal = draftTermValue();
+      const r = await bulkAddClassCurriculumTopics(
+        c.id,
+        names,
+        termVal !== undefined ? { academicTermId: termVal } : {},
+      );
       const skipped = names.length - r.added;
       toast.success(
         skipped > 0
@@ -503,6 +532,14 @@ export function SubjectCurriculumPanel({
                             {new Date(t.targetDate).toLocaleDateString()}
                           </span>
                         )}
+                        {t.academicTermId && t.academicTermId !== currentTermId && terms.length > 0 && (
+                          <span
+                            className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-amber-200 whitespace-nowrap"
+                            title="This topic belongs to a different assessment term - it doesn't count toward current progress and won't appear in teachers' Up Next until that term becomes current."
+                          >
+                            {termName(t.academicTermId)}
+                          </span>
+                        )}
                         {canManage && (
                           <div className="flex items-center gap-0.5">
                             <button
@@ -573,6 +610,22 @@ export function SubjectCurriculumPanel({
                     className="h-7 w-36"
                     title="Target date (optional)"
                   />
+                  {terms.length > 0 && (
+                    <select
+                      value={draftTermId}
+                      onChange={(e) => setDraftTermId(e.target.value)}
+                      className="h-7 rounded-md border border-slate-200 bg-white px-1.5 text-xs text-slate-700"
+                      title="Which assessment term is this topic for?"
+                    >
+                      <option value="">Term: match syllabus</option>
+                      <option value="whole-year">Whole year</option>
+                      {terms.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name}{t.isCurrent ? " (current)" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                   <Button
                     size="sm"
                     onClick={handleAddTopic}
@@ -616,6 +669,24 @@ export function SubjectCurriculumPanel({
                     className="text-sm font-mono"
                     autoFocus
                   />
+                  {terms.length > 0 && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <span className="text-[10px] text-slate-500">These topics are for:</span>
+                      <select
+                        value={draftTermId}
+                        onChange={(e) => setDraftTermId(e.target.value)}
+                        className="h-7 rounded-md border border-slate-200 bg-white px-1.5 text-xs text-slate-700"
+                      >
+                        <option value="">Term: match syllabus</option>
+                        <option value="whole-year">Whole year</option>
+                        {terms.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name}{t.isCurrent ? " (current)" : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                   <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                     <span className="text-[10px] text-slate-500">
                       {

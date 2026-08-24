@@ -173,8 +173,45 @@ function topicToJson(r: any) {
     displayOrder: r.display_order,
     targetDate: r.target_date,
     completed: !!r.completed,
+    // Assessment-term attribution: null = whole-year syllabus.
+    academicTermId: r.academic_term_id ?? null,
     createdAt: r.created_at,
   };
+}
+
+/** Validate a client-supplied term id belongs to this org. Returns the id,
+ *  null for explicit "whole-year", or false when invalid. */
+async function resolveTermId(
+  orgId: string,
+  raw: unknown,
+): Promise<string | null | false> {
+  if (raw === null || raw === "") return null;
+  if (typeof raw !== "string") return false;
+  const { data } = await serviceRoleClient
+    .from("academic_term")
+    .select("id")
+    .eq("id", raw)
+    .eq("org_id", orgId)
+    .maybeSingle();
+  return data ? raw : false;
+}
+
+/** Default term for a new topic: the most common term among the
+ *  curriculum's existing topics (including "none"). Keeps a teacher adding
+ *  one topic mid-term consistent with the rest of the syllabus without
+ *  making them think about terms. */
+async function inheritTermId(curriculumId: string): Promise<string | null> {
+  const { data } = await serviceRoleClient
+    .from("curriculum_topic")
+    .select("academic_term_id")
+    .eq("curriculum_id", curriculumId);
+  const votes = new Map<string | null, number>();
+  for (const r of (data ?? []) as any[]) {
+    const k = r.academic_term_id ?? null;
+    votes.set(k, (votes.get(k) ?? 0) + 1);
+  }
+  if (votes.size === 0) return null;
+  return Array.from(votes.entries()).sort((a, b) => b[1] - a[1])[0][0];
 }
 
 function curriculumToJson(r: any) {
@@ -563,6 +600,17 @@ export function installCurriculum(school: Hono) {
       displayOrder = ((existing?.[0] as any)?.display_order ?? -1) + 1;
     }
 
+    // Term: explicit value validated against the org; omitted = inherit
+    // the curriculum's dominant term.
+    let termId: string | null;
+    if ("academicTermId" in (body ?? {})) {
+      const resolved = await resolveTermId(ctx.orgId, body.academicTermId);
+      if (resolved === false) return c.json({ error: "invalid academicTermId" }, 400);
+      termId = resolved;
+    } else {
+      termId = await inheritTermId(curriculumId);
+    }
+
     const { data, error } = await serviceRoleClient
       .from("curriculum_topic")
       .insert({
@@ -571,6 +619,7 @@ export function installCurriculum(school: Hono) {
         description,
         target_date: targetDate,
         display_order: displayOrder,
+        academic_term_id: termId,
       })
       .select()
       .single();
@@ -629,6 +678,15 @@ export function installCurriculum(school: Hono) {
         -1,
       ) + 1;
 
+    let bulkTermId: string | null;
+    if ("academicTermId" in (body ?? {})) {
+      const resolved = await resolveTermId(ctx.orgId, body.academicTermId);
+      if (resolved === false) return c.json({ error: "invalid academicTermId" }, 400);
+      bulkTermId = resolved;
+    } else {
+      bulkTermId = await inheritTermId(curriculumId);
+    }
+
     const rows = cleaned
       .filter((n) => !existingLower.has(n.toLowerCase()))
       .map((name, i) => ({
@@ -637,6 +695,7 @@ export function installCurriculum(school: Hono) {
         description: null as string | null,
         target_date: null as string | null,
         display_order: startOrder + i,
+        academic_term_id: bulkTermId,
       }));
     if (rows.length === 0) {
       return c.json({ added: 0, topics: [] });
@@ -701,6 +760,11 @@ export function installCurriculum(school: Hono) {
     }
     if (typeof body?.completed === "boolean") {
       patch.completed = body.completed;
+    }
+    if ("academicTermId" in (body ?? {})) {
+      const resolved = await resolveTermId(ctx.orgId, body.academicTermId);
+      if (resolved === false) return c.json({ error: "invalid academicTermId" }, 400);
+      patch.academic_term_id = resolved;
     }
     if (Object.keys(patch).length === 0) {
       return c.json({ error: "nothing to update" }, 400);

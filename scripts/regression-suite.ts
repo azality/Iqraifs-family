@@ -373,6 +373,37 @@ await check("13. master timetable: bands + conflicts contract, admin-gated", asy
   assert(mk.status === 404, `fake merge-mark expected 404, got ${mk.status}`);
 });
 
+await check("14. topic-term tagging: create/patch with term, invalid term rejected", async () => {
+  const termsR = await api(principal.token, `/school/orgs/${ORG}/terms`);
+  const termsJ = await termsR.json();
+  assert(termsR.status === 200 && Array.isArray(termsJ.terms), `terms ${termsR.status}`);
+  const current = termsJ.terms.find((t: any) => t.isCurrent);
+  assert(current, "no current term configured");
+  // Create tagged to the current term.
+  const mk = await api(teacher.token, `/school/class-curriculum/${qaCur.id}/topics`, {
+    method: "POST",
+    body: JSON.stringify({ name: `QA term topic ${Date.now()}`, academicTermId: current.id }),
+  });
+  const mkj = await mk.json();
+  assert(mk.status === 201 && mkj.topic?.academicTermId === current.id,
+    `create tagged: ${mk.status} termId=${mkj.topic?.academicTermId}`);
+  // Foreign/garbage term id must be rejected.
+  const bad = await api(teacher.token, `/school/class-curriculum/${qaCur.id}/topics`, {
+    method: "POST",
+    body: JSON.stringify({ name: "QA bad term", academicTermId: crypto.randomUUID() }),
+  });
+  assert(bad.status === 400, `bad term expected 400, got ${bad.status}`);
+  // PATCH to whole-year clears the tag.
+  const up = await api(teacher.token, `/school/curriculum-topics/${mkj.topic.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ academicTermId: null }),
+  });
+  const upj = await up.json();
+  assert(up.status === 200 && upj.topic?.academicTermId === null,
+    `clear tag: ${up.status} termId=${upj.topic?.academicTermId}`);
+  await api(teacher.token, `/school/curriculum-topics/${mkj.topic.id}`, { method: "DELETE" });
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
