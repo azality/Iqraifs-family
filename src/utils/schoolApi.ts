@@ -4666,6 +4666,8 @@ export interface LessonPrepItem {
    *  "plan this topic for that day" action writes to target_date. */
   entryDate: string;
   classSubjectId: string | null;
+  /** Section the entry belongs to — target for the Prepare-lesson CTA. */
+  sectionId?: string | null;
   /** "planned" = teacher set target_date for this day; "next" = fallback
    *  to the next incomplete topic in sequence. */
   topicSource: "planned" | "next" | null;

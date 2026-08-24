@@ -207,17 +207,24 @@ function UpNextCta({ item, audience, orgId, studentId }: {
   studentId?: string;
 }) {
   if (audience === "teacher" && orgId) {
+    // NOTE: these previously pointed at /admin/lessons/* — routes that
+    // never existed, so tapping them rendered a blank shell (pilot
+    // report: "Prepare lesson blacks out"). Real routes: LessonForm at
+    // sections/:sectionId/lessons/new, edit at lessons/:lessonId/edit.
     if (item.prepState === "lesson_ready" && item.lesson) {
       return (
-        <Link to={`/school/orgs/${orgId}/admin/lessons/${item.lesson.id}`}
+        <Link to={`/school/orgs/${orgId}/lessons/${item.lesson.id}/edit`}
               className="inline-flex items-center gap-1 text-xs font-medium text-indigo-700 hover:text-indigo-900">
           Review lesson <ChevronRight className="h-3 w-3" />
         </Link>
       );
     }
-    if (item.prepState === "topic_pending" && item.topic) {
+    if (item.prepState === "topic_pending" && item.topic && item.sectionId) {
+      const q = new URLSearchParams();
+      q.set("topicId", item.topic.id);
+      if (item.classSubjectId) q.set("classSubjectId", item.classSubjectId);
       return (
-        <Link to={`/school/orgs/${orgId}/admin/lessons/new?topicId=${item.topic.id}`}
+        <Link to={`/school/orgs/${orgId}/sections/${item.sectionId}/lessons/new?${q}`}
               className="inline-flex items-center gap-1 text-xs font-medium text-amber-800 hover:text-amber-950">
           Prepare lesson <ChevronRight className="h-3 w-3" />
         </Link>
