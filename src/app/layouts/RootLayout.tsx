@@ -3,7 +3,7 @@ import { ChildSelector } from "../components/ChildSelector";
 import { ModeSwitcher } from "../components/ModeSwitcher";
 import { WorkspaceSwitcher } from "../components/WorkspaceSwitcher";
 import { useWorkspace } from "../contexts/WorkspaceContext";
-import { ManageToolbar } from "../components/school-ui";
+import { ManageToolbar, schoolNavGroupsForRole } from "../components/school-ui";
 import { viewerRoleForOrg } from "../../utils/schoolApi";
 import {
   Home, FileText, BarChart3, Settings, Calendar, Gift, Shield,
@@ -11,6 +11,7 @@ import {
   Sparkles, Database, ChevronDown, Eye, School, Gamepad2,
 } from "lucide-react";
 import { cn } from "../components/ui/utils";
+import { useTranslation } from "react-i18next";
 import { useViewMode } from "../contexts/ViewModeContext";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../components/ui/button";
@@ -126,6 +127,7 @@ export function RootLayout() {
   const { viewMode, switchToParentMode, isPreviewingAsKid } = useViewMode();
   const { workspace, me: schoolMe } = useWorkspace();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const { t } = useTranslation();
   const { logout, user } = useAuth();
 
   const isKidMode = viewMode === 'kid';
@@ -150,12 +152,28 @@ export function RootLayout() {
   // Visible groups — workspace selects the base set; kid mode (family
   // workspace only) further filters items to childAccess.
   const visibleGroups: NavGroup[] = useMemo(() => {
-    if (isSchoolWorkspace) return schoolNavGroups;
+    if (isSchoolWorkspace) {
+      // Mirror the desktop ManageToolbar in the mobile drawer — same
+      // role-aware destinations, drawer-shaped. Falls back to the bare
+      // Dashboard link until the org id resolves.
+      if (!schoolOrgId) return schoolNavGroups;
+      return schoolNavGroupsForRole(schoolOrgId, schoolViewerRole, t).map((g) => ({
+        label: g.label,
+        key: `school-${g.key}`,
+        accent: 'bg-indigo-500',
+        items: g.items.map((it) => ({
+          name: it.label,
+          href: it.to,
+          icon: it.Icon,
+          childAccess: false,
+        })),
+      }));
+    }
     if (!isKidMode) return parentNavGroups;
     return parentNavGroups
       .map(g => ({ ...g, items: g.items.filter(i => i.childAccess) }))
       .filter(g => g.items.length > 0);
-  }, [isKidMode, isSchoolWorkspace]);
+  }, [isKidMode, isSchoolWorkspace, schoolOrgId, schoolViewerRole, t]);
 
   const getHref = (item: NavigationItem) =>
     isKidMode && item.kidHref ? item.kidHref : item.href;
