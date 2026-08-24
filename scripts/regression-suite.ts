@@ -76,6 +76,9 @@ const { data: sandboxSec } = await admin.from("class_section").select("id").eq("
 
 const teacher = await ensureUser("qa-teacher@azality.com", "QA Teacher", "class_teacher");
 const office = await ensureUser("qa-office@azality.com", "QA Office", "office_staff");
+// Org-view account for principal-cockpit checks (determineScope only
+// grants org scope to principal/admin/org-teacher, not office_staff).
+const principal = await ensureUser("qa-principal@azality.com", "QA Principal", "principal");
 
 // QA Subject in Sandbox, taught by qa-teacher (subject teacher, NOT the CT
 // — that asymmetry is exactly what the access checks exercise).
@@ -311,6 +314,38 @@ await check("11. lessons list carries lessonDate + taughtByName (feed contract)"
   assert(found.lessonDate === today, `lessonDate wrong: ${found.lessonDate}`);
   assert(typeof found.taughtByName === "string" && found.taughtByName.length > 0, "taughtByName missing (pilot bug: 'Taught by —')");
   await api(teacher.token, `/school/orgs/${ORG}/lessons/${mkj.lesson.id}`, { method: "DELETE" });
+});
+
+await check("12. principal cockpit: academics pace block + insights activity digest", async () => {
+  // Pace contract on /academics — the Curriculum tile + pace card read this.
+  const a = await api(office.token, `/school/orgs/${ORG}/academics`);
+  const aj = await a.json();
+  assert(a.status === 200, `academics ${a.status}`);
+  assert(aj.pace && Array.isArray(aj.pace.laggards), "pace.laggards missing");
+  assert(
+    aj.pace.termName === null || typeof aj.pace.expectedPct === "number",
+    "current term exists but expectedPct not computed",
+  );
+  if (aj.pace.laggards.length > 0) {
+    const l = aj.pace.laggards[0];
+    assert(
+      typeof l.pct === "number" && typeof l.topicsTotal === "number" && l.className,
+      "laggard row missing fields",
+    );
+  }
+  // Insights feed: org viewer gets the per-day attendance digest, not one
+  // row per section, and the endpoint tolerates the new flag/early_release
+  // kinds without erroring.
+  const i = await api(principal.token, `/school/orgs/${ORG}/insights?period=MTD`);
+  const ij = await i.json();
+  assert(i.status === 200 && Array.isArray(ij.recentActivity), `insights ${i.status}`);
+  const attRows = ij.recentActivity.filter((r: any) => r.kind === "attendance");
+  for (const r of attRows) {
+    assert(
+      /Attendance taken in \d+\/\d+ sections/.test(r.summary),
+      `org attendance row not digested: "${r.summary}"`,
+    );
+  }
 });
 
 // ── Summary ─────────────────────────────────────────────────────────────

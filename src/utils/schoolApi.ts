@@ -1166,6 +1166,20 @@ export interface AcademicsResponse {
     untaggedLessonsLast30: number;
     untaggedAssignmentsLast30: number;
   };
+  pace?: {
+    termName: string | null;
+    termStart: string | null;
+    termEnd: string | null;
+    expectedPct: number | null;
+    laggards: Array<{
+      classSubjectId: string;
+      className: string;
+      subjectName: string;
+      topicsDone: number;
+      topicsTotal: number;
+      pct: number;
+    }>;
+  };
   subjectsAtRisk: Array<{
     sectionSubjectId: string | null;
     classSectionId: string;

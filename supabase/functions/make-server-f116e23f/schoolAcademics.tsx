@@ -68,20 +68,79 @@ export function installAcademics(school: Hono) {
       }
     }
 
-    // Bulk topic counts for the latest curricula.
+    // Bulk topic counts for the latest curricula — paginated (PostgREST
+    // caps a single select at 1000 rows; the school is already at 700+
+    // topics, so one unpaged query would silently undercount soon).
+    // Tally per curriculum so we can rank class-subjects by pace below.
     const latestCurIds = Array.from(latestCurriculumByClassSubject.values());
     let totalTopics = 0;
     let completedTopics = 0;
+    const tallyByCurriculum = new Map<string, { done: number; total: number }>();
     if (latestCurIds.length > 0) {
-      const { data: topics } = await serviceRoleClient
-        .from("curriculum_topic")
-        .select("completed")
-        .in("curriculum_id", latestCurIds);
-      for (const t of (topics ?? []) as any[]) {
-        totalTopics += 1;
-        if (t.completed) completedTopics += 1;
+      const pageSize = 1000;
+      for (let from = 0; ; from += pageSize) {
+        const { data: topics } = await serviceRoleClient
+          .from("curriculum_topic")
+          .select("curriculum_id, completed")
+          .in("curriculum_id", latestCurIds)
+          .range(from, from + pageSize - 1);
+        const rows = (topics ?? []) as any[];
+        for (const t of rows) {
+          totalTopics += 1;
+          if (t.completed) completedTopics += 1;
+          const cur = tallyByCurriculum.get(t.curriculum_id) ?? { done: 0, total: 0 };
+          cur.total += 1;
+          if (t.completed) cur.done += 1;
+          tallyByCurriculum.set(t.curriculum_id, cur);
+        }
+        if (rows.length < pageSize) break;
       }
     }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // 1b. Curriculum pace vs the current term's calendar. Expected % is the
+    //     fraction of the term elapsed as of today — a straight line from
+    //     start_date to end_date. Only meaningful when a current term with
+    //     both dates exists; otherwise expectedPct is null and the UI
+    //     prompts setup instead of pretending.
+    // ────────────────────────────────────────────────────────────────────────
+    const { data: currentTerm } = await serviceRoleClient
+      .from("academic_term")
+      .select("name, start_date, end_date")
+      .eq("org_id", orgId)
+      .eq("is_current", true)
+      .is("archived_at", null)
+      .limit(1)
+      .maybeSingle();
+
+    let expectedPct: number | null = null;
+    if (currentTerm?.start_date && currentTerm?.end_date) {
+      const startMs = Date.parse(currentTerm.start_date);
+      const endMs = Date.parse(currentTerm.end_date);
+      if (Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs) {
+        const frac = (Date.now() - startMs) / (endMs - startMs);
+        expectedPct = Math.round(Math.min(1, Math.max(0, frac)) * 100);
+      }
+    }
+
+    const perClassSubject = (classSubjects ?? [])
+      .map((cs: any) => {
+        const curId = latestCurriculumByClassSubject.get(cs.id);
+        const tally = curId ? tallyByCurriculum.get(curId) : undefined;
+        if (!tally || tally.total === 0) return null;
+        return {
+          classSubjectId: cs.id,
+          className: cs.class?.name ?? "Class",
+          subjectName: cs.name,
+          topicsDone: tally.done,
+          topicsTotal: tally.total,
+          pct: Math.round((tally.done / tally.total) * 100),
+        };
+      })
+      .filter((r): r is NonNullable<typeof r> => r !== null);
+    const paceLaggards = [...perClassSubject]
+      .sort((a, b) => a.pct - b.pct || b.topicsTotal - a.topicsTotal)
+      .slice(0, 6);
 
     // ────────────────────────────────────────────────────────────────────────
     // 2. Topic resources tally + per-kind breakdown.
@@ -230,6 +289,13 @@ export function installAcademics(school: Hono) {
         progressPct:
           totalTopics > 0 ? Math.round((completedTopics / totalTopics) * 100) : 0,
         subjectCount: csIds.length,
+      },
+      pace: {
+        termName: currentTerm?.name ?? null,
+        termStart: currentTerm?.start_date ?? null,
+        termEnd: currentTerm?.end_date ?? null,
+        expectedPct,
+        laggards: paceLaggards,
       },
       resources,
       hygiene: {
