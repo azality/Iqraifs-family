@@ -40,6 +40,9 @@ export function MasterTimetable() {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"grid" | "teachers">("grid");
   const [markBusy, setMarkBusy] = useState<string | null>(null);
+  // Filters: empty set = all classes; null = all teachers.
+  const [classFilter, setClassFilter] = useState<Set<string>>(new Set());
+  const [teacherFilter, setTeacherFilter] = useState<string | null>(null);
 
   const load = useCallback(async (d: number) => {
     setLoading(true);
@@ -162,6 +165,52 @@ export function MasterTimetable() {
   const realConflicts = (data?.conflicts ?? []).filter((c) => !c.merged);
   const mergedConflicts = (data?.conflicts ?? []).filter((c) => c.merged);
 
+  // ── Filters ────────────────────────────────────────────────────────
+  // Section labels are "<class name> <section name>"; stripping the last
+  // token yields the class, which is the granularity people filter by.
+  const classOfLabel = (label: string) => label.replace(/\s+\S+$/, "");
+  const allClasses = useMemo(() => {
+    const seen: string[] = [];
+    for (const b of data?.bands ?? []) {
+      for (const s of b.sections) {
+        const c = classOfLabel(s.label);
+        if (!seen.includes(c)) seen.push(c);
+      }
+    }
+    return seen;
+  }, [data]);
+  const allTeachers = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const e of data?.entries ?? []) {
+      if (e.teacherUserId && !m.has(e.teacherUserId)) m.set(e.teacherUserId, e.teacherName ?? "—");
+    }
+    return Array.from(m.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [data]);
+  const teacherSectionIds = useMemo(() => {
+    if (!teacherFilter) return null;
+    const s = new Set<string>();
+    for (const e of data?.entries ?? []) {
+      if (e.teacherUserId === teacherFilter && e.sectionId) s.add(e.sectionId);
+    }
+    return s;
+  }, [data, teacherFilter]);
+  const toggleClass = (c: string) => {
+    setClassFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(c)) next.delete(c);
+      else next.add(c);
+      return next;
+    });
+  };
+  const sectionVisible = (sec: { id: string; label: string }): boolean => {
+    if (classFilter.size > 0 && !classFilter.has(classOfLabel(sec.label))) return false;
+    if (teacherSectionIds && !teacherSectionIds.has(sec.id)) return false;
+    return true;
+  };
+  const filtersActive = classFilter.size > 0 || teacherFilter !== null;
+
   return (
     <div className="space-y-5">
       <div className="flex items-end justify-between flex-wrap gap-3">
@@ -212,6 +261,47 @@ export function MasterTimetable() {
           ))}
         </div>
       </div>
+
+      {/* Filters: class chips + teacher picker */}
+      {!loading && data && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
+          <span className="text-[11px] uppercase tracking-wide text-slate-400">Filter</span>
+          {allClasses.map((c) => (
+            <button
+              key={c}
+              type="button"
+              onClick={() => toggleClass(c)}
+              className={
+                "rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors " +
+                (classFilter.has(c)
+                  ? "bg-indigo-600 text-white"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200")
+              }
+            >
+              {c}
+            </button>
+          ))}
+          <select
+            value={teacherFilter ?? ""}
+            onChange={(e) => setTeacherFilter(e.target.value || null)}
+            className="ml-auto rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700"
+          >
+            <option value="">All teachers</option>
+            {allTeachers.map((t) => (
+              <option key={t.id} value={t.id}>{t.name}</option>
+            ))}
+          </select>
+          {filtersActive && (
+            <button
+              type="button"
+              onClick={() => { setClassFilter(new Set()); setTeacherFilter(null); }}
+              className="rounded-full bg-slate-800 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-slate-700"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      )}
 
       {error && (
         <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>
@@ -283,6 +373,7 @@ export function MasterTimetable() {
       {!loading && data && tab === "grid" && (
         <div className="space-y-5">
           {data.bands
+            .map((band) => ({ ...band, sections: band.sections.filter(sectionVisible) }))
             .filter((b) => b.sections.length > 0 && b.slots.length > 0)
             .map((band) => (
               <Card key={band.key}>
@@ -327,11 +418,14 @@ export function MasterTimetable() {
                                   <td key={sec.id} className="px-1 py-1">
                                     {cell.map((e) => {
                                       const st = conflictStatus.get(e.id);
+                                      const dimmed =
+                                        teacherFilter !== null && e.teacherUserId !== teacherFilter;
                                       return (
                                         <div
                                           key={e.id}
                                           className={
                                             "rounded px-1.5 py-1 mb-0.5 " +
+                                            (dimmed ? "opacity-30 " : "") +
                                             (st === "real"
                                               ? "bg-rose-50 ring-1 ring-rose-300"
                                               : st === "merged"
@@ -342,7 +436,22 @@ export function MasterTimetable() {
                                         >
                                           <div className="font-medium text-slate-800 leading-tight">{e.subjectName ?? "—"}</div>
                                           <div className="text-[10px] text-slate-500 leading-tight">
-                                            {e.teacherName ?? "—"}
+                                            {e.teacherUserId ? (
+                                              <button
+                                                type="button"
+                                                className="hover:text-indigo-600 hover:underline"
+                                                title={`Show only ${e.teacherName ?? "this teacher"}'s periods`}
+                                                onClick={() =>
+                                                  setTeacherFilter((cur) =>
+                                                    cur === e.teacherUserId ? null : e.teacherUserId,
+                                                  )
+                                                }
+                                              >
+                                                {e.teacherName ?? "—"}
+                                              </button>
+                                            ) : (
+                                              "—"
+                                            )}
                                             {e.room ? ` · ${e.room}` : ""}
                                             {st === "merged" ? " · merged" : ""}
                                           </div>
@@ -385,7 +494,9 @@ export function MasterTimetable() {
                   </tr>
                 </thead>
                 <tbody>
-                  {teacherMatrix.rows.map((row) => (
+                  {teacherMatrix.rows
+                    .filter((r) => !teacherFilter || r.teacherUserId === teacherFilter)
+                    .map((row) => (
                     <tr key={row.teacherUserId} className="border-b border-slate-50 align-top">
                       <td className="sticky left-0 bg-white px-3 py-1.5 font-medium text-slate-700 whitespace-nowrap z-10">
                         {row.teacherName}
