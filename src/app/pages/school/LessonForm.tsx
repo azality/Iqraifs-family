@@ -4,7 +4,7 @@
 // /lessons/:lessonId/edit. We detect mode by which param is present.
 
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -111,6 +111,25 @@ export function LessonForm() {
       .then((r) => setSubjects(r.subjects))
       .catch(() => setSubjects([]));
   }, [resolvedSectionId, sectionId]);
+
+  // Deep-link preselection — the Up Next card's "Prepare lesson" CTA
+  // arrives with ?classSubjectId=…&topicId=… so the form opens on the
+  // right subject with the topic already tagged.
+  const [searchParams] = useSearchParams();
+  useEffect(() => {
+    if (editMode || sectionSubjectId) return;
+    const want = searchParams.get("classSubjectId");
+    if (!want) return;
+    const match = subjects.find((s) => s.classSubjectId === want);
+    if (match) setSectionSubjectId(match.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subjects]);
+  useEffect(() => {
+    if (editMode || curriculumTopicId) return;
+    const want = searchParams.get("topicId");
+    if (want && topics.some((t) => t.id === want)) setCurriculumTopicId(want);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [topics]);
 
   // Phase 2: when a subject is picked, load its curriculum topics for the
   // current academic year (no explicit year picker on this form — teachers

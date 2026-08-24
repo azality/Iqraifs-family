@@ -59,6 +59,8 @@ interface PrepItem {
   entryDate: string;
   /** For the planner UI to list the subject's topics. */
   classSubjectId: string | null;
+  /** For the "Prepare lesson" CTA — LessonForm lives under the section. */
+  sectionId: string | null;
   /** "planned" = a topic carries target_date == entryDate (teacher chose
    *  it for this day); "next" = fallback to the next incomplete topic in
    *  sequence; null when there is no topic. */
@@ -280,6 +282,7 @@ async function decorate(entries: EntryRow[], limit: number): Promise<PrepItem[]>
       prepState,
       entryDate: r.entryDate,
       classSubjectId,
+      sectionId,
       topicSource,
       topic,
       lesson,
