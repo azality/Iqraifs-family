@@ -2732,6 +2732,9 @@ export interface SectionAttendanceEntry {
   status: RollCallStatus;
   notes: string | null;
   recordedBy: string | null;
+  /** Set when the student attended but left before close (custody record). */
+  leftEarlyAt?: string | null;
+  leftEarlyReason?: string | null;
 }
 
 export interface SectionAttendanceResponse {
@@ -2797,6 +2800,67 @@ export interface AttendanceSummaryRow {
   late: number;
   excused: number;
 }
+
+// ─── Attendance integrity: early release + discrepancy flags ─────────────
+
+/** Record (or clear) an early release on an existing attendance row.
+ *  Roll-call owners only (CT / Hifz teacher / office / admin). */
+export const postEarlyRelease = (
+  orgId: string,
+  sectionId: string,
+  body: { studentId: string; date: string; reason?: string; clear?: boolean },
+): Promise<{ id: string; leftEarlyAt: string | null; leftEarlyReason: string | null }> =>
+  apiCall(`/school/orgs/${orgId}/sections/${sectionId}/attendance/early-release`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export interface AttendanceFlag {
+  id: string;
+  sectionId: string;
+  studentId: string | null;
+  studentName: string | null;
+  grNumber: string | null;
+  date: string;
+  note: string;
+  raisedBy: string;
+  raisedByName?: string | null;
+  status: "open" | "resolved" | "dismissed";
+  resolution: string | null;
+  resolvedAt: string | null;
+  createdAt: string;
+}
+
+/** Any teacher of the section (incl. subject teachers) can raise a flag. */
+export const postAttendanceFlag = (
+  orgId: string,
+  sectionId: string,
+  body: { date: string; studentId?: string | null; note: string },
+): Promise<{ flag: AttendanceFlag }> =>
+  apiCall(`/school/orgs/${orgId}/sections/${sectionId}/attendance-flags`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const listAttendanceFlags = (
+  orgId: string,
+  sectionId: string,
+  opts: { status?: "open" | "resolved" | "dismissed" } = {},
+): Promise<{ flags: AttendanceFlag[] }> =>
+  apiCall(
+    `/school/orgs/${orgId}/sections/${sectionId}/attendance-flags${opts.status ? `?status=${opts.status}` : ""}`,
+  );
+
+/** Roll-call owners only. */
+export const resolveAttendanceFlag = (
+  orgId: string,
+  flagId: string,
+  body: { status: "resolved" | "dismissed"; resolution?: string },
+): Promise<{ flag: AttendanceFlag }> =>
+  apiCall(`/school/orgs/${orgId}/attendance-flags/${flagId}/resolve`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 
 export const getSectionAttendanceSummary = (
   orgId: string,

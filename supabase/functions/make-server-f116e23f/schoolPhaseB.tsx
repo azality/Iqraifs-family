@@ -38,7 +38,54 @@ import {
   hasAnyRoleInOrg,
   loadSection,
   requireTeacherOfSection,
+  userHasRoleRow,
 } from "./schoolAuth.ts";
+
+// Roll-call OWNERSHIP gate — stricter than requireTeacherOfSection (which
+// admits subject teachers so they can teach). Early release and flag
+// resolution are the class teacher's decisions: CT / Hifz teacher of the
+// section, admin/principal, or office_staff holding mark_attendance.
+function flagToJson(f: any) {
+  return {
+    id: f.id,
+    orgId: f.org_id,
+    sectionId: f.class_section_id,
+    studentId: f.student_id ?? null,
+    studentName: f.student?.full_name ?? null,
+    grNumber: f.student?.gr_number ?? null,
+    date: f.attendance_date,
+    note: f.note,
+    raisedBy: f.raised_by,
+    status: f.status,
+    resolvedBy: f.resolved_by ?? null,
+    resolvedAt: f.resolved_at ?? null,
+    resolution: f.resolution ?? null,
+    createdAt: f.created_at,
+  };
+}
+
+async function canManageRollCall(
+  userId: string,
+  orgId: string,
+  sectionId: string,
+): Promise<boolean> {
+  if (await hasAdminOrPrincipal(userId, orgId)) return true;
+  if (
+    (await userHasRoleRow(userId, "office_staff", "organization", orgId)) &&
+    (await userCanInOrg(userId, orgId, "mark_attendance"))
+  ) {
+    return true;
+  }
+  const { data: sec } = await serviceRoleClient
+    .from("class_section")
+    .select("class_teacher_user_id, hifz_teacher_user_id")
+    .eq("id", sectionId)
+    .maybeSingle();
+  return (
+    (sec as any)?.class_teacher_user_id === userId ||
+    (sec as any)?.hifz_teacher_user_id === userId
+  );
+}
 
 // Section-scope gating lives in schoolAuth.ts (requireTeacherOfSection /
 // loadSection). Phase B passes { allowOfficeStaffWith: "mark_attendance" }
@@ -268,7 +315,7 @@ export function installPhaseB(school: Hono): void {
     const { data, error } = await serviceRoleClient
       .from("school_attendance")
       .select(
-        "id, student_id, status, notes, attendance_date, recorded_by, student:student_id(id, full_name, gr_number)",
+        "id, student_id, status, notes, attendance_date, recorded_by, left_early_at, left_early_reason, student:student_id(id, full_name, gr_number)",
       )
       .eq("class_section_id", sectionId)
       .eq("attendance_date", date);
@@ -285,8 +332,170 @@ export function installPhaseB(school: Hono): void {
         status: r.status,
         notes: r.notes,
         recordedBy: r.recorded_by,
+        leftEarlyAt: r.left_early_at ?? null,
+        leftEarlyReason: r.left_early_reason ?? null,
       })),
     });
+  });
+
+  // ---------------------------------------------------------------------------
+  // POST /school/orgs/:orgId/sections/:sectionId/attendance/early-release
+  // Body: { studentId, date, reason } — or { studentId, date, clear: true }.
+  // Records that a present student left before close (unwell, family
+  // pickup). Day stays `present` — he DID attend; this is the custody
+  // answer to "when did he leave?". Gate: roll-call owners only.
+  // ---------------------------------------------------------------------------
+  school.post("/orgs/:orgId/sections/:sectionId/attendance/early-release", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    const sectionId = c.req.param("sectionId");
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    const date = body?.date;
+    if (!isIsoDate(date)) return c.json({ error: "date (YYYY-MM-DD) required" }, 400);
+    if (!body?.studentId) return c.json({ error: "studentId required" }, 400);
+
+    const section = await loadSection(sectionId);
+    if (!section) return c.json({ error: "section not found" }, 404);
+    if (section.org_id !== orgId) return c.json({ error: "section not in this org" }, 404);
+    if (!(await canManageRollCall(userId, orgId, sectionId))) {
+      return c.json({ error: "Only the class teacher (or office/admin) can record an early release.", code: "NOT_ROLLCALL_OWNER" }, 403);
+    }
+
+    const { data: row } = await serviceRoleClient
+      .from("school_attendance")
+      .select("id, status")
+      .eq("student_id", body.studentId)
+      .eq("attendance_date", date)
+      .maybeSingle();
+    if (!row) {
+      return c.json({ error: "No attendance marked for this student on that date — take attendance first.", code: "NO_ATTENDANCE_ROW" }, 404);
+    }
+
+    let patch: Record<string, unknown>;
+    if (body.clear === true) {
+      patch = { left_early_at: null, left_early_reason: null };
+    } else {
+      const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+      if (!reason) return c.json({ error: "reason required — this is a custody record (e.g. 'unwell, guardian informed')" }, 400);
+      patch = { left_early_at: new Date().toISOString(), left_early_reason: reason };
+    }
+    const { data: upd, error } = await serviceRoleClient
+      .from("school_attendance")
+      .update(patch)
+      .eq("id", row.id)
+      .select("id, left_early_at, left_early_reason")
+      .single();
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ id: upd.id, leftEarlyAt: (upd as any).left_early_at, leftEarlyReason: (upd as any).left_early_reason });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Attendance discrepancy flags — a subject teacher who counts fewer
+  // heads than the register can raise one; the CLASS TEACHER decides.
+  //   POST /sections/:sectionId/attendance-flags  { date, studentId?, note }
+  //   GET  /sections/:sectionId/attendance-flags?status=open
+  //   POST /attendance-flags/:flagId/resolve      { status, resolution? }
+  // ---------------------------------------------------------------------------
+  school.post("/orgs/:orgId/sections/:sectionId/attendance-flags", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    const sectionId = c.req.param("sectionId");
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    if (!isIsoDate(body?.date)) return c.json({ error: "date (YYYY-MM-DD) required" }, 400);
+    const note = typeof body?.note === "string" ? body.note.trim() : "";
+    if (!note) return c.json({ error: "note required — say what you observed" }, 400);
+
+    const gate = await requireTeacherOfSection(userId, orgId, sectionId);
+    if (!gate.ok) return c.json({ error: gate.error }, gate.status);
+
+    const { data, error } = await serviceRoleClient
+      .from("attendance_flag")
+      .insert({
+        org_id: orgId,
+        class_section_id: sectionId,
+        student_id: body.studentId ?? null,
+        attendance_date: body.date,
+        note,
+        raised_by: userId,
+      })
+      .select()
+      .single();
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ flag: flagToJson(data) }, 201);
+  });
+
+  school.get("/orgs/:orgId/sections/:sectionId/attendance-flags", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    const sectionId = c.req.param("sectionId");
+    const status = c.req.query("status");
+
+    // Office staff cover roll-call ops, so they can review flags too.
+    const gate = await requireTeacherOfSection(userId, orgId, sectionId, {
+      allowOfficeStaffWith: "mark_attendance",
+    });
+    if (!gate.ok) return c.json({ error: gate.error }, gate.status);
+
+    let q = serviceRoleClient
+      .from("attendance_flag")
+      .select("*, student:student_id(full_name, gr_number)")
+      .eq("class_section_id", sectionId)
+      .order("created_at", { ascending: false })
+      .limit(100);
+    if (status && ["open", "resolved", "dismissed"].includes(status)) q = q.eq("status", status);
+    const { data, error } = await q;
+    if (error) return c.json({ error: error.message }, 500);
+
+    const raiserIds = Array.from(new Set((data ?? []).map((f: any) => f.raised_by)));
+    const names = new Map<string, string>();
+    for (const rid of raiserIds) {
+      try {
+        const { data: u } = await (serviceRoleClient as any).auth.admin.getUserById(rid);
+        names.set(rid, u?.user?.user_metadata?.name ?? u?.user?.email ?? "Teacher");
+      } catch { /* keep going */ }
+    }
+    return c.json({ flags: (data ?? []).map((f: any) => ({ ...flagToJson(f), raisedByName: names.get(f.raised_by) ?? null })) });
+  });
+
+  school.post("/orgs/:orgId/attendance-flags/:flagId/resolve", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    const flagId = c.req.param("flagId");
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    if (!["resolved", "dismissed"].includes(body?.status)) {
+      return c.json({ error: "status must be resolved or dismissed" }, 400);
+    }
+
+    const { data: flag } = await serviceRoleClient
+      .from("attendance_flag")
+      .select("id, org_id, class_section_id, status")
+      .eq("id", flagId)
+      .maybeSingle();
+    if (!flag || (flag as any).org_id !== orgId) return c.json({ error: "flag not found" }, 404);
+    if (!(await canManageRollCall(userId, orgId, (flag as any).class_section_id))) {
+      return c.json({ error: "Only the class teacher (or office/admin) can resolve a flag.", code: "NOT_ROLLCALL_OWNER" }, 403);
+    }
+
+    const { data: upd, error } = await serviceRoleClient
+      .from("attendance_flag")
+      .update({
+        status: body.status,
+        resolved_by: userId,
+        resolved_at: new Date().toISOString(),
+        resolution: typeof body?.resolution === "string" ? body.resolution.trim() || null : null,
+      })
+      .eq("id", flagId)
+      .select()
+      .single();
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ flag: flagToJson(upd) });
   });
 
   // ---------------------------------------------------------------------------

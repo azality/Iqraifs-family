@@ -37,12 +37,16 @@ import {
   getSchoolMe,
   getSectionsLeaderboard,
   getSectionBehaviorNotes,
+  getSectionAttendance,
+  postAttendanceFlag,
   viewerRoleForOrg,
   type BehaviorNote,
   type DashboardPeriod,
   type LeaderboardRow,
   type SchoolMeResponse,
+  type SectionAttendanceEntry,
 } from "../../../utils/schoolApi";
+import { toast } from "sonner";
 import { SectionSubjectsManager } from "./components/SectionSubjectsManager";
 import { useOrgPermission } from "./useOrgPermission";
 
@@ -419,6 +423,14 @@ export function SectionOverview() {
               </div>
             </div>
           </Link>
+          {/* Subject teachers: read-only view of today's roll + a way to
+              flag a headcount discrepancy. The class teacher decides. */}
+          {!(viewerRole === "admin" || viewerRole === "principal" ||
+             row.classTeacherUserId === undefined ||
+             row.classTeacherUserId === me?.userId ||
+             row.hifzTeacherUserId === me?.userId) && (
+            <TodayRollCard orgId={orgId} sectionId={sectionId} />
+          )}
           <Link to={`/school/orgs/${orgId}/admin/students?classSectionId=${encodeURIComponent(sectionId)}`} className={navCardBase}>
             <div className="flex items-center gap-3">
               <div className="rounded-lg bg-slate-100 p-2"><GraduationCap className="h-5 w-5 text-slate-700" /></div>
@@ -442,6 +454,122 @@ export function SectionOverview() {
         }
         canEditCurriculum={canEditCurriculum}
       />
+    </div>
+  );
+}
+
+// ─── Subject-teacher read-only roll + discrepancy flag ────────────────────
+// Attendance stays the class teacher's to TAKE; a subject teacher can SEE
+// today's register (so a headcount mismatch is checkable on the spot) and
+// raise a flag the class teacher then resolves on the roll-call page.
+function TodayRollCard({ orgId, sectionId }: { orgId: string; sectionId: string }) {
+  const todayIso = (() => {
+    const d = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  })();
+  const [entries, setEntries] = useState<SectionAttendanceEntry[] | null>(null);
+  const [flagOpen, setFlagOpen] = useState(false);
+  const [flagStudentId, setFlagStudentId] = useState<string>("");
+  const [flagNote, setFlagNote] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    getSectionAttendance(orgId, sectionId, { date: todayIso })
+      .then((r) => setEntries(r.entries))
+      .catch(() => setEntries([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgId, sectionId]);
+
+  const counts = { present: 0, late: 0, absent: 0, excused: 0 };
+  for (const e of entries ?? []) {
+    if (e.status in counts) counts[e.status as keyof typeof counts] += 1;
+  }
+  const leftEarly = (entries ?? []).filter((e) => e.leftEarlyAt);
+  const absentees = (entries ?? []).filter((e) => e.status === "absent");
+
+  const submitFlag = async () => {
+    if (!flagNote.trim()) { toast.error("Say what you observed"); return; }
+    setBusy(true);
+    try {
+      await postAttendanceFlag(orgId, sectionId, {
+        date: todayIso,
+        studentId: flagStudentId || null,
+        note: flagNote.trim(),
+      });
+      toast.success("Flag sent — the class teacher will review it");
+      setFlagOpen(false); setFlagNote(""); setFlagStudentId("");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not send flag");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="text-sm font-semibold text-slate-900">Today's roll call</div>
+      {entries === null ? (
+        <p className="mt-1 text-xs text-slate-500">Loading…</p>
+      ) : entries.length === 0 ? (
+        <p className="mt-1 text-xs text-slate-500">
+          Not taken yet today — the class teacher records it.
+        </p>
+      ) : (
+        <>
+          <p className="mt-1 text-xs text-slate-600">
+            <span className="font-semibold text-emerald-700">{counts.present} present</span>
+            {counts.late > 0 && <> · {counts.late} late</>}
+            {counts.absent > 0 && <> · <span className="text-rose-700">{counts.absent} absent</span></>}
+            {counts.excused > 0 && <> · {counts.excused} excused</>}
+          </p>
+          {absentees.length > 0 && (
+            <p className="mt-1 text-[11px] text-slate-500">
+              Absent: {absentees.map((e) => e.studentName).filter(Boolean).join(", ")}
+            </p>
+          )}
+          {leftEarly.length > 0 && (
+            <p className="mt-1 text-[11px] text-sky-700">
+              Left early: {leftEarly.map((e) => `${e.studentName} (${e.leftEarlyReason ?? ""})`).join(", ")}
+            </p>
+          )}
+        </>
+      )}
+      <div className="mt-2">
+        <button
+          type="button"
+          onClick={() => setFlagOpen((o) => !o)}
+          className="text-xs font-medium text-amber-700 hover:underline"
+        >
+          {flagOpen ? "Cancel" : "Flag a discrepancy…"}
+        </button>
+        {flagOpen && (
+          <div className="mt-2 space-y-2">
+            <select
+              value={flagStudentId}
+              onChange={(e) => setFlagStudentId(e.target.value)}
+              className="h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-xs"
+            >
+              <option value="">Whole class / not sure who</option>
+              {(entries ?? []).map((e) => (
+                <option key={e.studentId} value={e.studentId}>
+                  {e.studentName} (marked {e.status})
+                </option>
+              ))}
+            </select>
+            <textarea
+              value={flagNote}
+              onChange={(e) => setFlagNote(e.target.value)}
+              placeholder="e.g. Marked present but not in my 3rd-period class"
+              className="w-full rounded-md border border-slate-200 p-2 text-xs"
+              rows={2}
+            />
+            <Button size="sm" className="h-7 text-xs" disabled={busy} onClick={submitFlag}>
+              {busy ? "Sending…" : "Send to class teacher"}
+            </Button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
