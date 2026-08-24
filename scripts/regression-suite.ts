@@ -298,6 +298,21 @@ if (erStudentId) {
   await api(office.token, `/school/orgs/${ORG}/students/${erStudentId}`, { method: "DELETE" });
 }
 
+await check("11. lessons list carries lessonDate + taughtByName (feed contract)", async () => {
+  const mk = await api(teacher.token, `/school/orgs/${ORG}/sections/${sandboxSec.id}/lessons`, {
+    method: "POST", body: JSON.stringify({ title: "QA lesson", lessonDate: today, sectionSubjectId: qaSs.id }),
+  });
+  const mkj = await mk.json();
+  assert(mk.status === 201 && mkj.lesson?.id, `create lesson ${mk.status}`);
+  const list = await api(teacher.token, `/school/orgs/${ORG}/sections/${sandboxSec.id}/lessons?startDate=${today}&endDate=${today}`);
+  const lj = await list.json();
+  const found = (lj.lessons ?? []).find((l: any) => l.id === mkj.lesson.id);
+  assert(found, "created lesson missing from list");
+  assert(found.lessonDate === today, `lessonDate wrong: ${found.lessonDate}`);
+  assert(typeof found.taughtByName === "string" && found.taughtByName.length > 0, "taughtByName missing (pilot bug: 'Taught by —')");
+  await api(teacher.token, `/school/orgs/${ORG}/lessons/${mkj.lesson.id}`, { method: "DELETE" });
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
