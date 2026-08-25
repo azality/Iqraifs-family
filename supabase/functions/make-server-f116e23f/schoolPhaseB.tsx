@@ -682,6 +682,38 @@ export function installPhaseB(school: Hono): void {
 
     const observedAt = body.observedAt ? new Date(body.observedAt).toISOString() : new Date().toISOString();
 
+    // Points policy: the SCHOOL sets values per catalog category, so the
+    // same act earns the same points in every classroom. For teachers:
+    //   - catalog category  → points forced to the catalog value
+    //   - "Other" free text → magnitude clamped to 3 (never 0)
+    // Admin/principal keep whatever they typed (they ARE the policy).
+    let effectivePoints = points;
+    const isAdminCaller = await hasAdminOrPrincipal(userId, orgId);
+    if (!isAdminCaller) {
+      const catLabel = typeof body.category === "string" ? body.category.trim() : "";
+      let cat: any = null;
+      if (catLabel) {
+        const { data: cats } = await serviceRoleClient
+          .from("behavior_category")
+          .select("label, kind, points_positive, points_concern")
+          .eq("org_id", orgId)
+          .is("archived_at", null);
+        cat = (cats ?? []).find(
+          (r: any) => String(r.label).trim().toLowerCase() === catLabel.toLowerCase(),
+        ) ?? null;
+      }
+      if (cat) {
+        effectivePoints =
+          body.kind === "positive"
+            ? Math.abs(cat.points_positive ?? 1)
+            : -Math.abs(cat.points_concern ?? 1);
+      } else {
+        // "Other": free label, bounded points.
+        const mag = Math.min(3, Math.max(1, Math.abs(points) || 1));
+        effectivePoints = body.kind === "positive" ? mag : -mag;
+      }
+    }
+
     const { data: ins, error: insErr } = await serviceRoleClient
       .from("behavior_note")
       .insert({
@@ -690,7 +722,7 @@ export function installPhaseB(school: Hono): void {
         class_section_id: stu.class_section_id,
         kind: body.kind,
         category: body.category ?? null,
-        points,
+        points: effectivePoints,
         notes: body.notes.trim(),
         observed_at: observedAt,
         recorded_by: userId,

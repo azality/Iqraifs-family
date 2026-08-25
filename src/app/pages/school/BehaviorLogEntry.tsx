@@ -19,9 +19,11 @@ import { Textarea } from "../../components/ui/textarea";
 import {
   postBehaviorNote,
   listBehaviorCategories,
+  viewerRoleForOrg,
   type BehaviorNoteKind,
   type BehaviorCategory,
 } from "../../../utils/schoolApi";
+import { useWorkspace } from "../../contexts/WorkspaceContext";
 
 interface Props {
   orgId: string;
@@ -56,12 +58,20 @@ export function BehaviorLogEntry({
 }: Props) {
   const [kind, setKind] = useState<BehaviorNoteKind>("positive");
   const [category, setCategory] = useState("");
+  const [isOther, setIsOther] = useState(false);
   const [points, setPoints] = useState<number>(1);
   const [notes, setNotes] = useState("");
   const [observedAt, setObservedAt] = useState<string>(() => toLocalInput(new Date()));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [orgCategories, setOrgCategories] = useState<BehaviorCategory[] | null>(null);
+
+  // Points policy: school-set per category. Teachers see the value but
+  // can't change it (the backend enforces the same rule); admin/principal
+  // can override. "Other" free-text entries are bounded to ±3.
+  const { me: schoolMe } = useWorkspace();
+  const viewerRole = viewerRoleForOrg(schoolMe, orgId);
+  const isAdmin = viewerRole === "admin" || viewerRole === "principal";
 
   // Lazy-load the org's configured category list when the dialog opens.
   // Cached for subsequent opens via state retention.
@@ -77,6 +87,7 @@ export function BehaviorLogEntry({
     if (open) {
       setKind("positive");
       setCategory("");
+      setIsOther(false);
       setPoints(1);
       setNotes("");
       setObservedAt(toLocalInput(new Date()));
@@ -84,27 +95,39 @@ export function BehaviorLogEntry({
     }
   }, [open]);
 
-  // Flip the default sign when kind changes — positives default +1, concerns -1.
+  // Kind change resets the selection — a category's value differs by kind.
   useEffect(() => {
-    setPoints((p) => {
-      if (kind === "positive" && p <= 0) return 1;
-      if (kind === "concern" && p >= 0) return -1;
-      return p;
-    });
     setCategory("");
+    setIsOther(false);
+    setPoints(kind === "positive" ? 1 : -1);
   }, [kind]);
 
-  // Filter org categories to ones that match this kind ("both" matches either).
-  // Fall back to a static Islamic-context list if the org fetch hasn't
-  // landed yet or returned empty.
-  const categories = (() => {
+  // Catalog categories matching this kind ("both" matches either).
+  const categories: BehaviorCategory[] = (() => {
     if (orgCategories && orgCategories.length > 0) {
-      return orgCategories
-        .filter((c) => c.kind === kind || c.kind === "both")
-        .map((c) => c.label);
+      return orgCategories.filter((c) => c.kind === kind || c.kind === "both");
     }
-    return kind === "positive" ? FALLBACK_POSITIVE : FALLBACK_CONCERN;
+    // Fetch not landed / failed — fall back to name-only entries at ±1.
+    const names = kind === "positive" ? FALLBACK_POSITIVE : FALLBACK_CONCERN;
+    return names.map((label, i) => ({
+      id: `fallback-${i}`, orgId, key: label, label, kind,
+      sortOrder: i, pointsPositive: 1, pointsConcern: 1, archivedAt: null,
+    }));
   })();
+
+  const categoryPoints = (c: BehaviorCategory): number =>
+    kind === "positive" ? Math.abs(c.pointsPositive ?? 1) : -Math.abs(c.pointsConcern ?? 1);
+
+  const pickCategory = (c: BehaviorCategory) => {
+    setIsOther(false);
+    setCategory(c.label);
+    setPoints(categoryPoints(c));
+  };
+  const pickOther = () => {
+    setIsOther(true);
+    setCategory("");
+    setPoints(kind === "positive" ? 1 : -1);
+  };
   const minObserved = (() => {
     const d = new Date();
     d.setDate(d.getDate() - 14);
@@ -114,6 +137,10 @@ export function BehaviorLogEntry({
 
   const submit = async () => {
     setError(null);
+    if (!category.trim()) {
+      setError(isOther ? "Type a short name for the behavior." : "Pick a category.");
+      return;
+    }
     if (!notes.trim()) {
       setError("Notes are required.");
       return;
@@ -186,32 +213,96 @@ export function BehaviorLogEntry({
             </div>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <Label htmlFor="bh-cat">Category</Label>
-              {/* Free-text + datalist for cheap autocomplete. */}
-              <Input
-                id="bh-cat"
-                list="bh-cat-options"
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                placeholder={categories[0]}
-              />
-              <datalist id="bh-cat-options">
-                {categories.map((c) => (
-                  <option key={c} value={c} />
-                ))}
-              </datalist>
+          <div>
+            <Label className="mb-1.5 block">Category</Label>
+            <div className="flex flex-wrap gap-1.5">
+              {categories.map((c) => {
+                const active = !isOther && category === c.label;
+                const pts = categoryPoints(c);
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => pickCategory(c)}
+                    className={
+                      "rounded-full border px-3 py-1.5 text-sm transition-colors " +
+                      (active
+                        ? kind === "positive"
+                          ? "border-emerald-400 bg-emerald-50 text-emerald-900"
+                          : "border-rose-400 bg-rose-50 text-rose-900"
+                        : "border-slate-200 text-slate-700 hover:border-slate-300")
+                    }
+                  >
+                    {c.label}{" "}
+                    <span className={kind === "positive" ? "text-xs text-emerald-700" : "text-xs text-rose-700"}>
+                      {pts > 0 ? `+${pts}` : pts}
+                    </span>
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                onClick={pickOther}
+                className={
+                  "rounded-full border border-dashed px-3 py-1.5 text-sm transition-colors " +
+                  (isOther
+                    ? "border-indigo-400 bg-indigo-50 text-indigo-900"
+                    : "border-slate-300 text-slate-500 hover:border-slate-400")
+                }
+              >
+                Other…
+              </button>
             </div>
-            <div>
-              <Label htmlFor="bh-pts">Points</Label>
-              <Input
-                id="bh-pts"
-                type="number"
-                value={points}
-                onChange={(e) => setPoints(Number(e.target.value))}
-              />
-            </div>
+
+            {isOther && (
+              <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                <div>
+                  <Input
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value)}
+                    placeholder="Name the behavior (e.g. Uniform)"
+                    autoFocus
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Not in the school&apos;s list? Type it — the school sees these
+                    suggestions and can add it for everyone.
+                  </p>
+                </div>
+                <div>
+                  <Input
+                    type="number"
+                    value={points}
+                    min={kind === "positive" ? 1 : -3}
+                    max={kind === "positive" ? 3 : -1}
+                    onChange={(e) => setPoints(Number(e.target.value))}
+                    title="Points for one-off entries are limited to 3"
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">Up to {kind === "positive" ? "+3" : "−3"}.</p>
+                </div>
+              </div>
+            )}
+
+            {!isOther && category && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                {isAdmin ? (
+                  <>
+                    Points:{" "}
+                    <Input
+                      type="number"
+                      value={points}
+                      onChange={(e) => setPoints(Number(e.target.value))}
+                      className="ml-1 inline-block h-7 w-20 align-middle"
+                    />{" "}
+                    (school value {points > 0 ? `+${points}` : points}; as admin you may override)
+                  </>
+                ) : (
+                  <>
+                    Points: <span className="font-semibold">{points > 0 ? `+${points}` : points}</span> — set
+                    by the school so every class counts the same.
+                  </>
+                )}
+              </p>
+            )}
           </div>
 
           <div>
