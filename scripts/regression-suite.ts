@@ -581,6 +581,49 @@ await check("19. portal isolation: no student can read another student's data", 
   assert(other.status === 403, `parent->unlinked child expected 403, got ${other.status}`);
 });
 
+await check("20. behavior points: school-set values enforced, Other clamped + suggested", async () => {
+  // Catalog carries the school's point values.
+  const cats = await api(teacher.token, `/school/orgs/${ORG}/behavior-categories`);
+  const cj = await cats.json();
+  assert(cats.status === 200 && Array.isArray(cj.categories) && cj.categories.length > 0, `categories ${cats.status}`);
+  const adab = cj.categories.find((x: any) => x.key === "adab");
+  assert(adab && typeof adab.pointsPositive === "number" && typeof adab.pointsConcern === "number",
+    "category missing points fields");
+  const noteIds: string[] = [];
+  try {
+    // Teacher logs Adab with absurd points — server forces the school value.
+    const n1 = await api(teacher.token, `/school/orgs/${ORG}/behavior-notes`, {
+      method: "POST",
+      body: JSON.stringify({ studentId: pStu1, kind: "positive", category: "Adab", points: 99, notes: "QA points enforcement" }),
+    });
+    const j1 = await n1.json();
+    assert(n1.status === 200 || n1.status === 201, `note1 ${n1.status}`);
+    noteIds.push(j1.note.id);
+    assert(j1.note.points === adab.pointsPositive,
+      `expected school value ${adab.pointsPositive}, got ${j1.note.points}`);
+    // "Other" free text: magnitude clamped to 3.
+    const n2 = await api(teacher.token, `/school/orgs/${ORG}/behavior-notes`, {
+      method: "POST",
+      body: JSON.stringify({ studentId: pStu1, kind: "concern", category: "QA Made Up Behavior", points: -9, notes: "QA other clamp" }),
+    });
+    const j2 = await n2.json();
+    assert(n2.status === 200 || n2.status === 201, `note2 ${n2.status}`);
+    noteIds.push(j2.note.id);
+    assert(j2.note.points === -3, `expected clamp to -3, got ${j2.note.points}`);
+    // The Other entry surfaces as a suggestion to the school.
+    const sg = await api(principal.token, `/school/orgs/${ORG}/behavior-categories/suggestions`);
+    const sj = await sg.json();
+    assert(sg.status === 200 && Array.isArray(sj.suggestions), `suggestions ${sg.status}`);
+    assert(sj.suggestions.some((x: any) => x.label === "QA Made Up Behavior"),
+      "Other entry missing from suggestions");
+    // Teachers cannot read the suggestions rollup.
+    const sgT = await api(teacher.token, `/school/orgs/${ORG}/behavior-categories/suggestions`);
+    assert(sgT.status === 403, `teacher suggestions expected 403, got ${sgT.status}`);
+  } finally {
+    for (const id of noteIds) await admin.from("behavior_note").delete().eq("id", id);
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

@@ -52,7 +52,9 @@ import {
   createBehaviorCategory,
   updateBehaviorCategory,
   archiveBehaviorCategory,
+  listBehaviorCategorySuggestions,
   type BehaviorCategory,
+  type BehaviorCategorySuggestion,
   type SchoolMeResponse,
 } from "../../../utils/schoolApi";
 
@@ -98,6 +100,9 @@ export function BehaviorCatalog() {
   const [editing, setEditing] = useState<BehaviorCategory | null>(null);
   const [label, setLabel] = useState("");
   const [kind, setKind] = useState<BehaviorCategory["kind"]>("both");
+  const [ptsPos, setPtsPos] = useState(1);
+  const [ptsCon, setPtsCon] = useState(1);
+  const [suggestions, setSuggestions] = useState<BehaviorCategorySuggestion[]>([]);
 
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
@@ -110,6 +115,9 @@ export function BehaviorCatalog() {
     try {
       const r = await listBehaviorCategories(orgId);
       setItems([...r.categories].sort((a, b) => a.sortOrder - b.sortOrder));
+      listBehaviorCategorySuggestions(orgId)
+        .then((sg) => setSuggestions(sg.suggestions))
+        .catch(() => setSuggestions([]));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load categories");
     } finally {
@@ -126,10 +134,12 @@ export function BehaviorCatalog() {
   // Toolbar exposes this page in the Admin group (admin + principal).
   if (!isOrgAdmin(me, orgId)) return <NoAccessRedirect />;
 
-  const openCreate = () => {
+  const openCreate = (prefillLabel?: string) => {
     setEditing(null);
-    setLabel("");
+    setLabel(prefillLabel ?? "");
     setKind("both");
+    setPtsPos(1);
+    setPtsCon(1);
     setDialogOpen(true);
   };
 
@@ -137,6 +147,8 @@ export function BehaviorCatalog() {
     setEditing(c);
     setLabel(c.label);
     setKind(c.kind);
+    setPtsPos(c.pointsPositive ?? 1);
+    setPtsCon(c.pointsConcern ?? 1);
     setDialogOpen(true);
   };
 
@@ -149,12 +161,12 @@ export function BehaviorCatalog() {
     setSubmitting(true);
     try {
       if (editing) {
-        await updateBehaviorCategory(orgId, editing.id, { label: trimmed, kind });
+        await updateBehaviorCategory(orgId, editing.id, { label: trimmed, kind, pointsPositive: ptsPos, pointsConcern: ptsCon });
         toast.success(`Updated "${trimmed}"`);
       } else {
         // New entries go to the end of the list.
         const maxOrder = items.reduce((m, c) => Math.max(m, c.sortOrder), 0);
-        await createBehaviorCategory(orgId, { label: trimmed, kind, sortOrder: maxOrder + 10 });
+        await createBehaviorCategory(orgId, { label: trimmed, kind, sortOrder: maxOrder + 10, pointsPositive: ptsPos, pointsConcern: ptsCon });
         toast.success(`Added "${trimmed}"`);
       }
       setDialogOpen(false);
@@ -218,7 +230,7 @@ export function BehaviorCatalog() {
             archive to match your school's language.
           </p>
         </div>
-        <Button onClick={openCreate}>
+        <Button onClick={() => openCreate()}>
           <Plus className="h-4 w-4 mr-2" />
           Add category
         </Button>
@@ -265,12 +277,61 @@ export function BehaviorCatalog() {
                     </button>
                   </div>
                   <span className="flex-1 text-sm font-medium text-slate-900">{c.label}</span>
+                  <span className="text-xs tabular-nums text-slate-500 whitespace-nowrap">
+                    {(c.kind === "positive" || c.kind === "both") && (
+                      <span className="text-emerald-700 font-medium">+{c.pointsPositive ?? 1}</span>
+                    )}
+                    {c.kind === "both" && " / "}
+                    {(c.kind === "concern" || c.kind === "both") && (
+                      <span className="text-rose-700 font-medium">−{c.pointsConcern ?? 1}</span>
+                    )}
+                  </span>
                   {kindBadge(c.kind)}
                   <Button variant="ghost" size="sm" onClick={() => openEdit(c)} title="Edit">
                     <Pencil className="h-3.5 w-3.5" />
                   </Button>
                   <Button variant="ghost" size="sm" onClick={() => archive(c)} title="Archive">
                     <Archive className="h-3.5 w-3.5 text-slate-500" />
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Teacher suggestions — "Other" free-text entries not in the
+          catalog. This is the school's feedback loop: recurring ones are
+          categories worth adding. */}
+      {suggestions.length > 0 && (
+        <Card>
+          <CardContent className="p-4">
+            <h2 className="text-sm font-semibold text-slate-900">
+              Suggested by teachers
+              <span className="ml-2 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-700 ring-1 ring-indigo-200">
+                {suggestions.length}
+              </span>
+            </h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Behaviors teachers logged under "Other" (last 90 days). Add the
+              recurring ones so everyone picks from the same list.
+            </p>
+            <ul className="mt-2 divide-y divide-slate-100">
+              {suggestions.map((sg) => (
+                <li key={sg.label} className="flex items-center justify-between gap-3 py-2">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-slate-900">
+                      {sg.label}
+                      <span className="ml-2 text-[10px] text-slate-400">
+                        used {sg.count} time{sg.count === 1 ? "" : "s"}
+                      </span>
+                    </div>
+                    {sg.sampleNote && (
+                      <div className="truncate text-[11px] text-slate-500">"{sg.sampleNote}"</div>
+                    )}
+                  </div>
+                  <Button variant="outline" size="sm" onClick={() => openCreate(sg.label)}>
+                    <Plus className="h-3.5 w-3.5 mr-1" /> Add to catalog
                   </Button>
                 </li>
               ))}
@@ -312,6 +373,38 @@ export function BehaviorCatalog() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              {(kind === "positive" || kind === "both") && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="cat-pp">Points when positive</Label>
+                  <Input
+                    id="cat-pp"
+                    type="number"
+                    min={0}
+                    max={10}
+                    value={ptsPos}
+                    onChange={(e) => setPtsPos(Math.max(0, Math.min(10, Number(e.target.value) || 0)))}
+                  />
+                </div>
+              )}
+              {(kind === "concern" || kind === "both") && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="cat-pc">Points deducted when concern</Label>
+                  <Input
+                    id="cat-pc"
+                    type="number"
+                    min={0}
+                    max={10}
+                    value={ptsCon}
+                    onChange={(e) => setPtsCon(Math.max(0, Math.min(10, Number(e.target.value) || 0)))}
+                  />
+                </div>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              These values apply automatically whenever a teacher picks this
+              category — the same act earns the same points in every class.
+            </p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>

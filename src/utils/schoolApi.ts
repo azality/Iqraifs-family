@@ -4551,6 +4551,9 @@ export interface BehaviorCategory {
   label: string;
   kind: "positive" | "concern" | "both";
   sortOrder: number;
+  /** School-set point magnitudes; sign is applied by the note's kind. */
+  pointsPositive: number;
+  pointsConcern: number;
   archivedAt: string | null;
 }
 export const listBehaviorCategories = (
@@ -4560,7 +4563,7 @@ export const listBehaviorCategories = (
 
 export const createBehaviorCategory = (
   orgId: string,
-  body: { label: string; kind: "positive" | "concern" | "both"; key?: string; sortOrder?: number },
+  body: { label: string; kind: "positive" | "concern" | "both"; key?: string; sortOrder?: number; pointsPositive?: number; pointsConcern?: number },
 ): Promise<BehaviorCategory> =>
   apiCall(`/school/orgs/${orgId}/behavior-categories`, {
     method: "POST",
@@ -4570,7 +4573,7 @@ export const createBehaviorCategory = (
 export const updateBehaviorCategory = (
   orgId: string,
   id: string,
-  patch: Partial<{ label: string; kind: "positive" | "concern" | "both"; sortOrder: number }>,
+  patch: Partial<{ label: string; kind: "positive" | "concern" | "both"; sortOrder: number; pointsPositive: number; pointsConcern: number }>,
 ): Promise<BehaviorCategory> =>
   apiCall(`/school/orgs/${orgId}/behavior-categories/${id}`, {
     method: "PATCH",
@@ -4579,6 +4582,20 @@ export const updateBehaviorCategory = (
 
 export const archiveBehaviorCategory = (orgId: string, id: string): Promise<{ ok: true }> =>
   apiCall(`/school/orgs/${orgId}/behavior-categories/${id}`, { method: "DELETE" });
+
+/** "Other" free-text categories teachers used that aren't in the catalog —
+ *  the school's feedback loop for missing categories. Admin/principal only. */
+export interface BehaviorCategorySuggestion {
+  label: string;
+  count: number;
+  kinds: string[];
+  lastUsed: string;
+  sampleNote: string;
+}
+export const listBehaviorCategorySuggestions = (
+  orgId: string,
+): Promise<{ suggestions: BehaviorCategorySuggestion[] }> =>
+  apiCall(`/school/orgs/${orgId}/behavior-categories/suggestions`);
 
 // =============================================================================
 // Cmd-K global search
