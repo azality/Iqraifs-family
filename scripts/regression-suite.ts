@@ -451,6 +451,136 @@ await check("16. today strip: ops rollup shape, admin-gated, sandbox excluded", 
   assert(t.status === 403, `teacher expected 403, got ${t.status}`);
 });
 
+// ── Portal (student/parent PIN) checks ─────────────────────────────────
+// The school's students/parents will never report API bugs — this section
+// is their tester. Stable scaffolding in Sandbox: two students + one
+// parent (linked to student 1 only), PINs set via the real admin endpoint.
+
+async function ensurePortalStudent(gr: string, name: string): Promise<string> {
+  const { data: existing } = await admin.from("student").select("id, status")
+    .eq("org_id", ORG).eq("gr_number", gr).maybeSingle();
+  if (existing) {
+    if (existing.status !== "active") {
+      await admin.from("student").update({ status: "active", left_at: null }).eq("id", existing.id);
+    }
+    return existing.id;
+  }
+  const r = await api(office.token, `/school/orgs/${ORG}/students`, {
+    method: "POST",
+    body: JSON.stringify({ grNumber: gr, fullName: name, classSectionId: sandboxSec.id }),
+  });
+  const j = await r.json();
+  if (r.status !== 201) throw new Error(`create portal student ${gr}: ${r.status}`);
+  return j.id ?? j.student?.id;
+}
+
+const pStu1 = await ensurePortalStudent("QA-PORTAL-1", "QA Portal Student");
+const pStu2 = await ensurePortalStudent("QA-PORTAL-2", "QA Portal Peer");
+
+const PARENT_PHONE = "+920000000901";
+let { data: pParent } = await admin.from("parent").select("id")
+  .eq("org_id", ORG).eq("phone", PARENT_PHONE).maybeSingle();
+if (!pParent) {
+  const r = await api(office.token, `/school/orgs/${ORG}/parents`, {
+    method: "POST",
+    body: JSON.stringify({ fullName: "QA Portal Parent", phone: PARENT_PHONE }),
+  });
+  const j = await r.json();
+  if (r.status !== 201) throw new Error(`create portal parent: ${r.status}`);
+  pParent = { id: j.id ?? j.parent?.id };
+}
+{
+  const { data: link } = await admin.from("student_parent").select("student_id")
+    .eq("parent_id", pParent.id).eq("student_id", pStu1).maybeSingle();
+  if (!link) {
+    const { error } = await admin.from("student_parent")
+      .insert({ org_id: ORG, parent_id: pParent.id, student_id: pStu1, is_primary: true });
+    if (error) {
+      // Some schemas lack org_id on the link table — retry without it.
+      const { error: e2 } = await admin.from("student_parent")
+        .insert({ parent_id: pParent.id, student_id: pStu1, is_primary: true });
+      if (e2) throw new Error(`link parent: ${e2.message}`);
+    }
+  }
+}
+// PINs via the real admin endpoint (idempotent upsert).
+for (const [subjectType, subjectId, pin] of [
+  ["student", pStu1, "1234"],
+  ["student", pStu2, "2345"],
+  ["parent", pParent.id, "3456"],
+] as const) {
+  const r = await api(office.token, `/school/orgs/${ORG}/pin/set`, {
+    method: "POST", body: JSON.stringify({ subjectType, subjectId, pin }),
+  });
+  if (!r.ok) throw new Error(`pin/set ${subjectType}: ${r.status}`);
+}
+
+async function pinLogin(loginIdentifier: string, pin: string): Promise<Response> {
+  return await fetch(`${FUNC}/school/auth/pin-login`, {
+    method: "POST",
+    headers: { apikey: ANON, "Content-Type": "application/json" },
+    body: JSON.stringify({ orgIdentifier: "iqra-ifs", loginIdentifier, pin }),
+  });
+}
+async function portalGet(token: string, path: string): Promise<Response> {
+  return await fetch(`${FUNC}/school${path}`, {
+    headers: { apikey: ANON, "X-Pin-Token": token },
+  });
+}
+
+let stuToken = "";
+let peerToken = "";
+let parToken = "";
+
+await check("17. portal auth: PIN login, lockout-safe wrong-pin, /pin-me profile", async () => {
+  const bad = await pinLogin("QA-PORTAL-1", "9999");
+  assert(bad.status === 401, `wrong pin expected 401, got ${bad.status}`);
+  const ok = await pinLogin("QA-PORTAL-1", "1234");
+  const oj = await ok.json();
+  assert(ok.status === 200 && oj.token && oj.subjectType === "student", `login ${ok.status}`);
+  stuToken = oj.token;
+  const ok2 = await pinLogin("QA-PORTAL-2", "2345");
+  peerToken = (await ok2.json()).token;
+  const okP = await pinLogin(PARENT_PHONE, "3456");
+  const pj = await okP.json();
+  assert(okP.status === 200 && pj.subjectType === "parent", `parent login ${okP.status}`);
+  parToken = pj.token;
+  const me = await portalGet(stuToken, `/pin-me`);
+  assert(me.status === 200, `/pin-me ${me.status}`);
+  const garbage = await portalGet("not-a-token", `/pin-me`);
+  assert(garbage.status === 401, `garbage token expected 401, got ${garbage.status}`);
+});
+
+await check("18. student portal surface: every pin-me endpoint answers for own id", async () => {
+  assert(stuToken, "no student token from check 17");
+  const endpoints = [
+    "dashboard", "timetable", "attendance", "lessons", "grades",
+    "behavior", "diary", "today-snapshot", "hifz", "teacher-comments",
+  ];
+  for (const ep of endpoints) {
+    const r = await portalGet(stuToken, `/pin-me/students/${pStu1}/${ep}`);
+    const j = await r.json().catch(() => null);
+    assert(
+      r.status === 200 && j && !j.error,
+      `${ep}: ${r.status} ${JSON.stringify(j)?.slice(0, 100)}`,
+    );
+  }
+});
+
+await check("19. portal isolation: no student can read another student's data", async () => {
+  assert(stuToken && peerToken && parToken, "tokens missing from check 17");
+  // Student 1's token against student 2's data — every endpoint must refuse.
+  for (const ep of ["dashboard", "attendance", "grades", "behavior"]) {
+    const r = await portalGet(stuToken, `/pin-me/students/${pStu2}/${ep}`);
+    assert(r.status === 403, `cross-student ${ep} expected 403, got ${r.status}`);
+  }
+  // Parent: linked child readable, unlinked child refused.
+  const own = await portalGet(parToken, `/pin-me/students/${pStu1}/dashboard`);
+  assert(own.status === 200, `parent->linked child ${own.status}`);
+  const other = await portalGet(parToken, `/pin-me/students/${pStu2}/dashboard`);
+  assert(other.status === 403, `parent->unlinked child expected 403, got ${other.status}`);
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
