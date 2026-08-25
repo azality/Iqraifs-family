@@ -112,8 +112,9 @@ export function SectionSubjectsManager({ orgId, sectionId, canManage, canEditCur
       return;
     }
     setOpenSubject(s.classSubjectId);
-    // Fetch topics on first expand and cache them.
-    if (!topicsByCsId[s.classSubjectId]) {
+    // Fetch topics on first expand and cache them (read-only view only —
+    // the curriculum editor loads its own copy for editors).
+    if (!canEditCurriculum && !topicsByCsId[s.classSubjectId]) {
       setTopicsLoadingId(s.classSubjectId);
       try {
         const r = await getClassSubjectCurriculum(s.classSubjectId);
@@ -262,6 +263,12 @@ export function SectionSubjectsManager({ orgId, sectionId, canManage, canEditCur
                         classSubjectId={s.classSubjectId}
                         subjectName={s.name}
                         canManage
+                        defaultOpen
+                        onMutated={() => {
+                          getSectionCurriculumProgress(sectionId)
+                            .then((r) => setSubjects(r.subjects))
+                            .catch(() => {});
+                        }}
                       />
                     )}
                     {/* Actions row */}
@@ -280,20 +287,24 @@ export function SectionSubjectsManager({ orgId, sectionId, canManage, canEditCur
                       </Link>
                     </div>
 
-                    {/* Topics */}
-                    {topicsLoading && (
+                    {/* Topics — read-only viewers only. Editors already
+                        have the full list (with ticks, reorder, rename,
+                        resources) in the curriculum editor above; showing
+                        both rendered the same topics twice (pilot
+                        confusion: "why is there a lesson AND curriculum"). */}
+                    {!canEditCurriculum && topicsLoading && (
                       <p className="text-[11px] text-slate-500">
                         Loading syllabus…
                       </p>
                     )}
-                    {!topicsLoading && topics && topics.length === 0 && (
+                    {!canEditCurriculum && !topicsLoading && topics && topics.length === 0 && (
                       <div className="rounded border border-dashed border-slate-200 bg-slate-50 p-2 text-center">
                         <p className="text-[11px] text-slate-500">
                           The admin hasn't added topics to this subject yet.
                         </p>
                       </div>
                     )}
-                    {!topicsLoading && topics && topics.length > 0 && (
+                    {!canEditCurriculum && !topicsLoading && topics && topics.length > 0 && (
                       <div>
                         <div className="flex items-center justify-between mb-1.5">
                           <div className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-slate-500">
