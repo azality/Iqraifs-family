@@ -50,6 +50,12 @@ interface Props {
   subjectName: string;
   /** Read-only when false (teacher view). */
   canManage: boolean;
+  /** Start expanded — used where the panel is the ONLY syllabus view
+   *  (SectionSubjectsManager) so ticking needs no extra click. */
+  defaultOpen?: boolean;
+  /** Called after any mutation (tick, add, delete, reorder) so hosts can
+   *  refresh their own progress summaries. */
+  onMutated?: () => void;
 }
 
 // Default to the current academic year in Pakistani format: an academic
@@ -70,8 +76,10 @@ export function SubjectCurriculumPanel({
   classSubjectId,
   subjectName,
   canManage,
+  defaultOpen = false,
+  onMutated,
 }: Props) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [year, setYear] = useState(currentAcademicYear());
   const [curriculum, setCurriculum] = useState<ClassCurriculum | null>(null);
   const [topics, setTopics] = useState<ClassCurriculumTopic[]>([]);
@@ -108,6 +116,7 @@ export function SubjectCurriculumPanel({
 
   const refresh = () => {
     if (!classSubjectId) return;
+    onMutated?.();
     setLoading(true);
     setError(null);
     getClassSubjectCurriculum(classSubjectId, { academicYear: year })
