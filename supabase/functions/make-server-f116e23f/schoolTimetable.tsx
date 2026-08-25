@@ -836,13 +836,14 @@ export function installTimetable(school: Hono): void {
       primary: "Primary (I–III)",
       junior: "Junior",
       senior: "Senior",
+      reception: "Reception",
       hifz: "Hifz",
     };
     const bandsMap = new Map<string, { key: string; label: string; slots: any[]; sections: any[] }>();
     const ensureBand = (key: string) => {
       const b = bandsMap.get(key) ?? {
         key,
-        label: BAND_LABELS[key] ?? key,
+        label: BAND_LABELS[key] ?? key.charAt(0).toUpperCase() + key.slice(1),
         slots: [],
         sections: [],
       };
