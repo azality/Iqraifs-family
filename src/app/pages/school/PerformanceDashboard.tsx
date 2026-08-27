@@ -163,7 +163,7 @@ function KpiTile({ label, tile, Icon, asPercent, signed, bound, to }: KpiTilePro
     >
       <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-slate-300">
         <Icon className="h-3.5 w-3.5" />
-        <span className="flex-1 truncate">{label}</span>
+        <span className="flex-1 min-w-0 leading-tight">{label}</span>
         {bound && (
           <span
             className={
@@ -362,7 +362,7 @@ function Leaderboard({
 
   return (
     <Card id="sections-leaderboard">
-      <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
+      <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 space-y-0">
         <div>
           <CardTitle className="text-base">Class Sections Leaderboard</CardTitle>
           <CardDescription>
@@ -389,8 +389,59 @@ function Leaderboard({
         </div>
       </CardHeader>
       <CardContent className="p-0">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+        {/* Phone layout: compact tappable cards — the 9-column table can't
+            survive a 390px viewport (pilot screenshot: columns crushed to
+            one character per line). */}
+        <ul className="sm:hidden divide-y divide-slate-100">
+          {filtered.length === 0 ? (
+            <li className="px-4 py-8 text-center text-sm text-slate-500">
+              No sections match this filter.
+            </li>
+          ) : (
+            filtered.map((row, idx) => (
+              <li
+                key={row.sectionId}
+                onClick={() =>
+                  navigate(`/school/orgs/${orgId}/sections/${encodeURIComponent(row.sectionId)}`)
+                }
+                className="flex items-center gap-3 px-4 py-3 active:bg-indigo-50/40 cursor-pointer"
+              >
+                <span className="w-5 text-xs text-slate-400 tabular-nums flex-shrink-0">{idx + 1}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="truncate text-sm font-medium text-slate-900">
+                      {row.className} · {row.sectionName}
+                    </span>
+                    <span className="text-[11px] text-slate-500 tabular-nums flex-shrink-0">
+                      {row.studentCount} students
+                    </span>
+                  </div>
+                  <div className="mt-1 flex items-center gap-2">
+                    <div className="flex-1 min-w-0">
+                      <AttendanceBar pct={row.attendancePct} status={row.status} />
+                    </div>
+                    <span
+                      className={
+                        "rounded-full px-2 py-0.5 text-[10px] font-medium flex-shrink-0 " +
+                        (row.status === "compliant"
+                          ? "bg-emerald-50 text-emerald-700"
+                          : row.status === "watch"
+                            ? "bg-amber-50 text-amber-700"
+                            : row.status === "flagged"
+                              ? "bg-rose-50 text-rose-700"
+                              : "bg-slate-100 text-slate-500")
+                      }
+                    >
+                      {row.status === "no_data" ? "no data" : row.status}
+                    </span>
+                  </div>
+                </div>
+              </li>
+            ))
+          )}
+        </ul>
+        <div className="hidden sm:block overflow-x-auto">
+          <table className="w-full min-w-[820px] text-sm">
             <thead>
               <tr className="border-y border-slate-100 bg-slate-50/60 text-xs uppercase tracking-wide text-slate-500">
                 <th className="px-4 py-2 text-left">#</th>

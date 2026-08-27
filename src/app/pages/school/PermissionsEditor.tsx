@@ -166,10 +166,10 @@ export function PermissionsEditor() {
       {error && <p className="text-sm text-rose-600">{error}</p>}
 
       <div className={`${cardBase} ${cardElev} overflow-x-auto`}>
-        <table className="w-full text-sm border-collapse">
+        <table className="w-full min-w-[640px] text-sm border-collapse">
           <thead className="bg-slate-50">
             <tr>
-              <th className="text-left px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+              <th className="sticky left-0 z-10 bg-slate-50 text-left px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-slate-500">
                 Permission
               </th>
               {ROLE_COLUMNS.map((c) => (
@@ -192,7 +192,7 @@ export function PermissionsEditor() {
             )}
             {permissionKeys.map((pk) => (
               <tr key={pk} className="border-t border-slate-100">
-                <td className="px-3 py-2 text-sm text-slate-700">
+                <td className="sticky left-0 z-10 bg-white px-3 py-2 text-sm text-slate-700">
                   <span className="inline-flex items-center gap-1.5">
                     <span>{PERMISSION_META[pk]?.label || prettify(pk)}</span>
                     <span
