@@ -35,6 +35,7 @@ import { Button } from "../../components/ui/button";
 import { HeroCard, NoAccessRedirect } from "../../components/school-ui";
 import {
   getSchoolMe,
+  getSectionCurriculumProgress,
   getSectionsLeaderboard,
   getSectionBehaviorNotes,
   getSectionAttendance,
@@ -100,8 +101,31 @@ export function SectionOverview() {
   const [meLoading, setMeLoading] = useState(true);
   const [period, setPeriod] = useState<DashboardPeriod>("MTD");
   const [row, setRow] = useState<LeaderboardRow | null>(null);
+  // Per-child Quran model (Classes II-VIII): the Quran/Nazra SUBJECT
+  // teacher logs each student's daily portion through the Hifz view.
+  // The backend gate already admits them (requireTeacherOfSection
+  // includes subject teachers since #337) - this flag just unhides the
+  // card, WITHOUT granting the attendance/roll-call surface.
+  const [teachesQuranHere, setTeachesQuranHere] = useState(false);
   const [notes, setNotes] = useState<BehaviorNote[]>([]);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!sectionId) return;
+    getSectionCurriculumProgress(sectionId)
+      .then((r) => {
+        setTeachesQuranHere(
+          r.subjects.some(
+            (sub) =>
+              sub.teacherUserId != null &&
+              sub.teacherUserId === me?.userId &&
+              /quran|nazra/i.test(sub.name),
+          ),
+        );
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sectionId, me?.userId]);
 
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
@@ -391,26 +415,30 @@ export function SectionOverview() {
             row.classTeacherUserId === undefined ||
             row.classTeacherUserId === me?.userId ||
             row.hifzTeacherUserId === me?.userId) && (
-            <>
-              <Link to={`/school/orgs/${orgId}/sections/${sectionId}/attendance`} className={navCardBase}>
-                <div className="flex items-center gap-3">
-                  <div className="rounded-lg bg-indigo-50 p-2"><Calendar className="h-5 w-5 text-indigo-600" /></div>
-                  <div className="flex-1">
-                    <div className="text-sm font-semibold text-slate-900">Attendance</div>
-                    <div className="text-xs text-slate-500">Roll call + history</div>
-                  </div>
+            <Link to={`/school/orgs/${orgId}/sections/${sectionId}/attendance`} className={navCardBase}>
+              <div className="flex items-center gap-3">
+                <div className="rounded-lg bg-indigo-50 p-2"><Calendar className="h-5 w-5 text-indigo-600" /></div>
+                <div className="flex-1">
+                  <div className="text-sm font-semibold text-slate-900">Attendance</div>
+                  <div className="text-xs text-slate-500">Roll call + history</div>
                 </div>
-              </Link>
-              <Link to={`/school/orgs/${orgId}/sections/${sectionId}/hifz`} className={navCardBase}>
-                <div className="flex items-center gap-3">
-                  <div className="rounded-lg bg-emerald-50 p-2"><BookOpen className="h-5 w-5 text-emerald-600" /></div>
-                  <div className="flex-1">
-                    <div className="text-sm font-semibold text-slate-900">Hifz progress</div>
-                    <div className="text-xs text-slate-500">Sabaq · Sabqi · Manzil</div>
-                  </div>
+              </div>
+            </Link>
+          )}
+          {(viewerRole === "admin" || viewerRole === "principal" ||
+            row.classTeacherUserId === undefined ||
+            row.classTeacherUserId === me?.userId ||
+            row.hifzTeacherUserId === me?.userId ||
+            teachesQuranHere) && (
+            <Link to={`/school/orgs/${orgId}/sections/${sectionId}/hifz`} className={navCardBase}>
+              <div className="flex items-center gap-3">
+                <div className="rounded-lg bg-emerald-50 p-2"><BookOpen className="h-5 w-5 text-emerald-600" /></div>
+                <div className="flex-1">
+                  <div className="text-sm font-semibold text-slate-900">Quran / Hifz progress</div>
+                  <div className="text-xs text-slate-500">Per-child sabaq — assign the next portion after a successful recitation</div>
                 </div>
-              </Link>
-            </>
+              </div>
+            </Link>
           )}
           <Link to={`/school/orgs/${orgId}/sections/${sectionId}/behavior`} className={navCardBase}>
             <div className="flex items-center gap-3">
