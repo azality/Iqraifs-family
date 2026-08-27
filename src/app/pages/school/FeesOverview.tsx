@@ -299,7 +299,7 @@ export function FeesOverview() {
         title="Fees"
         subtitle="Fee status across the org"
         rightSlot={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Select value={period} onValueChange={setPeriod}>
               <SelectTrigger className="h-9 w-32 bg-white/10 border-white/20 text-white"><SelectValue /></SelectTrigger>
               <SelectContent>
