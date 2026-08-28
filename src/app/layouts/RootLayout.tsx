@@ -11,6 +11,7 @@ import {
   Sparkles, Database, ChevronDown, Eye, School, Gamepad2,
 } from "lucide-react";
 import { cn } from "../components/ui/utils";
+import { Search as SearchIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useViewMode } from "../contexts/ViewModeContext";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -378,6 +379,20 @@ export function RootLayout() {
 
             {/* Right: workspace switcher + mode switcher + user + logout */}
             <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+              {/* Global search — opens the Cmd-K palette. A visible button
+                  because the keyboard shortcut was undiscoverable and
+                  phones have no Cmd-K at all. School workspace only. */}
+              {isSchoolWorkspace && (
+                <button
+                  type="button"
+                  onClick={() => window.dispatchEvent(new Event("iqra:open-search"))}
+                  className="p-2 rounded-lg hover:bg-slate-100 transition-colors"
+                  aria-label="Search"
+                  title="Search students, teachers, classes, topics (Ctrl+K)"
+                >
+                  <SearchIcon className="h-4 w-4 text-slate-600" />
+                </button>
+              )}
               {/* Workspace switcher renders nothing if the user has no
                   school role, so family-only users see no extra chrome. */}
               {!isChildLoggedIn && <WorkspaceSwitcher />}

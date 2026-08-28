@@ -671,6 +671,27 @@ await check("22. class type: create with kind, invalid rejected, patch flips it"
   }
 });
 
+await check("23. global search: teachers/classes/topics groups, QA accounts hidden", async () => {
+  // Class search → section rows with deep links.
+  const c1 = await api(principal.token, `/school/orgs/${ORG}/search?q=${encodeURIComponent("Class V")}`);
+  const j1 = await c1.json();
+  assert(c1.status === 200, `search ${c1.status}`);
+  assert(Array.isArray(j1.sections) && j1.sections.length > 0, "no class sections found for 'Class V'");
+  assert(j1.sections[0].path.includes("/sections/"), "section result missing deep link");
+  // Teacher search by name; QA scaffolding accounts must not surface.
+  const c2 = await api(principal.token, `/school/orgs/${ORG}/search?q=Wardah`);
+  const j2 = await c2.json();
+  assert((j2.teachers ?? []).some((t: any) => String(t.name).includes("Wardah")), "teacher not found by name");
+  const c3 = await api(principal.token, `/school/orgs/${ORG}/search?q=QA`);
+  const j3 = await c3.json();
+  assert(!(j3.teachers ?? []).some((t: any) => /qa-.*@azality/.test(t.email ?? "")), "QA account leaked into teacher search");
+  // Topic search deep-links into a class's subjects panel.
+  const c4 = await api(principal.token, `/school/orgs/${ORG}/search?q=${encodeURIComponent("Backward counting")}`);
+  const j4 = await c4.json();
+  assert((j4.topics ?? []).length > 0, "topic not found");
+  assert(j4.topics[0].className && j4.topics[0].subjectName, "topic result missing context");
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
