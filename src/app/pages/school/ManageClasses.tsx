@@ -266,7 +266,13 @@ export function ManageClasses() {
                   <h3 className={sectionTitleClasses}>Sections</h3>
                   {(cls.sections || []).map((sec) => (
                     <div key={sec.id} className="flex flex-wrap items-center gap-2 p-2 border border-slate-200 rounded-lg bg-slate-50/50">
-                      <span className="text-sm font-medium flex-1 min-w-[80px]">{sec.name}</span>
+                      <Link
+                        to={`/school/orgs/${orgId}/sections/${sec.id}`}
+                        className="text-sm font-medium flex-1 min-w-[80px] text-indigo-700 hover:underline"
+                        title="Open section overview"
+                      >
+                        {sec.name} →
+                      </Link>
                       <Select
                         disabled={!canManage}
                         value={sec.class_teacher_user_id || "__none__"}

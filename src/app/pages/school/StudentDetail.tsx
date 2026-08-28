@@ -38,6 +38,7 @@ import {
   resetPin,
   createLinkCode,
   listClasses,
+  getStudentBehaviorNotes,
   transferStudent,
   type AdminClass,
   type StudentWithParents,
@@ -102,6 +103,46 @@ export function StudentDetail() {
   };
 
   useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [orgId, studentId]);
+
+  // Which class/section is this child in right now? (pilot: the page
+  // didn't say — you had to already know.) Resolved from the classes
+  // list; also tells us if the class is part of the Hifz program.
+  const [sectionInfo, setSectionInfo] = useState<{ label: string; sectionId: string; isHifz: boolean } | null>(null);
+  useEffect(() => {
+    if (!orgId || !student?.class_section_id) { setSectionInfo(null); return; }
+    listClasses(orgId)
+      .then((cs) => {
+        for (const cl of cs) {
+          const sec = (cl.sections ?? []).find((x) => x.id === student.class_section_id);
+          if (sec) {
+            setSectionInfo({
+              label: `${cl.name} · ${sec.name}`,
+              sectionId: sec.id,
+              isHifz: cl.kind === "hifz" || sec.schedule_key === "hifz",
+            });
+            return;
+          }
+        }
+        setSectionInfo(null);
+      })
+      .catch(() => setSectionInfo(null));
+  }, [orgId, student?.class_section_id]);
+
+  // Behavior at a glance (last 30 days).
+  const [behav30, setBehav30] = useState<{ pos: number; con: number } | null>(null);
+  useEffect(() => {
+    if (!orgId || !studentId) return;
+    const start = new Date(); start.setDate(start.getDate() - 30);
+    getStudentBehaviorNotes(orgId, studentId, { startDate: start.toISOString().slice(0, 10) })
+      .then((r: any) => {
+        const notes = r?.notes ?? [];
+        setBehav30({
+          pos: notes.filter((n: any) => n.kind === "positive").length,
+          con: notes.filter((n: any) => n.kind === "concern").length,
+        });
+      })
+      .catch(() => setBehav30(null));
+  }, [orgId, studentId]);
 
   useEffect(() => {
     if (!linkOpen || !parentSearch.trim()) { setSearchResults([]); return; }
@@ -243,12 +284,33 @@ export function StudentDetail() {
         eyebrow={student.status === "withdrawn" ? "Student · Left" : "Student"}
         title={student.full_name}
         subtitle={
-          <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-0.5">
+          <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-1">
+            {sectionInfo ? (
+              <Link
+                to={`/school/orgs/${orgId}/sections/${sectionInfo.sectionId}`}
+                className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-0.5 font-medium text-white ring-1 ring-white/25 hover:bg-white/20"
+                title="Open this class"
+              >
+                {sectionInfo.label} →
+              </Link>
+            ) : student.class_section_id ? null : (
+              <span className="rounded-full bg-amber-400/20 px-2.5 py-0.5 text-amber-200 ring-1 ring-amber-300/40">No class assigned</span>
+            )}
+            {sectionInfo?.isHifz && (
+              <span className="rounded-full bg-emerald-400/20 px-2.5 py-0.5 font-medium text-emerald-200 ring-1 ring-emerald-300/40">Hifz Program</span>
+            )}
             <span><span className="text-slate-500">GR#</span> <span className="font-mono text-slate-200">{student.gr_number}</span></span>
             {student.date_of_birth && <span><span className="text-slate-500">DOB</span> {student.date_of_birth}</span>}
             {student.gender && <span><span className="text-slate-500">Gender</span> {student.gender}</span>}
             {student.guardian_phone && <span><span className="text-slate-500">Phone</span> {student.guardian_phone}</span>}
             {student.guardian_email && <span><span className="text-slate-500">Email</span> {student.guardian_email}</span>}
+            {behav30 && (behav30.pos > 0 || behav30.con > 0) && (
+              <span title="Behavior notes in the last 30 days">
+                <span className="text-emerald-300">+{behav30.pos}</span>{" "}
+                <span className="text-rose-300">−{behav30.con}</span>{" "}
+                <span className="text-slate-500">(30d)</span>
+              </span>
+            )}
           </span>
         }
         rightSlot={
