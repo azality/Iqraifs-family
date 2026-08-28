@@ -183,6 +183,7 @@ function groupsForAdmin(
       Icon: GraduationCap,
       items: [
         I("classes", t("toolbar.classes"), `/school/orgs/${orgId}/admin/classes`, BookOpen),
+        I("hifz-program", "Hifz program", `/school/orgs/${orgId}/admin/hifz-program`, BookMarked),
         I("hifz-groups", "Hifz Groups", `/school/orgs/${orgId}/admin/hifz-groups`, BookMarked),
         I("timetable", "Timetable", `/school/orgs/${orgId}/admin/timetable`, Calendar),
         I("assessment", "Assessment", `/school/orgs/${orgId}/admin/assessment`, ClipboardList),

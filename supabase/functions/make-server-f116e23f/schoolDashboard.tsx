@@ -1076,6 +1076,153 @@ export function installDashboard(school: Hono): void {
     });
   });
 
+  // ─── Hifz Program dashboard ─────────────────────────────────────────
+  // The program view across structures: full-time Hifz classes (sections
+  // on the 'hifz' bell schedule) PLUS any student elsewhere with hifz
+  // entries (completed-hifz kids doing manzil revision inside academic
+  // classes). Per student: kahan tak suna diya (latest entry position),
+  // recency, and a stalled flag. Admin/principal only.
+  school.get("/orgs/:orgId/hifz-program", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    if (!(await hasAdminOrPrincipal(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+
+    const skeleton = withoutSandbox(await loadOrgSkeleton(orgId));
+    const hifzSections = skeleton.sections.filter((s) => s.schedule_key === "hifz");
+    const hifzSectionIds = new Set(hifzSections.map((s) => s.id));
+    const sectionLabel = new Map(
+      skeleton.sections.map((s) => [s.id, `${s.class_name} ${s.name}`]),
+    );
+
+    const { data: students } = await serviceRoleClient
+      .from("student")
+      .select("id, full_name, gr_number, class_section_id")
+      .eq("org_id", orgId)
+      .eq("status", "active");
+    const studentById = new Map(((students ?? []) as any[]).map((s) => [s.id, s]));
+
+    // All hifz entries for the org, newest first (program volume is small
+    // — hundreds/month at full use; cap generously).
+    const { data: entries } = await serviceRoleClient
+      .from("hifz_progress")
+      .select("student_id, kind, surah_number, ayah_to, juz_number, quality, recorded_at")
+      .eq("org_id", orgId)
+      .order("recorded_at", { ascending: false })
+      .limit(5000);
+
+    const now = Date.now();
+    const DAY = 86400000;
+    type Agg = {
+      lastEntryAt: string | null;
+      lastKind: string | null;
+      lastSurah: number | null;
+      lastAyah: number | null;
+      lastJuz: number | null;
+      entries7d: number;
+      entries30d: number;
+    };
+    const byStudent = new Map<string, Agg>();
+    for (const e of (entries ?? []) as any[]) {
+      const a = byStudent.get(e.student_id) ?? {
+        lastEntryAt: null, lastKind: null, lastSurah: null, lastAyah: null,
+        lastJuz: null, entries7d: 0, entries30d: 0,
+      };
+      if (!a.lastEntryAt) {
+        a.lastEntryAt = e.recorded_at;
+        a.lastKind = e.kind;
+        a.lastSurah = e.surah_number ?? null;
+        a.lastAyah = e.ayah_to ?? null;
+        a.lastJuz = e.juz_number ?? null;
+      }
+      const age = now - Date.parse(e.recorded_at);
+      if (age <= 7 * DAY) a.entries7d += 1;
+      if (age <= 30 * DAY) a.entries30d += 1;
+      byStudent.set(e.student_id, a);
+    }
+
+    // Program membership: everyone in a Hifz-schedule section, plus any
+    // other student with at least one entry ("revision" track).
+    const rows: any[] = [];
+    const emptyAgg: Agg = {
+      lastEntryAt: null, lastKind: null, lastSurah: null, lastAyah: null,
+      lastJuz: null, entries7d: 0, entries30d: 0,
+    };
+    for (const s of (students ?? []) as any[]) {
+      const inHifzSection = s.class_section_id && hifzSectionIds.has(s.class_section_id);
+      const agg = byStudent.get(s.id);
+      if (!inHifzSection && !agg) continue;
+      const a = agg ?? emptyAgg;
+      const stalledDays = a.lastEntryAt
+        ? Math.floor((now - Date.parse(a.lastEntryAt)) / DAY)
+        : null;
+      rows.push({
+        studentId: s.id,
+        name: s.full_name,
+        grNumber: s.gr_number ?? null,
+        sectionLabel: s.class_section_id ? sectionLabel.get(s.class_section_id) ?? "" : "",
+        track: inHifzSection ? "hifz" : "revision",
+        lastEntryAt: a.lastEntryAt,
+        lastKind: a.lastKind,
+        lastSurah: a.lastSurah,
+        lastAyah: a.lastAyah,
+        lastJuz: a.lastJuz,
+        entries7d: a.entries7d,
+        entries30d: a.entries30d,
+        stalledDays,
+      });
+    }
+    rows.sort((x, y) => (x.sectionLabel + x.name).localeCompare(y.sectionLabel + y.name));
+
+    // Per-class rollup for the Hifz classes.
+    const classes = hifzSections.map((sec) => {
+      const kids = rows.filter((r) => r.sectionLabel === `${sec.class_name} ${sec.name}`);
+      const lastActivity = kids.reduce<string | null>(
+        (m, k) => (k.lastEntryAt && (!m || k.lastEntryAt > m) ? k.lastEntryAt : m),
+        null,
+      );
+      return {
+        sectionId: sec.id,
+        label: `${sec.class_name} ${sec.name}`,
+        hifzTeacherUserId: sec.hifz_teacher_user_id,
+        studentCount: kids.length,
+        entries7d: kids.reduce((n, k) => n + k.entries7d, 0),
+        activeThisWeek: kids.filter((k) => k.entries7d > 0).length,
+        lastActivity,
+      };
+    });
+    // Teacher names for the class cards.
+    for (const cl of classes) {
+      let name: string | null = null;
+      if (cl.hifzTeacherUserId) {
+        try {
+          const { data: u } = await (serviceRoleClient as any).auth.admin.getUserById(cl.hifzTeacherUserId);
+          name = u?.user?.user_metadata?.name || u?.user?.email || null;
+        } catch { /* ignore */ }
+      }
+      (cl as any).teacherName = name;
+      delete (cl as any).hifzTeacherUserId;
+    }
+
+    const active7 = rows.filter((r) => r.entries7d > 0).length;
+    return c.json({
+      totals: {
+        students: rows.length,
+        hifzTrack: rows.filter((r) => r.track === "hifz").length,
+        revisionTrack: rows.filter((r) => r.track === "revision").length,
+        activeThisWeek: active7,
+        entries7d: rows.reduce((n, r) => n + r.entries7d, 0),
+        entries30d: rows.reduce((n, r) => n + r.entries30d, 0),
+        stalled: rows.filter((r) => r.lastEntryAt && (r.stalledDays ?? 0) > 7).length,
+        neverLogged: rows.filter((r) => !r.lastEntryAt).length,
+      },
+      classes,
+      students: rows,
+    });
+  });
+
   // ─── Chronic absentees ──────────────────────────────────────────────
   // Per-STUDENT attendance over a window — the actionable version of the
   // aggregate tiles: "81% this month" is a fact, "these 9 children are
