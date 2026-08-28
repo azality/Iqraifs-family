@@ -472,7 +472,7 @@ export function SectionOverview() {
       {/* Subjects — Phase 1B of per-subject rewiring. Principals + admins
           can add / edit / delete; teachers see a read-only list. Future
           PRs thread subject_id into lessons / assignments / gradebook. */}
-      {row?.scheduleKey === "hifz" ? (
+      {(row?.classKind === "hifz" || row?.scheduleKey === "hifz") ? (
         /* Hifz classes: work is tracked per child, not by syllabus topics
            — the subjects/curriculum scaffold would sit forever at "No
            curriculum yet" (pilot: "all I need is a Quran and a pencil").

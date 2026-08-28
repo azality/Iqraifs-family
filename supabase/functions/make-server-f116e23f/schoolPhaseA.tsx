@@ -437,12 +437,21 @@ export function installPhaseA(school: Hono) {
     if (!body?.name || typeof body.name !== "string") {
       return c.json({ error: "name required" }, 400);
     }
+    // Class type: chosen by the school at creation, drives the template
+    // (academic = subjects/curriculum/coverage; hifz = per-child
+    // recitation log + Hifz program membership). Never inferred from
+    // names or seed data — schools author it themselves.
+    const kind = body.kind ?? "academic";
+    if (!["academic", "hifz"].includes(kind)) {
+      return c.json({ error: "kind must be 'academic' or 'hifz'" }, 400);
+    }
     const { data, error } = await serviceRoleClient
       .from("class")
       .insert({
         org_id: orgId,
         name: body.name.trim(),
         display_order: typeof body.displayOrder === "number" ? body.displayOrder : 0,
+        kind,
       })
       .select()
       .single();
@@ -657,6 +666,12 @@ export function installPhaseA(school: Hono) {
     const patch: Record<string, unknown> = {};
     if (typeof body.name === "string") patch.name = body.name.trim();
     if (typeof body.displayOrder === "number") patch.display_order = body.displayOrder;
+    if (body.kind !== undefined) {
+      if (!["academic", "hifz"].includes(body.kind)) {
+        return c.json({ error: "kind must be 'academic' or 'hifz'" }, 400);
+      }
+      patch.kind = body.kind;
+    }
     if (Object.keys(patch).length === 0) return c.json({ error: "no fields to update" }, 400);
     const { data, error } = await serviceRoleClient
       .from("class")

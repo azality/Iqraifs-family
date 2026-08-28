@@ -74,8 +74,10 @@ export function ManageClasses() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [addOpen, setAddOpen] = useState(false);
   const [newClassName, setNewClassName] = useState("");
+  const [newClassKind, setNewClassKind] = useState<"academic" | "hifz">("academic");
   const [editing, setEditing] = useState<AdminClass | null>(null);
   const [editName, setEditName] = useState("");
+  const [editKind, setEditKind] = useState<"academic" | "hifz">("academic");
   const [sectionDialog, setSectionDialog] = useState<{ classId: string } | null>(null);
   const [newSectionName, setNewSectionName] = useState("");
   const [newSectionTeacher, setNewSectionTeacher] = useState<string>("");
@@ -114,7 +116,7 @@ export function ManageClasses() {
   const handleAddClass = async () => {
     if (!newClassName.trim()) return;
     try {
-      await adminCreateClass(orgId, { name: newClassName.trim() });
+      await adminCreateClass(orgId, { name: newClassName.trim(), kind: newClassKind });
       setNewClassName("");
       setAddOpen(false);
       refresh();
@@ -125,7 +127,7 @@ export function ManageClasses() {
 
   const handleRenameClass = async () => {
     if (!editing || !editName.trim()) return;
-    await updateClass(orgId, editing.id, { name: editName.trim() });
+    await updateClass(orgId, editing.id, { name: editName.trim(), kind: editKind });
     setEditing(null);
     refresh();
   };
@@ -177,7 +179,7 @@ export function ManageClasses() {
   // and fees all hang off class sections — this is purely how the
   // hierarchy reads.
   const isHifzClass = (c: (typeof classes)[number]) =>
-    (c.sections ?? []).some((sec) => sec.schedule_key === "hifz");
+    c.kind === "hifz" || (c.sections ?? []).some((sec) => sec.schedule_key === "hifz");
   const orderedClasses = [
     ...classes.filter((c) => !isHifzClass(c)),
     ...classes.filter(isHifzClass),
@@ -239,7 +241,7 @@ export function ManageClasses() {
                   </button>
                   {canManage && (
                     <div className="flex gap-1">
-                      <Button variant="ghost" size="sm" onClick={() => { setEditing(cls); setEditName(cls.name); }}>
+                      <Button variant="ghost" size="sm" onClick={() => { setEditing(cls); setEditName(cls.name); setEditKind(cls.kind === "hifz" ? "hifz" : "academic"); }}>
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>
                       <Button variant="ghost" size="sm" onClick={() => handleDeleteClass(cls)}>
@@ -387,6 +389,27 @@ export function ManageClasses() {
             <Label htmlFor="cls-name">Class name</Label>
             <Input id="cls-name" value={newClassName} onChange={(e) => setNewClassName(e.target.value)} placeholder="e.g. Class 3" />
           </div>
+          <div className="space-y-2">
+            <Label>Class type</Label>
+            <div className="grid grid-cols-2 gap-2">
+              {([["academic", "Academic", "Subjects, curriculum, coverage"], ["hifz", "Hifz", "Per-child Quran log + Hifz program"]] as const).map(([val, label, hint]) => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => setNewClassKind(val)}
+                  className={
+                    "rounded-lg border p-2.5 text-left transition-colors " +
+                    (newClassKind === val
+                      ? "border-indigo-400 bg-indigo-50"
+                      : "border-slate-200 hover:border-slate-300")
+                  }
+                >
+                  <div className="text-sm font-medium text-slate-900">{label}</div>
+                  <div className="text-[11px] text-slate-500">{hint}</div>
+                </button>
+              ))}
+            </div>
+          </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
             <Button onClick={handleAddClass}>Create</Button>
@@ -399,6 +422,27 @@ export function ManageClasses() {
         <DialogContent>
           <DialogHeader><DialogTitle>Rename class</DialogTitle></DialogHeader>
           <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
+          <div className="space-y-2">
+            <Label>Class type</Label>
+            <div className="grid grid-cols-2 gap-2">
+              {([["academic", "Academic", "Subjects, curriculum, coverage"], ["hifz", "Hifz", "Per-child Quran log + Hifz program"]] as const).map(([val, label, hint]) => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => setEditKind(val)}
+                  className={
+                    "rounded-lg border p-2.5 text-left transition-colors " +
+                    (editKind === val
+                      ? "border-indigo-400 bg-indigo-50"
+                      : "border-slate-200 hover:border-slate-300")
+                  }
+                >
+                  <div className="text-sm font-medium text-slate-900">{label}</div>
+                  <div className="text-[11px] text-slate-500">{hint}</div>
+                </button>
+              ))}
+            </div>
+          </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
             <Button onClick={handleRenameClass}>Save</Button>

@@ -208,6 +208,7 @@ type SectionRow = {
   class_name: string;
   student_count: number;
   schedule_key: string;
+  class_kind: string;
 };
 
 // The QA Sandbox class (regression-suite scaffolding) is invisible to
@@ -228,10 +229,11 @@ async function loadOrgSkeleton(orgId: string): Promise<{
 }> {
   const { data: classes } = await serviceRoleClient
     .from("class")
-    .select("id, name")
+    .select("id, name, kind")
     .eq("org_id", orgId);
-  const classRows = (classes ?? []) as Array<{ id: string; name: string }>;
+  const classRows = (classes ?? []) as Array<{ id: string; name: string; kind?: string }>;
   const classById = new Map(classRows.map((c) => [c.id, c.name]));
+  const classKindById = new Map(classRows.map((c) => [c.id, c.kind ?? "academic"]));
 
   const classIds = classRows.map((c) => c.id);
   let sectionRows: Array<{
@@ -275,6 +277,7 @@ async function loadOrgSkeleton(orgId: string): Promise<{
     class_name: classById.get(s.class_id) ?? "",
     student_count: (studentsBySection.get(s.id) ?? []).length,
     schedule_key: s.schedule_key ?? "default",
+    class_kind: classKindById.get(s.class_id) ?? "academic",
   }));
 
   return {
@@ -1091,7 +1094,9 @@ export function installDashboard(school: Hono): void {
     }
 
     const skeleton = withoutSandbox(await loadOrgSkeleton(orgId));
-    const hifzSections = skeleton.sections.filter((s) => s.schedule_key === "hifz");
+    const hifzSections = skeleton.sections.filter(
+      (s) => s.class_kind === "hifz" || s.schedule_key === "hifz",
+    );
     const hifzSectionIds = new Set(hifzSections.map((s) => s.id));
     const sectionLabel = new Map(
       skeleton.sections.map((s) => [s.id, `${s.class_name} ${s.name}`]),
@@ -1497,6 +1502,7 @@ export function installDashboard(school: Hono): void {
         // 'hifz' sections get a recitation-first section page (the
         // subjects/curriculum scaffold is meaningless for hifz work).
         scheduleKey: sec.schedule_key ?? "default",
+        classKind: sec.class_kind ?? "academic",
         attendancePct: pct,
         attendanceDelta: delta,
         behaviorScore: behavior.net,
