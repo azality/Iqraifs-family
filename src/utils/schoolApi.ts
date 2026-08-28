@@ -4661,6 +4661,16 @@ export interface SearchParent {
   children: Array<{ id: string; fullName: string }>;
   path: string;
 }
+export interface SearchTeacher {
+  userId: string; name: string; email: string | null;
+  roleType: string; path: string;
+}
+export interface SearchSection {
+  sectionId: string; label: string; kind: string; path: string;
+}
+export interface SearchTopic {
+  id: string; name: string; subjectName: string; className: string; path: string;
+}
 export interface SearchThread {
   id: string; subject: string;
   studentName: string | null; studentId: string | null;
@@ -4672,6 +4682,10 @@ export interface SchoolSearchResponse {
   students: SearchStudent[];
   parents: SearchParent[];
   threads: SearchThread[];
+  /** Present from v1.0.62; optional for older cached backends. */
+  teachers?: SearchTeacher[];
+  sections?: SearchSection[];
+  topics?: SearchTopic[];
 }
 export const schoolSearch = (
   orgId: string,

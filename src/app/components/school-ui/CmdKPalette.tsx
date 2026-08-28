@@ -12,7 +12,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { GraduationCap, User, MessageSquare, Loader2 } from "lucide-react";
+import { GraduationCap, User, MessageSquare, Loader2, UserCog, BookOpen, ListChecks } from "lucide-react";
 import {
   CommandDialog,
   CommandEmpty,
@@ -47,7 +47,15 @@ export function CmdKPalette() {
       }
     };
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    // Header search button (and anything else) can open the palette via
+    // this event — the keyboard shortcut alone was undiscoverable and
+    // useless on phones.
+    const onOpenEvent = () => setOpen(true);
+    window.addEventListener("iqra:open-search", onOpenEvent);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("iqra:open-search", onOpenEvent);
+    };
   }, []);
 
   // Debounced search.
@@ -89,18 +97,21 @@ export function CmdKPalette() {
     return (
       results.students.length === 0 &&
       results.parents.length === 0 &&
-      results.threads.length === 0
+      results.threads.length === 0 &&
+      (results.teachers ?? []).length === 0 &&
+      (results.sections ?? []).length === 0 &&
+      (results.topics ?? []).length === 0
     );
   }, [loading, q, results]);
 
   if (!orgId) return null;
 
   return (
-    <CommandDialog open={open} onOpenChange={setOpen} title="Search" description="Search students, parents, message threads">
+    <CommandDialog open={open} onOpenChange={setOpen} title="Search" description="Search students, teachers, classes, topics, parents, threads">
       <CommandInput
         value={q}
         onValueChange={setQ}
-        placeholder="Search students, parents, threads…"
+        placeholder="Search students, teachers, classes, topics…"
       />
       <CommandList>
         {q.trim().length < MIN_CHARS ? (
@@ -128,6 +139,63 @@ export function CmdKPalette() {
                       <span className="text-sm">{s.fullName}</span>
                       <span className="text-[11px] text-slate-500">
                         {s.grNumber}{s.className ? ` · ${s.className}${s.sectionName ? ` — ${s.sectionName}` : ""}` : ""}
+                      </span>
+                    </div>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
+            {(results.teachers ?? []).length > 0 && (
+              <CommandGroup heading="Teachers & staff">
+                {(results.teachers ?? []).map((t) => (
+                  <CommandItem
+                    key={`tc:${t.userId}`}
+                    value={`teacher ${t.name} ${t.email ?? ""}`}
+                    onSelect={() => go(t.path)}
+                  >
+                    <UserCog className="h-4 w-4 text-violet-500" />
+                    <div className="flex flex-col">
+                      <span className="text-sm">{t.name}</span>
+                      <span className="text-[11px] text-slate-500">
+                        {t.roleType.replace(/_/g, " ")}{t.email ? ` · ${t.email}` : ""}
+                      </span>
+                    </div>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
+            {(results.sections ?? []).length > 0 && (
+              <CommandGroup heading="Classes">
+                {(results.sections ?? []).map((c) => (
+                  <CommandItem
+                    key={`cl:${c.sectionId}`}
+                    value={`class ${c.label}`}
+                    onSelect={() => go(c.path)}
+                  >
+                    <BookOpen className="h-4 w-4 text-sky-500" />
+                    <div className="flex flex-col">
+                      <span className="text-sm">{c.label}</span>
+                      <span className="text-[11px] text-slate-500">
+                        {c.kind === "hifz" ? "Hifz class" : "Class section"}
+                      </span>
+                    </div>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
+            {(results.topics ?? []).length > 0 && (
+              <CommandGroup heading="Syllabus topics">
+                {(results.topics ?? []).map((t) => (
+                  <CommandItem
+                    key={`tp:${t.id}`}
+                    value={`topic ${t.name} ${t.subjectName} ${t.className}`}
+                    onSelect={() => go(t.path)}
+                  >
+                    <ListChecks className="h-4 w-4 text-emerald-500" />
+                    <div className="flex flex-col">
+                      <span className="text-sm">{t.name}</span>
+                      <span className="text-[11px] text-slate-500">
+                        {t.className} · {t.subjectName}
                       </span>
                     </div>
                   </CommandItem>
