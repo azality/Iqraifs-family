@@ -624,6 +624,26 @@ await check("20. behavior points: school-set values enforced, Other clamped + su
   }
 });
 
+await check("21. hifz program: rollup shape, hifz classes present, admin-gated", async () => {
+  const r = await api(principal.token, `/school/orgs/${ORG}/hifz-program`);
+  const j = await r.json();
+  assert(r.status === 200, `hifz-program ${r.status}`);
+  assert(
+    j.totals && typeof j.totals.students === "number" &&
+      Array.isArray(j.classes) && Array.isArray(j.students),
+    "hifz-program shape wrong",
+  );
+  // IFS has four Hifz-schedule classes with ~84 enrolled students.
+  assert(j.classes.length >= 1, "no hifz classes in rollup");
+  assert(j.totals.students >= j.classes.length, "totals below class count");
+  for (const s of j.students.slice(0, 5)) {
+    assert(s.name && s.sectionLabel !== undefined && ["hifz", "revision"].includes(s.track),
+      `student row shape: ${JSON.stringify(s).slice(0, 100)}`);
+  }
+  const t = await api(teacher.token, `/school/orgs/${ORG}/hifz-program`);
+  assert(t.status === 403, `teacher expected 403, got ${t.status}`);
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

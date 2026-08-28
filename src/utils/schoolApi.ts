@@ -1227,6 +1227,47 @@ export interface TodayOpsResponse {
 export const getTodayOps = (orgId: string): Promise<TodayOpsResponse> =>
   apiCall(`/school/orgs/${orgId}/today-ops`);
 
+// ─── Hifz Program dashboard (admin/principal) ──────────────────────────
+export interface HifzProgramStudent {
+  studentId: string;
+  name: string;
+  grNumber: string | null;
+  sectionLabel: string;
+  track: "hifz" | "revision";
+  lastEntryAt: string | null;
+  lastKind: string | null;
+  lastSurah: number | null;
+  lastAyah: number | null;
+  lastJuz: number | null;
+  entries7d: number;
+  entries30d: number;
+  stalledDays: number | null;
+}
+export interface HifzProgramResponse {
+  totals: {
+    students: number;
+    hifzTrack: number;
+    revisionTrack: number;
+    activeThisWeek: number;
+    entries7d: number;
+    entries30d: number;
+    stalled: number;
+    neverLogged: number;
+  };
+  classes: Array<{
+    sectionId: string;
+    label: string;
+    teacherName: string | null;
+    studentCount: number;
+    entries7d: number;
+    activeThisWeek: number;
+    lastActivity: string | null;
+  }>;
+  students: HifzProgramStudent[];
+}
+export const getHifzProgram = (orgId: string): Promise<HifzProgramResponse> =>
+  apiCall(`/school/orgs/${orgId}/hifz-program`);
+
 // ─── Chronic absentees ─────────────────────────────────────────────────
 export interface AtRiskAttendanceRow {
   studentId: string;
