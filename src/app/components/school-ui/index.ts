@@ -20,6 +20,7 @@ export { DataTable } from "./DataTable";
 export type { DataTableProps, DataTableColumn } from "./DataTable";
 
 export { ManageToolbar, schoolNavGroupsForRole } from "./ManageToolbar";
+export { HeaderSearch } from "./HeaderSearch";
 export type { ManageToolbarProps } from "./ManageToolbar";
 
 export { TimeOffModal } from "./TimeOffModal";

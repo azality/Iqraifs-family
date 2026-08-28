@@ -42,6 +42,10 @@ export function CmdKPalette() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        // Desktop's Ctrl-K focuses the inline HeaderSearch instead; the
+        // overlay only serves small screens (no room for an inline
+        // dropdown there).
+        if (window.matchMedia("(min-width: 640px)").matches) return;
         e.preventDefault();
         setOpen((v) => !v);
       }
