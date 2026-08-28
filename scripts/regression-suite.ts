@@ -685,6 +685,12 @@ await check("23. global search: teachers/classes/topics groups, QA accounts hidd
   const c3 = await api(principal.token, `/school/orgs/${ORG}/search?q=QA`);
   const j3 = await c3.json();
   assert(!(j3.teachers ?? []).some((t: any) => /qa-.*@azality/.test(t.email ?? "")), "QA account leaked into teacher search");
+  // Admin/principal accounts have no teacher profile page - they must not
+  // surface as dead links (pilot: "Ambreen" -> admin account -> not found).
+  const c3b = await api(principal.token, `/school/orgs/${ORG}/search?q=Ambreen`);
+  const j3b = await c3b.json();
+  assert(!(j3b.teachers ?? []).some((t: any) => ["admin", "principal"].includes(t.roleType)),
+    "admin/principal leaked into teacher search results");
   // Topic search deep-links into a class's subjects panel.
   const c4 = await api(principal.token, `/school/orgs/${ORG}/search?q=${encodeURIComponent("Backward counting")}`);
   const j4 = await c4.json();

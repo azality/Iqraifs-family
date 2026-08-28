@@ -77,8 +77,16 @@ export function installSchoolSearch(school: Hono): void {
       .eq("scope_type", "organization")
       .eq("scope_id", orgId)
       .is("revoked_at", null);
+    // Only roles the TeacherDetail page can actually render — routing an
+    // admin/principal there produced "Staff member not found" (pilot bug:
+    // searching "Ambreen" surfaced the head teacher's ADMIN account).
+    const LINKABLE_ROLES = new Set([
+      "class_teacher", "visiting_teacher", "teacher", "hifz_teacher",
+      "office_staff", "financial_staff",
+    ]);
     const roleByUser = new Map<string, string>();
     for (const r of (roleRows ?? []) as any[]) {
+      if (!LINKABLE_ROLES.has(r.role_type)) continue;
       if (!roleByUser.has(r.user_id)) roleByUser.set(r.user_id, r.role_type);
     }
     const teachers: any[] = [];
