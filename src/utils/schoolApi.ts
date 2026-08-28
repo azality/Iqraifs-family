@@ -1104,6 +1104,8 @@ export interface LeaderboardRow {
    *  missing as "relationship unknown" and keep the actions visible. */
   classTeacherUserId?: string | null;
   hifzTeacherUserId?: string | null;
+  /** Bell schedule of the section; 'hifz' = recitation-first section page. */
+  scheduleKey?: string;
   attendancePct: number;
   /** Null when there is no prior-period data to compare against. */
   attendanceDelta: number | null;

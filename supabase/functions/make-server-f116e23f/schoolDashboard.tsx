@@ -1494,6 +1494,9 @@ export function installDashboard(school: Hono): void {
         // every taught class suddenly showed "Take attendance").
         classTeacherUserId: sec.class_teacher_user_id ?? null,
         hifzTeacherUserId: sec.hifz_teacher_user_id ?? null,
+        // 'hifz' sections get a recitation-first section page (the
+        // subjects/curriculum scaffold is meaningless for hifz work).
+        scheduleKey: sec.schedule_key ?? "default",
         attendancePct: pct,
         attendanceDelta: delta,
         behaviorScore: behavior.net,
