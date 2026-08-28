@@ -107,7 +107,7 @@ export function CmdKPalette() {
   if (!orgId) return null;
 
   return (
-    <CommandDialog open={open} onOpenChange={setOpen} title="Search" description="Search students, teachers, classes, topics, parents, threads">
+    <CommandDialog open={open} onOpenChange={setOpen} contentClassName="self-start mt-[8vh] sm:mt-[12vh] w-full max-w-xl" title="Search" description="Search students, teachers, classes, topics, parents, threads">
       <CommandInput
         value={q}
         onValueChange={setQ}

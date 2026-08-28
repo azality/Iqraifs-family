@@ -383,15 +383,29 @@ export function RootLayout() {
                   because the keyboard shortcut was undiscoverable and
                   phones have no Cmd-K at all. School workspace only. */}
               {isSchoolWorkspace && (
-                <button
-                  type="button"
-                  onClick={() => window.dispatchEvent(new Event("iqra:open-search"))}
-                  className="p-2 rounded-lg hover:bg-slate-100 transition-colors"
-                  aria-label="Search"
-                  title="Search students, teachers, classes, topics (Ctrl+K)"
-                >
-                  <SearchIcon className="h-4 w-4 text-slate-600" />
-                </button>
+                <>
+                  {/* Desktop: looks like a search FIELD so the expanding
+                      overlay reads as "the box opened", not a popup. */}
+                  <button
+                    type="button"
+                    onClick={() => window.dispatchEvent(new Event("iqra:open-search"))}
+                    className="hidden sm:flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-500 hover:border-slate-300 hover:bg-white transition-colors min-w-[150px]"
+                    aria-label="Search"
+                    title="Search students, teachers, classes, topics"
+                  >
+                    <SearchIcon className="h-3.5 w-3.5" />
+                    <span className="flex-1 text-left">Search…</span>
+                    <kbd className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-400">Ctrl K</kbd>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => window.dispatchEvent(new Event("iqra:open-search"))}
+                    className="sm:hidden p-2 rounded-lg hover:bg-slate-100 transition-colors"
+                    aria-label="Search"
+                  >
+                    <SearchIcon className="h-4 w-4 text-slate-600" />
+                  </button>
+                </>
               )}
               {/* Workspace switcher renders nothing if the user has no
                   school role, so family-only users see no extra chrome. */}
