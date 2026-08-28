@@ -3,7 +3,7 @@ import { ChildSelector } from "../components/ChildSelector";
 import { ModeSwitcher } from "../components/ModeSwitcher";
 import { WorkspaceSwitcher } from "../components/WorkspaceSwitcher";
 import { useWorkspace } from "../contexts/WorkspaceContext";
-import { ManageToolbar, schoolNavGroupsForRole } from "../components/school-ui";
+import { ManageToolbar, schoolNavGroupsForRole, HeaderSearch } from "../components/school-ui";
 import { viewerRoleForOrg } from "../../utils/schoolApi";
 import {
   Home, FileText, BarChart3, Settings, Calendar, Gift, Shield,
@@ -382,21 +382,12 @@ export function RootLayout() {
               {/* Global search — opens the Cmd-K palette. A visible button
                   because the keyboard shortcut was undiscoverable and
                   phones have no Cmd-K at all. School workspace only. */}
-              {isSchoolWorkspace && (
+              {isSchoolWorkspace && schoolOrgId && (
                 <>
-                  {/* Desktop: looks like a search FIELD so the expanding
-                      overlay reads as "the box opened", not a popup. */}
-                  <button
-                    type="button"
-                    onClick={() => window.dispatchEvent(new Event("iqra:open-search"))}
-                    className="hidden sm:flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-500 hover:border-slate-300 hover:bg-white transition-colors min-w-[150px]"
-                    aria-label="Search"
-                    title="Search students, teachers, classes, topics"
-                  >
-                    <SearchIcon className="h-3.5 w-3.5" />
-                    <span className="flex-1 text-left">Search…</span>
-                    <kbd className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-400">Ctrl K</kbd>
-                  </button>
+                  {/* Desktop: a real inline search input — results drop
+                      down attached to it (pilot: "should display right
+                      there", not a popup). Phones keep the overlay. */}
+                  <HeaderSearch orgId={schoolOrgId} />
                   <button
                     type="button"
                     onClick={() => window.dispatchEvent(new Event("iqra:open-search"))}
