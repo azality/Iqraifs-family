@@ -23,9 +23,9 @@ import { NoAccessRedirect } from "../../components/school-ui";
 function positionLabel(s: { lastKind: string | null; lastSurah: number | null; lastAyah: number | null; lastJuz: number | null }): string {
   if (!s.lastKind) return "—";
   const parts: string[] = [];
-  if (s.lastSurah) parts.push(`سورہ ${s.lastSurah}`);
-  if (s.lastAyah) parts.push(`آیت ${s.lastAyah}`);
-  if (s.lastJuz) parts.push(`پارہ ${s.lastJuz}`);
+  if (s.lastSurah) parts.push(`Surah ${s.lastSurah}`);
+  if (s.lastAyah) parts.push(`Ayah ${s.lastAyah}`);
+  if (s.lastJuz) parts.push(`Juz ${s.lastJuz}`);
   const pos = parts.join(" · ") || "—";
   return `${pos} (${s.lastKind})`;
 }
@@ -79,9 +79,9 @@ export function HifzProgramDashboard() {
             <BookOpen className="h-6 w-6 text-emerald-600" /> Hifz Program
           </h1>
           <p className="mt-1 text-sm text-muted-foreground max-w-2xl">
-            Every hifz student across the school — last recited position,
-            recency, and who needs attention. Teachers log from their class
-            → Quran/Hifz progress.
+            Every hifz student across the school — how far each has
+            recited, how recently, and who needs attention. Teachers log
+            from their class → Quran/Hifz progress.
           </p>
         </div>
       </div>
@@ -143,7 +143,7 @@ export function HifzProgramDashboard() {
           <Card>
             <CardHeader className="pb-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <CardTitle className="text-sm">Students — kahan tak suna diya</CardTitle>
+                <CardTitle className="text-sm">Students — last recitation</CardTitle>
                 <div className="flex flex-wrap gap-1">
                   {([["all", `All (${data.students.length})`], ["stalled", `Stalled (${t.stalled})`], ["never", `Never logged (${t.neverLogged})`], ["revision", `Revision (${t.revisionTrack})`]] as Array<[Filter, string]>).map(([k, label]) => (
                     <button
