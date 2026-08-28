@@ -6,7 +6,7 @@
 // Google-style. Phones keep the CmdK overlay (no room for an inline
 // dropdown in the mobile header).
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { useNavigate } from "react-router";
 import {
   Search, GraduationCap, User, UserCog, BookOpen, ListChecks,
@@ -75,7 +75,7 @@ export function HeaderSearch({ orgId }: { orgId: string }) {
     navigate(path);
   };
 
-  type Row = { key: string; icon: JSX.Element; title: string; sub: string; path: string };
+  type Row = { key: string; icon: ReactElement; title: string; sub: string; path: string };
   const rows: Array<{ heading: string; items: Row[] }> = useMemo(() => {
     if (!results) return [];
     const groups: Array<{ heading: string; items: Row[] }> = [];
