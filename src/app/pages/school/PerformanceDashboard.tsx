@@ -783,6 +783,8 @@ export function PerformanceDashboard() {
   const [atRisk, setAtRisk] = useState<AtRiskAttendanceResponse | null>(null);
   const [todayOps, setTodayOps] = useState<TodayOpsResponse | null>(null);
   const [atRiskPeriod, setAtRiskPeriod] = useState<string>("TERM");
+  // Snapshot-first: the card shows the worst few; "Show all" expands.
+  const [atRiskExpanded, setAtRiskExpanded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [me, setMe] = useState<SchoolMeResponse | null>(null);
@@ -1411,7 +1413,7 @@ export function PerformanceDashboard() {
               </p>
             ) : (
               <ul className="divide-y divide-slate-100">
-                {atRisk.rows.map((r) => (
+                {(atRiskExpanded ? atRisk.rows : atRisk.rows.slice(0, 6)).map((r) => (
                   <li key={r.studentId}>
                     <Link
                       to={`/school/orgs/${orgId}/admin/students/${r.studentId}`}
@@ -1443,6 +1445,15 @@ export function PerformanceDashboard() {
                   </li>
                 ))}
               </ul>
+            )}
+            {atRisk.rows.length > 6 && (
+              <button
+                type="button"
+                onClick={() => setAtRiskExpanded((v) => !v)}
+                className="mt-1 w-full rounded-md py-1.5 text-center text-xs font-medium text-indigo-600 hover:bg-indigo-50"
+              >
+                {atRiskExpanded ? "Show fewer" : `Show all ${atRisk.rows.length} students`}
+              </button>
             )}
           </CardContent>
         </Card>
