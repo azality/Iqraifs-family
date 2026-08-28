@@ -171,6 +171,19 @@ export function ManageClasses() {
 
   const totalSections = classes.reduce((n, c) => n + (c.sections?.length || 0), 0);
 
+  // Presentation split: Hifz-program classes (any section on the 'hifz'
+  // bell schedule) render after the academic classes under their own
+  // group header. Structurally they STAY classes — attendance, portal,
+  // and fees all hang off class sections — this is purely how the
+  // hierarchy reads.
+  const isHifzClass = (c: (typeof classes)[number]) =>
+    (c.sections ?? []).some((sec) => sec.schedule_key === "hifz");
+  const orderedClasses = [
+    ...classes.filter((c) => !isHifzClass(c)),
+    ...classes.filter(isHifzClass),
+  ];
+  const firstHifzClassId = classes.find(isHifzClass)?.id;
+
   return (
     <div className="space-y-4">
       <HeroCard
@@ -198,10 +211,19 @@ export function ManageClasses() {
             No classes yet. Click "Add Class" to create one.
           </div>
         )}
-        {classes.map((cls) => {
+        {orderedClasses.map((cls) => {
           const open = !!expanded[cls.id];
           return (
-            <Card key={cls.id}>
+            <div key={cls.id} className="space-y-3">
+            {cls.id === firstHifzClassId && (
+              <div className="flex flex-wrap items-baseline gap-2 pt-4">
+                <h2 className="text-sm font-bold uppercase tracking-widest text-emerald-700">Hifz Program</h2>
+                <span className="text-xs text-slate-500">
+                  full-time hifz classes — program overview under Academics → Hifz program
+                </span>
+              </div>
+            )}
+            <Card>
               <CardHeader className="py-3">
                 <div className="flex items-center justify-between">
                   <button
@@ -352,6 +374,7 @@ export function ManageClasses() {
                 </CardContent>
               )}
             </Card>
+            </div>
           );
         })}
       </div>

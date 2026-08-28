@@ -1447,6 +1447,9 @@ export interface AdminSection {
    *  run two teachers per section; this column lets us model that
    *  cleanly. Null = no separate Hifz teacher assigned. */
   hifz_teacher_user_id?: string | null;
+  /** Named bell schedule ('default' | 'hifz' | ...). 'hifz' marks the
+   *  section as part of the Hifz program for presentation grouping. */
+  schedule_key?: string | null;
 }
 
 export interface AdminClass {
