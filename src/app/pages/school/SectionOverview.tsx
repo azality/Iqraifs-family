@@ -472,6 +472,26 @@ export function SectionOverview() {
       {/* Subjects — Phase 1B of per-subject rewiring. Principals + admins
           can add / edit / delete; teachers see a read-only list. Future
           PRs thread subject_id into lessons / assignments / gradebook. */}
+      {(row?.classKind === "hifz" || row?.scheduleKey === "hifz") ? (
+        /* Hifz classes: work is tracked per child, not by syllabus topics
+           — the subjects/curriculum scaffold would sit forever at "No
+           curriculum yet" (pilot: "all I need is a Quran and a pencil").
+           Point at the recitation log instead. */
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4">
+          <div className="flex items-start gap-3">
+            <div className="rounded-lg bg-emerald-100 p-2"><BookOpen className="h-5 w-5 text-emerald-700" /></div>
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900">This is a Hifz class</h3>
+              <p className="mt-0.5 text-xs text-slate-600 max-w-xl">
+                Hifz work is tracked per child — each student is at their own
+                surah. Use <span className="font-medium">Quran / Hifz progress</span>{" "}
+                (or the Log Hifz button above) to record today&apos;s sabaq, sabqi
+                and manzil. The program-wide view lives under Academics → Hifz program.
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : (
       <SectionSubjectsManager
         orgId={orgId}
         sectionId={sectionId}
@@ -480,6 +500,7 @@ export function SectionOverview() {
         }
         canEditCurriculum={canEditCurriculum}
       />
+      )}
     </div>
   );
 }

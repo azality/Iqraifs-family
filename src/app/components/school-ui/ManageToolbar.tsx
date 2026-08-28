@@ -184,7 +184,10 @@ function groupsForAdmin(
       items: [
         I("classes", t("toolbar.classes"), `/school/orgs/${orgId}/admin/classes`, BookOpen),
         I("hifz-program", "Hifz program", `/school/orgs/${orgId}/admin/hifz-program`, BookMarked),
-        I("hifz-groups", "Hifz Groups", `/school/orgs/${orgId}/admin/hifz-groups`, BookMarked),
+        // "Hifz groups" hidden until a school actually needs cross-class
+        // Quran groupings — its presence next to the Hifz program entry
+        // repeatedly confused the pilot ("is that not the hifz thing?").
+        // Route /admin/hifz-groups still works by direct URL.
         I("timetable", "Timetable", `/school/orgs/${orgId}/admin/timetable`, Calendar),
         I("assessment", "Assessment", `/school/orgs/${orgId}/admin/assessment`, ClipboardList),
       ],

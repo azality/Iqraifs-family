@@ -644,6 +644,33 @@ await check("21. hifz program: rollup shape, hifz classes present, admin-gated",
   assert(t.status === 403, `teacher expected 403, got ${t.status}`);
 });
 
+await check("22. class type: create with kind, invalid rejected, patch flips it", async () => {
+  const mk = await api(principal.token, `/school/orgs/${ORG}/classes`, {
+    method: "POST",
+    body: JSON.stringify({ name: `QA Kind Temp ${Date.now()}`, kind: "hifz" }),
+  });
+  const mj = await mk.json();
+  assert(mk.status === 200 || mk.status === 201, `create ${mk.status}`);
+  const clsId = mj.id ?? mj.class?.id;
+  assert(clsId, "no class id in response");
+  try {
+    assert((mj.kind ?? mj.class?.kind) === "hifz", `kind not echoed: ${JSON.stringify(mj).slice(0, 120)}`);
+    const bad = await api(principal.token, `/school/orgs/${ORG}/classes`, {
+      method: "POST",
+      body: JSON.stringify({ name: "QA Bad Kind", kind: "montessori" }),
+    });
+    assert(bad.status === 400, `invalid kind expected 400, got ${bad.status}`);
+    const up = await api(principal.token, `/school/orgs/${ORG}/classes/${clsId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ kind: "academic" }),
+    });
+    const uj = await up.json();
+    assert(up.status === 200 && (uj.kind ?? uj.class?.kind) === "academic", `patch kind ${up.status}`);
+  } finally {
+    await api(principal.token, `/school/orgs/${ORG}/classes/${clsId}`, { method: "DELETE" });
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

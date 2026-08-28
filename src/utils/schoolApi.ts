@@ -1104,6 +1104,10 @@ export interface LeaderboardRow {
    *  missing as "relationship unknown" and keep the actions visible. */
   classTeacherUserId?: string | null;
   hifzTeacherUserId?: string | null;
+  /** Bell schedule of the section; 'hifz' = recitation-first section page. */
+  scheduleKey?: string;
+  /** Class type of the parent class ('academic' | 'hifz'). */
+  classKind?: string;
   attendancePct: number;
   /** Null when there is no prior-period data to compare against. */
   attendanceDelta: number | null;
@@ -1457,6 +1461,9 @@ export interface AdminClass {
   organization_id: string;
   name: string;
   display_order: number | null;
+  /** Class type: drives the template (academic = subjects/curriculum;
+   *  hifz = per-child recitation + Hifz program). Set at creation. */
+  kind?: "academic" | "hifz";
   sections: AdminSection[];
 }
 
@@ -1468,7 +1475,7 @@ export const listClasses = async (orgId: string): Promise<AdminClass[]> => {
 
 export const adminCreateClass = (
   orgId: string,
-  body: { name: string; displayOrder?: number },
+  body: { name: string; displayOrder?: number; kind?: "academic" | "hifz" },
 ): Promise<AdminClass> =>
   apiCall(`/school/orgs/${orgId}/classes`, {
     method: "POST",
@@ -1478,7 +1485,7 @@ export const adminCreateClass = (
 export const updateClass = (
   orgId: string,
   classId: string,
-  partial: Partial<{ name: string; displayOrder: number }>,
+  partial: Partial<{ name: string; displayOrder: number; kind: "academic" | "hifz" }>,
 ): Promise<AdminClass> =>
   apiCall(`/school/orgs/${orgId}/classes/${classId}`, {
     method: "PATCH",
