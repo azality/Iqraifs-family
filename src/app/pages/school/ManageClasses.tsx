@@ -239,6 +239,20 @@ export function ManageClasses() {
                       {cls.sections?.length || 0} section{cls.sections?.length === 1 ? "" : "s"}
                     </span>
                   </button>
+                  {/* Direct doors to each section's page, visible without
+                      expanding the class. */}
+                  <div className="flex flex-wrap items-center gap-1.5 mr-2">
+                    {(cls.sections || []).map((sec) => (
+                      <Link
+                        key={sec.id}
+                        to={`/school/orgs/${orgId}/sections/${sec.id}`}
+                        className="rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-0.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+                        title={`Open ${cls.name} ${sec.name}`}
+                      >
+                        {sec.name} →
+                      </Link>
+                    ))}
+                  </div>
                   {canManage && (
                     <div className="flex gap-1">
                       <Button variant="ghost" size="sm" onClick={() => { setEditing(cls); setEditName(cls.name); setEditKind(cls.kind === "hifz" ? "hifz" : "academic"); }}>
@@ -254,7 +268,20 @@ export function ManageClasses() {
               {open && (
                 <CardContent className="pt-0 space-y-3">
                   {/* Phase 1C: subjects live at the class level. Defined once
-                      per Grade; each section picks its own teacher per subject. */}
+                      per Grade; each section picks its own teacher per subject.
+                      Hifz classes skip this — their work is per-child
+                      recitation, so the subjects/curriculum scaffold only
+                      produced permanent "No curriculum yet" nags here too. */}
+                  {isHifzClass(cls) ? (
+                    <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-3 text-xs text-slate-600">
+                      <span className="font-semibold text-slate-900">Hifz class</span> — tracked
+                      per child (sabaq / sabqi / manzil), not by syllabus topics. Open a
+                      section above for the recitation log, or see the whole program under{" "}
+                      <Link to={`/school/orgs/${orgId}/admin/hifz-program`} className="font-medium text-emerald-700 hover:underline">
+                        Academics → Hifz program
+                      </Link>.
+                    </div>
+                  ) : (
                   <ClassSubjectsManager
                     classId={cls.id}
                     teachers={teachers.filter(
@@ -263,6 +290,7 @@ export function ManageClasses() {
                         t.role_template === "visiting_teacher",
                     )}
                   />
+                  )}
                   <h3 className={sectionTitleClasses}>Sections</h3>
                   {(cls.sections || []).map((sec) => (
                     <div key={sec.id} className="flex flex-wrap items-center gap-2 p-2 border border-slate-200 rounded-lg bg-slate-50/50">
