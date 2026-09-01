@@ -52,3 +52,7 @@ export type {
 
 export { NoAccessRedirect } from "./NoAccessRedirect";
 export type { NoAccessRedirectProps } from "./NoAccessRedirect";
+
+export { TermSwitchNudge } from "./TermSwitchNudge";
+export { resolveTermNudge } from "./termNudge";
+export type { TermNudge, TermLike } from "./termNudge";
