@@ -73,7 +73,7 @@ import {
   type SchoolMeResponse,
   type SchoolGroupSummary,
 } from "../../../utils/schoolApi";
-import { SetupChecklist, setupChecklistDismissed, PendingTimeOffWidget } from "../../components/school-ui";
+import { SetupChecklist, setupChecklistDismissed, PendingTimeOffWidget, TermSwitchNudge } from "../../components/school-ui";
 import { RoleTour } from "../../components/RoleTour";
 import { pickTourForUser } from "../../../utils/tours";
 
@@ -1176,6 +1176,11 @@ export function PerformanceDashboard() {
           </div>
         </div>
       )}
+
+      {/* Term-switch nudge — appears only after the current term's end
+          date passes, so the manual is_current flag can't silently lag
+          the calendar (coverage/pace measure against the current term). */}
+      <TermSwitchNudge orgId={orgId} />
 
       {/* Today strip — "is school running normally right now?" */}
       {todayOps && (() => {
