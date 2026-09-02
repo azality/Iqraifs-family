@@ -619,6 +619,7 @@ export function StudentDetail() {
         orgId={orgId}
         studentId={studentId}
         studentName={student.full_name}
+        hifzOnly={sectionInfo?.isHifz ?? false}
         open={hifzOpen}
         onOpenChange={setHifzOpen}
         onSuccess={() => setHifzReloadKey((k) => k + 1)}

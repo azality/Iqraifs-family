@@ -154,20 +154,36 @@ export function HifzProgressFeed({
                   >
                     {KIND_LABEL[e.kind]}
                   </Badge>
-                  <span className="text-sm font-medium">
-                    {surah
-                      ? `${surah.number}. ${surah.nameTransliterated}`
-                      : `Surah ${e.surah_number}`}
-                    {" · ayah "}
-                    {e.ayah_from}
-                    {e.ayah_to !== e.ayah_from && `–${e.ayah_to}`}
-                  </span>
+                  {/* Manzil is revised per juz — the stored ayah is just
+                      a position marker, so show "Juz N" instead. */}
+                  {e.kind === "manzil" && e.juzNumber ? (
+                    <span className="text-sm font-medium">Juz {e.juzNumber}</span>
+                  ) : (
+                    <span className="text-sm font-medium">
+                      {surah
+                        ? `${surah.number}. ${surah.nameTransliterated}`
+                        : `Surah ${e.surah_number}`}
+                      {" · ayah "}
+                      {e.ayah_from}
+                      {e.ayah_to !== e.ayah_from && `–${e.ayah_to}`}
+                    </span>
+                  )}
                   {e.quality && (
                     <Badge variant="secondary" className="text-xs">
                       {e.quality.replace("_", " ")}
                     </Badge>
                   )}
                 </div>
+                {e.teacherRemarks && (
+                  <p className="text-xs text-muted-foreground whitespace-pre-wrap">
+                    {e.teacherRemarks}
+                  </p>
+                )}
+                {e.nextTarget && (
+                  <p className="text-xs font-medium text-indigo-700">
+                    Next lesson: {e.nextTarget}
+                  </p>
+                )}
                 {e.notes && (
                   <p className="text-xs text-muted-foreground whitespace-pre-wrap">
                     {e.notes}

@@ -16,10 +16,19 @@ import {
 import {
   getSchoolMe,
   getSectionHifzSummary,
+  isOrgAdmin,
+  listClasses,
   type SchoolMeResponse,
   type SectionHifzSummaryRow,
 } from "../../../utils/schoolApi";
 import { HifzLogEntry } from "./HifzLogEntry";
+import { HifzProgressFeed } from "./HifzProgressFeed";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "../../components/ui/dialog";
 
 type SortKey = "name" | "ayahs" | "last";
 type SortDir = "asc" | "desc";
@@ -39,7 +48,28 @@ export function SectionHifzOverview() {
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [logTarget, setLogTarget] = useState<SectionHifzSummaryRow | null>(null);
+  // Per-student history dialog (pilot: "see how much they completed and
+  // their past records") — embeds the same feed StudentDetail uses.
+  const [historyTarget, setHistoryTarget] = useState<SectionHifzSummaryRow | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  // Hifz classes log only sabaq/sabqi/manzil; academic Quran/Nazra
+  // tracks keep the full kind list.
+  const [isHifzSection, setIsHifzSection] = useState(false);
+  useEffect(() => {
+    if (!orgId || !sectionId) return;
+    listClasses(orgId)
+      .then((classes) => {
+        for (const c of classes) {
+          for (const s of c.sections ?? []) {
+            if (s.id === sectionId) {
+              setIsHifzSection(c.kind === "hifz" || (s as any).schedule_key === "hifz");
+              return;
+            }
+          }
+        }
+      })
+      .catch(() => {});
+  }, [orgId, sectionId]);
 
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
@@ -133,18 +163,30 @@ export function SectionHifzOverview() {
       key: "actions",
       header: "",
       align: "right",
-      width: "w-20",
+      width: "w-40",
       cell: (s) => (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={(e) => {
-            e.stopPropagation();
-            setLogTarget(s);
-          }}
-        >
-          Log
-        </Button>
+        <div className="inline-flex gap-1.5">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              setHistoryTarget(s);
+            }}
+          >
+            History
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              setLogTarget(s);
+            }}
+          >
+            Log
+          </Button>
+        </div>
       ),
     },
   ];
@@ -182,6 +224,7 @@ export function SectionHifzOverview() {
           orgId={orgId}
           studentId={logTarget.studentId}
           studentName={logTarget.studentName}
+          hifzOnly={isHifzSection}
           open={!!logTarget}
           onOpenChange={(v) => { if (!v) setLogTarget(null); }}
           onSuccess={() => {
@@ -189,6 +232,22 @@ export function SectionHifzOverview() {
             setReloadKey((k) => k + 1);
           }}
         />
+      )}
+
+      {historyTarget && (
+        <Dialog open={!!historyTarget} onOpenChange={(v) => { if (!v) setHistoryTarget(null); }}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Hifz history — {historyTarget.studentName}</DialogTitle>
+            </DialogHeader>
+            <HifzProgressFeed
+              orgId={orgId}
+              studentId={historyTarget.studentId}
+              reloadKey={reloadKey}
+              allowDelete={isOrgAdmin(me, orgId)}
+            />
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   );
