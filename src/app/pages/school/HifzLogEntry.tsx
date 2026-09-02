@@ -2,6 +2,13 @@
 //
 // Used from StudentDetail ("Log Hifz" button) and SectionHifzOverview
 // (clicking a student row). Records a single hifz entry for a student.
+//
+// Redesigned per pilot feedback (Muneeb, 2026-09-02): the KIND drives
+// the form, so it sits at the top and each kind shows only its own
+// fields — sabaq (new lesson + assign tomorrow's), sabqi (recent
+// revision portion), manzil (which JUZ was revised, no ayah typing).
+// For hifz classes (hifzOnly) the kinds are ONLY sabaq/sabqi/manzil;
+// academic Quran/Nazra tracks keep the full six.
 
 import { useEffect, useState } from "react";
 import {
@@ -29,6 +36,7 @@ import {
 } from "../../components/ui/radio-group";
 import { toast } from "sonner";
 import {
+  getStudentHifz,
   postHifzEntry,
   type HifzKind,
   type HifzQuality,
@@ -42,12 +50,16 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess?: () => void;
+  /** Hifz classes log only the daily trio — sabaq / sabqi / manzil. */
+  hifzOnly?: boolean;
 }
 
-const KIND_OPTIONS: Array<{ value: HifzKind; label: string; hint: string }> = [
+const TRIO: Array<{ value: HifzKind; label: string; hint: string }> = [
   { value: "sabaq", label: "Sabaq", hint: "New lesson today" },
   { value: "sabqi", label: "Sabqi", hint: "Recent revision" },
-  { value: "manzil", label: "Manzil", hint: "Older revision (manzil)" },
+  { value: "manzil", label: "Manzil", hint: "Older revision — by juz" },
+];
+const EXTRA_KINDS: Array<{ value: HifzKind; label: string; hint: string }> = [
   { value: "memorized", label: "Memorized", hint: "Newly memorized" },
   { value: "revised", label: "Revised", hint: "General revision" },
   { value: "tested", label: "Tested", hint: "Formal test" },
@@ -61,6 +73,38 @@ const QUALITY_OPTIONS: Array<{ value: HifzQuality; label: string }> = [
   { value: "not_learned", label: "Not learned today" },
 ];
 
+// Standard (hafs) juz start positions — used as the stored position
+// marker for manzil entries so teachers pick a juz instead of typing
+// ayah ranges. Manzil never counts toward memorized totals, so the
+// marker ayah is display-only.
+const JUZ_STARTS: ReadonlyArray<{ surah: number; ayah: number }> = [
+  { surah: 1, ayah: 1 }, { surah: 2, ayah: 142 }, { surah: 2, ayah: 253 },
+  { surah: 3, ayah: 93 }, { surah: 4, ayah: 24 }, { surah: 4, ayah: 148 },
+  { surah: 5, ayah: 82 }, { surah: 6, ayah: 111 }, { surah: 7, ayah: 88 },
+  { surah: 8, ayah: 41 }, { surah: 9, ayah: 93 }, { surah: 11, ayah: 6 },
+  { surah: 12, ayah: 53 }, { surah: 15, ayah: 1 }, { surah: 17, ayah: 1 },
+  { surah: 18, ayah: 75 }, { surah: 21, ayah: 1 }, { surah: 23, ayah: 1 },
+  { surah: 25, ayah: 21 }, { surah: 27, ayah: 56 }, { surah: 29, ayah: 46 },
+  { surah: 33, ayah: 31 }, { surah: 36, ayah: 28 }, { surah: 39, ayah: 32 },
+  { surah: 41, ayah: 47 }, { surah: 46, ayah: 1 }, { surah: 51, ayah: 31 },
+  { surah: 58, ayah: 1 }, { surah: 67, ayah: 1 }, { surah: 78, ayah: 1 },
+];
+
+// next_target round-trip format: "Sabaq: <Transliterated name> <from>–<to>".
+// Human-readable (parents see it) AND parseable for next-day prefill.
+function serializeNextSabaq(surahNumber: number, from: number, to: number): string {
+  const s = getSurah(surahNumber);
+  return `Sabaq: ${s?.nameTransliterated ?? surahNumber} ${from}–${to}`;
+}
+function parseNextSabaq(text: string): { surahNumber: number; from: number; to: number } | null {
+  const m = /^Sabaq:\s*(.+?)\s+(\d+)\s*[–-]\s*(\d+)\s*$/.exec(text.trim());
+  if (!m) return null;
+  const name = m[1].toLowerCase();
+  const surah = SURAHS.find((s) => s.nameTransliterated.toLowerCase() === name);
+  if (!surah) return null;
+  return { surahNumber: surah.number, from: Number(m[2]), to: Number(m[3]) };
+}
+
 export function HifzLogEntry({
   orgId,
   studentId,
@@ -68,6 +112,7 @@ export function HifzLogEntry({
   open,
   onOpenChange,
   onSuccess,
+  hifzOnly = false,
 }: Props) {
   const [surahNumber, setSurahNumber] = useState<number>(1);
   const [ayahFrom, setAyahFrom] = useState<number>(1);
@@ -76,6 +121,18 @@ export function HifzLogEntry({
   const [quality, setQuality] = useState<HifzQuality | "">("");
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  // Manzil is revised per JUZ, not per ayah range.
+  const [manzilJuz, setManzilJuz] = useState<number | "">("");
+
+  // "Assign next sabaq" — the teacher gives the student their next
+  // lesson while hearing today's. Stored in next_target; the standing
+  // assignment prefills the next sabaq log for this student.
+  const [assignOn, setAssignOn] = useState(false);
+  const [assignSurah, setAssignSurah] = useState<number>(1);
+  const [assignFrom, setAssignFrom] = useState<number>(1);
+  const [assignTo, setAssignTo] = useState<number>(1);
+  const [lastAssigned, setLastAssigned] = useState<string | null>(null);
 
   // PR feat/hifz-trends-missed-teacher — explicit miss toggle. When
   // checked we send missed=true; the form's other fields stay
@@ -99,31 +156,55 @@ export function HifzLogEntry({
 
   const surah = getSurah(surahNumber);
   const maxAyah = surah?.ayahCount ?? 1;
+  const assignMaxAyah = getSurah(assignSurah)?.ayahCount ?? 1;
 
-  // Reset on open
+  const kindOptions = hifzOnly ? TRIO : [...TRIO, ...EXTRA_KINDS];
+
+  // Reset on open + pull the standing assignment so today's sabaq is
+  // prefilled with what the teacher assigned last time.
   useEffect(() => {
-    if (open) {
-      setSurahNumber(1);
-      setAyahFrom(1);
-      setAyahTo(1);
-      setKind("sabaq");
-      setQuality("");
-      setNotes("");
-      setJuzNumber("");
-      setPageNumber("");
-      setMistakesCount("");
-      setTajweedNotes("");
-      setFluencyNotes("");
-      setTeacherRemarks("");
-      setParentComments("");
-      setDailyTarget("");
-      setNextTarget("");
-      setMissedTargetReason("");
-      setParentAction("");
-      setAdvancedOpen(false);
-      setMissed(false);
-    }
-  }, [open]);
+    if (!open) return;
+    setSurahNumber(1);
+    setAyahFrom(1);
+    setAyahTo(1);
+    setKind("sabaq");
+    setQuality("");
+    setNotes("");
+    setManzilJuz("");
+    setAssignOn(false);
+    setAssignSurah(1);
+    setAssignFrom(1);
+    setAssignTo(1);
+    setLastAssigned(null);
+    setJuzNumber("");
+    setPageNumber("");
+    setMistakesCount("");
+    setTajweedNotes("");
+    setFluencyNotes("");
+    setTeacherRemarks("");
+    setParentComments("");
+    setDailyTarget("");
+    setNextTarget("");
+    setMissedTargetReason("");
+    setParentAction("");
+    setAdvancedOpen(false);
+    setMissed(false);
+
+    getStudentHifz(orgId, studentId, { limit: 10 })
+      .then((r) => {
+        const withTarget = r.entries.find((e) => (e.nextTarget ?? "").trim().length > 0);
+        if (!withTarget?.nextTarget) return;
+        setLastAssigned(withTarget.nextTarget);
+        const parsed = parseNextSabaq(withTarget.nextTarget);
+        if (parsed) {
+          setSurahNumber(parsed.surahNumber);
+          setAyahFrom(parsed.from);
+          setAyahTo(parsed.to);
+        }
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, orgId, studentId]);
 
   // Clamp ayah range when surah changes
   useEffect(() => {
@@ -132,6 +213,15 @@ export function HifzLogEntry({
     if (ayahTo < ayahFrom) setAyahTo(ayahFrom);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [surahNumber]);
+  useEffect(() => {
+    if (assignFrom > assignMaxAyah) setAssignFrom(1);
+    if (assignTo > assignMaxAyah) setAssignTo(assignMaxAyah);
+    if (assignTo < assignFrom) setAssignTo(assignFrom);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assignSurah]);
+
+  const isManzil = kind === "manzil";
+  const isSabaq = kind === "sabaq";
 
   // stayOpen: "Save & log next" — the daily trio (sabaq → sabqi → manzil)
   // is three entries per child; closing the dialog after each save meant
@@ -139,25 +229,45 @@ export function HifzLogEntry({
   // open, advances Kind to the next of the trio, clears per-entry fields.
   const KIND_SEQUENCE: string[] = ["sabaq", "sabqi", "manzil"];
   const handleSubmit = async (stayOpen = false) => {
-    if (ayahFrom < 1 || ayahFrom > maxAyah) {
-      toast.error(`Ayah from must be 1–${maxAyah}`);
-      return;
+    let sendSurah = surahNumber;
+    let sendFrom = ayahFrom;
+    let sendTo = ayahTo;
+    if (isManzil) {
+      if (typeof manzilJuz !== "number") {
+        toast.error("Pick which juz was revised");
+        return;
+      }
+      const start = JUZ_STARTS[manzilJuz - 1];
+      sendSurah = start.surah;
+      sendFrom = start.ayah;
+      sendTo = start.ayah;
+    } else if (!missed) {
+      if (ayahFrom < 1 || ayahFrom > maxAyah) {
+        toast.error(`Ayah from must be 1–${maxAyah}`);
+        return;
+      }
+      if (ayahTo < ayahFrom || ayahTo > maxAyah) {
+        toast.error(`Ayah to must be ${ayahFrom}–${maxAyah}`);
+        return;
+      }
     }
-    if (ayahTo < ayahFrom || ayahTo > maxAyah) {
-      toast.error(`Ayah to must be ${ayahFrom}–${maxAyah}`);
-      return;
-    }
+    const structuredNext =
+      isSabaq && assignOn
+        ? serializeNextSabaq(assignSurah, assignFrom, assignTo)
+        : undefined;
     setSubmitting(true);
     try {
       await postHifzEntry(orgId, {
         studentId,
-        surahNumber,
-        ayahFrom,
-        ayahTo,
+        surahNumber: sendSurah,
+        ayahFrom: sendFrom,
+        ayahTo: sendTo,
         kind,
         quality: quality || undefined,
         notes: notes.trim() || undefined,
-        juzNumber: typeof juzNumber === "number" ? juzNumber : undefined,
+        juzNumber: isManzil
+          ? (manzilJuz as number)
+          : typeof juzNumber === "number" ? juzNumber : undefined,
         pageNumber: typeof pageNumber === "number" ? pageNumber : undefined,
         mistakesCount: typeof mistakesCount === "number" ? mistakesCount : undefined,
         tajweedNotes: tajweedNotes.trim() || undefined,
@@ -165,7 +275,7 @@ export function HifzLogEntry({
         teacherRemarks: teacherRemarks.trim() || undefined,
         parentComments: parentComments.trim() || undefined,
         dailyTarget: dailyTarget.trim() || undefined,
-        nextTarget: nextTarget.trim() || undefined,
+        nextTarget: structuredNext ?? (nextTarget.trim() || undefined),
         missedTargetReason: missedTargetReason.trim() || undefined,
         parentAction: parentAction.trim() || undefined,
         missed: missed || undefined,
@@ -183,6 +293,7 @@ export function HifzLogEntry({
         setQuality("");
         setNotes("");
         setMissed(false);
+        setAssignOn(false);
         if (next) setKind(next as typeof kind);
       } else {
         toast.success("Hifz entry logged");
@@ -201,96 +312,28 @@ export function HifzLogEntry({
         <DialogHeader>
           <DialogTitle>Log hifz — {studentName}</DialogTitle>
           <DialogDescription>
-            Record sabaq, sabqi, manzil, or any hifz progress.
+            {hifzOnly
+              ? "Record today's sabaq, sabqi, or manzil."
+              : "Record sabaq, sabqi, manzil, or any hifz progress."}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Missed-sabaq quick switch. When on, the rest of the form
-              still works for capturing the reason but ayah/quality
-              feel optional; on the parent portal grid the day shows
-              red. Defaults the kind hint to "sabaq" for analytics
-              consistency. */}
-          <label className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50/60 px-3 py-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={missed}
-              onChange={(e) => setMissed(e.target.checked)}
-            />
-            <span className="text-sm text-rose-900">
-              <span className="font-medium">Missed sabaq today</span>
-              <span className="ml-1 text-xs text-rose-700">
-                — record the absence so it shows in the parent's 14-day grid
-              </span>
-            </span>
-          </label>
-
-          <div className="space-y-1">
-            <Label>Surah</Label>
-            <Select
-              value={String(surahNumber)}
-              onValueChange={(v) => setSurahNumber(Number(v))}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="max-h-64">
-                {SURAHS.map((s) => (
-                  <SelectItem key={s.number} value={String(s.number)}>
-                    {s.number}. {s.nameTransliterated} ({s.ayahCount})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {surah && (
-              <p className="text-xs text-muted-foreground">
-                {surah.nameArabic} · {surah.ayahCount} ayahs
-              </p>
-            )}
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label>Ayah from</Label>
-              <Input
-                type="number"
-                inputMode="numeric"
-                min={1}
-                max={maxAyah}
-                value={ayahFrom}
-                onChange={(e) =>
-                  setAyahFrom(Math.max(1, Math.min(maxAyah, Number(e.target.value) || 1)))
-                }
-              />
-            </div>
-            <div className="space-y-1">
-              <Label>Ayah to</Label>
-              <Input
-                type="number"
-                inputMode="numeric"
-                min={ayahFrom}
-                max={maxAyah}
-                value={ayahTo}
-                onChange={(e) =>
-                  setAyahTo(
-                    Math.max(ayahFrom, Math.min(maxAyah, Number(e.target.value) || ayahFrom)),
-                  )
-                }
-              />
-            </div>
-          </div>
-
+          {/* Kind FIRST — it decides which fields make sense below. */}
           <div className="space-y-2">
             <Label>Kind</Label>
             <RadioGroup
               value={kind}
               onValueChange={(v) => setKind(v as HifzKind)}
-              className="grid grid-cols-2 gap-2"
+              className={hifzOnly ? "grid grid-cols-3 gap-2" : "grid grid-cols-2 gap-2"}
             >
-              {KIND_OPTIONS.map((k) => (
+              {kindOptions.map((k) => (
                 <label
                   key={k.value}
-                  className="flex items-start gap-2 border rounded p-2 cursor-pointer hover:bg-muted/40"
+                  className={
+                    "flex items-start gap-2 border rounded p-2 cursor-pointer hover:bg-muted/40 " +
+                    (kind === k.value ? "border-indigo-400 bg-indigo-50/50" : "")
+                  }
                 >
                   <RadioGroupItem value={k.value} className="mt-0.5" />
                   <div>
@@ -301,6 +344,116 @@ export function HifzLogEntry({
               ))}
             </RadioGroup>
           </div>
+
+          {/* Missed-sabaq quick switch — only meaningful on sabaq. */}
+          {isSabaq && (
+            <label className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50/60 px-3 py-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={missed}
+                onChange={(e) => setMissed(e.target.checked)}
+              />
+              <span className="text-sm text-rose-900">
+                <span className="font-medium">Missed sabaq today</span>
+                <span className="ml-1 text-xs text-rose-700">
+                  — record the absence so it shows in the parent's 14-day grid
+                </span>
+              </span>
+            </label>
+          )}
+
+          {/* Standing assignment (from the previous sabaq log). */}
+          {isSabaq && lastAssigned && !missed && (
+            <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 px-3 py-2 text-sm text-indigo-900">
+              Assigned last time: <span className="font-medium">{lastAssigned}</span>
+              {parseNextSabaq(lastAssigned) ? " — prefilled below." : ""}
+            </div>
+          )}
+
+          {isManzil ? (
+            <div className="space-y-1">
+              <Label>Which juz (para) was revised?</Label>
+              <Select
+                value={manzilJuz === "" ? "" : String(manzilJuz)}
+                onValueChange={(v) => setManzilJuz(Number(v))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Pick a juz…" />
+                </SelectTrigger>
+                <SelectContent className="max-h-64">
+                  {Array.from({ length: 30 }, (_, i) => i + 1).map((j) => (
+                    <SelectItem key={j} value={String(j)}>
+                      Juz {j}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Manzil is older revision — tracked per juz, no ayah typing needed.
+              </p>
+            </div>
+          ) : (
+            !(isSabaq && missed) && (
+              <>
+                <div className="space-y-1">
+                  <Label>
+                    {isSabaq ? "Today's sabaq — surah" : kind === "sabqi" ? "Sabqi portion — surah" : "Surah"}
+                  </Label>
+                  <Select
+                    value={String(surahNumber)}
+                    onValueChange={(v) => setSurahNumber(Number(v))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-64">
+                      {SURAHS.map((s) => (
+                        <SelectItem key={s.number} value={String(s.number)}>
+                          {s.number}. {s.nameTransliterated} ({s.ayahCount})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {surah && (
+                    <p className="text-xs text-muted-foreground">
+                      {surah.nameArabic} · {surah.ayahCount} ayahs
+                    </p>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label>Ayah from</Label>
+                    <Input
+                      type="number"
+                      inputMode="numeric"
+                      min={1}
+                      max={maxAyah}
+                      value={ayahFrom}
+                      onChange={(e) =>
+                        setAyahFrom(Math.max(1, Math.min(maxAyah, Number(e.target.value) || 1)))
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Ayah to</Label>
+                    <Input
+                      type="number"
+                      inputMode="numeric"
+                      min={ayahFrom}
+                      max={maxAyah}
+                      value={ayahTo}
+                      onChange={(e) =>
+                        setAyahTo(
+                          Math.max(ayahFrom, Math.min(maxAyah, Number(e.target.value) || ayahFrom)),
+                        )
+                      }
+                    />
+                  </div>
+                </div>
+              </>
+            )
+          )}
 
           <div className="space-y-1">
             <Label>Quality (optional)</Label>
@@ -324,6 +477,77 @@ export function HifzLogEntry({
             </Select>
           </div>
 
+          {/* Assign the NEXT lesson while hearing today's — the core of
+              "give lesson to an individual student". Sabaq only. */}
+          {isSabaq && (
+            <div className="rounded-lg border border-indigo-200 bg-indigo-50/40 p-3 space-y-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={assignOn}
+                  onChange={(e) => setAssignOn(e.target.checked)}
+                />
+                <span className="text-sm font-medium text-indigo-900">
+                  Assign next sabaq (the student's next lesson)
+                </span>
+              </label>
+              {assignOn && (
+                <div className="space-y-2">
+                  <Select
+                    value={String(assignSurah)}
+                    onValueChange={(v) => setAssignSurah(Number(v))}
+                  >
+                    <SelectTrigger className="bg-white">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-64">
+                      {SURAHS.map((s) => (
+                        <SelectItem key={s.number} value={String(s.number)}>
+                          {s.number}. {s.nameTransliterated} ({s.ayahCount})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Ayah from</Label>
+                      <Input
+                        type="number"
+                        inputMode="numeric"
+                        min={1}
+                        max={assignMaxAyah}
+                        value={assignFrom}
+                        onChange={(e) =>
+                          setAssignFrom(Math.max(1, Math.min(assignMaxAyah, Number(e.target.value) || 1)))
+                        }
+                        className="bg-white"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Ayah to</Label>
+                      <Input
+                        type="number"
+                        inputMode="numeric"
+                        min={assignFrom}
+                        max={assignMaxAyah}
+                        value={assignTo}
+                        onChange={(e) =>
+                          setAssignTo(
+                            Math.max(assignFrom, Math.min(assignMaxAyah, Number(e.target.value) || assignFrom)),
+                          )
+                        }
+                        className="bg-white"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-indigo-800">
+                    Saved as the standing lesson — prefilled next time you log this student's sabaq, and shown to the parent as tomorrow's target.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* PR feat/hifz-collapse-fields:
               Default form collapsed to one main remark + one optional action.
               Power-user fields (mistakes, tajweed/fluency, juz/page, internal
@@ -337,10 +561,6 @@ export function HifzLogEntry({
               rows={3}
               placeholder="One short summary the parent will read"
             />
-            <p className="text-[11px] text-slate-500">
-              Replaces the old separate tajweed / fluency / internal note fields.
-              Use Advanced below if you need them.
-            </p>
           </div>
 
           <div className="space-y-1 rounded-lg border border-emerald-200 bg-emerald-50/40 p-3">
@@ -357,15 +577,13 @@ export function HifzLogEntry({
           </div>
 
           {/* Advanced — collapsed by default. Holds the longer-form
-              fields most teachers don't need every day: mistakes count,
-              juz/page anchors, tajweed/fluency notes, internal note,
-              targets, missed-target reason, parent_comments. */}
+              fields most teachers don't need every day. */}
           <button
             type="button"
             onClick={() => setAdvancedOpen((v) => !v)}
             className="w-full text-left text-xs font-medium text-indigo-700 hover:underline"
           >
-            {advancedOpen ? "− Hide" : "+ Show"} advanced fields (mistakes / juz / tajweed / targets)
+            {advancedOpen ? "− Hide" : "+ Show"} advanced fields (mistakes / tajweed / targets)
           </button>
 
           {advancedOpen && (
@@ -375,7 +593,7 @@ export function HifzLogEntry({
                   <Label>Mistakes today</Label>
                   <Input
                     type="number"
-                inputMode="numeric"
+                    inputMode="numeric"
                     min={0}
                     value={mistakesCount === "" ? "" : mistakesCount}
                     onChange={(e) => {
@@ -394,37 +612,39 @@ export function HifzLogEntry({
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label>Juz / Para</Label>
-                  <Input
-                    type="number"
-                inputMode="numeric"
-                    min={1}
-                    max={30}
-                    value={juzNumber === "" ? "" : juzNumber}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setJuzNumber(
-                        v === "" ? "" : Math.max(1, Math.min(30, Number(v) || 1)),
-                      );
-                    }}
-                  />
+              {!isManzil && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label>Juz / Para</Label>
+                    <Input
+                      type="number"
+                      inputMode="numeric"
+                      min={1}
+                      max={30}
+                      value={juzNumber === "" ? "" : juzNumber}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setJuzNumber(
+                          v === "" ? "" : Math.max(1, Math.min(30, Number(v) || 1)),
+                        );
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Mushaf page</Label>
+                    <Input
+                      type="number"
+                      inputMode="numeric"
+                      min={1}
+                      value={pageNumber === "" ? "" : pageNumber}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setPageNumber(v === "" ? "" : Math.max(1, Number(v) || 1));
+                      }}
+                    />
+                  </div>
                 </div>
-                <div className="space-y-1">
-                  <Label>Mushaf page</Label>
-                  <Input
-                    type="number"
-                inputMode="numeric"
-                    min={1}
-                    value={pageNumber === "" ? "" : pageNumber}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setPageNumber(v === "" ? "" : Math.max(1, Number(v) || 1));
-                    }}
-                  />
-                </div>
-              </div>
+              )}
               <div className="space-y-1">
                 <Label>Fluency note</Label>
                 <Input
@@ -460,14 +680,16 @@ export function HifzLogEntry({
                     placeholder="e.g. Memorize 5 ayahs"
                   />
                 </div>
-                <div className="space-y-1">
-                  <Label>Tomorrow's target</Label>
-                  <Input
-                    value={nextTarget}
-                    onChange={(e) => setNextTarget(e.target.value)}
-                    placeholder="e.g. Sabqi Al-Mulk 1-10"
-                  />
-                </div>
+                {!isSabaq && (
+                  <div className="space-y-1">
+                    <Label>Tomorrow's target</Label>
+                    <Input
+                      value={nextTarget}
+                      onChange={(e) => setNextTarget(e.target.value)}
+                      placeholder="e.g. Sabqi Al-Mulk 1-10"
+                    />
+                  </div>
+                )}
               </div>
               <div className="space-y-1">
                 <Label>Missed-target reason (if any)</Label>
