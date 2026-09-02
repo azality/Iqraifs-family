@@ -800,13 +800,22 @@ export function PerformanceDashboard() {
   const [myOwnSections, setMyOwnSections] = useState<
     Array<{ id: string; label: string }>
   >([]);
+  // className → first section id, so pace-card laggard rows can deep-link
+  // to that subject's curriculum panel (same ?openSubject mechanism the
+  // global search uses). Laggards are class-level; either section of the
+  // class shows the same subject panel, so the first one is fine.
+  const [sectionByClassName, setSectionByClassName] = useState<
+    Record<string, string>
+  >({});
   useEffect(() => {
     if (!orgId || !me?.userId) return;
     listClasses(orgId)
       .then((classes) => {
         const mine: Array<{ id: string; label: string }> = [];
+        const byClass: Record<string, string> = {};
         for (const c of classes) {
           for (const s of c.sections ?? []) {
+            if (byClass[c.name] === undefined) byClass[c.name] = s.id;
             if (
               (s as any).class_teacher_user_id === me.userId ||
               (s as any).hifz_teacher_user_id === me.userId
@@ -816,8 +825,12 @@ export function PerformanceDashboard() {
           }
         }
         setMyOwnSections(mine);
+        setSectionByClassName(byClass);
       })
-      .catch(() => setMyOwnSections([]));
+      .catch(() => {
+        setMyOwnSections([]);
+        setSectionByClassName({});
+      });
   }, [orgId, me?.userId]);
 
   // Multi-campus: if this user belongs to any school group (head-office
@@ -1330,41 +1343,60 @@ export function PerformanceDashboard() {
                     : behind != null && behind > 15
                       ? "text-amber-700"
                       : "text-slate-700";
-                return (
-                  <li key={l.classSubjectId} className="flex items-center gap-3 py-2">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-baseline justify-between gap-2">
-                        <span className="truncate text-sm font-medium text-slate-900">
-                          {l.className} · {l.subjectName}
-                        </span>
-                        <span className={"text-sm font-semibold tabular-nums " + tone}>
-                          {l.pct}%
-                          {behind != null && behind > 0 && (
-                            <span className="ml-1 text-[10px] font-normal text-slate-400">
-                              ({behind} pts behind)
-                            </span>
-                          )}
-                        </span>
-                      </div>
-                      <div className="mt-1 flex items-center gap-2">
-                        <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
-                          <div
-                            className="absolute inset-y-0 left-0 rounded-full bg-indigo-500"
-                            style={{ width: `${l.pct}%` }}
-                          />
-                          {academics.pace!.expectedPct != null && (
-                            <div
-                              className="absolute inset-y-0 w-0.5 bg-slate-400"
-                              style={{ left: `${academics.pace!.expectedPct}%` }}
-                              title={`Expected ~${academics.pace!.expectedPct}%`}
-                            />
-                          )}
-                        </div>
-                        <span className="text-[10px] text-slate-500 tabular-nums whitespace-nowrap">
-                          {l.topicsDone}/{l.topicsTotal}
-                        </span>
-                      </div>
+                // Deep-link to the subject's curriculum panel so the
+                // principal can see WHICH topics are unticked, not just
+                // the percentage. Falls back to a plain row if the class
+                // has no section yet.
+                const secId = sectionByClassName[l.className];
+                const body = (
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="truncate text-sm font-medium text-slate-900">
+                        {l.className} · {l.subjectName}
+                      </span>
+                      <span className={"text-sm font-semibold tabular-nums " + tone}>
+                        {l.pct}%
+                        {behind != null && behind > 0 && (
+                          <span className="ml-1 text-[10px] font-normal text-slate-400">
+                            ({behind} pts behind)
+                          </span>
+                        )}
+                      </span>
                     </div>
+                    <div className="mt-1 flex items-center gap-2">
+                      <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+                        <div
+                          className="absolute inset-y-0 left-0 rounded-full bg-indigo-500"
+                          style={{ width: `${l.pct}%` }}
+                        />
+                        {academics.pace!.expectedPct != null && (
+                          <div
+                            className="absolute inset-y-0 w-0.5 bg-slate-400"
+                            style={{ left: `${academics.pace!.expectedPct}%` }}
+                            title={`Expected ~${academics.pace!.expectedPct}%`}
+                          />
+                        )}
+                      </div>
+                      <span className="text-[10px] text-slate-500 tabular-nums whitespace-nowrap">
+                        {l.topicsDone}/{l.topicsTotal}
+                      </span>
+                    </div>
+                  </div>
+                );
+                return (
+                  <li key={l.classSubjectId}>
+                    {secId ? (
+                      <Link
+                        to={`/school/orgs/${orgId}/sections/${secId}?openSubject=${encodeURIComponent(l.classSubjectId)}`}
+                        className="-mx-2 flex items-center gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-slate-50"
+                        title={`Open ${l.className} ${l.subjectName} curriculum`}
+                      >
+                        {body}
+                        <ChevronRight className="h-4 w-4 flex-shrink-0 text-slate-300" />
+                      </Link>
+                    ) : (
+                      <div className="flex items-center gap-3 py-2">{body}</div>
+                    )}
                   </li>
                 );
               })}
