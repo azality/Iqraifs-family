@@ -80,8 +80,8 @@ export function FormFill() {
   // when audience_kind === 'specific_students').
   const eligibleStudents: PortalStudent[] = useMemo(() => {
     if (!form) return parentStudents;
-    if (form.audience_kind === "specific_students" && form.audience_student_ids) {
-      const ids = new Set(form.audience_student_ids);
+    if (form.audienceKind === "specific_students" && form.audienceStudentIds) {
+      const ids = new Set(form.audienceStudentIds);
       return parentStudents.filter((s) => ids.has(s.id));
     }
     return parentStudents;
@@ -157,9 +157,9 @@ export function FormFill() {
   }
 
   const closed = form.status !== "published" || deadlinePassed(form.deadline);
-  const alreadyDone = hasResponded && !form.allow_multiple;
+  const alreadyDone = hasResponded && !form.allowMultiple;
   const fields = [...(form.fields ?? [])].sort(
-    (a, b) => a.display_order - b.display_order,
+    (a, b) => a.displayOrder - b.displayOrder,
   );
 
   const validate = (): string | null => {
@@ -384,8 +384,8 @@ export function FormFill() {
                     </div>
                   )}
 
-                  {field.help_text && (
-                    <p className="text-xs text-slate-500">{field.help_text}</p>
+                  {field.helpText && (
+                    <p className="text-xs text-slate-500">{field.helpText}</p>
                   )}
                   {showError && (
                     <p className="text-xs text-rose-600">This field is required.</p>

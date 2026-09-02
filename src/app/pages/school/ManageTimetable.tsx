@@ -197,6 +197,22 @@ export function ManageTimetable() {
     })),
   );
 
+  // Options for the per-cell subject dropdown. A timetable entry stores a
+  // section_subject id, NOT a class_subject id — binding the raw
+  // class_subject rows made every saved subject render as an empty select
+  // (pilot bug: "why is the subject not defined") and saved ids from the
+  // wrong table. Map each class subject through its assignment row for
+  // the selected section.
+  const subjectOptions =
+    scopeKind === "section"
+      ? classSubjects
+          .map((cs) => ({
+            id: cs.sections?.find((x) => x.sectionId === scopeId)?.sectionSubjectId ?? "",
+            name: cs.name,
+          }))
+          .filter((o) => o.id)
+      : [];
+
   const handleAddSlot = async () => {
     try {
       await createTimetableSlot(orgId, slotForm);
@@ -504,7 +520,7 @@ export function ManageTimetable() {
             <WeekGrid
               cells={cells}
               scopeKind={scopeKind}
-              classSubjects={classSubjects}
+              subjectOptions={subjectOptions}
               teachers={teachers}
               onSave={saveCell}
               onClear={clearCell}
@@ -595,15 +611,17 @@ type SavePatch = { sectionSubjectId?: string | null; teacherUserId?: string | nu
 type SaveResult =
   | { ok: true }
   | { ok: false; conflict?: RoomConflictError; teacherConflict?: TeacherConflictError; message: string };
+type SubjectOption = { id: string; name: string };
+
 interface WeekGridProps {
   cells: TimetableWeekCell[];
   scopeKind: "section" | "group";
-  classSubjects: ClassSubject[];
+  subjectOptions: SubjectOption[];
   teachers: AdminTeacher[];
   onSave: (cell: TimetableWeekCell, patch: SavePatch, opts?: { force?: boolean }) => Promise<SaveResult>;
   onClear: (cell: TimetableWeekCell) => void;
 }
-function WeekGrid({ cells, scopeKind, classSubjects, teachers, onSave, onClear }: WeekGridProps) {
+function WeekGrid({ cells, scopeKind, subjectOptions, teachers, onSave, onClear }: WeekGridProps) {
   // Group by day-of-week so the parent can scan a column-per-day mental
   // model. The slot list is sorted by (day, start_time) already.
   const byDay = useMemo(() => {
@@ -644,7 +662,7 @@ function WeekGrid({ cells, scopeKind, classSubjects, teachers, onSave, onClear }
                     key={cell.slot.id}
                     cell={cell}
                     scopeKind={scopeKind}
-                    classSubjects={classSubjects}
+                    subjectOptions={subjectOptions}
                     teachers={teachers}
                     onSave={onSave}
                     onClear={onClear}
@@ -662,12 +680,12 @@ function WeekGrid({ cells, scopeKind, classSubjects, teachers, onSave, onClear }
 interface CellRowProps {
   cell: TimetableWeekCell;
   scopeKind: "section" | "group";
-  classSubjects: ClassSubject[];
+  subjectOptions: SubjectOption[];
   teachers: AdminTeacher[];
   onSave: WeekGridProps["onSave"];
   onClear: WeekGridProps["onClear"];
 }
-function CellRow({ cell, scopeKind, classSubjects, teachers, onSave, onClear }: CellRowProps) {
+function CellRow({ cell, scopeKind, subjectOptions, teachers, onSave, onClear }: CellRowProps) {
   // Editable copy of the entry so we can debounce / blur-save without
   // re-fetching on every keystroke.
   const [draftSubject, setDraftSubject] = useState(cell.entry?.sectionSubjectId ?? "");
@@ -734,7 +752,7 @@ function CellRow({ cell, scopeKind, classSubjects, teachers, onSave, onClear }: 
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__none__">— No subject —</SelectItem>
-                {classSubjects.map((s) => (
+                {subjectOptions.map((s) => (
                   <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
                 ))}
               </SelectContent>

@@ -3,7 +3,7 @@
 // per-assignment average row. Dirty cells batched on save.
 
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
@@ -47,6 +47,11 @@ function todayIso(): string {
 
 export function SectionGradebook() {
   const { orgId = "", sectionId = "" } = useParams();
+  // ?studentId= — arriving from a student profile focuses the grid on
+  // that one student (pilot: the section-wide grid gave no clue which
+  // row you came for). "Show all" clears it.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const focusStudentId = searchParams.get("studentId") ?? "";
   const [startDate, setStartDate] = useState(defaultStartDate());
   const [endDate, setEndDate] = useState(todayIso());
   const [data, setData] = useState<GradebookResponse | null>(null);
@@ -112,6 +117,12 @@ export function SectionGradebook() {
       },
     }));
   };
+
+  const focusStudent = useMemo(
+    () => data?.students.find((s) => s.id === focusStudentId) ?? null,
+    [data, focusStudentId],
+  );
+  const visibleStudents = focusStudent ? [focusStudent] : data?.students ?? [];
 
   const studentAverage = useMemo(() => {
     const out: Record<string, number | null> = {};
@@ -278,6 +289,24 @@ export function SectionGradebook() {
         </div>
       )}
 
+      {focusStudent && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm text-indigo-900">
+          Showing only <span className="font-semibold">{focusStudent.full_name}</span>
+          {focusStudent.gr_number ? ` (GR ${focusStudent.gr_number})` : ""}
+          <button
+            type="button"
+            onClick={() => {
+              const next = new URLSearchParams(searchParams);
+              next.delete("studentId");
+              setSearchParams(next, { replace: true });
+            }}
+            className="ml-1 rounded-md border border-indigo-300 bg-white px-2 py-0.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+          >
+            Show all students
+          </button>
+        </div>
+      )}
+
       {loading ? (
         <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">Loading gradebook…</CardContent></Card>
       ) : !data || data.students.length === 0 ? (
@@ -318,7 +347,7 @@ export function SectionGradebook() {
               </tr>
             </thead>
             <tbody>
-              {data.students.map((s) => (
+              {visibleStudents.map((s) => (
                 <tr key={s.id}>
                   <td className="sticky left-0 z-10 bg-background px-3 py-1.5 border-b border-r">
                     <p className="font-medium">{s.full_name}</p>

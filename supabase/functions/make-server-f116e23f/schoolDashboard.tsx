@@ -289,6 +289,24 @@ async function loadOrgSkeleton(orgId: string): Promise<{
 }
 
 // Pull all attendance rows for the org within [start, end] inclusive.
+// Page through a PostgREST select that may exceed the 1000-row cap.
+// `build` gets an inclusive range and must return a NEW query each call
+// (with a stable .order so pages don't shuffle). Throws on DB error.
+async function selectAllPages<T>(
+  build: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
+): Promise<T[]> {
+  const PAGE = 1000;
+  const out: T[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await build(from, from + PAGE - 1);
+    if (error) throw error;
+    const rows = (data ?? []) as T[];
+    out.push(...rows);
+    if (rows.length < PAGE) break;
+  }
+  return out;
+}
+
 async function fetchAttendance(
   orgId: string,
   start: Date,
@@ -304,13 +322,25 @@ async function fetchAttendance(
   // we caught it silently, so the dashboard showed 0% for everything.
   // We alias to `date` in the response shape so callers don't need to
   // change.
-  const { data, error } = await serviceRoleClient
-    .from("school_attendance")
-    .select("student_id, class_section_id, attendance_date, status")
-    .eq("org_id", orgId)
-    .gte("attendance_date", fmtDate(start))
-    .lte("attendance_date", fmtDate(end));
-  if (error) {
+  //
+  // BUG FIX 2 (pilot, 2026-09-01): PostgREST caps a single select at
+  // 1000 rows and truncates SILENTLY. IFS crossed 1000 term attendance
+  // rows in week 3, so every KPI/at-risk/leaderboard percentage was
+  // computed on a third-short sample (Ayesha showed "0/6 days" while
+  // her present row sat past the cap). Page through everything.
+  let data: any[];
+  try {
+    data = await selectAllPages((from, to) =>
+      serviceRoleClient
+        .from("school_attendance")
+        .select("student_id, class_section_id, attendance_date, status")
+        .eq("org_id", orgId)
+        .gte("attendance_date", fmtDate(start))
+        .lte("attendance_date", fmtDate(end))
+        .order("id", { ascending: true })
+        .range(from, to)
+    );
+  } catch (error) {
     console.error("[schoolDashboard.fetchAttendance] DB error:", error);
     return [];
   }
@@ -342,13 +372,21 @@ async function fetchBehavior(
   // audit but not for "behavior events this period". The seeder
   // sometimes back-dates observed_at, so filtering by created_at
   // misses them.
-  const { data, error } = await serviceRoleClient
-    .from("behavior_note")
-    .select("id, student_id, class_section_id, kind, category, points, observed_at, recorded_by")
-    .eq("org_id", orgId)
-    .gte("observed_at", start.toISOString())
-    .lte("observed_at", endOfDayIso(end));
-  if (error) {
+  //
+  // Paginated for the same silent-1000-row-cap reason as fetchAttendance.
+  let data: any[];
+  try {
+    data = await selectAllPages((from, to) =>
+      serviceRoleClient
+        .from("behavior_note")
+        .select("id, student_id, class_section_id, kind, category, points, observed_at, recorded_by")
+        .eq("org_id", orgId)
+        .gte("observed_at", start.toISOString())
+        .lte("observed_at", endOfDayIso(end))
+        .order("id", { ascending: true })
+        .range(from, to)
+    );
+  } catch (error) {
     console.error("[schoolDashboard.fetchBehavior] DB error:", error);
     return [];
   }

@@ -90,7 +90,7 @@ export function AnnouncementsList() {
       key: "audience",
       header: "Audience",
       cell: (a) => (
-        <span className="text-xs text-slate-600">{AUDIENCE_LABEL[a.audience_kind]}</span>
+        <span className="text-xs text-slate-600">{AUDIENCE_LABEL[a.audienceKind]}</span>
       ),
     },
     {
@@ -99,7 +99,7 @@ export function AnnouncementsList() {
       width: "w-32",
       cell: (a) => (
         <span className="text-xs text-slate-600 tabular-nums">
-          {new Date(a.published_at).toLocaleDateString()}
+          {new Date(a.publishedAt).toLocaleDateString()}
         </span>
       ),
     },
@@ -109,7 +109,7 @@ export function AnnouncementsList() {
       width: "w-32",
       cell: (a) => (
         <span className="text-xs text-slate-600 tabular-nums">
-          {a.expires_at ? new Date(a.expires_at).toLocaleDateString() : "—"}
+          {a.expiresAt ? new Date(a.expiresAt).toLocaleDateString() : "—"}
         </span>
       ),
     },
@@ -117,7 +117,7 @@ export function AnnouncementsList() {
       key: "author",
       header: "Author",
       width: "w-32",
-      cell: (a) => <span className="text-xs text-slate-600">{a.author_name ?? "—"}</span>,
+      cell: (a) => <span className="text-xs text-slate-600">{a.authorName ?? "—"}</span>,
     },
     {
       key: "actions",

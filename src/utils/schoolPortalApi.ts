@@ -414,7 +414,10 @@ export const listMyForms = (orgId: string): Promise<{ forms: MyFormSummary[] }> 
   pinApiCall(`/school/orgs/${orgId}/my-forms`);
 
 export const getMyForm = (orgId: string, formId: string): Promise<Form> =>
-  pinApiCall(`/school/orgs/${orgId}/forms/${formId}`);
+  // Server returns { form, fields } — merge so callers get form.fields.
+  pinApiCall(`/school/orgs/${orgId}/forms/${formId}`).then(
+    (r: { form: Form; fields?: Form["fields"] }) => ({ ...r.form, fields: r.fields ?? [] }),
+  );
 
 export const submitFormResponse = (
   orgId: string,

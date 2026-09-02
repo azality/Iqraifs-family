@@ -538,7 +538,14 @@ export function ManageParents() {
                       {family.children.map((k) => (
                         <li key={k.id} className="flex items-baseline gap-1.5 text-xs">
                           <GraduationCap className="h-3 w-3 text-indigo-500 flex-shrink-0" />
-                          <span className="font-medium text-slate-700 truncate">{k.full_name}</span>
+                          {/* Pilot (Younus): child names open the student
+                              profile — the card was a dead end before. */}
+                          <Link
+                            to={`/school/orgs/${orgId}/students/${k.id}`}
+                            className="font-medium text-indigo-700 truncate hover:underline"
+                          >
+                            {k.full_name}
+                          </Link>
                           {k.class_section_id && sectionLabel.get(k.class_section_id) && (
                             <span className="text-slate-500 flex-shrink-0">· {sectionLabel.get(k.class_section_id)}</span>
                           )}
