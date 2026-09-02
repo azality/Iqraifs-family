@@ -48,6 +48,10 @@ export function SectionHifzOverview() {
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [logTarget, setLogTarget] = useState<SectionHifzSummaryRow | null>(null);
+  // Roster snapshot taken when the dialog opens: "Save · next student"
+  // walks THIS order even though the table re-sorts after each save
+  // (last-entry sort would otherwise shuffle the queue mid-class).
+  const [logRoster, setLogRoster] = useState<SectionHifzSummaryRow[]>([]);
   // Per-student history dialog (pilot: "see how much they completed and
   // their past records") — embeds the same feed StudentDetail uses.
   const [historyTarget, setHistoryTarget] = useState<SectionHifzSummaryRow | null>(null);
@@ -181,6 +185,7 @@ export function SectionHifzOverview() {
             size="sm"
             onClick={(e) => {
               e.stopPropagation();
+              setLogRoster(sorted);
               setLogTarget(s);
             }}
           >
@@ -214,25 +219,34 @@ export function SectionHifzOverview() {
             rows={sorted}
             rowKey={(s) => s.studentId}
             emptyMessage="No students in this section."
-            onRowClick={(s) => setLogTarget(s)}
+            onRowClick={(s) => {
+              setLogRoster(sorted);
+              setLogTarget(s);
+            }}
           />
         </div>
       )}
 
-      {logTarget && (
-        <HifzLogEntry
-          orgId={orgId}
-          studentId={logTarget.studentId}
-          studentName={logTarget.studentName}
-          hifzOnly={isHifzSection}
-          open={!!logTarget}
-          onOpenChange={(v) => { if (!v) setLogTarget(null); }}
-          onSuccess={() => {
-            setLogTarget(null);
-            setReloadKey((k) => k + 1);
-          }}
-        />
-      )}
+      {logTarget && (() => {
+        const idx = logRoster.findIndex((r) => r.studentId === logTarget.studentId);
+        const next = idx >= 0 && idx < logRoster.length - 1 ? logRoster[idx + 1] : null;
+        return (
+          <HifzLogEntry
+            orgId={orgId}
+            studentId={logTarget.studentId}
+            studentName={logTarget.studentName}
+            hifzOnly={isHifzSection}
+            positionLabel={idx >= 0 ? `Student ${idx + 1} of ${logRoster.length}` : null}
+            onNextStudent={next ? () => setLogTarget(next) : null}
+            open={!!logTarget}
+            onOpenChange={(v) => { if (!v) setLogTarget(null); }}
+            // NOTE: onSuccess must NOT close the dialog — "Save · next
+            // kind" and "Save · next student" keep it open. Close-mode
+            // saves close via onOpenChange inside the dialog.
+            onSuccess={() => setReloadKey((k) => k + 1)}
+          />
+        );
+      })()}
 
       {historyTarget && (
         <Dialog open={!!historyTarget} onOpenChange={(v) => { if (!v) setHistoryTarget(null); }}>

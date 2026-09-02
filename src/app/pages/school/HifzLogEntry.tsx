@@ -52,6 +52,14 @@ interface Props {
   onSuccess?: () => void;
   /** Hifz classes log only the daily trio — sabaq / sabqi / manzil. */
   hifzOnly?: boolean;
+  /** Classroom flow (pilot): students come to the teacher one by one, so
+   *  after saving the teacher moves to the NEXT student without closing
+   *  the dialog. The parent swaps studentId/studentName; state resets on
+   *  the id change. Null/undefined on the last student (or when the
+   *  caller has no roster, e.g. StudentDetail). */
+  onNextStudent?: (() => void) | null;
+  /** e.g. "Student 3 of 19" — shown under the title when roster-driven. */
+  positionLabel?: string | null;
 }
 
 const TRIO: Array<{ value: HifzKind; label: string; hint: string }> = [
@@ -113,6 +121,8 @@ export function HifzLogEntry({
   onOpenChange,
   onSuccess,
   hifzOnly = false,
+  onNextStudent = null,
+  positionLabel = null,
 }: Props) {
   const [surahNumber, setSurahNumber] = useState<number>(1);
   const [ayahFrom, setAyahFrom] = useState<number>(1);
@@ -223,12 +233,12 @@ export function HifzLogEntry({
   const isManzil = kind === "manzil";
   const isSabaq = kind === "sabaq";
 
-  // stayOpen: "Save & log next" — the daily trio (sabaq → sabqi → manzil)
-  // is three entries per child; closing the dialog after each save meant
-  // ~60 dialog-openings a day for a 20-child class. Keeps the dialog
-  // open, advances Kind to the next of the trio, clears per-entry fields.
+  // after="kind": the daily trio (sabaq → sabqi → manzil) is three
+  // entries per child; the dialog stays open and advances Kind.
+  // after="student": classroom flow — save this child and swap to the
+  // next one in the roster (the parent changes studentId; state resets).
   const KIND_SEQUENCE: string[] = ["sabaq", "sabqi", "manzil"];
-  const handleSubmit = async (stayOpen = false) => {
+  const handleSubmit = async (after: "close" | "kind" | "student" = "close") => {
     let sendSurah = surahNumber;
     let sendFrom = ayahFrom;
     let sendTo = ayahTo;
@@ -251,10 +261,9 @@ export function HifzLogEntry({
         return;
       }
     }
-    const structuredNext =
-      isSabaq && assignOn
-        ? serializeNextSabaq(assignSurah, assignFrom, assignTo)
-        : undefined;
+    const structuredNext = assignOn
+      ? serializeNextSabaq(assignSurah, assignFrom, assignTo)
+      : undefined;
     setSubmitting(true);
     try {
       await postHifzEntry(orgId, {
@@ -281,7 +290,7 @@ export function HifzLogEntry({
         missed: missed || undefined,
       });
       onSuccess?.();
-      if (stayOpen) {
+      if (after === "kind") {
         const idx = KIND_SEQUENCE.indexOf(kind);
         const next = idx >= 0 && idx < KIND_SEQUENCE.length - 1 ? KIND_SEQUENCE[idx + 1] : null;
         toast.success(
@@ -295,6 +304,9 @@ export function HifzLogEntry({
         setMissed(false);
         setAssignOn(false);
         if (next) setKind(next as typeof kind);
+      } else if (after === "student" && onNextStudent) {
+        toast.success(`${studentName} saved — next student`);
+        onNextStudent(); // parent swaps studentId; the reset effect refreshes the form
       } else {
         toast.success("Hifz entry logged");
         onOpenChange(false);
@@ -312,6 +324,7 @@ export function HifzLogEntry({
         <DialogHeader>
           <DialogTitle>Log hifz — {studentName}</DialogTitle>
           <DialogDescription>
+            {positionLabel ? `${positionLabel} · ` : ""}
             {hifzOnly
               ? "Record today's sabaq, sabqi, or manzil."
               : "Record sabaq, sabqi, manzil, or any hifz progress."}
@@ -478,8 +491,10 @@ export function HifzLogEntry({
           </div>
 
           {/* Assign the NEXT lesson while hearing today's — the core of
-              "give lesson to an individual student". Sabaq only. */}
-          {isSabaq && (
+              "give lesson to an individual student". Always available in
+              hifz classes (pilot: Muneeb looked for it on the sabqi form
+              and couldn't find it); sabaq-only elsewhere. */}
+          {(isSabaq || hifzOnly) && (
             <div className="rounded-lg border border-indigo-200 bg-indigo-50/40 p-3 space-y-2">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
@@ -680,7 +695,7 @@ export function HifzLogEntry({
                     placeholder="e.g. Memorize 5 ayahs"
                   />
                 </div>
-                {!isSabaq && (
+                {!(isSabaq || hifzOnly) && (
                   <div className="space-y-1">
                     <Label>Tomorrow's target</Label>
                     <Input
@@ -703,16 +718,25 @@ export function HifzLogEntry({
           )}
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="flex-wrap gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button variant="outline" onClick={() => void handleSubmit(true)} disabled={submitting}>
-            {submitting ? "Saving…" : "Save & log next"}
+          <Button variant="outline" onClick={() => void handleSubmit("kind")} disabled={submitting}>
+            {submitting ? "Saving…" : "Save · next kind"}
           </Button>
-          <Button onClick={() => void handleSubmit(false)} disabled={submitting}>
+          <Button
+            variant={onNextStudent ? "outline" : "default"}
+            onClick={() => void handleSubmit("close")}
+            disabled={submitting}
+          >
             {submitting ? "Saving…" : "Save & close"}
           </Button>
+          {onNextStudent && (
+            <Button onClick={() => void handleSubmit("student")} disabled={submitting}>
+              {submitting ? "Saving…" : "Save · next student →"}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
