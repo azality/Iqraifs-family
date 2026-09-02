@@ -39,11 +39,15 @@ interface Props {
    *  class teacher granted the permission edits the syllabus without
    *  needing the admin-only Classes page. */
   canEditCurriculum?: boolean;
+  /** Viewer's userId — the assigned subject teacher may TICK topics of
+   *  their own subject even without define_curriculum (pilot: the
+   *  Islamiyat subject teacher couldn't mark her syllabus done). */
+  viewerUserId?: string | null;
   /** Optional: pass the parent classId so the manage-link points there. */
   classId?: string | null;
 }
 
-export function SectionSubjectsManager({ orgId, sectionId, canManage, canEditCurriculum = false, classId }: Props) {
+export function SectionSubjectsManager({ orgId, sectionId, canManage, canEditCurriculum = false, viewerUserId = null, classId }: Props) {
   // Phase 4b: use the curriculum-progress endpoint instead of the plain
   // subjects list so we can show the per-subject progress bar inline.
   const [subjects, setSubjects] = useState<SectionSubjectProgress[]>([]);
@@ -329,7 +333,7 @@ export function SectionSubjectsManager({ orgId, sectionId, canManage, canEditCur
                               <span className="flex h-4 w-4 items-center justify-center rounded-full bg-slate-100 text-[9px] font-semibold text-slate-700 flex-shrink-0">
                                 {idx + 1}
                               </span>
-                              {canEditCurriculum ? (
+                              {viewerUserId != null && s.teacherUserId === viewerUserId ? (
                                 <button
                                   type="button"
                                   onClick={() => toggleTopicCompleted(s.classSubjectId, t)}
