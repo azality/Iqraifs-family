@@ -837,6 +837,13 @@ export function installAnnounce(school: Hono): void {
     const studentId = c.req.param("studentId");
     if (!studentId) return c.json({ error: "studentId required" }, 400);
 
+    // Fees are family business — parents only. The nav already hides the
+    // tab for student logins; this makes the API itself enforce it
+    // (pilot security review 2026-09-02).
+    if (subject.subjectType !== "parent") {
+      return c.json({ error: "fees are visible to parents only" }, 403);
+    }
+
     const accessible = await resolveAccessibleStudents(subject);
     if (!accessible.includes(studentId)) {
       return c.json({ error: "forbidden" }, 403);

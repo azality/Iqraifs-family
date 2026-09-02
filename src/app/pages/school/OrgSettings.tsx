@@ -60,6 +60,7 @@ interface OrgFormState {
   // school_hours is a soft annotation rendered on top.
   school_day_start: string; // HH:MM
   school_day_end: string;
+  student_sees_concerns: boolean;
   office_day_start: string;
   office_day_end: string;
 }
@@ -86,6 +87,7 @@ export function OrgSettings() {
     school_day_end: "",
     office_day_start: "",
     office_day_end: "",
+    student_sees_concerns: false,
   });
   const [orgSaving, setOrgSaving] = useState(false);
   const [orgError, setOrgError] = useState<string | null>(null);
@@ -154,6 +156,7 @@ export function OrgSettings() {
             (o.organization.settings?.contact_phone as string | undefined) ?? "",
           address: (o.organization.settings?.address as string | undefined) ?? "",
           timezone: (o.organization.settings?.timezone as string | undefined) ?? "",
+          student_sees_concerns: (o.organization.settings?.student_sees_concerns as boolean | undefined) === true,
           logo_url: (o.organization.settings?.logo_url as string | undefined) ?? "",
           theme_color: (o.organization.settings?.theme_color as string | undefined) ?? "",
           school_motto: (o.organization.settings?.school_motto as string | undefined) ?? "",
@@ -198,6 +201,7 @@ export function OrgSettings() {
         school_day_end: orgForm.school_day_end,
         office_day_start: orgForm.office_day_start,
         office_day_end: orgForm.office_day_end,
+        student_sees_concerns: orgForm.student_sees_concerns,
       });
       setOrgSavedAt(Date.now());
     } catch (e) {
@@ -620,6 +624,26 @@ export function OrgSettings() {
               value={orgForm.school_motto}
               onChange={(e) => setOrgForm((s) => ({ ...s, school_motto: e.target.value }))}
             />
+          </div>
+
+          {/* Portal privacy (pilot review 2026-09-02). Parents always see
+              everything; this only controls the CHILD's own login. */}
+          <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-3">
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={orgForm.student_sees_concerns}
+                onChange={(e) => setOrgForm((s) => ({ ...s, student_sees_concerns: e.target.checked }))}
+              />
+              <span className="text-sm text-slate-800">
+                <span className="font-medium">Students can see concern notes in their own portal login</span>
+                <span className="block text-xs text-slate-500">
+                  Off by default — concerns then reach the family through the parent login only.
+                  Parents always see everything either way.
+                </span>
+              </span>
+            </label>
           </div>
 
           {/* School + office hours. School hours = when students are

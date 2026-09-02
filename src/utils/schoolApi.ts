@@ -264,6 +264,8 @@ export const updateOrganization = (
     office_day_end: string;    // HH:MM
     school_year: SchoolYear;
     substitute_teacher_ids: string[];
+    /** Portal privacy: student logins see concern notes only when true. */
+    student_sees_concerns: boolean;
   }>,
 ): Promise<OrganizationDetail> =>
   apiCall(`/school/orgs/${orgId}`, {
