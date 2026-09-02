@@ -208,8 +208,12 @@ export function SectionGradebook() {
   return (
     <div className="space-y-4 pb-24">
       <HeroCard
-        title="Gradebook"
-        subtitle="Spreadsheet of students × assignments"
+        title={focusStudent ? `Gradebook — ${focusStudent.full_name}` : "Gradebook"}
+        subtitle={
+          focusStudent
+            ? `${focusStudent.gr_number ? `GR ${focusStudent.gr_number} · ` : ""}showing only this student's row`
+            : "Spreadsheet of students × assignments"
+        }
         rightSlot={
           <div className="flex flex-wrap items-end gap-2">
             <div>
@@ -236,7 +240,7 @@ export function SectionGradebook() {
             <Button size="sm" onClick={handleSave} disabled={saving || dirtyCount === 0} className="bg-white text-slate-900 hover:bg-slate-100">
               <Save className="h-4 w-4 mr-1" /> {saving ? "Saving…" : "Save All"}
             </Button>
-            <Link to={`/school/orgs/${orgId}/sections/${sectionId}/assignments`}>
+            <Link to={`/school/orgs/${orgId}/sections/${sectionId}/assignments${focusStudent ? `?studentId=${focusStudent.id}` : ""}`}>
               <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">Assignments</Button>
             </Link>
             <Link to={`/school/orgs/${orgId}/admin/classes`}>
@@ -331,7 +335,7 @@ export function SectionGradebook() {
                     title={a.title}
                   >
                     <Link
-                      to={`/school/orgs/${orgId}/assignments/${a.id}`}
+                      to={`/school/orgs/${orgId}/assignments/${a.id}${focusStudent ? `?studentId=${focusStudent.id}` : ""}`}
                       className="block truncate max-w-[80px] hover:underline normal-case font-medium text-slate-700"
                     >
                       {a.title}

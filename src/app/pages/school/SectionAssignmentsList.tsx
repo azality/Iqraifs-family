@@ -29,6 +29,7 @@ import {
   type DataTableColumn,
 } from "../../components/school-ui";
 import {
+  listStudents,
   deleteAssignment,
   getAssignmentGrades,
   getSchoolMe,
@@ -83,6 +84,21 @@ export function SectionAssignmentsList() {
   const [subjectFilter, setSubjectFilter] = useState<string>(
     () => searchParams.get("subjectId") || "",
   );
+  // ?studentId= — arriving from a student's gradebook keeps that context:
+  // a banner names the student and each assignment link carries the id
+  // through so their row is highlighted on the detail page.
+  const focusStudentId = searchParams.get("studentId") ?? "";
+  const [focusStudentName, setFocusStudentName] = useState<string | null>(null);
+  useEffect(() => {
+    if (!orgId || !focusStudentId) { setFocusStudentName(null); return; }
+    listStudents(orgId, { classSectionId: sectionId })
+      .then((students) => {
+        setFocusStudentName(students.find((st) => st.id === focusStudentId)?.full_name ?? null);
+      })
+      .catch(() => setFocusStudentName(null));
+  }, [orgId, sectionId, focusStudentId]);
+  const withFocus = (path: string) =>
+    focusStudentId ? `${path}${path.includes("?") ? "&" : "?"}studentId=${focusStudentId}` : path;
   const [subjects, setSubjects] = useState<SectionSubject[]>([]);
   // per-assignment grade summary cache: { graded, total, avgPct }
   const [summary, setSummary] = useState<Record<string, { graded: number; total: number; avgPct: number | null }>>({});
@@ -180,7 +196,7 @@ export function SectionAssignmentsList() {
       header: "Title",
       cell: (a) => (
         <div className="min-w-0">
-          <Link to={`/school/orgs/${orgId}/assignments/${a.id}`} className="font-medium hover:underline">
+          <Link to={withFocus(`/school/orgs/${orgId}/assignments/${a.id}`)} className="font-medium hover:underline">
             {a.title}
           </Link>
           {/* Phase 3: subject + topic badges. Hidden when nothing tagged. */}
@@ -238,12 +254,12 @@ export function SectionAssignmentsList() {
       width: "w-40",
       cell: (a) => (
         <div className="flex justify-end gap-1">
-          <Link to={`/school/orgs/${orgId}/assignments/${a.id}`}>
+          <Link to={withFocus(`/school/orgs/${orgId}/assignments/${a.id}`)}>
             <Button variant="ghost" size="sm" title="Open">
               <ExternalLink className="h-3.5 w-3.5" />
             </Button>
           </Link>
-          <Link to={`/school/orgs/${orgId}/assignments/${a.id}`}>
+          <Link to={withFocus(`/school/orgs/${orgId}/assignments/${a.id}`)}>
             <Button variant="ghost" size="sm" title="Grade">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
             </Button>
@@ -272,7 +288,7 @@ export function SectionAssignmentsList() {
         subtitle={`${assignments.length} assignment${assignments.length === 1 ? "" : "s"} for this section`}
         rightSlot={
           <div className="flex items-center gap-2 flex-wrap">
-            <Link to={`/school/orgs/${orgId}/sections/${sectionId}/gradebook`}>
+            <Link to={withFocus(`/school/orgs/${orgId}/sections/${sectionId}/gradebook`)}>
               <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">Gradebook</Button>
             </Link>
             <Link to={`/school/orgs/${orgId}/admin/classes`}>
@@ -286,6 +302,13 @@ export function SectionAssignmentsList() {
           </div>
         }
       />
+
+      {focusStudentId && focusStudentName && (
+        <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm text-indigo-900">
+          Viewing for <span className="font-semibold">{focusStudentName}</span> — open any
+          assignment to see their row highlighted.
+        </div>
+      )}
 
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-xs text-slate-500">Filter by kind:</span>
@@ -365,7 +388,7 @@ export function SectionAssignmentsList() {
               return (
                 <Link
                   key={a.id}
-                  to={`/school/orgs/${orgId}/assignments/${a.id}`}
+                  to={withFocus(`/school/orgs/${orgId}/assignments/${a.id}`)}
                   className={`${cardBase} block p-3`}
                 >
                   <div className="flex items-start justify-between gap-2">
