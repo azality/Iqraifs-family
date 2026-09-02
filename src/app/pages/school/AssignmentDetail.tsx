@@ -2,7 +2,7 @@
 // section in one editable table. "Save grades" batches dirty rows.
 
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
@@ -67,6 +67,11 @@ const STATUS_OPTIONS: GradeStatus[] = ["graded", "missing", "excused", "late"];
 
 export function AssignmentDetail() {
   const { orgId = "", assignmentId = "" } = useParams();
+  // ?studentId= — arriving from a student's profile/gradebook keeps that
+  // context: a banner names the student and their row is highlighted
+  // (pilot: "it shows me the assignment without specifying which student").
+  const [searchParams] = useSearchParams();
+  const focusStudentId = searchParams.get("studentId") ?? "";
   const [me, setMe] = useState<SchoolMeResponse | null>(null);
   const [meLoading, setMeLoading] = useState(true);
   const [assignment, setAssignment] = useState<Assignment | null>(null);
@@ -240,6 +245,16 @@ export function AssignmentDetail() {
         }
       />
 
+      {focusStudentId && (() => {
+        const focusRow = rows.find((r) => r.studentId === focusStudentId);
+        return focusRow ? (
+          <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm text-indigo-900">
+            Viewing for <span className="font-semibold">{focusRow.studentName}</span>
+            {focusRow.grNumber ? ` (GR ${focusRow.grNumber})` : ""} — their row is highlighted below.
+          </div>
+        ) : null;
+      })()}
+
       {assignment.description && (
         <Card className={`${cardBase} ${cardElev}`}>
           <CardHeader className="pb-2"><CardTitle className="text-base">Description</CardTitle></CardHeader>
@@ -316,7 +331,7 @@ export function AssignmentDetail() {
                   score input to ~1 digit on a 375px screen (pilot bug). */}
               <div className="sm:hidden divide-y">
                 {rows.map((r, idx) => (
-                  <div key={r.studentId} className={"px-3 py-2.5 " + (r.dirty ? "bg-amber-50/40" : "")}>
+                  <div key={r.studentId} className={"px-3 py-2.5 " + (r.studentId === focusStudentId ? "bg-indigo-50 ring-1 ring-inset ring-indigo-300 " : "") + (r.dirty ? "bg-amber-50/40" : "")}>
                     <div className="flex items-baseline justify-between gap-2">
                       <span className="min-w-0 truncate text-sm font-medium">{r.studentName}</span>
                       <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{r.grNumber}</span>
@@ -372,7 +387,7 @@ export function AssignmentDetail() {
                 </thead>
                 <tbody>
                   {rows.map((r, idx) => (
-                    <tr key={r.studentId} className={"border-t " + (r.dirty ? "bg-amber-50/40" : "")}>
+                    <tr key={r.studentId} className={"border-t " + (r.studentId === focusStudentId ? "bg-indigo-50 " : "") + (r.dirty ? "bg-amber-50/40" : "")}>
                       <td className="px-3 py-2 font-medium">{r.studentName}</td>
                       <td className="px-3 py-2 text-xs font-mono text-muted-foreground">{r.grNumber}</td>
                       <td className="px-3 py-2">

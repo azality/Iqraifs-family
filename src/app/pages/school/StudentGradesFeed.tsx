@@ -108,7 +108,7 @@ export function StudentGradesFeed({ orgId, studentId, refreshKey }: Props) {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <Link
-                        to={`/school/orgs/${orgId}/assignments/${a.id}`}
+                        to={`/school/orgs/${orgId}/assignments/${a.id}?studentId=${studentId}`}
                         className="font-medium text-sm hover:underline truncate"
                       >
                         {a.title}
