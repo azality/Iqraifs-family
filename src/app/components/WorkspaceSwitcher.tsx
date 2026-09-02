@@ -31,6 +31,19 @@ export function WorkspaceSwitcher() {
   const primaryOrg = principalOrgs[0]
     ?? (me ? me.organizations[0] : undefined);
 
+  // Pilot (Muneeb, teacher phone screenshot): a switcher with exactly ONE
+  // choice is pure header noise. Render nothing unless there's genuinely
+  // something to switch between — a teacher who is also a parent, a
+  // principal of multiple campuses, or staff with family + school.
+  const familyOptionCount = hasFamily && signupIntent !== "school" ? 1 : 0;
+  const schoolOptionCount =
+    principalOrgs.length > 0
+      ? principalOrgs.length
+      : teacherClassCount > 0 && primaryOrg
+        ? 1
+        : 0;
+  if (familyOptionCount + schoolOptionCount <= 1) return null;
+
   const choose = (kind: "family" | "school", org?: { id: string; name: string }) => {
     if (kind === "family") {
       switchToFamily();

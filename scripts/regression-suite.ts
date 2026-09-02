@@ -816,6 +816,42 @@ await check("25. quiz engine: no answer leak, auto-scored attempt, single attemp
   }
 });
 
+await check("26. subject teacher can TICK own syllabus topics (not edit schema)", async () => {
+  // Pilot: the Islamiyat subject teacher (role 'teacher', no
+  // define_curriculum) couldn't mark her syllabus done. The assigned
+  // subject teacher may toggle `completed` — and ONLY that.
+  const subjT = await ensureUser("qa-subject-teacher@azality.com", "QA Subject Teacher", "teacher");
+  await admin.from("section_subject").update({ teacher_user_id: subjT.id }).eq("id", qaSs.id);
+  const { data: topic } = await admin.from("curriculum_topic")
+    .select("id, completed").eq("curriculum_id", qaCur.id).limit(1).maybeSingle();
+  assert(topic, "no QA topic");
+  try {
+    const tick = await api(subjT.token, `/school/curriculum-topics/${topic.id}`, {
+      method: "PATCH", body: JSON.stringify({ completed: !topic.completed }),
+    });
+    assert(tick.status === 200, `tick expected 200, got ${tick.status}`);
+    // Schema edits stay gated for the same account.
+    const rename = await api(subjT.token, `/school/curriculum-topics/${topic.id}`, {
+      method: "PATCH", body: JSON.stringify({ name: "QA hijack" }),
+    });
+    assert(rename.status === 403, `rename expected 403, got ${rename.status}`);
+    const sneaky = await api(subjT.token, `/school/curriculum-topics/${topic.id}`, {
+      method: "PATCH", body: JSON.stringify({ completed: true, name: "QA hijack" }),
+    });
+    assert(sneaky.status === 403, `completed+name expected 403, got ${sneaky.status}`);
+    // An unrelated non-privileged account cannot tick.
+    const other = await api(office.token, `/school/curriculum-topics/${topic.id}`, {
+      method: "PATCH", body: JSON.stringify({ completed: true }),
+    });
+    assert(other.status === 403, `office tick expected 403, got ${other.status}`);
+  } finally {
+    await admin.from("curriculum_topic").update({ completed: topic.completed }).eq("id", topic.id);
+    // qaSs teacher restored by the scaffolding on the next run; restore
+    // now anyway so later manual poking sees the normal state.
+    await admin.from("section_subject").update({ teacher_user_id: teacher.id }).eq("id", qaSs.id);
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

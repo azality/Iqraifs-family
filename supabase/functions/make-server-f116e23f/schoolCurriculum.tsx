@@ -725,15 +725,42 @@ export function installCurriculum(school: Hono) {
     const id = c.req.param("id");
     const ctx = await topicOrgId(id);
     if (!ctx || !ctx.orgId) return c.json({ error: "topic not found" }, 404);
-    if (!(await userCanInOrg(userId, ctx.orgId, "define_curriculum"))) {
-      return c.json({ error: "forbidden" }, 403);
-    }
 
     let body: any;
     try {
       body = await c.req.json();
     } catch {
       return c.json({ error: "invalid JSON body" }, 400);
+    }
+
+    // Tick-only exception (pilot 2026-09-02: the Quran/Islamiyat subject
+    // teacher couldn't mark her own syllabus done). define_curriculum
+    // gates SCHEMA edits — adding/renaming/deleting topics. Toggling
+    // `completed` is day-to-day teaching, so the ASSIGNED subject
+    // teacher may do it for their own subject without that permission.
+    const bodyKeys = Object.keys(body ?? {});
+    const completedOnly =
+      typeof body?.completed === "boolean" && bodyKeys.every((k) => k === "completed");
+    if (!(await userCanInOrg(userId, ctx.orgId, "define_curriculum"))) {
+      let allowed = false;
+      if (completedOnly) {
+        const { data: t } = await serviceRoleClient
+          .from("curriculum_topic")
+          .select("curriculum:curriculum_id(class_subject_id)")
+          .eq("id", id)
+          .maybeSingle();
+        const csId = (t as any)?.curriculum?.class_subject_id;
+        if (csId) {
+          const { data: ss } = await serviceRoleClient
+            .from("section_subject")
+            .select("id")
+            .eq("class_subject_id", csId)
+            .eq("teacher_user_id", userId)
+            .limit(1);
+          allowed = (ss?.length ?? 0) > 0;
+        }
+      }
+      if (!allowed) return c.json({ error: "forbidden" }, 403);
     }
     const patch: Record<string, unknown> = {};
     if (typeof body?.name === "string") {

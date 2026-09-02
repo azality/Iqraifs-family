@@ -529,6 +529,7 @@ export function SectionOverview() {
           viewerRole === "principal" || viewerRole === "admin"
         }
         canEditCurriculum={canEditCurriculum}
+        viewerUserId={me?.userId ?? null}
       />
       )}
     </div>
