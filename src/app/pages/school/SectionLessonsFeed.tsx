@@ -197,8 +197,8 @@ export function SectionLessonsFeed() {
                 className="h-8 w-36 bg-white/10 border-white/20 text-white"
               />
             </div>
-            <Link to={`/school/orgs/${orgId}/admin/classes`}>
-              <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">← Classes</Button>
+            <Link to={`/school/orgs/${orgId}/sections/${sectionId}`}>
+              <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">← Class page</Button>
             </Link>
             <Link to={`/school/orgs/${orgId}/sections/${sectionId}/lessons/new`}>
               <Button size="sm" className="bg-white text-slate-900 hover:bg-slate-100">
