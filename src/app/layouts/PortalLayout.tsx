@@ -30,6 +30,12 @@ const NAV: NavItem[] = [
     match: (p, sid) => p.startsWith(`/school-portal/students/${sid}/lessons`),
   },
   {
+    // Digital hand-in (pilot 2026-09-02) — submit homework photos/PDFs.
+    labelKey: "homework",
+    path: (sid) => `/school-portal/students/${sid}/homework`,
+    match: (p, sid) => p.startsWith(`/school-portal/students/${sid}/homework`),
+  },
+  {
     // PR feat/timetable-consumers — weekly schedule view for parents.
     // Falls back gracefully (empty-state) when the school hasn't set up
     // slots yet, so adding the nav item doesn't dead-end users.

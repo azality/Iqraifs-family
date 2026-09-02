@@ -669,3 +669,72 @@ export const listStudentTimeOff = (
   studentId: string,
 ): Promise<{ requests: import("./schoolApi").TimeOffRequest[] }> =>
   pinApiCall(`/school/pin-me/students/${studentId}/time-off`);
+
+// ─── Digital homework hand-in (pilot 2026-09-02) ───────────────────────
+
+export interface SubmissionAttachment {
+  url: string;
+  name: string;
+}
+
+export interface PortalAssignmentRow {
+  id: string;
+  title: string;
+  kind: string;
+  description: string | null;
+  subjectName: string | null;
+  maxScore: number | null;
+  dueDate: string | null;
+  assignedDate: string | null;
+  submission: {
+    attachments: SubmissionAttachment[];
+    note: string | null;
+    submittedAt: string;
+    updatedAt: string;
+    reviewedAt: string | null;
+  } | null;
+  grade: { score: number | null; status: string } | null;
+}
+
+export const listMyAssignments = (
+  studentId: string,
+): Promise<{ assignments: PortalAssignmentRow[] }> =>
+  pinApiCall(`/school/pin-me/students/${studentId}/assignments`);
+
+export const submitAssignmentWork = (
+  studentId: string,
+  assignmentId: string,
+  body: { attachments: SubmissionAttachment[]; note?: string },
+): Promise<{ submission: unknown }> =>
+  pinApiCall(
+    `/school/pin-me/students/${studentId}/assignments/${assignmentId}/submission`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+
+/** Photo/PDF upload for a hand-in: ask the function for a signed upload
+ *  URL (validates type + size), then PUT the bytes straight to Storage —
+ *  same direct-to-storage pattern as the staff uploader, so slow 4G
+ *  never hits the function wall-clock limit. */
+export async function uploadSubmissionFile(
+  studentId: string,
+  file: File,
+): Promise<SubmissionAttachment> {
+  const { supabase } = await import("/utils/supabase/client");
+  const contentType = file.type || "application/octet-stream";
+  const signed = await pinApiCall<{ path: string; token: string; publicUrl: string }>(
+    `/school/pin-me/students/${studentId}/submission-upload-url`,
+    {
+      method: "POST",
+      body: JSON.stringify({ fileName: file.name, contentType, size: file.size }),
+    },
+  );
+  const bytes = await file.arrayBuffer();
+  const { error } = await supabase.storage
+    .from("school-files")
+    .uploadToSignedUrl(signed.path, signed.token, new Blob([bytes], { type: contentType }), {
+      contentType,
+      upsert: false,
+    });
+  if (error) throw new Error(error.message || "Upload failed — check your connection and try again.");
+  return { url: signed.publicUrl, name: file.name };
+}

@@ -106,7 +106,8 @@
       "behavior": "Behavior",
       "forms": "Forms",
       "fees": "Fees",
-      "announcements": "Announcements"
+      "announcements": "Announcements",
+      "homework": "Homework"
     },
     "tiles": {
       "attendance": "Attendance",

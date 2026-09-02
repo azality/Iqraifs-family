@@ -122,6 +122,7 @@ import { PortalChangePin } from "./pages/portal/PortalChangePin";
 import { PortalHome } from "./pages/portal/PortalHome";
 import { StudentDashboard } from "./pages/portal/StudentDashboard";
 import { StudentLessons } from "./pages/portal/StudentLessons";
+import { StudentHomework } from "./pages/portal/StudentHomework";
 import { StudentGrades } from "./pages/portal/StudentGrades";
 import { StudentHifz } from "./pages/portal/StudentHifz";
 import { StudentTimetable } from "./pages/portal/StudentTimetable";
@@ -380,6 +381,7 @@ export const router = createBrowserRouter([
       { path: "change-pin", element: <PortalChangePin /> },
       { path: "students/:studentId", element: <StudentDashboard /> },
       { path: "students/:studentId/lessons", element: <StudentLessons /> },
+      { path: "students/:studentId/homework", element: <StudentHomework /> },
       { path: "students/:studentId/grades", element: <StudentGrades /> },
       { path: "students/:studentId/report-card", element: <StudentTermReportCard /> },
       { path: "students/:studentId/teacher-comments", element: <StudentTeacherComments /> },
