@@ -5185,3 +5185,46 @@ export const reviewSubmission = (
     method: "POST",
     body: JSON.stringify({ reviewed }),
   });
+
+// ─── Quiz engine — staff side (pilot 2026-09-02) ───────────────────────
+
+export interface QuizQuestion {
+  id: string;
+  assignmentId: string;
+  prompt: string;
+  options: string[];
+  correctIndex: number;
+  displayOrder: number;
+}
+
+export const listQuizQuestions = (
+  orgId: string,
+  assignmentId: string,
+): Promise<{ questions: QuizQuestion[] }> =>
+  apiCall(`/school/orgs/${orgId}/assignments/${assignmentId}/quiz-questions`);
+
+export const addQuizQuestion = (
+  orgId: string,
+  assignmentId: string,
+  body: { prompt: string; options: string[]; correctIndex: number },
+): Promise<{ question: QuizQuestion }> =>
+  apiCall(`/school/orgs/${orgId}/assignments/${assignmentId}/quiz-questions`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const updateQuizQuestion = (
+  orgId: string,
+  questionId: string,
+  body: { prompt: string; options: string[]; correctIndex: number },
+): Promise<{ question: QuizQuestion }> =>
+  apiCall(`/school/orgs/${orgId}/quiz-questions/${questionId}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+
+export const deleteQuizQuestion = (
+  orgId: string,
+  questionId: string,
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/quiz-questions/${questionId}`, { method: "DELETE" });

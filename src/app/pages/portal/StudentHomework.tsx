@@ -12,10 +12,13 @@ import { HeroCard } from "../../components/school-ui";
 import { Button } from "../../components/ui/button";
 import { Textarea } from "../../components/ui/textarea";
 import {
+  getMyQuiz,
   listMyAssignments,
   submitAssignmentWork,
+  submitQuizAttempt,
   uploadSubmissionFile,
   type PortalAssignmentRow,
+  type PortalQuizResponse,
   type SubmissionAttachment,
 } from "../../../utils/schoolPortalApi";
 import { BookOpen, Camera, CheckCircle2, Clock, FileText, Loader2, Paperclip } from "lucide-react";
@@ -51,7 +54,7 @@ function AssignmentCard({
   const [formOpen, setFormOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  const submitted = !!a.submission;
+  const submitted = a.quiz ? a.quiz.taken : !!a.submission;
   const overdue = !submitted && isOverdue(a.dueDate);
 
   const doSubmit = async () => {
@@ -126,7 +129,7 @@ function AssignmentCard({
         </p>
       )}
 
-      {a.submission && (
+      {a.submission && !a.quiz && (
         <div className="rounded-lg bg-emerald-50/60 border border-emerald-100 p-2.5 space-y-1.5">
           <p className="text-xs text-emerald-800">
             Submitted {new Date(a.submission.submittedAt).toLocaleString()}
@@ -154,7 +157,9 @@ function AssignmentCard({
         </div>
       )}
 
-      {!formOpen ? (
+      {a.quiz && a.quiz.questionCount > 0 ? (
+        <QuizBlock studentId={studentId} a={a} onChanged={onChanged} />
+      ) : !formOpen ? (
         <Button
           variant={submitted ? "outline" : "default"}
           size="sm"
@@ -242,8 +247,9 @@ export function StudentHomework() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [studentId]);
 
-  const pending = useMemo(() => rows.filter((r) => !r.submission), [rows]);
-  const done = useMemo(() => rows.filter((r) => !!r.submission), [rows]);
+  const isDone = (r: PortalAssignmentRow) => (r.quiz ? r.quiz.taken : !!r.submission);
+  const pending = useMemo(() => rows.filter((r) => !isDone(r)), [rows]);
+  const done = useMemo(() => rows.filter(isDone), [rows]);
 
   return (
     <div className="space-y-4">
@@ -284,6 +290,127 @@ export function StudentHomework() {
             </section>
           )}
         </>
+      )}
+    </div>
+  );
+}
+
+
+function QuizBlock({
+  studentId,
+  a,
+  onChanged,
+}: {
+  studentId: string;
+  a: PortalAssignmentRow;
+  onChanged: () => void;
+}) {
+  const [quiz, setQuiz] = useState<PortalQuizResponse | null>(null);
+  const [open, setOpen] = useState(false);
+  const [answers, setAnswers] = useState<Record<number, number>>({});
+  const [busy, setBusy] = useState(false);
+  const taken = a.quiz?.taken ?? false;
+
+  const load = async () => {
+    setOpen(true);
+    if (quiz) return;
+    try {
+      setQuiz(await getMyQuiz(studentId, a.id));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not load the quiz");
+      setOpen(false);
+    }
+  };
+
+  const submit = async () => {
+    if (!quiz) return;
+    const list = quiz.questions.map((_, i) => answers[i]);
+    if (list.some((x) => x === undefined)) {
+      toast.error("Answer every question first.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const r = await submitQuizAttempt(studentId, a.id, list as number[]);
+      toast.success(`Done! You scored ${r.correctCount}/${r.total} (${r.score}${r.maxScore ? ` / ${r.maxScore}` : ""} marks)`);
+      setQuiz(null);
+      setOpen(false);
+      onChanged();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not submit the quiz");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <Button variant={taken ? "outline" : "default"} size="sm" onClick={() => void load()}>
+        {taken
+          ? `Review quiz${a.quiz?.score !== null && a.quiz?.score !== undefined ? ` — scored ${a.quiz.score}${a.maxScore ? ` / ${a.maxScore}` : ""}` : ""}`
+          : `Take quiz (${a.quiz?.questionCount} question${(a.quiz?.questionCount ?? 0) === 1 ? "" : "s"})`}
+      </Button>
+    );
+  }
+  if (!quiz) return <p className="text-sm text-slate-500">Loading quiz…</p>;
+
+  return (
+    <div className="space-y-3 rounded-lg border border-violet-200 bg-violet-50/40 p-3">
+      {quiz.questions.map((q, i) => (
+        <div key={q.id} className="space-y-1">
+          <p className="text-sm font-medium text-slate-900">{i + 1}. {q.prompt}</p>
+          <div className="space-y-1">
+            {q.options.map((o, j) => {
+              const chosen = quiz.taken ? q.myAnswer === j : answers[i] === j;
+              const isCorrect = quiz.taken && q.correctIndex === j;
+              const isWrongPick = quiz.taken && q.myAnswer === j && q.correct === false;
+              return (
+                <label
+                  key={j}
+                  className={
+                    "flex items-center gap-2 rounded-md border px-2 py-1.5 text-sm " +
+                    (isCorrect
+                      ? "border-emerald-300 bg-emerald-50 text-emerald-900"
+                      : isWrongPick
+                        ? "border-rose-300 bg-rose-50 text-rose-900"
+                        : chosen
+                          ? "border-indigo-300 bg-indigo-50"
+                          : "border-slate-200 bg-white") +
+                    (quiz.taken ? "" : " cursor-pointer hover:bg-slate-50")
+                  }
+                >
+                  {!quiz.taken && (
+                    <input
+                      type="radio"
+                      name={`q-${q.id}`}
+                      checked={answers[i] === j}
+                      onChange={() => setAnswers((prev) => ({ ...prev, [i]: j }))}
+                    />
+                  )}
+                  <span>{o}</span>
+                  {isCorrect && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 ml-auto" />}
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+      {quiz.taken ? (
+        <p className="text-sm font-medium text-violet-800">
+          Scored {quiz.score}{quiz.maxScore ? ` / ${quiz.maxScore}` : ""}
+        </p>
+      ) : (
+        <div className="flex gap-2">
+          <Button size="sm" onClick={() => void submit()} disabled={busy}>
+            {busy ? "Submitting…" : "Submit answers"}
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setOpen(false)} disabled={busy}>
+            Not now
+          </Button>
+        </div>
+      )}
+      {!quiz.taken && (
+        <p className="text-[11px] text-violet-700">One attempt only — check your answers before submitting.</p>
       )}
     </div>
   );

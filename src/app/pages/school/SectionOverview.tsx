@@ -449,6 +449,36 @@ export function SectionOverview() {
               </div>
             </div>
           </Link>
+          {/* Pilot (Muneeb): Lessons / Assignments / Gradebook were only
+              reachable from a teacher's own home cards or by URL — a
+              principal browsing a class had no way in. */}
+          <Link to={`/school/orgs/${orgId}/sections/${sectionId}/lessons`} className={navCardBase}>
+            <div className="flex items-center gap-3">
+              <div className="rounded-lg bg-sky-50 p-2"><BookOpen className="h-5 w-5 text-sky-600" /></div>
+              <div className="flex-1">
+                <div className="text-sm font-semibold text-slate-900">Lessons / diary</div>
+                <div className="text-xs text-slate-500">What was taught + homework notes</div>
+              </div>
+            </div>
+          </Link>
+          <Link to={`/school/orgs/${orgId}/sections/${sectionId}/assignments`} className={navCardBase}>
+            <div className="flex items-center gap-3">
+              <div className="rounded-lg bg-violet-50 p-2"><Sparkles className="h-5 w-5 text-violet-600" /></div>
+              <div className="flex-1">
+                <div className="text-sm font-semibold text-slate-900">Assignments & quizzes</div>
+                <div className="text-xs text-slate-500">Homework, tests, digital hand-ins, auto-graded quizzes</div>
+              </div>
+            </div>
+          </Link>
+          <Link to={`/school/orgs/${orgId}/sections/${sectionId}/gradebook`} className={navCardBase}>
+            <div className="flex items-center gap-3">
+              <div className="rounded-lg bg-amber-50 p-2"><GraduationCap className="h-5 w-5 text-amber-600" /></div>
+              <div className="flex-1">
+                <div className="text-sm font-semibold text-slate-900">Gradebook</div>
+                <div className="text-xs text-slate-500">Students × assignments marks grid</div>
+              </div>
+            </div>
+          </Link>
           {/* Subject teachers: read-only view of today's roll + a way to
               flag a headcount discrepancy. The class teacher decides. */}
           {!(viewerRole === "admin" || viewerRole === "principal" ||

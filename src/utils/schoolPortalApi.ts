@@ -694,6 +694,7 @@ export interface PortalAssignmentRow {
     reviewedAt: string | null;
   } | null;
   grade: { score: number | null; status: string } | null;
+  quiz: { questionCount: number; taken: boolean; score: number | null } | null;
 }
 
 export const listMyAssignments = (
@@ -738,3 +739,39 @@ export async function uploadSubmissionFile(
   if (error) throw new Error(error.message || "Upload failed — check your connection and try again.");
   return { url: signed.publicUrl, name: file.name };
 }
+
+// ─── Quiz engine — portal side (pilot 2026-09-02) ──────────────────────
+
+export interface PortalQuizQuestion {
+  id: string;
+  prompt: string;
+  options: string[];
+  myAnswer: number | null;
+  correct: boolean | null;
+  correctIndex: number | null;
+}
+
+export interface PortalQuizResponse {
+  assignmentId: string;
+  title: string;
+  maxScore: number | null;
+  taken: boolean;
+  score: number | null;
+  questions: PortalQuizQuestion[];
+}
+
+export const getMyQuiz = (
+  studentId: string,
+  assignmentId: string,
+): Promise<PortalQuizResponse> =>
+  pinApiCall(`/school/pin-me/students/${studentId}/assignments/${assignmentId}/quiz`);
+
+export const submitQuizAttempt = (
+  studentId: string,
+  assignmentId: string,
+  answers: number[],
+): Promise<{ taken: true; correctCount: number; total: number; score: number; maxScore: number }> =>
+  pinApiCall(`/school/pin-me/students/${studentId}/assignments/${assignmentId}/quiz-attempt`, {
+    method: "POST",
+    body: JSON.stringify({ answers }),
+  });

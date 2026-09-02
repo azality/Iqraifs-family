@@ -600,6 +600,140 @@ export function installPhaseC2(school: Hono): void {
   });
 
   // ---------------------------------------------------------------------------
+  // Quiz engine (pilot 2026-09-02) — MCQ questions attached to an
+  // assignment; the portal auto-scores attempts into the grade table.
+  // Staff CRUD below; the student-facing fetch/attempt lives in
+  // schoolPortal.tsx.
+  // ---------------------------------------------------------------------------
+  function quizQuestionToJson(r: any) {
+    return {
+      id: r.id,
+      assignmentId: r.assignment_id,
+      prompt: r.prompt,
+      options: r.options ?? [],
+      correctIndex: r.correct_index,
+      displayOrder: r.display_order,
+    };
+  }
+  async function gateQuizAssignment(userId: string, orgId: string, assignmentId: string) {
+    const { data: assignment } = await serviceRoleClient
+      .from("assignment")
+      .select("id, org_id, class_section_id, max_score")
+      .eq("id", assignmentId)
+      .maybeSingle();
+    if (!assignment || (assignment as any).org_id !== orgId) return { ok: false as const, status: 404, error: "assignment not found" };
+    const gate = await requireTeacherOfSection(userId, orgId, (assignment as any).class_section_id);
+    if (!gate.ok) return { ok: false as const, status: gate.status, error: gate.error };
+    return { ok: true as const, assignment };
+  }
+  function validQuestionBody(body: any): { prompt: string; options: string[]; correctIndex: number } | string {
+    const prompt = typeof body?.prompt === "string" ? body.prompt.trim() : "";
+    if (!prompt) return "prompt required";
+    const options = Array.isArray(body?.options)
+      ? body.options.map((o: unknown) => String(o ?? "").trim()).filter((o: string) => o.length > 0)
+      : [];
+    if (options.length < 2 || options.length > 6) return "2–6 answer options required";
+    const correctIndex = Number(body?.correctIndex);
+    if (!Number.isInteger(correctIndex) || correctIndex < 0 || correctIndex >= options.length) {
+      return "correctIndex must point at one of the options";
+    }
+    return { prompt: prompt.slice(0, 500), options: options.map((o: string) => o.slice(0, 300)), correctIndex };
+  }
+
+  school.get("/orgs/:orgId/assignments/:assignmentId/quiz-questions", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    const g = await gateQuizAssignment(userId, orgId, c.req.param("assignmentId"));
+    if (!g.ok) return c.json({ error: g.error }, g.status as any);
+    const { data, error } = await serviceRoleClient
+      .from("quiz_question")
+      .select("*")
+      .eq("assignment_id", (g.assignment as any).id)
+      .order("display_order", { ascending: true });
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ questions: (data ?? []).map(quizQuestionToJson) });
+  });
+
+  school.post("/orgs/:orgId/assignments/:assignmentId/quiz-questions", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    const g = await gateQuizAssignment(userId, orgId, c.req.param("assignmentId"));
+    if (!g.ok) return c.json({ error: g.error }, g.status as any);
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    const v = validQuestionBody(body);
+    if (typeof v === "string") return c.json({ error: v }, 400);
+    const { data: existing } = await serviceRoleClient
+      .from("quiz_question")
+      .select("display_order")
+      .eq("assignment_id", (g.assignment as any).id);
+    const order = (existing ?? []).reduce((m: number, r: any) => Math.max(m, r.display_order), -1) + 1;
+    const { data, error } = await serviceRoleClient
+      .from("quiz_question")
+      .insert({
+        org_id: orgId,
+        assignment_id: (g.assignment as any).id,
+        prompt: v.prompt,
+        options: v.options,
+        correct_index: v.correctIndex,
+        display_order: order,
+        created_by: userId,
+      })
+      .select("*")
+      .single();
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ question: quizQuestionToJson(data) }, 201);
+  });
+
+  school.patch("/orgs/:orgId/quiz-questions/:questionId", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    const { data: q } = await serviceRoleClient
+      .from("quiz_question")
+      .select("id, org_id, assignment_id")
+      .eq("id", c.req.param("questionId"))
+      .maybeSingle();
+    if (!q || (q as any).org_id !== orgId) return c.json({ error: "question not found" }, 404);
+    const g = await gateQuizAssignment(userId, orgId, (q as any).assignment_id);
+    if (!g.ok) return c.json({ error: g.error }, g.status as any);
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    const v = validQuestionBody(body);
+    if (typeof v === "string") return c.json({ error: v }, 400);
+    const { data, error } = await serviceRoleClient
+      .from("quiz_question")
+      .update({ prompt: v.prompt, options: v.options, correct_index: v.correctIndex })
+      .eq("id", (q as any).id)
+      .select("*")
+      .single();
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ question: quizQuestionToJson(data) });
+  });
+
+  school.delete("/orgs/:orgId/quiz-questions/:questionId", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    const { data: q } = await serviceRoleClient
+      .from("quiz_question")
+      .select("id, org_id, assignment_id")
+      .eq("id", c.req.param("questionId"))
+      .maybeSingle();
+    if (!q || (q as any).org_id !== orgId) return c.json({ error: "question not found" }, 404);
+    const g = await gateQuizAssignment(userId, orgId, (q as any).assignment_id);
+    if (!g.ok) return c.json({ error: g.error }, g.status as any);
+    const { error } = await serviceRoleClient
+      .from("quiz_question")
+      .delete()
+      .eq("id", (q as any).id);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ ok: true });
+  });
+
+  // ---------------------------------------------------------------------------
   // POST /school/orgs/:orgId/assignments/:assignmentId/grades/batch
   // ---------------------------------------------------------------------------
   school.post("/orgs/:orgId/assignments/:assignmentId/grades/batch", async (c) => {
