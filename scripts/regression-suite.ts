@@ -758,6 +758,64 @@ await check("24. digital hand-in: student submits homework, teacher lists + revi
   }
 });
 
+await check("25. quiz engine: no answer leak, auto-scored attempt, single attempt", async () => {
+  const mk = await api(teacher.token, `/school/orgs/${ORG}/sections/${sandboxSec.id}/assignments`, {
+    method: "POST",
+    body: JSON.stringify({ title: "QA quiz", kind: "quiz", maxScore: 10, sectionSubjectId: qaSs.id, assignedDate: new Date().toISOString().slice(0, 10) }),
+  });
+  const mj = await mk.json();
+  assert(mk.status === 201, `create ${mk.status}`);
+  const aid = mj.assignment?.id ?? mj.id;
+  try {
+    for (const [prompt, correctIndex] of [["QA 2+2?", 1], ["QA capital of Pakistan?", 0]] as const) {
+      const q = await api(teacher.token, `/school/orgs/${ORG}/assignments/${aid}/quiz-questions`, {
+        method: "POST",
+        body: JSON.stringify({ prompt, options: ["Islamabad", "4", "7"], correctIndex }),
+      });
+      assert(q.status === 201, `add question ${q.status}`);
+    }
+    const login = await pinLogin("QA-PORTAL-1", "1234");
+    const tok = (await login.json()).token;
+    const pinGet = (p: string) => fetch(`${FUNC}${p}`, { headers: { apikey: ANON, "X-Pin-Token": tok } });
+    const pinPost = (p: string, body: unknown) => fetch(`${FUNC}${p}`, {
+      method: "POST",
+      headers: { apikey: ANON, "X-Pin-Token": tok, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    const quiz = await pinGet(`/school/pin-me/students/${pStu1}/assignments/${aid}/quiz`);
+    const qj = await quiz.json();
+    assert(quiz.status === 200 && qj.questions?.length === 2, `quiz fetch ${quiz.status}`);
+    assert(qj.taken === false, "quiz shows taken before any attempt");
+    assert(qj.questions.every((q: any) => q.correctIndex === null && q.correct === null),
+      "correct answers leaked before attempt");
+
+    const att = await pinPost(`/school/pin-me/students/${pStu1}/assignments/${aid}/quiz-attempt`, {
+      answers: [1, 2], // first right, second wrong
+    });
+    const atj = await att.json();
+    assert(att.status === 201, `attempt ${att.status}: ${JSON.stringify(atj).slice(0, 120)}`);
+    assert(atj.correctCount === 1 && atj.total === 2 && atj.score === 5,
+      `expected 1/2 = 5/10, got ${JSON.stringify(atj).slice(0, 100)}`);
+
+    // Grade row auto-written for the gradebook.
+    const { data: gr } = await admin.from("grade").select("score, status")
+      .eq("assignment_id", aid).eq("student_id", pStu1).maybeSingle();
+    assert(gr && Number(gr.score) === 5 && gr.status === "graded", `grade row wrong: ${JSON.stringify(gr)}`);
+
+    // Retakes are rejected; the review shows the key only after the attempt.
+    const again = await pinPost(`/school/pin-me/students/${pStu1}/assignments/${aid}/quiz-attempt`, { answers: [1, 0] });
+    assert(again.status === 409, `retake expected 409, got ${again.status}`);
+    const review = await pinGet(`/school/pin-me/students/${pStu1}/assignments/${aid}/quiz`);
+    const rj = await review.json();
+    assert(rj.taken === true && rj.questions[0].correct === true && rj.questions[1].correct === false,
+      "post-attempt review wrong");
+  } finally {
+    await admin.from("grade").delete().eq("assignment_id", aid);
+    await api(teacher.token, `/school/orgs/${ORG}/assignments/${aid}`, { method: "DELETE" });
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

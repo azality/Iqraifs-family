@@ -2072,10 +2072,11 @@ export function installPortal(school: Hono): void {
 
     const subByAssign = new Map<string, any>();
     const gradeByAssign = new Map<string, any>();
+    const quizCountByAssign = new Map<string, number>();
     if (ids.length > 0) {
       const { data: subs } = await serviceRoleClient
         .from("assignment_submission")
-        .select("assignment_id, attachments, note, submitted_at, updated_at, reviewed_at")
+        .select("assignment_id, attachments, note, submitted_at, updated_at, reviewed_at, quiz_answers, quiz_score")
         .eq("student_id", studentId)
         .in("assignment_id", ids);
       for (const s of (subs ?? []) as any[]) subByAssign.set(s.assignment_id, s);
@@ -2085,6 +2086,13 @@ export function installPortal(school: Hono): void {
         .eq("student_id", studentId)
         .in("assignment_id", ids);
       for (const gr of (grades ?? []) as any[]) gradeByAssign.set(gr.assignment_id, gr);
+      const { data: qq } = await serviceRoleClient
+        .from("quiz_question")
+        .select("assignment_id")
+        .in("assignment_id", ids);
+      for (const q of (qq ?? []) as any[]) {
+        quizCountByAssign.set(q.assignment_id, (quizCountByAssign.get(q.assignment_id) ?? 0) + 1);
+      }
     }
 
     return c.json({
@@ -2111,6 +2119,15 @@ export function installPortal(school: Hono): void {
             : null,
           grade: gr
             ? { score: gr.score === null ? null : Number(gr.score), status: gr.status }
+            : null,
+          quiz: (quizCountByAssign.get(a.id) ?? 0) > 0
+            ? {
+                questionCount: quizCountByAssign.get(a.id) ?? 0,
+                taken: Array.isArray(sub?.quiz_answers),
+                score: sub?.quiz_score !== null && sub?.quiz_score !== undefined
+                  ? Number(sub.quiz_score)
+                  : null,
+              }
             : null,
         };
       }),
@@ -2239,6 +2256,185 @@ export function installPortal(school: Hono): void {
       .single();
     if (error) return c.json({ error: error.message }, 500);
     return c.json({ submission: submissionToJson(ins) }, 201);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Quiz engine (pilot 2026-09-02) — the student-facing half.
+  //   GET  .../assignments/:aid/quiz     — questions WITHOUT correct answers
+  //        (+ my attempt: answers, score, per-question correctness once taken)
+  //   POST .../assignments/:aid/quiz-attempt — one attempt; auto-scored into
+  //        the grade table (scaled to max_score, attributed to the teacher)
+  // ---------------------------------------------------------------------------
+  school.get("/pin-me/students/:studentId/assignments/:assignmentId/quiz", async (c) => {
+    const g = await gatePerStudent(c);
+    if (!g.ok) return g.resp;
+    const { studentId } = g;
+    const assignmentId = c.req.param("assignmentId");
+
+    const [{ data: assignment }, { data: stu }] = await Promise.all([
+      serviceRoleClient
+        .from("assignment")
+        .select("id, org_id, class_section_id, title, max_score")
+        .eq("id", assignmentId)
+        .maybeSingle(),
+      serviceRoleClient
+        .from("student")
+        .select("class_section_id")
+        .eq("id", studentId)
+        .maybeSingle(),
+    ]);
+    if (!assignment || !stu?.class_section_id || stu.class_section_id !== (assignment as any).class_section_id) {
+      return c.json({ error: "assignment not found" }, 404);
+    }
+    const { data: questions, error } = await serviceRoleClient
+      .from("quiz_question")
+      .select("id, prompt, options, correct_index, display_order")
+      .eq("assignment_id", assignmentId)
+      .order("display_order", { ascending: true });
+    if (error) return c.json({ error: error.message }, 500);
+
+    const { data: sub } = await serviceRoleClient
+      .from("assignment_submission")
+      .select("quiz_answers, quiz_score, submitted_at")
+      .eq("assignment_id", assignmentId)
+      .eq("student_id", studentId)
+      .maybeSingle();
+    const taken = Array.isArray((sub as any)?.quiz_answers);
+    const myAnswers = taken ? ((sub as any).quiz_answers as number[]) : null;
+
+    return c.json({
+      assignmentId,
+      title: (assignment as any).title,
+      maxScore: (assignment as any).max_score !== null ? Number((assignment as any).max_score) : null,
+      taken,
+      score: taken ? Number((sub as any).quiz_score ?? 0) : null,
+      questions: (questions ?? []).map((q: any, i: number) => ({
+        id: q.id,
+        prompt: q.prompt,
+        options: q.options ?? [],
+        // Only reveal correctness AFTER the attempt — never the raw key.
+        myAnswer: myAnswers ? myAnswers[i] ?? null : null,
+        correct: myAnswers ? (myAnswers[i] ?? -1) === q.correct_index : null,
+        correctIndex: myAnswers ? q.correct_index : null,
+      })),
+    });
+  });
+
+  school.post("/pin-me/students/:studentId/assignments/:assignmentId/quiz-attempt", async (c) => {
+    const g = await gatePerStudent(c);
+    if (!g.ok) return g.resp;
+    const { subject, studentId } = g;
+    const assignmentId = c.req.param("assignmentId");
+
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    const answers = Array.isArray(body?.answers) ? body.answers.map((a: unknown) => Number(a)) : null;
+    if (!answers || answers.some((a: number) => !Number.isInteger(a) || a < 0)) {
+      return c.json({ error: "answers[] of option indexes required" }, 400);
+    }
+
+    const [{ data: assignment }, { data: stu }] = await Promise.all([
+      serviceRoleClient
+        .from("assignment")
+        .select("id, org_id, class_section_id, max_score, created_by")
+        .eq("id", assignmentId)
+        .maybeSingle(),
+      serviceRoleClient
+        .from("student")
+        .select("class_section_id")
+        .eq("id", studentId)
+        .maybeSingle(),
+    ]);
+    if (!assignment || (assignment as any).org_id !== subject.orgId ||
+        !stu?.class_section_id || stu.class_section_id !== (assignment as any).class_section_id) {
+      return c.json({ error: "assignment not found" }, 404);
+    }
+
+    const { data: questions } = await serviceRoleClient
+      .from("quiz_question")
+      .select("id, correct_index")
+      .eq("assignment_id", assignmentId)
+      .order("display_order", { ascending: true });
+    if (!questions || questions.length === 0) {
+      return c.json({ error: "this assignment has no quiz" }, 400);
+    }
+    if (answers.length !== questions.length) {
+      return c.json({ error: `answer all ${questions.length} questions` }, 400);
+    }
+
+    // One attempt only — a retake would let students brute-force the key.
+    const { data: existing } = await serviceRoleClient
+      .from("assignment_submission")
+      .select("id, quiz_answers")
+      .eq("assignment_id", assignmentId)
+      .eq("student_id", studentId)
+      .maybeSingle();
+    if (existing && Array.isArray((existing as any).quiz_answers)) {
+      return c.json({ error: "quiz already taken", code: "ALREADY_TAKEN" }, 409);
+    }
+
+    const correctCount = questions.reduce(
+      (n: number, q: any, i: number) => n + (answers[i] === q.correct_index ? 1 : 0),
+      0,
+    );
+    const maxScore = (assignment as any).max_score !== null ? Number((assignment as any).max_score) : questions.length;
+    const score = Math.round((correctCount / questions.length) * maxScore * 100) / 100;
+    const nowIso = new Date().toISOString();
+
+    if (existing) {
+      const { error } = await serviceRoleClient
+        .from("assignment_submission")
+        .update({ quiz_answers: answers, quiz_score: score, updated_at: nowIso, submitted_via: subject.subjectType })
+        .eq("id", (existing as any).id);
+      if (error) return c.json({ error: error.message }, 500);
+    } else {
+      const { error } = await serviceRoleClient
+        .from("assignment_submission")
+        .insert({
+          org_id: subject.orgId,
+          assignment_id: assignmentId,
+          student_id: studentId,
+          attachments: [],
+          quiz_answers: answers,
+          quiz_score: score,
+          submitted_via: subject.subjectType,
+        });
+      if (error) return c.json({ error: error.message }, 500);
+    }
+
+    // Auto-grade: upsert the grade row so the score lands in the
+    // gradebook immediately, attributed to the assignment's teacher.
+    const { data: gradeRow } = await serviceRoleClient
+      .from("grade")
+      .select("id")
+      .eq("assignment_id", assignmentId)
+      .eq("student_id", studentId)
+      .maybeSingle();
+    const gradeFields = {
+      score,
+      status: "graded",
+      feedback: `Auto-graded quiz: ${correctCount}/${questions.length} correct`,
+      graded_by: (assignment as any).created_by ?? null,
+      graded_at: nowIso,
+    };
+    if (gradeRow) {
+      await serviceRoleClient.from("grade").update(gradeFields).eq("id", (gradeRow as any).id);
+    } else {
+      await serviceRoleClient.from("grade").insert({
+        org_id: subject.orgId,
+        assignment_id: assignmentId,
+        student_id: studentId,
+        ...gradeFields,
+      });
+    }
+
+    return c.json({
+      taken: true,
+      correctCount,
+      total: questions.length,
+      score,
+      maxScore,
+    }, 201);
   });
 }
 

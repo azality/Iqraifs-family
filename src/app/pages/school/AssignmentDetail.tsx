@@ -27,8 +27,13 @@ import {
 } from "lucide-react";
 import { HeroCard, KpiTile, cardBase, cardElev } from "../../components/school-ui";
 import {
+  addQuizQuestion,
   deleteAssignment,
+  deleteQuizQuestion,
   getAssignment,
+  listQuizQuestions,
+  updateQuizQuestion,
+  type QuizQuestion,
   getAssignmentGrades,
   getSchoolMe,
   isOrgAdmin,
@@ -416,6 +421,13 @@ export function AssignmentDetail() {
 
       {/* Digital hand-ins (pilot 2026-09-02): what students submitted from
           the portal, plus who hasn't — grade with the photo right there. */}
+      {/* Quiz engine (pilot 2026-09-02): MCQs students answer in the
+          portal, auto-scored into the gradebook. Shown for quiz/test
+          kinds — other kinds stay file-hand-in only. */}
+      {(assignment.kind === "quiz" || assignment.kind === "test") && (
+        <QuizPanel orgId={orgId} assignmentId={assignmentId} />
+      )}
+
       <SubmissionsPanel orgId={orgId} assignmentId={assignmentId} />
     </div>
   );
@@ -532,3 +544,179 @@ function SubmissionsPanel({ orgId, assignmentId }: { orgId: string; assignmentId
   );
 }
 
+
+function QuizPanel({ orgId, assignmentId }: { orgId: string; assignmentId: string }) {
+  const [questions, setQuestions] = useState<QuizQuestion[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  // Draft form (shared by add + edit).
+  const [editing, setEditing] = useState<QuizQuestion | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const [prompt, setPrompt] = useState("");
+  const [options, setOptions] = useState<string[]>(["", ""]);
+  const [correctIndex, setCorrectIndex] = useState(0);
+  const [saving, setSaving] = useState(false);
+
+  const refresh = () => {
+    listQuizQuestions(orgId, assignmentId)
+      .then((r) => setQuestions(r.questions))
+      .catch(() => setQuestions([]))
+      .finally(() => setLoaded(true));
+  };
+  useEffect(() => {
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgId, assignmentId]);
+
+  const openAdd = () => {
+    setEditing(null);
+    setPrompt("");
+    setOptions(["", ""]);
+    setCorrectIndex(0);
+    setFormOpen(true);
+  };
+  const openEdit = (q: QuizQuestion) => {
+    setEditing(q);
+    setPrompt(q.prompt);
+    setOptions([...q.options]);
+    setCorrectIndex(q.correctIndex);
+    setFormOpen(true);
+  };
+  const save = async () => {
+    const opts = options.map((o) => o.trim()).filter(Boolean);
+    if (!prompt.trim() || opts.length < 2) {
+      toast.error("Write the question and at least 2 options.");
+      return;
+    }
+    if (correctIndex >= opts.length) {
+      toast.error("Pick which option is correct.");
+      return;
+    }
+    setSaving(true);
+    try {
+      if (editing) {
+        await updateQuizQuestion(orgId, editing.id, { prompt: prompt.trim(), options: opts, correctIndex });
+      } else {
+        await addQuizQuestion(orgId, assignmentId, { prompt: prompt.trim(), options: opts, correctIndex });
+      }
+      setFormOpen(false);
+      refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+  const remove = async (q: QuizQuestion) => {
+    if (!confirm("Delete this question?")) return;
+    try {
+      await deleteQuizQuestion(orgId, q.id);
+      refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Delete failed");
+    }
+  };
+
+  if (!loaded) return null;
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="text-base">
+            Quiz questions
+            <span className="ml-2 rounded-full bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700 ring-1 ring-violet-200">
+              {questions.length}
+            </span>
+          </CardTitle>
+          <Button size="sm" variant="outline" onClick={openAdd}>+ Add question</Button>
+        </div>
+        <p className="text-xs text-slate-500">
+          Students answer these in the portal; the attempt is auto-scored out of
+          this assignment's max marks and lands in the gradebook — no marking needed.
+        </p>
+      </CardHeader>
+      <CardContent className="pt-0 space-y-2">
+        {questions.length === 0 && !formOpen && (
+          <p className="text-sm text-slate-500">
+            No questions yet — add at least one and the portal shows a "Take quiz" button.
+          </p>
+        )}
+        {questions.map((q, i) => (
+          <div key={q.id} className="rounded-lg border border-slate-200 p-2.5">
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-sm font-medium text-slate-900">{i + 1}. {q.prompt}</p>
+              <div className="flex gap-1 flex-shrink-0">
+                <Button variant="ghost" size="sm" onClick={() => openEdit(q)}><Pencil className="h-3.5 w-3.5" /></Button>
+                <Button variant="ghost" size="sm" onClick={() => void remove(q)}><Trash2 className="h-3.5 w-3.5 text-rose-600" /></Button>
+              </div>
+            </div>
+            <ul className="mt-1 space-y-0.5">
+              {q.options.map((o, j) => (
+                <li key={j} className={"text-xs " + (j === q.correctIndex ? "font-semibold text-emerald-700" : "text-slate-600")}>
+                  {String.fromCharCode(65 + j)}. {o} {j === q.correctIndex ? "✓" : ""}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+
+        {formOpen && (
+          <div className="rounded-lg border border-violet-200 bg-violet-50/40 p-3 space-y-2">
+            <Input
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="Question — e.g. What is 7 × 8?"
+              className="bg-white"
+            />
+            {options.map((o, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="quiz-correct"
+                  checked={correctIndex === i}
+                  onChange={() => setCorrectIndex(i)}
+                  title="Mark as the correct answer"
+                />
+                <Input
+                  value={o}
+                  onChange={(e) => setOptions((prev) => prev.map((x, j) => (j === i ? e.target.value : x)))}
+                  placeholder={`Option ${String.fromCharCode(65 + i)}`}
+                  className="bg-white"
+                />
+                {options.length > 2 && (
+                  <button
+                    type="button"
+                    className="text-xs text-rose-600 hover:underline"
+                    onClick={() => {
+                      setOptions((prev) => prev.filter((_, j) => j !== i));
+                      if (correctIndex === i) setCorrectIndex(0);
+                      else if (correctIndex > i) setCorrectIndex(correctIndex - 1);
+                    }}
+                  >
+                    remove
+                  </button>
+                )}
+              </div>
+            ))}
+            <div className="flex flex-wrap items-center gap-2">
+              {options.length < 6 && (
+                <Button variant="ghost" size="sm" onClick={() => setOptions((p) => [...p, ""])}>
+                  + Option
+                </Button>
+              )}
+              <span className="text-[11px] text-slate-500">Tick the radio next to the correct answer.</span>
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" onClick={() => void save()} disabled={saving}>
+                {saving ? "Saving…" : editing ? "Save question" : "Add question"}
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setFormOpen(false)} disabled={saving}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
