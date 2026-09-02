@@ -212,12 +212,12 @@ export function SectionGradebook() {
         subtitle={
           focusStudent
             ? `${focusStudent.gr_number ? `GR ${focusStudent.gr_number} · ` : ""}showing only this student's row`
-            : "Spreadsheet of students × assignments"
+            : "Type marks into the cells, then Save All — empty cells are not graded yet"
         }
         rightSlot={
           <div className="flex flex-wrap items-end gap-2">
-            <div>
-              <Label className="text-[10px] uppercase tracking-wide text-indigo-200">From</Label>
+            <div title="Shows assignments ASSIGNED between these dates (last 30 days by default)">
+              <Label className="text-[10px] uppercase tracking-wide text-indigo-200">From (assigned)</Label>
               <Input
                 type="date"
                 value={startDate}
@@ -243,8 +243,8 @@ export function SectionGradebook() {
             <Link to={`/school/orgs/${orgId}/sections/${sectionId}/assignments${focusStudent ? `?studentId=${focusStudent.id}` : ""}`}>
               <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">Assignments</Button>
             </Link>
-            <Link to={`/school/orgs/${orgId}/admin/classes`}>
-              <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">← Classes</Button>
+            <Link to={`/school/orgs/${orgId}/sections/${sectionId}`}>
+              <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">← Class page</Button>
             </Link>
           </div>
         }
@@ -321,7 +321,7 @@ export function SectionGradebook() {
         </CardContent></Card>
       ) : (
         <div className={`${cardBase} ${cardElev} overflow-auto max-h-[70vh]`}>
-          <table className="text-sm border-collapse">
+          <table className="w-full text-sm border-collapse">
             <thead className="sticky top-0 z-20 bg-slate-50">
               <tr>
                 <th className="sticky left-0 z-30 bg-slate-50 px-3 py-2 text-left border-b border-r border-slate-200 min-w-[180px] text-[10px] font-bold uppercase tracking-widest text-slate-500">

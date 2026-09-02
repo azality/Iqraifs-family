@@ -485,6 +485,14 @@ export function installTimetable(school: Hono): void {
     const raw = await kv.get(mergeMarkKey(orgId));
     return new Set(Array.isArray(raw) ? raw : []);
   }
+  // Dismissed conflicts (pilot 2026-09-02): "we know, we'll manage it" —
+  // acknowledged for now, collapsed in the UI but NOT blessed as a merge.
+  // Restorable any time. Same KV pair-set shape as merge marks.
+  const dismissKey = (orgId: string) => `school:${orgId}:timetable-conflict-dismissals`;
+  async function loadDismissals(orgId: string): Promise<Set<string>> {
+    const raw = await kv.get(dismissKey(orgId));
+    return new Set(Array.isArray(raw) ? raw : []);
+  }
 
   function conflictToJson(e: any) {
     return {
@@ -736,6 +744,9 @@ export function installTimetable(school: Hono): void {
       (e) => e.slot && !e.slot.archived_at && e.teacher_user_id,
     );
     const mergeMarks = await loadMergeMarks(orgId);
+    // Dismissed pairs ("we know — we'll manage it") are also excluded
+    // from the nag banner; they stay reviewable on the master view.
+    const dismissals = await loadDismissals(orgId);
     const seen = new Set<string>();
     type Pair = { teacherUserId: string; teacherName: string | null; dayOfWeek: number; a: any; b: any };
     const pairs: Pair[] = [];
@@ -745,7 +756,7 @@ export function installTimetable(school: Hono): void {
         if (a.teacher_user_id !== b.teacher_user_id) continue;
         if (a.slot.day_of_week !== b.slot.day_of_week) continue;
         if (!timesOverlap(a.slot.start_time, a.slot.end_time, b.slot.start_time, b.slot.end_time)) continue;
-        if (mergeMarks.has(pairKey(a.id, b.id))) continue;
+        if (mergeMarks.has(pairKey(a.id, b.id)) || dismissals.has(pairKey(a.id, b.id))) continue;
         const key = a.id < b.id ? `${a.id}:${b.id}` : `${b.id}:${a.id}`;
         if (seen.has(key)) continue;
         seen.add(key);
@@ -882,10 +893,12 @@ export function installTimetable(school: Hono): void {
       room: e.room,
     }));
 
-    // Cross-band teacher conflicts for this day, tagged merged/real.
+    // Cross-band teacher conflicts for this day, tagged merged/dismissed/real.
     const mergeMarks = await loadMergeMarks(orgId);
+    const dismissals = await loadDismissals(orgId);
     const conflicts: Array<{
-      aId: string; bId: string; teacherUserId: string; teacherName: string | null; merged: boolean;
+      aId: string; bId: string; teacherUserId: string; teacherName: string | null;
+      merged: boolean; dismissed: boolean;
     }> = [];
     for (let i = 0; i < dayEntries.length; i++) {
       for (let j = i + 1; j < dayEntries.length; j++) {
@@ -900,6 +913,7 @@ export function installTimetable(school: Hono): void {
           teacherUserId: a.teacher_user_id,
           teacherName: nameMap.get(a.teacher_user_id) ?? null,
           merged: mergeMarks.has(pairKey(a.id, b.id)),
+          dismissed: dismissals.has(pairKey(a.id, b.id)),
         });
       }
     }
@@ -951,6 +965,46 @@ export function installTimetable(school: Hono): void {
     marks.delete(pairKey(a, b));
     await kv.set(mergeMarkKey(orgId), Array.from(marks));
     return c.json({ ok: true, marks: Array.from(marks) });
+  });
+
+  // Dismiss / restore a conflict pair ("we know — we'll manage it").
+  school.post("/orgs/:orgId/timetable/conflict-dismissals", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await isAdminOrPrincipal(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const body = await c.req.json().catch(() => ({}));
+    const { entryAId, entryBId } = body ?? {};
+    if (!entryAId || !entryBId || entryAId === entryBId) {
+      return c.json({ error: "entryAId and entryBId required" }, 400);
+    }
+    const { data: pairRows } = await serviceRoleClient
+      .from("timetable_entry")
+      .select("id")
+      .eq("org_id", orgId)
+      .in("id", [entryAId, entryBId]);
+    if ((pairRows ?? []).length !== 2) {
+      return c.json({ error: "entries not found in this org" }, 404);
+    }
+    const set = await loadDismissals(orgId);
+    set.add(pairKey(entryAId, entryBId));
+    await kv.set(dismissKey(orgId), Array.from(set));
+    return c.json({ ok: true, dismissals: Array.from(set) });
+  });
+
+  school.delete("/orgs/:orgId/timetable/conflict-dismissals", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await isAdminOrPrincipal(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const a = c.req.query("a"), b = c.req.query("b");
+    if (!a || !b) return c.json({ error: "a and b query params required" }, 400);
+    const set = await loadDismissals(orgId);
+    set.delete(pairKey(a, b));
+    await kv.set(dismissKey(orgId), Array.from(set));
+    return c.json({ ok: true, dismissals: Array.from(set) });
   });
 
   school.delete("/orgs/:orgId/timetable-entries/:entryId", async (c) => {

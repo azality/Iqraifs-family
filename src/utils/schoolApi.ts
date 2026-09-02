@@ -2195,6 +2195,8 @@ export interface MasterTimetableConflict {
   teacherName: string | null;
   /** true when an admin marked this overlap as an intentional merge. */
   merged: boolean;
+  /** true when an admin dismissed it ("we know — we'll manage it"). */
+  dismissed: boolean;
 }
 export interface MasterTimetableResponse {
   day: number;
@@ -2229,6 +2231,24 @@ export const deleteTimetableMergeMark = (
 ): Promise<{ ok: boolean }> =>
   apiCall(
     `/school/orgs/${orgId}/timetable/merge-marks?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`,
+    { method: "DELETE" },
+  );
+export const postConflictDismissal = (
+  orgId: string,
+  entryAId: string,
+  entryBId: string,
+): Promise<{ ok: boolean }> =>
+  apiCall(`/school/orgs/${orgId}/timetable/conflict-dismissals`, {
+    method: "POST",
+    body: JSON.stringify({ entryAId, entryBId }),
+  });
+export const deleteConflictDismissal = (
+  orgId: string,
+  a: string,
+  b: string,
+): Promise<{ ok: boolean }> =>
+  apiCall(
+    `/school/orgs/${orgId}/timetable/conflict-dismissals?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`,
     { method: "DELETE" },
   );
 

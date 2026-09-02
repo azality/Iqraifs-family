@@ -18,6 +18,8 @@ import { sectionTitleClasses } from "../../components/school-ui";
 import {
   getMasterTimetable,
   postTimetableMergeMark,
+  postConflictDismissal,
+  deleteConflictDismissal,
   deleteTimetableMergeMark,
   type MasterTimetableResponse,
   type MasterTimetableEntry,
@@ -128,6 +130,19 @@ export function MasterTimetable() {
     }
   };
 
+  const toggleDismiss = async (aId: string, bId: string, dismissed: boolean) => {
+    setMarkBusy(`${aId}|${bId}`);
+    try {
+      if (dismissed) await deleteConflictDismissal(orgId, aId, bId);
+      else await postConflictDismissal(orgId, aId, bId);
+      await load(day);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setMarkBusy(null);
+    }
+  };
+
   // ── Teacher matrix derivation ──────────────────────────────────────
   const teacherMatrix = useMemo(() => {
     if (!data) return { timeCols: [] as Array<{ key: string; label: string }>, rows: [] as Array<{ teacherUserId: string; teacherName: string; cells: Map<string, MasterTimetableEntry[]> }> };
@@ -162,8 +177,9 @@ export function MasterTimetable() {
     return { timeCols, rows };
   }, [data, slotById]);
 
-  const realConflicts = (data?.conflicts ?? []).filter((c) => !c.merged);
+  const realConflicts = (data?.conflicts ?? []).filter((c) => !c.merged && !c.dismissed);
   const mergedConflicts = (data?.conflicts ?? []).filter((c) => c.merged);
+  const dismissedConflicts = (data?.conflicts ?? []).filter((c) => !c.merged && c.dismissed);
 
   // ── Filters ────────────────────────────────────────────────────────
   // Section labels are "<class name> <section name>"; stripping the last
@@ -313,7 +329,7 @@ export function MasterTimetable() {
       )}
 
       {/* Conflict panel */}
-      {!loading && data && (realConflicts.length > 0 || mergedConflicts.length > 0) && (
+      {!loading && data && (realConflicts.length > 0 || mergedConflicts.length > 0 || dismissedConflicts.length > 0) && (
         <Card className={realConflicts.length > 0 ? "border-rose-200" : "border-slate-200"}>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
@@ -330,8 +346,9 @@ export function MasterTimetable() {
               )}
             </CardTitle>
             <CardDescription className="text-xs">
-              A conflict you know is deliberate (merged sections) can be marked as a merge —
-              it stops being flagged everywhere.
+              Deliberate (sections sit together)? <span className="font-medium">Mark as merge</span> —
+              it stops being flagged everywhere. Known but unresolved?{" "}
+              <span className="font-medium">Dismiss for now</span> — it collapses below until you restore it.
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-0">
@@ -339,7 +356,7 @@ export function MasterTimetable() {
               {[...realConflicts, ...mergedConflicts].map((c) => {
                 const busy = markBusy === `${c.aId}|${c.bId}` || markBusy === `${c.bId}|${c.aId}`;
                 return (
-                  <li key={`${c.aId}|${c.bId}`} className="flex items-center justify-between gap-3 py-2">
+                  <li key={`${c.aId}|${c.bId}`} className="flex flex-wrap items-center justify-between gap-3 py-2">
                     <div className="min-w-0 text-sm">
                       <span className={"font-medium " + (c.merged ? "text-slate-700" : "text-rose-700")}>
                         {c.teacherName ?? "Teacher"}
@@ -353,18 +370,59 @@ export function MasterTimetable() {
                         </span>
                       )}
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={busy}
-                      onClick={() => void toggleMerge(c.aId, c.bId, c.merged)}
-                    >
-                      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : c.merged ? "Unmark" : "Mark as merge"}
-                    </Button>
+                    <div className="flex gap-1.5">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={busy}
+                        onClick={() => void toggleMerge(c.aId, c.bId, c.merged)}
+                        title="The sections sit together — this overlap is deliberate"
+                      >
+                        {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : c.merged ? "Unmark" : "Mark as merge"}
+                      </Button>
+                      {!c.merged && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={busy}
+                          onClick={() => void toggleDismiss(c.aId, c.bId, false)}
+                          title="We know — we'll manage it. Collapses this conflict until restored."
+                        >
+                          Dismiss for now
+                        </Button>
+                      )}
+                    </div>
                   </li>
                 );
               })}
             </ul>
+            {dismissedConflicts.length > 0 && (
+              <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                <p className="text-xs font-medium text-slate-600">
+                  Dismissed ({dismissedConflicts.length}) — acknowledged, still unresolved:
+                </p>
+                <ul className="mt-1 space-y-1">
+                  {dismissedConflicts.map((c) => {
+                    const busy = markBusy === `${c.aId}|${c.bId}` || markBusy === `${c.bId}|${c.aId}`;
+                    return (
+                      <li key={`${c.aId}|${c.bId}`} className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+                        <span>
+                          {c.teacherName ?? "Teacher"}: {cellLabel(c.aId)} ↔ {cellLabel(c.bId)}
+                        </span>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void toggleDismiss(c.aId, c.bId, true)}
+                          className="text-indigo-600 hover:underline disabled:opacity-50"
+                        >
+                          Restore
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

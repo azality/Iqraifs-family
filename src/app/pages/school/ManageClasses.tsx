@@ -284,6 +284,7 @@ export function ManageClasses() {
                   ) : (
                   <ClassSubjectsManager
                     classId={cls.id}
+                    orgId={orgId}
                     teachers={teachers.filter(
                       (t) =>
                         t.role_template === "class_teacher" ||

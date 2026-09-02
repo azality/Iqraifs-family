@@ -9,6 +9,7 @@
 // the read-only list on SectionOverview.
 
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router";
 import {
   Plus,
   Pencil,
@@ -33,6 +34,7 @@ import { SubjectCurriculumPanel } from "./SubjectCurriculumPanel";
 
 interface Props {
   classId: string;
+  orgId: string;
   /** Teachers eligible to be assigned to teach a subject (class_teacher + visiting_teacher). */
   teachers: AdminTeacher[];
 }
@@ -48,7 +50,7 @@ const COMMON_SUBJECTS = [
   "Computer",
 ];
 
-export function ClassSubjectsManager({ classId, teachers }: Props) {
+export function ClassSubjectsManager({ classId, orgId, teachers }: Props) {
   const [subjects, setSubjects] = useState<ClassSubject[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -322,6 +324,15 @@ export function ClassSubjectsManager({ classId, teachers }: Props) {
                             </option>
                           ))}
                         </select>
+                        {/* Pilot (Muneeb): "how can I go to the individual
+                            subject within that class" — deep-link into the
+                            section page with this subject expanded. */}
+                        <Link
+                          to={`/school/orgs/${orgId}/sections/${sec.sectionId}?openSubject=${s.id}`}
+                          className="text-xs text-indigo-600 hover:underline whitespace-nowrap"
+                        >
+                          Open in section →
+                        </Link>
                       </div>
                     ))}
                   </div>
