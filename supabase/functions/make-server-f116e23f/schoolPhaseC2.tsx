@@ -501,6 +501,105 @@ export function installPhaseC2(school: Hono): void {
   });
 
   // ---------------------------------------------------------------------------
+  // GET /school/orgs/:orgId/assignments/:assignmentId/submissions
+  // Digital hand-in (pilot 2026-09-02): who submitted what. Teacher of the
+  // assignment's section (or admin). Also names who has NOT submitted —
+  // that's the teacher's real question at the due date.
+  // ---------------------------------------------------------------------------
+  school.get("/orgs/:orgId/assignments/:assignmentId/submissions", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    const assignmentId = c.req.param("assignmentId");
+
+    const { data: assignment, error: aErr } = await serviceRoleClient
+      .from("assignment")
+      .select("id, org_id, class_section_id")
+      .eq("id", assignmentId)
+      .maybeSingle();
+    if (aErr) return c.json({ error: aErr.message }, 500);
+    if (!assignment || assignment.org_id !== orgId) {
+      return c.json({ error: "assignment not found" }, 404);
+    }
+    const gate = await requireTeacherOfSection(userId, orgId, assignment.class_section_id);
+    if (!gate.ok) return c.json({ error: gate.error }, gate.status);
+
+    const [{ data: subs, error: sErr }, { data: students }] = await Promise.all([
+      serviceRoleClient
+        .from("assignment_submission")
+        .select("*, student:student_id(full_name, gr_number)")
+        .eq("assignment_id", assignmentId)
+        .order("submitted_at", { ascending: false }),
+      serviceRoleClient
+        .from("student")
+        .select("id, full_name, gr_number")
+        .eq("class_section_id", assignment.class_section_id)
+        .eq("org_id", orgId),
+    ]);
+    if (sErr) return c.json({ error: sErr.message }, 500);
+
+    const submittedIds = new Set((subs ?? []).map((s: any) => s.student_id));
+    const notSubmitted = ((students ?? []) as any[])
+      .filter((s) => !submittedIds.has(s.id))
+      .map((s) => ({ studentId: s.id, fullName: s.full_name, grNumber: s.gr_number ?? null }))
+      .sort((a, b) => a.fullName.localeCompare(b.fullName));
+
+    return c.json({
+      assignmentId,
+      submissions: (subs ?? []).map((s: any) => ({
+        id: s.id,
+        studentId: s.student_id,
+        studentName: s.student?.full_name ?? "Student",
+        grNumber: s.student?.gr_number ?? null,
+        attachments: s.attachments ?? [],
+        note: s.note ?? null,
+        submittedVia: s.submitted_via,
+        submittedAt: s.submitted_at,
+        updatedAt: s.updated_at,
+        reviewedAt: s.reviewed_at ?? null,
+      })),
+      notSubmitted,
+      studentsTotal: (students ?? []).length,
+    });
+  });
+
+  // POST /school/orgs/:orgId/submissions/:submissionId/review
+  // Mark a hand-in as seen (or unseen with {reviewed:false}).
+  school.post("/orgs/:orgId/submissions/:submissionId/review", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    const submissionId = c.req.param("submissionId");
+
+    let body: any = {};
+    try { body = await c.req.json(); } catch { /* default: mark reviewed */ }
+    const reviewed = body?.reviewed !== false;
+
+    const { data: sub } = await serviceRoleClient
+      .from("assignment_submission")
+      .select("id, org_id, assignment:assignment_id(class_section_id)")
+      .eq("id", submissionId)
+      .maybeSingle();
+    if (!sub || (sub as any).org_id !== orgId) {
+      return c.json({ error: "submission not found" }, 404);
+    }
+    const gate = await requireTeacherOfSection(
+      userId, orgId, (sub as any).assignment?.class_section_id,
+    );
+    if (!gate.ok) return c.json({ error: gate.error }, gate.status);
+
+    const { error } = await serviceRoleClient
+      .from("assignment_submission")
+      .update({
+        reviewed_at: reviewed ? new Date().toISOString() : null,
+        reviewed_by: reviewed ? userId : null,
+      })
+      .eq("id", submissionId);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ ok: true, reviewed });
+  });
+
+  // ---------------------------------------------------------------------------
   // POST /school/orgs/:orgId/assignments/:assignmentId/grades/batch
   // ---------------------------------------------------------------------------
   school.post("/orgs/:orgId/assignments/:assignmentId/grades/batch", async (c) => {

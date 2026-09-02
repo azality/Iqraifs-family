@@ -698,6 +698,66 @@ await check("23. global search: teachers/classes/topics groups, QA accounts hidd
   assert(j4.topics[0].className && j4.topics[0].subjectName, "topic result missing context");
 });
 
+await check("24. digital hand-in: student submits homework, teacher lists + reviews", async () => {
+  // Assignment in Sandbox, then the full loop: portal list → submit →
+  // teacher submissions list (incl. not-submitted names) → mark seen.
+  const mk = await api(teacher.token, `/school/orgs/${ORG}/sections/${sandboxSec.id}/assignments`, {
+    method: "POST",
+    body: JSON.stringify({ title: "QA handin", kind: "homework", maxScore: 10, sectionSubjectId: qaSs.id, assignedDate: new Date().toISOString().slice(0, 10) }),
+  });
+  const mj = await mk.json();
+  assert(mk.status === 201, `create ${mk.status}`);
+  const aid = mj.assignment?.id ?? mj.id;
+  try {
+    const login = await pinLogin("QA-PORTAL-1", "1234");
+    assert(login.status === 200, `student login ${login.status}`);
+    const tok = (await login.json()).token;
+    const pinGet = (p: string) => fetch(`${FUNC}${p}`, { headers: { apikey: ANON, "X-Pin-Token": tok } });
+    const pinPost = (p: string, body: unknown) => fetch(`${FUNC}${p}`, {
+      method: "POST",
+      headers: { apikey: ANON, "X-Pin-Token": tok, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    const list = await pinGet(`/school/pin-me/students/${pStu1}/assignments`);
+    const lj = await list.json();
+    assert(list.status === 200, `portal assignments ${list.status}`);
+    const mine = (lj.assignments ?? []).find((a: any) => a.id === aid);
+    assert(mine && mine.submission === null, "new assignment missing or already submitted");
+
+    const sub = await pinPost(`/school/pin-me/students/${pStu1}/assignments/${aid}/submission`, {
+      attachments: [{ url: "https://example.com/qa-handin.jpg", name: "qa-handin.jpg" }],
+      note: "QA submission",
+    });
+    assert(sub.status === 200 || sub.status === 201, `submit ${sub.status}`);
+
+    // Other student's assignment list must not be writable by this token.
+    const cross = await pinPost(`/school/pin-me/students/${pStu2}/assignments/${aid}/submission`, {
+      attachments: [{ url: "https://example.com/x.jpg", name: "x.jpg" }],
+    });
+    assert(cross.status === 403, `cross-student submit expected 403, got ${cross.status}`);
+
+    const tr = await api(teacher.token, `/school/orgs/${ORG}/assignments/${aid}/submissions`);
+    const tj = await tr.json();
+    assert(tr.status === 200, `teacher submissions ${tr.status}`);
+    const row = (tj.submissions ?? []).find((s: any) => s.studentId === pStu1);
+    assert(row && row.attachments?.length === 1 && row.note === "QA submission", "submission row wrong");
+    assert((tj.notSubmitted ?? []).some((s: any) => s.studentId === pStu2), "peer missing from not-submitted");
+
+    const rev = await api(teacher.token, `/school/orgs/${ORG}/submissions/${row.id}/review`, {
+      method: "POST", body: JSON.stringify({ reviewed: true }),
+    });
+    assert(rev.status === 200, `review ${rev.status}`);
+    const list2 = await pinGet(`/school/pin-me/students/${pStu1}/assignments`);
+    const lj2 = await list2.json();
+    const mine2 = (lj2.assignments ?? []).find((a: any) => a.id === aid);
+    assert(mine2?.submission?.reviewedAt, "reviewedAt not visible to student");
+  } finally {
+    // Cascade deletes the submission row with the assignment.
+    await api(teacher.token, `/school/orgs/${ORG}/assignments/${aid}`, { method: "DELETE" });
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

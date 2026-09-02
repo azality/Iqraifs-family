@@ -32,8 +32,12 @@ import {
   getAssignmentGrades,
   getSchoolMe,
   isOrgAdmin,
+  listAssignmentSubmissions,
   listStudents,
   postGradesBatch,
+  reviewSubmission,
+  type AssignmentSubmissionRow,
+  type AssignmentSubmissionsResponse,
   type AdminStudent,
   type Assignment,
   type GradeBatchEntry,
@@ -409,7 +413,122 @@ export function AssignmentDetail() {
           )}
         </CardContent>
       </Card>
+
+      {/* Digital hand-ins (pilot 2026-09-02): what students submitted from
+          the portal, plus who hasn't — grade with the photo right there. */}
+      <SubmissionsPanel orgId={orgId} assignmentId={assignmentId} />
     </div>
+  );
+}
+
+function SubmissionsPanel({ orgId, assignmentId }: { orgId: string; assignmentId: string }) {
+  const [data, setData] = useState<AssignmentSubmissionsResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = () => {
+    if (!orgId || !assignmentId) return;
+    listAssignmentSubmissions(orgId, assignmentId)
+      .then(setData)
+      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load submissions"));
+  };
+  useEffect(() => {
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgId, assignmentId]);
+
+  const toggleReviewed = async (row: AssignmentSubmissionRow) => {
+    try {
+      await reviewSubmission(orgId, row.id, !row.reviewedAt);
+      refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not update");
+    }
+  };
+
+  if (error) return null; // e.g. visiting teacher without access — hide quietly
+  if (!data) return null;
+  if (data.submissions.length === 0 && data.notSubmitted.length === data.studentsTotal) {
+    // Nothing submitted yet — show a slim hint instead of an empty table.
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Digital hand-ins</CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0 text-sm text-slate-500">
+          No submissions yet. Students (and parents) can send photos/PDFs of this
+          work from the portal's Homework tab.
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">
+          Digital hand-ins
+          <span className="ml-2 rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700 ring-1 ring-indigo-200">
+            {data.submissions.length} / {data.studentsTotal}
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="pt-0 space-y-3">
+        <ul className="divide-y divide-slate-100">
+          {data.submissions.map((s) => (
+            <li key={s.id} className="flex flex-wrap items-start gap-2 py-2">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-slate-900">
+                  {s.studentName}
+                  {s.grNumber && (
+                    <span className="ml-1.5 text-xs font-normal text-slate-500">GR {s.grNumber}</span>
+                  )}
+                  {s.submittedVia === "parent" && (
+                    <span className="ml-1.5 text-[10px] text-slate-400">via parent</span>
+                  )}
+                </p>
+                <p className="text-xs text-slate-500">
+                  {new Date(s.submittedAt).toLocaleString()}
+                </p>
+                {s.attachments.length > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-1.5">
+                    {s.attachments.map((f, i) => (
+                      <a
+                        key={i}
+                        href={f.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-indigo-700 hover:bg-indigo-50"
+                      >
+                        <ListChecks className="h-3 w-3" />
+                        {f.name}
+                      </a>
+                    ))}
+                  </div>
+                )}
+                {s.note && (
+                  <p className="mt-1 text-xs text-slate-600 whitespace-pre-wrap">{s.note}</p>
+                )}
+              </div>
+              <Button
+                variant={s.reviewedAt ? "outline" : "default"}
+                size="sm"
+                onClick={() => void toggleReviewed(s)}
+              >
+                {s.reviewedAt ? "Seen ✓" : "Mark seen"}
+              </Button>
+            </li>
+          ))}
+        </ul>
+        {data.notSubmitted.length > 0 && (
+          <p className="text-xs text-slate-500">
+            <span className="font-medium text-amber-700">
+              Not submitted ({data.notSubmitted.length}):
+            </span>{" "}
+            {data.notSubmitted.map((s) => s.fullName).join(", ")}
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

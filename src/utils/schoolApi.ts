@@ -5147,3 +5147,41 @@ export const getTimetableSectionProgress = (orgId: string): Promise<TimetableSec
 
 // Re-export apiCall so callers can hit ad-hoc endpoints without a second import.
 export { apiCall };
+
+// ─── Digital homework hand-in — staff side (pilot 2026-09-02) ──────────
+
+export interface AssignmentSubmissionRow {
+  id: string;
+  studentId: string;
+  studentName: string;
+  grNumber: string | null;
+  attachments: Array<{ url: string; name: string }>;
+  note: string | null;
+  submittedVia: "student" | "parent";
+  submittedAt: string;
+  updatedAt: string;
+  reviewedAt: string | null;
+}
+
+export interface AssignmentSubmissionsResponse {
+  assignmentId: string;
+  submissions: AssignmentSubmissionRow[];
+  notSubmitted: Array<{ studentId: string; fullName: string; grNumber: string | null }>;
+  studentsTotal: number;
+}
+
+export const listAssignmentSubmissions = (
+  orgId: string,
+  assignmentId: string,
+): Promise<AssignmentSubmissionsResponse> =>
+  apiCall(`/school/orgs/${orgId}/assignments/${assignmentId}/submissions`);
+
+export const reviewSubmission = (
+  orgId: string,
+  submissionId: string,
+  reviewed = true,
+): Promise<{ ok: true; reviewed: boolean }> =>
+  apiCall(`/school/orgs/${orgId}/submissions/${submissionId}/review`, {
+    method: "POST",
+    body: JSON.stringify({ reviewed }),
+  });

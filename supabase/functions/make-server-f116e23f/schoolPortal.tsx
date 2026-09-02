@@ -2035,6 +2035,225 @@ export function installPortal(school: Hono): void {
       .eq("comment_ref", ref);
     return c.json({ acks: (rows ?? []).map((r: any) => r.action) });
   });
+
+  // ---------------------------------------------------------------------------
+  // Digital hand-in (pilot, 2026-09-02): students/parents submit homework
+  // photos/PDFs against an assignment. Three endpoints:
+  //   GET  /pin-me/students/:id/assignments                — homework list +
+  //        my submission state + grade (the portal "Homework" tab)
+  //   POST /pin-me/students/:id/submission-upload-url      — signed direct-
+  //        to-storage upload (same pattern as staff file-upload-url)
+  //   POST /pin-me/students/:id/assignments/:aid/submission — record the
+  //        hand-in (upsert; resubmits append attachments)
+  // ---------------------------------------------------------------------------
+
+  school.get("/pin-me/students/:studentId/assignments", async (c) => {
+    const g = await gatePerStudent(c);
+    if (!g.ok) return g.resp;
+    const { studentId } = g;
+
+    const { data: stu } = await serviceRoleClient
+      .from("student")
+      .select("class_section_id")
+      .eq("id", studentId)
+      .maybeSingle();
+    if (!stu?.class_section_id) return c.json({ assignments: [] });
+
+    const { data: assigns, error } = await serviceRoleClient
+      .from("assignment")
+      .select(
+        "id, title, kind, description, max_score, due_date, assigned_date, section_subject:section_subject_id(class_subject:class_subject_id(name))",
+      )
+      .eq("class_section_id", stu.class_section_id)
+      .order("assigned_date", { ascending: false, nullsFirst: false })
+      .limit(100);
+    if (error) return c.json({ error: error.message }, 500);
+    const ids = (assigns ?? []).map((a: any) => a.id);
+
+    const subByAssign = new Map<string, any>();
+    const gradeByAssign = new Map<string, any>();
+    if (ids.length > 0) {
+      const { data: subs } = await serviceRoleClient
+        .from("assignment_submission")
+        .select("assignment_id, attachments, note, submitted_at, updated_at, reviewed_at")
+        .eq("student_id", studentId)
+        .in("assignment_id", ids);
+      for (const s of (subs ?? []) as any[]) subByAssign.set(s.assignment_id, s);
+      const { data: grades } = await serviceRoleClient
+        .from("grade")
+        .select("assignment_id, score, status")
+        .eq("student_id", studentId)
+        .in("assignment_id", ids);
+      for (const gr of (grades ?? []) as any[]) gradeByAssign.set(gr.assignment_id, gr);
+    }
+
+    return c.json({
+      assignments: (assigns ?? []).map((a: any) => {
+        const sub = subByAssign.get(a.id);
+        const gr = gradeByAssign.get(a.id);
+        return {
+          id: a.id,
+          title: a.title,
+          kind: a.kind,
+          description: a.description ?? null,
+          subjectName: a.section_subject?.class_subject?.name ?? null,
+          maxScore: a.max_score !== null && a.max_score !== undefined ? Number(a.max_score) : null,
+          dueDate: a.due_date,
+          assignedDate: a.assigned_date,
+          submission: sub
+            ? {
+                attachments: sub.attachments ?? [],
+                note: sub.note ?? null,
+                submittedAt: sub.submitted_at,
+                updatedAt: sub.updated_at,
+                reviewedAt: sub.reviewed_at ?? null,
+              }
+            : null,
+          grade: gr
+            ? { score: gr.score === null ? null : Number(gr.score), status: gr.status }
+            : null,
+        };
+      }),
+    });
+  });
+
+  const SUBMISSION_ALLOWED = new Map<string, string>([
+    ["image/jpeg", "jpg"],
+    ["image/png", "png"],
+    ["image/webp", "webp"],
+    ["application/pdf", "pdf"],
+  ]);
+  const SUBMISSION_MAX_BYTES = 15 * 1024 * 1024;
+  const SUBMISSION_BUCKET = "school-files";
+
+  school.post("/pin-me/students/:studentId/submission-upload-url", async (c) => {
+    const g = await gatePerStudent(c);
+    if (!g.ok) return g.resp;
+    const { subject, studentId } = g;
+
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    const contentType = String(body?.contentType ?? "");
+    const size = Number(body?.size ?? 0);
+    const ext = SUBMISSION_ALLOWED.get(contentType);
+    if (!ext) {
+      return c.json({ error: "Only photos (JPG/PNG/WebP) or PDF files can be submitted." }, 400);
+    }
+    if (!Number.isFinite(size) || size <= 0) return c.json({ error: "size required" }, 400);
+    if (size > SUBMISSION_MAX_BYTES) {
+      return c.json({ error: "File is too large — maximum 15 MB." }, 400);
+    }
+
+    const storage = serviceRoleClient.storage as any;
+    const { data: bucket } = await storage.getBucket(SUBMISSION_BUCKET);
+    if (!bucket) {
+      await storage.createBucket(SUBMISSION_BUCKET, { public: true, fileSizeLimit: SUBMISSION_MAX_BYTES });
+    }
+    const path = `${subject.orgId}/submissions/${studentId}/${crypto.randomUUID()}.${ext}`;
+    const { data: signed, error: sErr } = await serviceRoleClient.storage
+      .from(SUBMISSION_BUCKET)
+      .createSignedUploadUrl(path);
+    if (sErr || !signed) return c.json({ error: sErr?.message ?? "could not create upload URL" }, 500);
+    const { data: pub } = serviceRoleClient.storage.from(SUBMISSION_BUCKET).getPublicUrl(path);
+    return c.json({ path: signed.path, token: signed.token, publicUrl: pub.publicUrl });
+  });
+
+  school.post("/pin-me/students/:studentId/assignments/:assignmentId/submission", async (c) => {
+    const g = await gatePerStudent(c);
+    if (!g.ok) return g.resp;
+    const { subject, studentId } = g;
+    const assignmentId = c.req.param("assignmentId");
+
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    const rawAtt = Array.isArray(body?.attachments) ? body.attachments : [];
+    const attachments = rawAtt
+      .filter((a: any) => a && typeof a.url === "string" && /^https:\/\//.test(a.url))
+      .map((a: any) => ({
+        url: String(a.url),
+        name: typeof a.name === "string" ? a.name.slice(0, 200) : "attachment",
+      }))
+      .slice(0, 10);
+    const note = typeof body?.note === "string" ? body.note.trim().slice(0, 2000) : "";
+    if (attachments.length === 0 && !note) {
+      return c.json({ error: "attach at least one file or write a note" }, 400);
+    }
+
+    // The assignment must belong to the student's own section.
+    const [{ data: assignment }, { data: stu }] = await Promise.all([
+      serviceRoleClient
+        .from("assignment")
+        .select("id, class_section_id, org_id")
+        .eq("id", assignmentId)
+        .maybeSingle(),
+      serviceRoleClient
+        .from("student")
+        .select("class_section_id")
+        .eq("id", studentId)
+        .maybeSingle(),
+    ]);
+    if (!assignment || (assignment as any).org_id !== subject.orgId) {
+      return c.json({ error: "assignment not found" }, 404);
+    }
+    if (!stu?.class_section_id || stu.class_section_id !== (assignment as any).class_section_id) {
+      return c.json({ error: "assignment is not for this student's class" }, 403);
+    }
+
+    const { data: existing } = await serviceRoleClient
+      .from("assignment_submission")
+      .select("id, attachments")
+      .eq("assignment_id", assignmentId)
+      .eq("student_id", studentId)
+      .maybeSingle();
+
+    if (existing) {
+      const merged = [
+        ...((existing as any).attachments ?? []),
+        ...attachments,
+      ].slice(0, 10);
+      const { data: upd, error } = await serviceRoleClient
+        .from("assignment_submission")
+        .update({
+          attachments: merged,
+          note: note || null,
+          submitted_via: subject.subjectType,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", (existing as any).id)
+        .select("*")
+        .single();
+      if (error) return c.json({ error: error.message }, 500);
+      return c.json({ submission: submissionToJson(upd) });
+    }
+    const { data: ins, error } = await serviceRoleClient
+      .from("assignment_submission")
+      .insert({
+        org_id: subject.orgId,
+        assignment_id: assignmentId,
+        student_id: studentId,
+        attachments,
+        note: note || null,
+        submitted_via: subject.subjectType,
+      })
+      .select("*")
+      .single();
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ submission: submissionToJson(ins) }, 201);
+  });
+}
+
+function submissionToJson(r: any) {
+  return {
+    id: r.id,
+    assignmentId: r.assignment_id,
+    studentId: r.student_id,
+    attachments: r.attachments ?? [],
+    note: r.note ?? null,
+    submittedVia: r.submitted_via,
+    submittedAt: r.submitted_at,
+    updatedAt: r.updated_at,
+    reviewedAt: r.reviewed_at ?? null,
+  };
 }
 
 export default installPortal;
