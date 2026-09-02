@@ -852,6 +852,62 @@ await check("26. subject teacher can TICK own syllabus topics (not edit schema)"
   }
 });
 
+await check("27. portal privacy: internal notes stripped, student concern/fee gating", async () => {
+  // Seed: one hifz entry with an INTERNAL note, one concern behavior note.
+  const hifzMk = await api(teacher.token, `/school/orgs/${ORG}/hifz-progress`, {
+    method: "POST",
+    body: JSON.stringify({
+      studentId: pStu1, surahNumber: 1, ayahFrom: 1, ayahTo: 3, kind: "sabaq",
+      notes: "QA INTERNAL NOTE", teacherRemarks: "QA parent-visible remark",
+      missedTargetReason: "QA missed reason",
+    }),
+  });
+  const hifzJ = await hifzMk.json();
+  assert(hifzMk.status === 201, `hifz create ${hifzMk.status}`);
+  const hifzId = hifzJ.entry?.id;
+  const behMk = await api(teacher.token, `/school/orgs/${ORG}/behavior-notes`, {
+    method: "POST",
+    body: JSON.stringify({ studentId: pStu1, kind: "concern", category: "Adab", points: -1, notes: "QA CONCERN NOTE" }),
+  });
+  const behJ = await behMk.json();
+  assert(behMk.status === 200 || behMk.status === 201, `behavior create ${behMk.status}`);
+  const behId = behJ.note?.id;
+  try {
+    const sTok = (await (await pinLogin("QA-PORTAL-1", "1234")).json()).token;
+    const pTok = (await (await pinLogin(PARENT_PHONE, "3456")).json()).token;
+    const get = (tok: string, p: string) =>
+      fetch(`${FUNC}${p}`, { headers: { apikey: ANON, "X-Pin-Token": tok } });
+
+    // Internal hifz fields never reach the portal (either token).
+    for (const tok of [sTok, pTok]) {
+      const r = await get(tok, `/school/pin-me/students/${pStu1}/hifz`);
+      const raw = await r.text();
+      assert(r.status === 200, `hifz ${r.status}`);
+      assert(!raw.includes("QA INTERNAL NOTE"), "internal hifz note leaked to portal");
+      assert(!raw.includes("QA missed reason"), "missedTargetReason leaked to portal");
+      assert(raw.includes("QA parent-visible remark"), "teacherRemarks missing from portal");
+      const cm = await get(tok, `/school/pin-me/students/${pStu1}/teacher-comments`);
+      assert(!(await cm.text()).includes("QA INTERNAL NOTE"), "internal note leaked via comments feed");
+    }
+
+    // Concern notes: hidden from the student's own login, visible to parent.
+    const sBeh = await get(sTok, `/school/pin-me/students/${pStu1}/behavior`);
+    const sBehRaw = await sBeh.text();
+    assert(sBeh.status === 200 && !sBehRaw.includes("QA CONCERN NOTE"), "concern visible to student login");
+    const pBeh = await get(pTok, `/school/pin-me/students/${pStu1}/behavior`);
+    assert((await pBeh.text()).includes("QA CONCERN NOTE"), "concern missing from parent login");
+
+    // Fees: parents only.
+    const sFees = await get(sTok, `/school/pin-me/students/${pStu1}/fees`);
+    assert(sFees.status === 403, `student fees expected 403, got ${sFees.status}`);
+    const pFees = await get(pTok, `/school/pin-me/students/${pStu1}/fees`);
+    assert(pFees.status === 200, `parent fees ${pFees.status}`);
+  } finally {
+    if (hifzId) await admin.from("hifz_progress").delete().eq("id", hifzId);
+    if (behId) await admin.from("behavior_note").delete().eq("id", behId);
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

@@ -152,6 +152,19 @@ async function resolveAccessibleStudents(
   return Array.from(new Set((data ?? []).map((r: any) => r.student_id)));
 }
 
+// Finding 3 (pilot review 2026-09-02): whether a STUDENT's own login can
+// see concern notes about themselves is school policy — off by default,
+// opt-in via organizations.settings.student_sees_concerns (OrgSettings
+// toggle). Parents always see everything.
+async function orgLetsStudentsSeeConcerns(orgId: string): Promise<boolean> {
+  const { data } = await serviceRoleClient
+    .from("organizations")
+    .select("settings")
+    .eq("id", orgId)
+    .maybeSingle();
+  return ((data as any)?.settings?.student_sees_concerns) === true;
+}
+
 // -----------------------------------------------------------------------------
 // Validation helpers
 // -----------------------------------------------------------------------------
@@ -1121,10 +1134,10 @@ export function installPortal(school: Hono): void {
           // fields; fall back to legacy `notes` so existing rows still
           // give the parent something useful.
           teacherNote:
+            latestEntry.teacher_remarks ||
             latestEntry.tajweed_notes ||
             latestEntry.fluency_notes ||
             latestEntry.parent_comments ||
-            latestEntry.notes ||
             null,
           parentAction: latestEntry.parent_action ?? null,
           nextTarget: latestEntry.next_target ?? null,
@@ -1188,7 +1201,15 @@ export function installPortal(school: Hono): void {
     }
 
     return c.json({
-      entries: entries.map(hifzToJson),
+      // Privacy (pilot review 2026-09-02): the log form promises the
+      // internal note is "Not shown to the parent" — strip it (and the
+      // missed-target reason) from everything the portal returns.
+      entries: entries.map((e) => {
+        const j = hifzToJson(e) as Record<string, unknown>;
+        delete j.notes;
+        delete j.missedTargetReason;
+        return j;
+      }),
       summary: { ayahsMemorized, surahsCompleted, lastEntry },
       today,
       last14Days,
@@ -1292,6 +1313,11 @@ export function installPortal(school: Hono): void {
     if (startDate) q = q.gte("observed_at", startDate);
     if (endDate) q = q.lte("observed_at", `${endDate}T23:59:59.999Z`);
     if (kind) q = q.eq("kind", kind);
+    // A child's own login sees concerns only if the school opted in.
+    if (g.subject.subjectType === "student" &&
+        !(await orgLetsStudentsSeeConcerns(g.subject.orgId))) {
+      q = q.eq("kind", "positive");
+    }
 
     const { data, error } = await q;
     if (error) return c.json({ error: error.message }, 500);
@@ -1611,7 +1637,8 @@ export function installPortal(school: Hono): void {
     // due_date is on or before today (or has no due_date — treat as
     // overdue placeholder). Returns just the next-due bill.
     let feesDueNow: { amount: number; periodLabel: string; dueDate: string | null } | null = null;
-    {
+    // Fees are family business — never shown to a child's own login.
+    if (g.subject.subjectType === "parent") {
       const { data: rows } = await serviceRoleClient
         .from("fee_status")
         .select("amount_due, amount_paid, period, due_date, status")
@@ -1631,6 +1658,7 @@ export function installPortal(school: Hono): void {
         };
       }
     }
+
 
     // ── Hifz revision needed: latest sabqi/manzil entry older than 3
     // days OR no revision entry in the last 7 days flags revision.
@@ -1759,13 +1787,19 @@ export function installPortal(school: Hono): void {
     const authorIds = new Set<string>();
 
     // ── behavior_note ──
-    const { data: behRows } = await serviceRoleClient
+    let behQ = serviceRoleClient
       .from("behavior_note")
       .select("id, kind, notes, observed_at, recorded_by, category")
       .eq("student_id", studentId)
       .gte("observed_at", cutoffIso)
       .order("observed_at", { ascending: false })
       .limit(80);
+    // A child's own login sees concern items only if the school opted in.
+    if (subject.subjectType === "student" &&
+        !(await orgLetsStudentsSeeConcerns(subject.orgId))) {
+      behQ = behQ.eq("kind", "positive");
+    }
+    const { data: behRows } = await behQ;
     for (const r of (behRows ?? []) as any[]) {
       if (r.recorded_by) authorIds.add(r.recorded_by);
       out.push({
@@ -1783,7 +1817,7 @@ export function installPortal(school: Hono): void {
     // ── hifz_progress prose fields ──
     const { data: hifzRows } = await serviceRoleClient
       .from("hifz_progress")
-      .select("id, kind, surah_number, ayah_from, ayah_to, recorded_at, recorded_by, tajweed_notes, fluency_notes, teacher_remarks, parent_comments, parent_action, notes")
+      .select("id, kind, surah_number, ayah_from, ayah_to, recorded_at, recorded_by, tajweed_notes, fluency_notes, teacher_remarks, parent_comments, parent_action")
       .eq("student_id", studentId)
       .gte("recorded_at", cutoffIso)
       .order("recorded_at", { ascending: false })
@@ -1793,7 +1827,6 @@ export function installPortal(school: Hono): void {
       if (r.teacher_remarks) lines.push(r.teacher_remarks);
       if (r.tajweed_notes) lines.push(`Tajweed: ${r.tajweed_notes}`);
       if (r.fluency_notes) lines.push(`Fluency: ${r.fluency_notes}`);
-      if (r.notes) lines.push(r.notes);
       if (r.parent_comments) lines.push(`Parent comment: ${r.parent_comments}`);
       if (r.parent_action) lines.push(`What to do: ${r.parent_action}`);
       if (lines.length === 0) continue;

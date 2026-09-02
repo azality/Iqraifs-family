@@ -543,6 +543,10 @@ school.patch("/orgs/:orgId", async (c) => {
     // so the admin isn't scrolling through every teacher every time
     // someone needs covering.
     "substitute_teacher_ids",
+    // Portal privacy (pilot review 2026-09-02): whether a STUDENT's own
+    // login can see concern notes about themselves. Off by default;
+    // parents always see everything.
+    "student_sees_concerns",
   ];
 
   // Load current settings so we merge rather than overwrite.
