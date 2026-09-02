@@ -176,7 +176,7 @@ export function AnnouncementComposer() {
   if (meLoading) return null;
   if (!me || me.roles.length === 0) return <Navigate to="/school" replace />;
 
-  const canDelete = isOrgAdmin(me, orgId) || existing?.author_user_id === me.userId;
+  const canDelete = isOrgAdmin(me, orgId) || existing?.authorUserId === me.userId;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -286,8 +286,8 @@ export function AnnouncementComposer() {
           title={existing?.title ?? "Announcement"}
           subtitle={
             existing
-              ? `${AUDIENCE_LABEL[existing.audience_kind]} · ${new Date(
-                  existing.published_at,
+              ? `${AUDIENCE_LABEL[existing.audienceKind]} · ${new Date(
+                  existing.publishedAt,
                 ).toLocaleString()}`
               : ""
           }
@@ -307,10 +307,10 @@ export function AnnouncementComposer() {
         {existing && (
           <article className={`${cardBase} ${cardElev} p-6 space-y-4`}>
             <p className="text-xs text-slate-500">
-              {existing.author_name ? `By ${existing.author_name} · ` : ""}
-              {new Date(existing.published_at).toLocaleString()}
-              {existing.expires_at && (
-                <> · expires {new Date(existing.expires_at).toLocaleDateString()}</>
+              {existing.authorName ? `By ${existing.authorName} · ` : ""}
+              {new Date(existing.publishedAt).toLocaleString()}
+              {existing.expiresAt && (
+                <> · expires {new Date(existing.expiresAt).toLocaleDateString()}</>
               )}
             </p>
             <div className="text-sm text-slate-800 whitespace-pre-wrap">{existing.body}</div>

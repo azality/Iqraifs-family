@@ -55,7 +55,7 @@ function deadlineLabel(deadline: string | null): string | null {
 }
 
 function audienceHint(form: MyFormSummary["form"]): string {
-  switch (form.audience_kind) {
+  switch (form.audienceKind) {
     case "whole_school":
       return "Whole school";
     case "class_section":

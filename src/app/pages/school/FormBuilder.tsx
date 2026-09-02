@@ -124,10 +124,10 @@ export function FormBuilder() {
         setForm(f);
         setTitle(f.title);
         setDescription(f.description ?? "");
-        setAudienceKind(f.audience_kind);
-        setAudienceSectionId(f.audience_section_id ?? "");
-        setAudienceStudentIds(f.audience_student_ids ?? []);
-        setAllowMultiple(f.allow_multiple);
+        setAudienceKind(f.audienceKind);
+        setAudienceSectionId(f.audienceSectionId ?? "");
+        setAudienceStudentIds(f.audienceStudentIds ?? []);
+        setAllowMultiple(f.allowMultiple);
         setDeadline(f.deadline ? f.deadline.slice(0, 10) : "");
       })
       .catch((e) => toast.error(e instanceof Error ? e.message : String(e)))
@@ -151,7 +151,7 @@ export function FormBuilder() {
   }, [students, studentSearch]);
 
   const fields = useMemo<FormField[]>(
-    () => (form?.fields ?? []).slice().sort((a, b) => a.display_order - b.display_order),
+    () => (form?.fields ?? []).slice().sort((a, b) => a.displayOrder - b.displayOrder),
     [form],
   );
 
@@ -233,9 +233,9 @@ export function FormBuilder() {
             `A new form "${form.title}" is waiting for you in the portal's Forms tab.` +
             (form.deadline ? ` Please respond by ${new Date(form.deadline).toLocaleDateString()}.` : "") +
             (form.description ? `\n\n${form.description}` : ""),
-          audienceKind: form.audience_kind as "whole_school" | "class_section" | "specific_students",
-          audienceSectionId: form.audience_section_id ?? undefined,
-          audienceStudentIds: form.audience_student_ids?.length ? form.audience_student_ids : undefined,
+          audienceKind: form.audienceKind as "whole_school" | "class_section" | "specific_students",
+          audienceSectionId: form.audienceSectionId ?? undefined,
+          audienceStudentIds: form.audienceStudentIds?.length ? form.audienceStudentIds : undefined,
         });
         toast.success("Announcement posted to the form's audience.");
       } catch (e) {
@@ -262,7 +262,7 @@ export function FormBuilder() {
       kind: f.kind,
       label: f.label,
       required: f.required,
-      helpText: f.help_text ?? "",
+      helpText: f.helpText ?? "",
       options: f.options ?? [],
     });
     setFieldOpen(true);

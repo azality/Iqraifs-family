@@ -74,11 +74,11 @@ export function MyAnnouncements() {
             <div className="flex items-start justify-between gap-3">
               <h3 className="font-semibold text-slate-900">{a.title}</h3>
               <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-indigo-50 text-indigo-700 border border-indigo-100 whitespace-nowrap">
-                {AUDIENCE_LABEL[a.audience_kind]}
+                {AUDIENCE_LABEL[a.audienceKind]}
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              {a.author_name ? `${a.author_name} · ` : ""}posted {timeAgo(a.published_at)}
+              {a.authorName ? `${a.authorName} · ` : ""}posted {timeAgo(a.publishedAt)}
             </p>
             <p className="mt-3 text-sm text-slate-700 whitespace-pre-wrap">{a.body}</p>
             {a.attachments && a.attachments.length > 0 && (

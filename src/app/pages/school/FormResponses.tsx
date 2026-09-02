@@ -18,20 +18,17 @@ import {
   type FormField,
   type FormResponse,
   type FormNonResponder,
-  type FormResponseValue,
+  type FormResponseValueRead,
   type SchoolMeResponse,
 } from "../../../utils/schoolApi";
 import { useOrgPermissionState } from "./useOrgPermission";
 
-function valueToString(v: FormResponseValue["value"]): string {
-  if (v === null || v === undefined) return "";
-  if (Array.isArray(v)) return v.join(", ");
-  return String(v);
-}
-
-function lookup(values: FormResponseValue[], fieldId: string): string {
+function lookup(values: FormResponseValueRead[], fieldId: string): string {
   const v = values.find((x) => x.fieldId === fieldId);
-  return v ? valueToString(v.value) : "";
+  if (!v) return "";
+  if (v.valueMulti && v.valueMulti.length > 0) return v.valueMulti.join(", ");
+  if (v.valueNumber !== null && v.valueNumber !== undefined) return String(v.valueNumber);
+  return v.valueText ?? "";
 }
 
 function truncate(s: string, n = 40): string {
@@ -72,7 +69,7 @@ export function FormResponses() {
   }, [orgId, formId]);
 
   const fields = useMemo<FormField[]>(
-    () => (form?.fields ?? []).slice().sort((a, b) => a.display_order - b.display_order),
+    () => (form?.fields ?? []).slice().sort((a, b) => a.displayOrder - b.displayOrder),
     [form],
   );
 
@@ -103,9 +100,9 @@ export function FormResponses() {
     if (!form) return;
     const header = ["Submitter", "On behalf of", "Submitted at", ...fields.map((f) => f.label)];
     const rows = responses.map((r) => [
-      r.submitted_by_name ?? r.submitted_by ?? "",
-      r.on_behalf_of_student_name ?? r.on_behalf_of_student_id ?? "",
-      r.submitted_at,
+      r.submitterName ?? "",
+      r.onBehalfOfStudentName ?? "",
+      r.submittedAt,
       ...fields.map((f) => lookup(r.values, f.id)),
     ]);
     downloadCsv(`${form.title.replace(/\s+/g, "_")}_responses.csv`, [header, ...rows]);
@@ -159,9 +156,9 @@ export function FormResponses() {
                       <td className="px-3 py-2">
                         {isOpen ? <ChevronDown className="h-3.5 w-3.5 text-slate-400" /> : <ChevronRight className="h-3.5 w-3.5 text-slate-400" />}
                       </td>
-                      <td className="px-3 py-2">{r.submitted_by_name ?? r.submitted_by ?? "—"}</td>
-                      <td className="px-3 py-2">{r.on_behalf_of_student_name ?? "—"}</td>
-                      <td className="px-3 py-2 text-xs text-slate-600 tabular-nums">{new Date(r.submitted_at).toLocaleString()}</td>
+                      <td className="px-3 py-2">{r.submitterName ?? "—"}</td>
+                      <td className="px-3 py-2">{r.onBehalfOfStudentName ?? "—"}</td>
+                      <td className="px-3 py-2 text-xs text-slate-600 tabular-nums">{new Date(r.submittedAt).toLocaleString()}</td>
                       {fields.map((f) => (
                         <td key={f.id} className="px-3 py-2 text-xs text-slate-700">
                           {truncate(lookup(r.values, f.id))}

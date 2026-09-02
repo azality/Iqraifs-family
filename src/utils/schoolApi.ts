@@ -4036,50 +4036,68 @@ export type FormFieldKind =
   | "multi_select"
   | "number";
 
+// Shape matches fieldToJson on the server (camelCase).
 export interface FormField {
   id: string;
-  form_id: string;
+  formId: string;
   kind: FormFieldKind;
   label: string;
   required: boolean;
   options: string[] | null;
-  help_text: string | null;
-  display_order: number;
+  helpText: string | null;
+  displayOrder: number;
 }
 
+// Shape matches formToJson on the server (camelCase everywhere). The old
+// snake_case interface hid a real pilot bug: getForm also returned the
+// raw { form, fields } envelope, so form.id was undefined and saves hit
+// /forms/undefined ("invalid input syntax for type uuid").
 export interface Form {
   id: string;
-  org_id: string;
+  orgId: string;
   title: string;
   description: string | null;
   status: FormStatus;
-  audience_kind: FormAudienceKind;
-  audience_section_id: string | null;
-  audience_student_ids: string[] | null;
-  allow_multiple: boolean;
+  audienceKind: FormAudienceKind;
+  audienceSectionId: string | null;
+  audienceStudentIds: string[];
+  allowMultiple: boolean;
   deadline: string | null;
-  created_by: string | null;
-  created_by_name?: string | null;
-  created_at: string;
-  updated_at: string;
+  createdBy: string | null;
+  publishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
   fields?: FormField[];
   responseCount?: number;
 }
 
+// Payload shape for SUBMITTING values (what the POST accepts).
 export interface FormResponseValue {
   fieldId: string;
   value: string | string[] | number | null;
 }
 
+// Shape of a value as the responses endpoint RETURNS it
+// (responseValueToJson on the server).
+export interface FormResponseValueRead {
+  id: string;
+  responseId: string;
+  fieldId: string;
+  valueText: string | null;
+  valueNumber: number | null;
+  valueMulti: string[] | null;
+}
+
 export interface FormResponse {
   id: string;
-  form_id: string;
-  submitted_by: string | null;
-  submitted_by_name?: string | null;
-  on_behalf_of_student_id: string | null;
-  on_behalf_of_student_name?: string | null;
-  values: FormResponseValue[];
-  submitted_at: string;
+  formId: string;
+  submitterUserId: string | null;
+  submitterParentId: string | null;
+  submitterName: string | null;
+  onBehalfOfStudentId: string | null;
+  onBehalfOfStudentName: string | null;
+  values: FormResponseValueRead[];
+  submittedAt: string;
 }
 
 export interface MyFormSummary {
@@ -4103,7 +4121,7 @@ export const createForm = (
   apiCall(`/school/orgs/${orgId}/forms`, {
     method: "POST",
     body: JSON.stringify(body),
-  });
+  }).then((r: { form: Form }) => r.form);
 
 export const listForms = (
   orgId: string,
@@ -4117,7 +4135,9 @@ export const listForms = (
 };
 
 export const getForm = (orgId: string, formId: string): Promise<Form> =>
-  apiCall(`/school/orgs/${orgId}/forms/${formId}`);
+  apiCall(`/school/orgs/${orgId}/forms/${formId}`).then(
+    (r: { form: Form; fields?: FormField[] }) => ({ ...r.form, fields: r.fields ?? [] }),
+  );
 
 export const updateForm = (
   orgId: string,
@@ -4135,13 +4155,15 @@ export const updateForm = (
   apiCall(`/school/orgs/${orgId}/forms/${formId}`, {
     method: "PATCH",
     body: JSON.stringify(partial),
-  });
+  }).then((r: { form: Form }) => r.form);
 
 export const publishForm = (orgId: string, formId: string): Promise<Form> =>
-  apiCall(`/school/orgs/${orgId}/forms/${formId}/publish`, { method: "POST" });
+  apiCall(`/school/orgs/${orgId}/forms/${formId}/publish`, { method: "POST" })
+    .then((r: { form: Form }) => r.form);
 
 export const closeForm = (orgId: string, formId: string): Promise<Form> =>
-  apiCall(`/school/orgs/${orgId}/forms/${formId}/close`, { method: "POST" });
+  apiCall(`/school/orgs/${orgId}/forms/${formId}/close`, { method: "POST" })
+    .then((r: { form: Form }) => r.form);
 
 export const deleteForm = (
   orgId: string,
@@ -4260,25 +4282,27 @@ export type AnnouncementAudienceKind =
 
 export type AnnouncementProgram = "hifz" | "conventional";
 
+// Shape matches announcementToJson on the server, which emits camelCase
+// for EVERY field. The old half-snake_case version of this interface hid
+// a real pilot bug: the detail page rendered "undefined · Invalid Date"
+// because audience_kind/published_at simply don't exist on the payload.
 export interface Announcement {
   id: string;
-  org_id: string;
-  author_user_id: string | null;
-  author_name?: string | null;
-  audience_kind: AnnouncementAudienceKind;
-  audience_section_id: string | null;
-  audience_student_ids: string[] | null;
-  // Expanded audience discriminators (backend returns camelCase keys
-  // already — see announcementToJson on the server).
+  orgId: string;
+  authorUserId: string | null;
+  authorName: string | null;
+  audienceKind: AnnouncementAudienceKind;
+  audienceSectionId: string | null;
+  audienceStudentIds: string[] | null;
   audienceClassId?: string | null;
   audienceSubjectId?: string | null;
   audienceProgram?: AnnouncementProgram | null;
   title: string;
   body: string;
   attachments: Array<{ label: string; url: string }>;
-  published_at: string;
-  expires_at: string | null;
-  created_at: string;
+  publishedAt: string;
+  expiresAt: string | null;
+  createdAt: string;
 }
 
 export interface AnnouncementInput {
@@ -4301,7 +4325,7 @@ export const postAnnouncement = (
   apiCall(`/school/orgs/${orgId}/announcements`, {
     method: "POST",
     body: JSON.stringify(body),
-  });
+  }).then((r: { announcement: Announcement }) => r.announcement);
 
 export const listAnnouncements = (
   orgId: string,
@@ -4317,7 +4341,9 @@ export const getAnnouncement = (
   orgId: string,
   announcementId: string,
 ): Promise<Announcement> =>
-  apiCall(`/school/orgs/${orgId}/announcements/${announcementId}`);
+  apiCall(
+    `/school/orgs/${orgId}/announcements/${announcementId}`,
+  ).then((r: { announcement: Announcement }) => r.announcement);
 
 export const deleteAnnouncement = (
   orgId: string,

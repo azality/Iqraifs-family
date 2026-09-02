@@ -15,6 +15,7 @@ import { ChevronLeft, CheckCircle, Clock, XCircle, AlertCircle, LogOut, Flag } f
 import { HeroCard, KpiTile } from "../../components/school-ui";
 import {
   getSectionAttendance,
+  getSectionTimetable,
   listStudents,
   postSectionAttendance,
   postEarlyRelease,
@@ -65,6 +66,30 @@ export function AttendanceRollCall() {
 
   const max = todayIso();
   const min = minDateIso();
+
+  // Timetable-aware off-day hint (pilot, Younus): a Saturday roll call
+  // rendered as "everything unmarked" with no clue the class simply has
+  // no periods that day. Best-effort — if the viewer can't read the
+  // timetable, the hint just doesn't show.
+  const [scheduledDays, setScheduledDays] = useState<Set<number> | null>(null);
+  useEffect(() => {
+    if (!orgId || !sectionId) return;
+    getSectionTimetable(orgId, sectionId)
+      .then((r) => {
+        const days = new Set<number>();
+        for (const c of r.cells) {
+          if (c.slot.kind === "break" || c.slot.kind === "prayer" || c.slot.kind === "assembly") continue;
+          days.add(c.slot.dayOfWeek);
+        }
+        setScheduledDays(days.size > 0 ? days : null);
+      })
+      .catch(() => setScheduledDays(null));
+  }, [orgId, sectionId]);
+  const selectedDow = useMemo(() => {
+    const js = new Date(`${date}T00:00:00`).getDay();
+    return js === 0 ? 7 : js; // Mon=1 … Sun=7, matching timetable slots
+  }, [date]);
+  const isOffDay = scheduledDays !== null && !scheduledDays.has(selectedDow);
 
   // Load students for the section once.
   useEffect(() => {
@@ -177,6 +202,21 @@ export function AttendanceRollCall() {
         setSaving(false);
         return;
       }
+      // Unmarked students are silently EXCLUDED from the save — that's
+      // how Ayesha (I-A) went weeks without a single attendance row while
+      // classmates were marked daily. Make the skip explicit.
+      const unmarked = students.filter((s) => !rows[s.id]?.status);
+      if (unmarked.length > 0) {
+        const names = unmarked.slice(0, 5).map((s) => s.full_name).join(", ");
+        const more = unmarked.length > 5 ? ` and ${unmarked.length - 5} more` : "";
+        const ok = window.confirm(
+          `${unmarked.length} student${unmarked.length === 1 ? " is" : "s are"} left unmarked and will NOT be recorded for ${date}:\n${names}${more}.\n\nSave anyway?`,
+        );
+        if (!ok) {
+          setSaving(false);
+          return;
+        }
+      }
       const r = await postSectionAttendance(orgId, sectionId, { date, entries });
       toast.success(
         `Saved — ${r.inserted} new, ${r.updated} updated` +
@@ -242,6 +282,14 @@ export function AttendanceRollCall() {
           />
         }
       />
+
+      {isOffDay && (
+        <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
+          No periods are scheduled for this class on{" "}
+          {["", "Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays", "Sundays"][selectedDow]}{" "}
+          — this looks like an off day. If the class did meet, you can still record attendance below.
+        </div>
+      )}
 
       <div className="grid gap-2 grid-cols-2 sm:grid-cols-4">
         <KpiTile

@@ -1945,11 +1945,42 @@ ${status === "paid" ? `<div class="stamp">PAID</div>` : ""}
       parentPhone: parentByStudent.get(s.id)?.phone || s.guardian_phone || null,
     }));
 
+    // Resolve who submitted — the office needs people, not uuids
+    // (pilot: the responses table showed em-dashes for every submitter).
+    const parentIds = Array.from(new Set((responses ?? []).map((r: any) => r.submitter_parent_id).filter(Boolean)));
+    const parentName = new Map<string, string>();
+    if (parentIds.length > 0) {
+      const { data: ps } = await serviceRoleClient
+        .from("parent").select("id, full_name").in("id", parentIds);
+      for (const p of (ps ?? []) as any[]) parentName.set(p.id, p.full_name);
+    }
+    const behalfIds = Array.from(new Set((responses ?? []).map((r: any) => r.on_behalf_of_student_id).filter(Boolean)));
+    const behalfName = new Map<string, string>();
+    if (behalfIds.length > 0) {
+      const { data: ss } = await serviceRoleClient
+        .from("student").select("id, full_name").in("id", behalfIds);
+      for (const s of (ss ?? []) as any[]) behalfName.set(s.id, s.full_name);
+    }
+    const userName = new Map<string, string>();
+    for (const uid of Array.from(new Set((responses ?? []).map((r: any) => r.submitter_user_id).filter(Boolean)))) {
+      try {
+        const { data: u } = await (serviceRoleClient as any).auth.admin.getUserById(uid);
+        userName.set(uid, u?.user?.user_metadata?.name ?? u?.user?.email ?? "Staff");
+      } catch { /* skip */ }
+    }
+
     return c.json({
       formId,
       responses: (responses ?? []).map((r: any) => ({
         ...responseToJson(r),
         values: valuesByResp[r.id] ?? [],
+        submitterName:
+          (r.submitter_parent_id && parentName.get(r.submitter_parent_id)) ||
+          (r.submitter_user_id && userName.get(r.submitter_user_id)) ||
+          null,
+        onBehalfOfStudentName: r.on_behalf_of_student_id
+          ? behalfName.get(r.on_behalf_of_student_id) ?? null
+          : null,
       })),
       nonResponders,
     });

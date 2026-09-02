@@ -34,13 +34,13 @@ function FormStatusBadge({ status }: { status: FormStatus }) {
 }
 
 function audienceLabel(f: Form): string {
-  switch (f.audience_kind) {
+  switch (f.audienceKind) {
     case "whole_school":
       return "Whole school";
     case "class_section":
-      return f.audience_section_id ? "Class section" : "Class section";
+      return "Class section";
     case "specific_students":
-      return `${f.audience_student_ids?.length ?? 0} specific`;
+      return `${f.audienceStudentIds?.length ?? 0} specific`;
   }
 }
 
