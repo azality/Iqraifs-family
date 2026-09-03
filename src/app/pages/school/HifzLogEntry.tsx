@@ -146,6 +146,11 @@ export function HifzLogEntry({
   const [assignFrom, setAssignFrom] = useState<number>(1);
   const [assignTo, setAssignTo] = useState<number>(1);
   const [lastAssigned, setLastAssigned] = useState<string | null>(null);
+  // Smart next-sabaq suggestion (pilot: "system khud samajh jaye ke ayah
+  // 11 se shuru hona chahiye"). Once the teacher touches any assign field
+  // (or the toggle) the suggestion never overwrites their input.
+  const [assignTouched, setAssignTouched] = useState(false);
+  const [suggestion, setSuggestion] = useState<"none" | "advance" | "repeat">("none");
 
   // PR feat/hifz-trends-missed-teacher — explicit miss toggle. When
   // checked we send missed=true; the form's other fields stay
@@ -189,6 +194,8 @@ export function HifzLogEntry({
     setAssignFrom(1);
     setAssignTo(1);
     setLastAssigned(null);
+    setAssignTouched(false);
+    setSuggestion("none");
     setJuzNumber("");
     setPageNumber("");
     setMistakesCount("");
@@ -232,6 +239,43 @@ export function HifzLogEntry({
     if (assignTo < assignFrom) setAssignTo(assignFrom);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assignSurah]);
+
+  // Smart next-sabaq suggestion. Fires on the sabaq entry once a quality
+  // is picked (or missed is checked), and only while the teacher hasn't
+  // touched the assign fields themselves:
+  //   good recitation  → continue: next portion of the same length,
+  //                      within the same surah (11–20 after 1–10).
+  //   weak / not learned / missed → repeat the same sabaq tomorrow.
+  // Surah-boundary advance is left to the teacher — memorization order
+  // past a finished surah is a school decision (forward vs juz-30-back),
+  // so we suggest nothing there rather than guess wrong.
+  useEffect(() => {
+    if (kind !== "sabaq" || assignTouched) return;
+    const repeat = missed ||
+      quality === "needs_practice" || quality === "weak" || quality === "not_learned";
+    const advance = !missed && (quality === "excellent" || quality === "good");
+    if (repeat) {
+      setAssignSurah(surahNumber);
+      setAssignFrom(ayahFrom);
+      setAssignTo(ayahTo);
+      setAssignOn(true);
+      setSuggestion("repeat");
+    } else if (advance) {
+      if (ayahTo >= maxAyah) {
+        // Surah finished — no safe within-surah continuation.
+        setAssignOn(false);
+        setSuggestion("none");
+        return;
+      }
+      const len = Math.max(1, ayahTo - ayahFrom + 1);
+      setAssignSurah(surahNumber);
+      setAssignFrom(ayahTo + 1);
+      setAssignTo(Math.min(ayahTo + len, maxAyah));
+      setAssignOn(true);
+      setSuggestion("advance");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kind, quality, missed, surahNumber, ayahFrom, ayahTo, maxAyah, assignTouched]);
 
   const isManzil = kind === "manzil";
   const isSabaq = kind === "sabaq";
@@ -306,6 +350,8 @@ export function HifzLogEntry({
         setNotes("");
         setMissed(false);
         setAssignOn(false);
+        setAssignTouched(false);
+        setSuggestion("none");
         if (next) setKind(next as typeof kind);
       } else if (after === "student" && onNextStudent) {
         toast.success(`${studentName} saved — next student`);
@@ -503,7 +549,10 @@ export function HifzLogEntry({
                 <input
                   type="checkbox"
                   checked={assignOn}
-                  onChange={(e) => setAssignOn(e.target.checked)}
+                  onChange={(e) => {
+                    setAssignTouched(true);
+                    setAssignOn(e.target.checked);
+                  }}
                 />
                 <span className="text-sm font-medium text-indigo-900">
                   {t("hifzTeach.assignNext")}
@@ -513,7 +562,10 @@ export function HifzLogEntry({
                 <div className="space-y-2">
                   <Select
                     value={String(assignSurah)}
-                    onValueChange={(v) => setAssignSurah(Number(v))}
+                    onValueChange={(v) => {
+                      setAssignTouched(true);
+                      setAssignSurah(Number(v));
+                    }}
                   >
                     <SelectTrigger className="bg-white">
                       <SelectValue />
@@ -535,9 +587,10 @@ export function HifzLogEntry({
                         min={1}
                         max={assignMaxAyah}
                         value={assignFrom}
-                        onChange={(e) =>
-                          setAssignFrom(Math.max(1, Math.min(assignMaxAyah, Number(e.target.value) || 1)))
-                        }
+                        onChange={(e) => {
+                          setAssignTouched(true);
+                          setAssignFrom(Math.max(1, Math.min(assignMaxAyah, Number(e.target.value) || 1)));
+                        }}
                         className="bg-white"
                       />
                     </div>
@@ -549,15 +602,23 @@ export function HifzLogEntry({
                         min={assignFrom}
                         max={assignMaxAyah}
                         value={assignTo}
-                        onChange={(e) =>
+                        onChange={(e) => {
+                          setAssignTouched(true);
                           setAssignTo(
                             Math.max(assignFrom, Math.min(assignMaxAyah, Number(e.target.value) || assignFrom)),
-                          )
-                        }
+                          );
+                        }}
                         className="bg-white"
                       />
                     </div>
                   </div>
+                  {!assignTouched && suggestion !== "none" && (
+                    <p className="text-[11px] font-medium text-emerald-700">
+                      {suggestion === "repeat"
+                        ? t("hifzTeach.suggestedRepeat")
+                        : t("hifzTeach.suggestedAdvance")}
+                    </p>
+                  )}
                   <p className="text-[11px] text-indigo-800">
                     {t("hifzTeach.assignHint")}
                   </p>
