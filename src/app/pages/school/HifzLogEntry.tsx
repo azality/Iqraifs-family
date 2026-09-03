@@ -128,8 +128,8 @@ export function HifzLogEntry({
 }: Props) {
   const { t } = useTranslation();
   const [surahNumber, setSurahNumber] = useState<number>(1);
-  const [ayahFrom, setAyahFrom] = useState<number>(1);
-  const [ayahTo, setAyahTo] = useState<number>(1);
+  const [ayahFrom, setAyahFrom] = useState<number | "">(1);
+  const [ayahTo, setAyahTo] = useState<number | "">(1);
   const [kind, setKind] = useState<HifzKind>("sabaq");
   const [quality, setQuality] = useState<HifzQuality | "">("");
   const [notes, setNotes] = useState("");
@@ -143,8 +143,8 @@ export function HifzLogEntry({
   // assignment prefills the next sabaq log for this student.
   const [assignOn, setAssignOn] = useState(false);
   const [assignSurah, setAssignSurah] = useState<number>(1);
-  const [assignFrom, setAssignFrom] = useState<number>(1);
-  const [assignTo, setAssignTo] = useState<number>(1);
+  const [assignFrom, setAssignFrom] = useState<number | "">(1);
+  const [assignTo, setAssignTo] = useState<number | "">(1);
   const [lastAssigned, setLastAssigned] = useState<string | null>(null);
   // Smart next-sabaq suggestion (pilot: "system khud samajh jaye ke ayah
   // 11 se shuru hona chahiye"). Once the teacher touches any assign field
@@ -171,6 +171,12 @@ export function HifzLogEntry({
   const [missedTargetReason, setMissedTargetReason] = useState("");
   const [parentAction, setParentAction] = useState("");
   const [advancedOpen, setAdvancedOpen] = useState(false);
+
+  // "" while editing -> 0 for arithmetic/validation.
+  const num = (v: number | ""): number => (v === "" ? 0 : v);
+  // Free typing: parse but never clamp mid-edit; clamping happens onBlur.
+  const typed = (raw: string): number | "" =>
+    raw === "" ? "" : Math.max(0, Math.floor(Number(raw) || 0));
 
   const surah = getSurah(surahNumber);
   const maxAyah = surah?.ayahCount ?? 1;
@@ -228,15 +234,15 @@ export function HifzLogEntry({
 
   // Clamp ayah range when surah changes
   useEffect(() => {
-    if (ayahFrom > maxAyah) setAyahFrom(1);
-    if (ayahTo > maxAyah) setAyahTo(maxAyah);
-    if (ayahTo < ayahFrom) setAyahTo(ayahFrom);
+    if (num(ayahFrom) > maxAyah) setAyahFrom(1);
+    if (num(ayahTo) > maxAyah) setAyahTo(maxAyah);
+    if (ayahFrom !== "" && ayahTo !== "" && ayahTo < ayahFrom) setAyahTo(ayahFrom);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [surahNumber]);
   useEffect(() => {
-    if (assignFrom > assignMaxAyah) setAssignFrom(1);
-    if (assignTo > assignMaxAyah) setAssignTo(assignMaxAyah);
-    if (assignTo < assignFrom) setAssignTo(assignFrom);
+    if (num(assignFrom) > assignMaxAyah) setAssignFrom(1);
+    if (num(assignTo) > assignMaxAyah) setAssignTo(assignMaxAyah);
+    if (assignFrom !== "" && assignTo !== "" && assignTo < assignFrom) setAssignTo(assignFrom);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assignSurah]);
 
@@ -251,6 +257,7 @@ export function HifzLogEntry({
   // so we suggest nothing there rather than guess wrong.
   useEffect(() => {
     if (kind !== "sabaq" || assignTouched) return;
+    if (ayahFrom === "" || ayahTo === "" || ayahTo < ayahFrom) return;
     const repeat = missed ||
       quality === "needs_practice" || quality === "weak" || quality === "not_learned";
     const advance = !missed && (quality === "excellent" || quality === "good");
@@ -287,8 +294,8 @@ export function HifzLogEntry({
   const KIND_SEQUENCE: string[] = ["sabaq", "sabqi", "manzil"];
   const handleSubmit = async (after: "close" | "kind" | "student" = "close") => {
     let sendSurah = surahNumber;
-    let sendFrom = ayahFrom;
-    let sendTo = ayahTo;
+    let sendFrom = num(ayahFrom);
+    let sendTo = num(ayahTo);
     if (isManzil) {
       if (typeof manzilJuz !== "number") {
         toast.error("Pick which juz was revised");
@@ -299,17 +306,21 @@ export function HifzLogEntry({
       sendFrom = start.ayah;
       sendTo = start.ayah;
     } else if (!missed) {
-      if (ayahFrom < 1 || ayahFrom > maxAyah) {
+      if (sendFrom < 1 || sendFrom > maxAyah) {
         toast.error(`Ayah from must be 1–${maxAyah}`);
         return;
       }
-      if (ayahTo < ayahFrom || ayahTo > maxAyah) {
-        toast.error(`Ayah to must be ${ayahFrom}–${maxAyah}`);
+      if (sendTo < sendFrom || sendTo > maxAyah) {
+        toast.error(`Ayah to must be ${sendFrom}–${maxAyah}`);
         return;
       }
     }
+    // Assign fields tolerate mid-edit values: clamp them into range
+    // instead of failing the whole save.
+    const aFrom = Math.min(Math.max(num(assignFrom), 1), assignMaxAyah);
+    const aTo = Math.min(Math.max(num(assignTo), aFrom), assignMaxAyah);
     const structuredNext = assignOn
-      ? serializeNextSabaq(assignSurah, assignFrom, assignTo)
+      ? serializeNextSabaq(assignSurah, aFrom, aTo)
       : undefined;
     setSubmitting(true);
     try {
@@ -492,8 +503,9 @@ export function HifzLogEntry({
                       min={1}
                       max={maxAyah}
                       value={ayahFrom}
-                      onChange={(e) =>
-                        setAyahFrom(Math.max(1, Math.min(maxAyah, Number(e.target.value) || 1)))
+                      onChange={(e) => setAyahFrom(typed(e.target.value))}
+                      onBlur={() =>
+                        setAyahFrom(Math.max(1, Math.min(maxAyah, num(ayahFrom) || 1)))
                       }
                     />
                   </div>
@@ -502,12 +514,13 @@ export function HifzLogEntry({
                     <Input
                       type="number"
                       inputMode="numeric"
-                      min={ayahFrom}
+                      min={num(ayahFrom) || 1}
                       max={maxAyah}
                       value={ayahTo}
-                      onChange={(e) =>
+                      onChange={(e) => setAyahTo(typed(e.target.value))}
+                      onBlur={() =>
                         setAyahTo(
-                          Math.max(ayahFrom, Math.min(maxAyah, Number(e.target.value) || ayahFrom)),
+                          Math.max(num(ayahFrom) || 1, Math.min(maxAyah, num(ayahTo) || num(ayahFrom) || 1)),
                         )
                       }
                     />
@@ -589,8 +602,11 @@ export function HifzLogEntry({
                         value={assignFrom}
                         onChange={(e) => {
                           setAssignTouched(true);
-                          setAssignFrom(Math.max(1, Math.min(assignMaxAyah, Number(e.target.value) || 1)));
+                          setAssignFrom(typed(e.target.value));
                         }}
+                        onBlur={() =>
+                          setAssignFrom(Math.max(1, Math.min(assignMaxAyah, num(assignFrom) || 1)))
+                        }
                         className="bg-white"
                       />
                     </div>
@@ -599,15 +615,18 @@ export function HifzLogEntry({
                       <Input
                         type="number"
                         inputMode="numeric"
-                        min={assignFrom}
+                        min={num(assignFrom) || 1}
                         max={assignMaxAyah}
                         value={assignTo}
                         onChange={(e) => {
                           setAssignTouched(true);
-                          setAssignTo(
-                            Math.max(assignFrom, Math.min(assignMaxAyah, Number(e.target.value) || assignFrom)),
-                          );
+                          setAssignTo(typed(e.target.value));
                         }}
+                        onBlur={() =>
+                          setAssignTo(
+                            Math.max(num(assignFrom) || 1, Math.min(assignMaxAyah, num(assignTo) || num(assignFrom) || 1)),
+                          )
+                        }
                         className="bg-white"
                       />
                     </div>
