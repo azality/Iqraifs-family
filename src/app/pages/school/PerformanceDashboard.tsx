@@ -15,6 +15,7 @@ import {
   BookOpen,
   CheckCircle,
   ChevronRight,
+  ChevronDown,
   Clock,
   DollarSign,
   FileText,
@@ -354,7 +355,10 @@ function Leaderboard({
     () => (filter === "all" ? rows : rows.filter((r) => r.status === filter)),
     [rows, filter],
   );
-  const totalCount = rows.length;
+  const totalCount = rows.length;  // Compact by default (design 2a): first rows + an expand control.
+  const [expandedLb, setExpandedLb] = useState(false);
+  const visible = expandedLb ? filtered : filtered.slice(0, 8);
+
 
   const FILTERS: ReadonlyArray<{ key: LeaderboardFilter; label: string }> = [
     { key: "all", label: "All" },
@@ -402,7 +406,7 @@ function Leaderboard({
               No sections match this filter.
             </li>
           ) : (
-            filtered.map((row, idx) => (
+            visible.map((row, idx) => (
               <li
                 key={row.sectionId}
                 onClick={() =>
@@ -467,7 +471,7 @@ function Leaderboard({
                   </td>
                 </tr>
               ) : (
-                filtered.map((row, idx) => (
+                visible.map((row, idx) => (
                   <tr
                     key={row.sectionId}
                     // Row click → SectionOverview, the hub page for ONE
@@ -539,6 +543,15 @@ function Leaderboard({
             </tbody>
           </table>
         </div>
+        {filtered.length > 8 && (
+          <button
+            type="button"
+            onClick={() => setExpandedLb((v) => !v)}
+            className="w-full border-t border-slate-100 py-2 text-center text-xs font-semibold text-indigo-600 hover:bg-indigo-50"
+          >
+            {expandedLb ? "Show fewer" : `All ${filtered.length} sections →`}
+          </button>
+        )}
       </CardContent>
     </Card>
   );
@@ -768,6 +781,330 @@ function RecentActivity({ rows }: { rows: InsightsResponse["recentActivity"] }) 
         )}
       </CardContent>
     </Card>
+  );
+}
+
+// ─── Glance bar (2a) ─────────────────────────────────────────────────────
+// One dark strip replaces the 12-tile hero: five primary stats inline,
+// health pills right, and every zero/empty metric collapsed behind a
+// "More metrics" disclosure. Rule from the design review: zero-value
+// tiles never render as tiles. Nonzero secondary metrics get promoted
+// into the primary row so nothing actionable hides.
+
+interface GlanceStatDef {
+  label: string;
+  value: string;
+  delta?: string;
+  deltaColor?: string;
+  to?: string;
+  nonzero?: boolean;
+}
+
+function GlanceStat({ stat }: { stat: GlanceStatDef }) {
+  const body = (
+    <div className="whitespace-nowrap">
+      <div className="text-[9.5px] font-bold tracking-[.7px]" style={{ color: "rgba(255,255,255,.45)" }}>
+        {stat.label}
+      </div>
+      <div className="text-xl font-extrabold leading-tight text-white tabular-nums">
+        {stat.value}{" "}
+        {stat.delta && (
+          <span className="text-[10px] font-bold" style={{ color: stat.deltaColor ?? "#4ade80" }}>
+            {stat.delta}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+  return stat.to ? (
+    <Link to={stat.to} className="transition-opacity hover:opacity-80">
+      {body}
+    </Link>
+  ) : (
+    body
+  );
+}
+
+function GlanceBar({
+  dashboard,
+  academics,
+  orgId,
+  canTeachers,
+  canApprovals,
+  canFees,
+  canForms,
+}: {
+  dashboard: DashboardResponse;
+  academics: AcademicsResponse | null;
+  orgId: string;
+  canTeachers: boolean;
+  canApprovals: boolean;
+  canFees: boolean;
+  canForms: boolean;
+}) {
+  const tiles = dashboard.tiles;
+  const health = dashboard.health;
+  const pctStr = (v: number | null) => (v === null ? "—" : `${v}%`);
+  const numStr = (v: number | null) => (v === null ? "—" : String(v));
+  const pp = (v: number) => `${v >= 0 ? "+" : ""}${v}pp`;
+
+  const attToday = tiles.attendanceToday.value;
+  const perDelta = tiles.attendancePeriod.deltaPp ?? null;
+  const curr = academics?.curriculum?.progressPct ?? null;
+  const currDelta =
+    curr !== null && academics?.pace?.expectedPct != null ? curr - academics.pace.expectedPct : null;
+
+  const primary: GlanceStatDef[] = [
+    { label: "STUDENTS", value: numStr(tiles.students.value), to: `/school/orgs/${orgId}/admin/students` },
+    {
+      label: "ATTENDANCE TODAY",
+      value: pctStr(attToday),
+      delta: attToday !== null && attToday < 75 ? "low" : undefined,
+      deltaColor: "#f87171",
+    },
+    {
+      label: "ATTENDANCE PERIOD",
+      value: pctStr(tiles.attendancePeriod.value),
+      delta: perDelta !== null ? pp(perDelta) : undefined,
+      deltaColor: perDelta !== null && perDelta < 0 ? "#f87171" : "#4ade80",
+    },
+    ...(canTeachers
+      ? [{ label: "TEACHERS", value: numStr(tiles.teachers.value), to: `/school/orgs/${orgId}/admin/teachers` }]
+      : []),
+    ...(curr !== null
+      ? [{
+          label: "CURRICULUM",
+          value: `${curr}%`,
+          delta: currDelta !== null && currDelta !== 0 ? pp(currDelta) : undefined,
+          deltaColor: currDelta !== null && currDelta < 0 ? "#fbbf24" : "#4ade80",
+        }]
+      : []),
+  ];
+
+  const secondary: GlanceStatDef[] = [
+    {
+      label: "BEHAVIOR",
+      value: tiles.behaviorScore.value !== null && tiles.behaviorScore.value > 0
+        ? `+${tiles.behaviorScore.value}`
+        : numStr(tiles.behaviorScore.value),
+      nonzero: (tiles.behaviorScore.value ?? 0) !== 0,
+    },
+    ...(canApprovals
+      ? [{
+          label: "APPROVALS",
+          value: numStr(tiles.pendingApprovals.value),
+          to: `/school/orgs/${orgId}/admin/roster-requests`,
+          nonzero: (tiles.pendingApprovals.value ?? 0) > 0,
+        }]
+      : []),
+    { label: "CONCERNS", value: numStr(tiles.concernsOpen.value), nonzero: (tiles.concernsOpen.value ?? 0) > 0 },
+    ...(canFees
+      ? [{
+          label: "FEES PAID",
+          value: pctStr(tiles.feesPaidPct.value),
+          to: `/school/orgs/${orgId}/admin/fees`,
+          nonzero: (tiles.feesPaidPct.value ?? 0) > 0,
+        }]
+      : []),
+    {
+      label: "HIFZ",
+      value: pctStr(tiles.hifzProgress.value),
+      to: `/school/orgs/${orgId}/admin/hifz-program`,
+      nonzero: (tiles.hifzProgress.value ?? 0) > 0,
+    },
+    ...(canForms
+      ? [{
+          label: "FORMS",
+          value: numStr(tiles.formsAwaiting.value),
+          to: `/school/orgs/${orgId}/admin/forms`,
+          nonzero: (tiles.formsAwaiting.value ?? 0) > 0,
+        }]
+      : []),
+    ...(academics
+      ? [{ label: "RESOURCES", value: String(academics.resources.totalResources), nonzero: academics.resources.totalResources > 0 }]
+      : []),
+  ];
+  const promoted = secondary.filter((x) => x.nonzero);
+  const collapsed = secondary.filter((x) => !x.nonzero);
+
+  const pills = health
+    ? [
+        { n: health.healthy, label: "healthy", bg: "rgba(74,222,128,.15)", fg: "#4ade80" },
+        { n: health.watch, label: "watch", bg: "rgba(251,191,36,.15)", fg: "#fbbf24" },
+        { n: health.flagged, label: "flagged", bg: "rgba(248,113,113,.15)", fg: "#f87171" },
+        { n: health.noData ?? 0, label: "no data", bg: "rgba(255,255,255,.1)", fg: "rgba(255,255,255,.6)" },
+      ].filter((x) => x.n > 0)
+    : [];
+
+  return (
+    <div className="rounded-[14px] px-5 py-3.5" style={{ background: "var(--school-surface-dark, #14163a)" }}>
+      <div className="flex items-center gap-5">
+        <div className="no-scrollbar flex flex-1 items-center gap-6 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+          {[...primary, ...promoted].map((st) => (
+            <GlanceStat key={st.label} stat={st} />
+          ))}
+        </div>
+        {pills.length > 0 && (
+          <div className="hidden gap-1.5 lg:flex">
+            {pills.map((x) => (
+              <span
+                key={x.label}
+                className="whitespace-nowrap rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
+                style={{ background: x.bg, color: x.fg }}
+              >
+                {x.n} {x.label}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+      {pills.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1.5 lg:hidden">
+          {pills.map((x) => (
+            <span
+              key={x.label}
+              className="whitespace-nowrap rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
+              style={{ background: x.bg, color: x.fg }}
+            >
+              {x.n} {x.label}
+            </span>
+          ))}
+        </div>
+      )}
+      {collapsed.length > 0 && (
+        <details className="mt-2.5 border-t pt-2" style={{ borderColor: "rgba(255,255,255,.1)" }}>
+          <summary
+            className="cursor-pointer list-none text-[11px] font-semibold"
+            style={{ color: "rgba(255,255,255,.55)" }}
+          >
+            More metrics — {collapsed.map((x) => x.label.toLowerCase()).join(", ")} ▾
+          </summary>
+          <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-[11.5px]" style={{ color: "rgba(255,255,255,.75)" }}>
+            {collapsed.map((st) =>
+              st.to ? (
+                <Link key={st.label} to={st.to} className="hover:underline">
+                  {st.label.toLowerCase()} <b className="text-white">{st.value}</b>
+                </Link>
+              ) : (
+                <span key={st.label}>
+                  {st.label.toLowerCase()} <b className="text-white">{st.value}</b>
+                </span>
+              ),
+            )}
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
+// ─── Needs attention (2a) ────────────────────────────────────────────────
+// The 4 separate alert cards merge into one ranked panel: severity dot,
+// one-line summary, per-row CTA. Alerts arrive pre-sorted by severity
+// from the backend.
+
+const ALERT_DOT: Record<DashboardAlert["severity"], string> = {
+  critical: "#dc2626",
+  warning: "#f59e0b",
+  info: "#94a3b8",
+};
+
+function NeedsAttention({ alerts, orgId }: { alerts: DashboardAlert[]; orgId: string }) {
+  if (alerts.length === 0) {
+    return (
+      <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+        <span className="font-medium">All systems green</span> — no active alerts.
+      </div>
+    );
+  }
+  return (
+    <div className="overflow-hidden rounded-xl border bg-white" style={{ borderColor: "rgba(20,22,58,.08)" }}>
+      <div className="hidden items-center gap-2.5 border-b px-4 py-3 lg:flex" style={{ borderColor: "rgba(20,22,58,.07)" }}>
+        <span className="text-[12.5px] font-bold" style={{ color: "#14163a" }}>
+          Needs attention
+        </span>
+        <span className="rounded-full bg-rose-600 px-2 py-0.5 text-[10.5px] font-bold text-white">
+          {alerts.length}
+        </span>
+      </div>
+      <div className="flex flex-col px-4 pb-2 pt-1">
+        {alerts.map((a) => (
+          <div
+            key={a.id}
+            className="flex items-center gap-2.5 border-b py-2.5 text-xs last:border-b-0"
+            style={{ borderColor: "rgba(20,22,58,.05)" }}
+          >
+            <span
+              className="h-2 w-2 flex-none rounded-full"
+              style={{ background: ALERT_DOT[a.severity] ?? "#94a3b8" }}
+            />
+            <div className="min-w-0 flex-1">
+              <b style={{ color: "#14163a" }}>{a.title}</b>{" "}
+              <span className="text-slate-500">— {a.body}</span>
+            </div>
+            {a.actionPath && (
+              <Link
+                to={a.actionPath}
+                className="whitespace-nowrap text-[11px] font-semibold text-indigo-600 hover:underline"
+              >
+                {a.actionLabel ?? "Open"} →
+              </Link>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Mobile accordion wrapper (1d) ───────────────────────────────────────
+// On phones every dashboard module sits behind a 44px collapsible header
+// so the page is one screen deep; on lg+ the wrapper vanishes
+// (display:contents) and children render as normal cards.
+
+function DashSection({
+  title,
+  right,
+  tone = "default",
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  right?: React.ReactNode;
+  tone?: "default" | "alert";
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const alertTone = tone === "alert";
+  return (
+    <div className="lg:contents">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className={
+          "flex min-h-[44px] w-full items-center gap-2 rounded-xl border px-4 py-3 text-left lg:hidden " +
+          (alertTone ? "border-rose-200 bg-rose-50" : "bg-white")
+        }
+        style={alertTone ? undefined : { borderColor: "rgba(20,22,58,.08)" }}
+      >
+        <span className={"text-[12.5px] font-bold " + (alertTone ? "text-rose-800" : "")} style={alertTone ? undefined : { color: "#14163a" }}>
+          {title}
+        </span>
+        {right}
+        <ChevronDown
+          className={
+            "ml-auto h-4 w-4 transition-transform " +
+            (alertTone ? "text-rose-400 " : "text-slate-400 ") +
+            (open ? "rotate-180" : "")
+          }
+        />
+      </button>
+      {/* max-lg:hidden (not `hidden`) so the closed state can never fight
+          lg:contents in the cascade — both are display utilities. */}
+      <div className={(open ? "space-y-4 " : "max-lg:hidden ") + "lg:contents"}>{children}</div>
+    </div>
   );
 }
 
@@ -1135,72 +1472,20 @@ export function PerformanceDashboard() {
         </div>
       )}
 
-      {/* Hero — School at a Glance */}
+      {/* Glance bar — one dark strip: primary stats inline, health pills,
+          zero metrics behind "More metrics" (design 2a). Horizontally
+          scrollable on phones (design 1d stat strip). */}
       {dashboard && (
-        <div className="rounded-2xl bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950 p-5 shadow-lg ring-1 ring-white/5">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <div className="text-[11px] uppercase tracking-wider text-slate-400">{t("dashboard.atAGlance")}</div>
-              <h2 className="mt-0.5 text-lg font-semibold text-white">{t("dashboard.schoolAtGlance")}</h2>
-              <div className="mt-0.5 text-[11px] text-slate-400">As of {asOfLabel}</div>
-            </div>
-            {health && (
-              <div className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-200">
-                <span className="font-medium text-emerald-300">{health.healthy} healthy</span>
-                <span className="text-slate-500">·</span>
-                <span className="font-medium text-amber-300">{health.watch} watch</span>
-                <span className="text-slate-500">·</span>
-                <span className="font-medium text-rose-300">{health.flagged} flagged</span>
-                {(health.noData ?? 0) > 0 && (
-                  <>
-                    <span className="text-slate-500">·</span>
-                    <span className="font-medium text-slate-400">{health.noData} no data</span>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5" data-tour="kpi-grid">
-            <KpiTile label={t("dashboard.tiles.students")} tile={dashboard.tiles.students} Icon={Users} bound="current" to={`/school/orgs/${orgId}/admin/students`} />
-            <KpiTile label={t("dashboard.tiles.attendanceToday")} tile={dashboard.tiles.attendanceToday} Icon={CheckCircle} asPercent bound="current" />
-            <KpiTile label={t("dashboard.tiles.attendancePeriod")} tile={dashboard.tiles.attendancePeriod} Icon={TrendingUp} asPercent bound="period" />
-            {canTeachers && <KpiTile label={t("dashboard.tiles.teachers")} tile={dashboard.tiles.teachers} Icon={GraduationCap} bound="current" to={`/school/orgs/${orgId}/admin/teachers`} />}
-            <KpiTile label={t("dashboard.tiles.behaviorScore")} tile={dashboard.tiles.behaviorScore} Icon={Sparkles} signed bound="period" />
-            {canApprovals && <KpiTile label={t("dashboard.tiles.pendingApprovals")} tile={dashboard.tiles.pendingApprovals} Icon={Clock} bound="current" to={`/school/orgs/${orgId}/admin/roster-requests`} />}
-            <KpiTile label={t("dashboard.tiles.concernsOpen")} tile={dashboard.tiles.concernsOpen} Icon={AlertTriangle} bound="period" />
-            {canFees && <KpiTile label={t("dashboard.tiles.feesPaidPct")} tile={dashboard.tiles.feesPaidPct} Icon={DollarSign} asPercent bound="current" to={`/school/orgs/${orgId}/admin/fees`} />}
-            <KpiTile label={t("dashboard.tiles.hifzProgress")} tile={dashboard.tiles.hifzProgress} Icon={BookOpen} asPercent bound="current" to={`/school/orgs/${orgId}/admin/hifz-program`} />
-            {canForms && <KpiTile label={t("dashboard.tiles.formsAwaiting")} tile={dashboard.tiles.formsAwaiting} Icon={FileText} bound="current" to={`/school/orgs/${orgId}/admin/forms`} />}
-            {/* Phase 6a: curriculum coverage + resources tiles */}
-            {academics && (
-              <>
-                <KpiTile
-                  label="Curriculum"
-                  tile={{
-                    value: academics.curriculum.progressPct,
-                    deltaPp: null,
-                    hint:
-                      academics.pace?.expectedPct != null
-                        ? `${academics.curriculum.completedTopics}/${academics.curriculum.totalTopics} topics · expected ~${academics.pace.expectedPct}% by ${academics.pace.termName}`
-                        : `${academics.curriculum.completedTopics}/${academics.curriculum.totalTopics} topics`,
-                  }}
-                  Icon={ListChecks}
-                  asPercent
-                  bound="current"
-                />
-                <KpiTile
-                  label="Resources"
-                  tile={{
-                    value: academics.resources.totalResources,
-                    deltaPp: null,
-                    hint: `${academics.resources.byKind.worksheet} worksheets · ${academics.resources.byKind.video} videos · ${academics.resources.byKind.quiz} quizzes`,
-                  }}
-                  Icon={Library}
-                  bound="current"
-                />
-              </>
-            )}
-          </div>
+        <div data-tour="kpi-grid">
+          <GlanceBar
+            dashboard={dashboard}
+            academics={academics}
+            orgId={orgId}
+            canTeachers={canTeachers}
+            canApprovals={canApprovals}
+            canFees={canFees}
+            canForms={canForms}
+          />
         </div>
       )}
 
@@ -1274,38 +1559,53 @@ export function PerformanceDashboard() {
         );
       })()}
 
+      {/* ── Two-column body (2a): live/actionable left, analysis right.
+          On phones (1d) each module collapses behind an accordion. ── */}
+      <div className="grid items-start gap-4 lg:grid-cols-2 xl:grid-cols-[600px_minmax(0,1fr)]">
+        <div className="flex flex-col gap-4">
+          <DashSection title="Right now" defaultOpen>
       {/* Right now — which period is running per in-scope section, who
           is teaching, and who needs cover (wing-scoped for incharges). */}
-      <RightNowPanel orgId={orgId} />
-
+      <RightNowPanel orgId={orgId} />          </DashSection>
+          {dashboard && (
+            <DashSection
+              title="Needs attention"
+              tone="alert"
+              defaultOpen={dashboard.alerts.some((a) => a.severity === "critical")}
+              right={
+                dashboard.alerts.length > 0 ? (
+                  <span className="rounded-full bg-rose-600 px-2 py-0.5 text-[10.5px] font-bold text-white">
+                    {dashboard.alerts.length}
+                  </span>
+                ) : undefined
+              }
+            >
       {/* Attendance day note — org-wide "why was today unusual" strip. */}
       <AttendanceDayNotes
         orgId={orgId}
         todayPct={dashboard?.tiles.attendanceToday.value ?? null}
         periodPct={dashboard?.tiles.attendancePeriod.value ?? null}
-      />
-
-      {/* Alerts row */}
-      {dashboard && (
-        dashboard.alerts.length === 0 ? (
-          <div
-            className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
-            data-tour="alerts-row"
-          >
-            <span className="font-medium">All systems green</span> — no active alerts.
-          </div>
-        ) : (
-          <div
-            className="grid gap-4 md:grid-cols-2 xl:grid-cols-3"
-            data-tour="alerts-row"
-          >
-            {dashboard.alerts.map((a) => (
-              <AlertCard key={a.id} alert={a} />
-            ))}
-          </div>
-        )
-      )}
-
+      />              <div data-tour="alerts-row">
+                <NeedsAttention alerts={dashboard.alerts} orgId={orgId} />
+              </div>
+            </DashSection>
+          )}
+          {leaderboard && (
+            <DashSection
+              title="Sections leaderboard"
+              right={<span className="text-xs font-medium text-slate-400">{leaderboard.length}</span>}
+            >
+      {/* Leaderboard */}
+      {leaderboard && (
+        <div data-tour="leaderboard">
+          <Leaderboard rows={leaderboard} orgId={orgId} />
+        </div>
+      )}            </DashSection>
+          )}
+        </div>
+        <div className="flex flex-col gap-4">
+          {academics?.pace && (
+            <DashSection title="Curriculum pace">
       {/* Curriculum pace vs the assessment calendar — turns the raw
           "N% complete" into "who is furthest behind and how far", which
           is the actionable version for a principal. */}
@@ -1429,8 +1729,10 @@ export function PerformanceDashboard() {
             )}
           </CardContent>
         </Card>
-      )}
-
+      )}            </DashSection>
+          )}
+          {atRisk && (
+            <DashSection title="Chronic absentees">
       {/* Chronic absentees — the actionable version of the attendance
           aggregate: which students are driving the number down. */}
       {atRisk && (
@@ -1519,15 +1821,10 @@ export function PerformanceDashboard() {
             )}
           </CardContent>
         </Card>
-      )}
-
-      {/* Leaderboard */}
-      {leaderboard && (
-        <div data-tour="leaderboard">
-          <Leaderboard rows={leaderboard} orgId={orgId} />
-        </div>
-      )}
-
+      )}            </DashSection>
+          )}
+          {academics && (
+            <DashSection title="Subjects at risk & top subjects">
       {/* Phase 6a: subjects-at-risk + top-subjects panel. Surfaces the
           per-subject grading data only made possible by Phase 3. Hidden
           when there's nothing yet to rank (fresh org / no graded
@@ -1638,7 +1935,36 @@ export function PerformanceDashboard() {
               </CardContent>
             </Card>
           </div>
-        )}
+        )}            </DashSection>
+          )}
+          {insights && (
+            <DashSection title="Attendance & behavior">
+      {/* Breakdown panels */}
+      {insights && (
+        <div className="grid gap-4 lg:grid-cols-3">
+          <AttendanceDonut data={insights.attendanceDistribution} />
+          <BehaviorBars
+            title="Top Positive Behaviors"
+            description="Most logged this period"
+            rows={insights.topPositive}
+            variant="positive"
+          />
+          <BehaviorBars
+            title="Top Concerns"
+            description="Most logged this period"
+            rows={insights.topConcern}
+            variant="concern"
+          />
+        </div>
+      )}            </DashSection>
+          )}
+          {insights && (
+            <DashSection title="Recent activity">
+              <RecentActivity rows={insights.recentActivity} />
+            </DashSection>
+          )}
+        </div>
+      </div>
 
       {/* Phase 6a: data-hygiene nudge. Shown only if there's something
           to nudge about — keeps the dashboard tidy for healthy orgs. */}
@@ -1673,31 +1999,7 @@ export function PerformanceDashboard() {
               </div>
             </div>
           </div>
-        )}
-
-      {/* Breakdown panels */}
-      {insights && (
-        <div className="grid gap-4 lg:grid-cols-3">
-          <AttendanceDonut data={insights.attendanceDistribution} />
-          <BehaviorBars
-            title="Top Positive Behaviors"
-            description="Most logged this period"
-            rows={insights.topPositive}
-            variant="positive"
-          />
-          <BehaviorBars
-            title="Top Concerns"
-            description="Most logged this period"
-            rows={insights.topConcern}
-            variant="concern"
-          />
-        </div>
-      )}
-
-      {/* Recent activity */}
-      {insights && <RecentActivity rows={insights.recentActivity} />}
-
-      {/* Footer link back to legacy view while we transition */}
+        )}      {/* Footer link back to legacy view while we transition */}
       {org && (
         <div className="text-right">
           <Link

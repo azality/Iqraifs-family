@@ -126,10 +126,29 @@ export function RootLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const { viewMode, switchToParentMode, isPreviewingAsKid } = useViewMode();
-  const { workspace, me: schoolMe } = useWorkspace();
+  const { workspace, me: schoolMe, switchToSchool } = useWorkspace();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { t } = useTranslation();
   const { logout, user } = useAuth();
+
+  // Chrome must follow the route: a /school/orgs/* URL must NEVER render
+  // inside family chrome (family header, Kid View/Parent toggle, family
+  // bottom tabs around school data = the exact family/school mixing the
+  // workspace model exists to prevent). Deep links, bookmarks, and
+  // notification links can land on a school URL while the stored
+  // workspace is still "family" — sync it to the org in the URL, but
+  // only when /school/me confirms the user actually has that org.
+  useEffect(() => {
+    if (workspace.kind === 'school') return;
+    const m = location.pathname.match(/^\/school(?:\/orgs\/([^/]+))?/);
+    if (!m) return;
+    const urlOrgId = m[1];
+    const org = urlOrgId
+      ? schoolMe?.organizations.find((o) => o.id === urlOrgId)
+      : schoolMe?.organizations[0];
+    if (org) switchToSchool(org.id, org.name);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname, schoolMe, workspace.kind]);
 
   const isKidMode = viewMode === 'kid';
   // Workspace gates the entire nav. Kid mode is family-only (kids don't
@@ -269,10 +288,32 @@ export function RootLayout() {
     navigate(target);
   };
 
-  // Mobile bottom nav. In school workspace we collapse it to a single
-  // "Dashboard → /school" pill (everything reachable inside that page).
+  // Mobile bottom nav. School workspace gets real role-aware tabs
+  // (design review P0: a principal on a phone had ONE "Dashboard" pill
+  // and a drawer for everything else): Home + the first three nav
+  // groups, each tab landing on its group's first destination. "More"
+  // still opens the full drawer.
+  const schoolHomeHref = schoolOrgId ? `/school/orgs/${schoolOrgId}` : '/school';
   const quickAccess = isSchoolWorkspace
-    ? schoolNavGroups[0].items
+    ? [
+        {
+          name: 'Home',
+          href: schoolHomeHref,
+          icon: School,
+          childAccess: false,
+        },
+        // Skip any group whose first destination IS the home page (the
+        // "Dashboard" group) — no point in two tabs to the same place.
+        ...visibleGroups
+          .filter((g) => g.items.length > 0 && g.items[0].href !== schoolHomeHref)
+          .slice(0, 3)
+          .map((g) => ({
+            name: g.label,
+            href: g.items[0].href,
+            icon: g.items[0].icon,
+            childAccess: false,
+          })),
+      ]
     : (isKidMode ? kidQuickAccess : parentQuickAccess);
 
   return (
@@ -746,7 +787,7 @@ export function RootLayout() {
 
       {/* =============== Mobile Bottom Navigation =============== */}
       <div className="sm:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-200 z-20 shadow-[0_-4px_12px_rgba(0,0,0,0.04)]">
-        <div className="grid grid-cols-4 gap-0.5 px-2 py-1.5">
+        <div className={cn("grid gap-0.5 px-2 py-1.5", quickAccess.length >= 4 ? "grid-cols-5" : "grid-cols-4")}>
           {quickAccess.map((item) => {
             const Icon = item.icon;
             const href = getHref(item);

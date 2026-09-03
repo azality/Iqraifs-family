@@ -300,3 +300,16 @@
 .parent-mode body {
   background: var(--parent-neutral-grey);
 }
+/* School workspace tokens (design review §5 — the school theme wasn't a
+   theme yet). Declared on :root so school surfaces can consume them
+   whether or not a mode class is present; a future .school-mode block
+   can remap shadcn tokens onto these. */
+:root {
+  --school-surface-dark: #14163A;   /* dashboard hero navy */
+  --school-accent: #5B5BD6;         /* the one indigo accent */
+  --school-page-bg: #f6f7fa;
+  --school-card-border: rgba(20, 22, 58, 0.08);
+  --school-ok: #16a34a;
+  --school-warn: #f59e0b;
+  --school-critical: #dc2626;
+}
