@@ -2,13 +2,14 @@
 // Reads saved language from localStorage (`fgs_lang`), falls back to `'en'`.
 // Sets `<html dir>` based on language so Urdu renders right-to-left.
 //
-// TRANSLATION SCOPE (pilot decision, July 2026): the STAFF UI
-// (src/app/pages/school/*) ships English-only for the Aug 2026 Iqra
-// Academy pilot — school staff work in English. Everything PARENT- or
-// STUDENT-facing (src/app/pages/portal/*, toolbar/setup strings staff
-// screens share with tours) must go through t() with en + ur entries.
-// Don't add ur keys for staff-only screens; do NOT hardcode English in
-// portal pages. Full staff translation is a post-pilot project.
+// TRANSLATION SCOPE (pilot decision, July 2026; amended Sep 2026): the
+// STAFF UI (src/app/pages/school/*) ships English-only for the pilot —
+// with ONE exception: the hifz teaching flow (`hifzTeach.*` keys —
+// dashboard banner, roster, log dialog), translated Sep 2026 because
+// hifz teachers are the staff most comfortable in Urdu (Muneeb, after
+// a hifz teacher switched to اردو and hit an English wall). Everything
+// PARENT- or STUDENT-facing (src/app/pages/portal/*) must go through
+// t() with en + ur entries. Full staff translation stays post-pilot.
 
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';

@@ -11,6 +11,7 @@
 // academic Quran/Nazra tracks keep the full six.
 
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Dialog,
   DialogContent,
@@ -62,23 +63,24 @@ interface Props {
   positionLabel?: string | null;
 }
 
-const TRIO: Array<{ value: HifzKind; label: string; hint: string }> = [
-  { value: "sabaq", label: "Sabaq", hint: "New lesson today" },
-  { value: "sabqi", label: "Sabqi", hint: "Recent revision" },
-  { value: "manzil", label: "Manzil", hint: "Older revision — by juz" },
+const TRIO: Array<{ value: HifzKind; labelKey: string; hintKey: string }> = [
+  { value: "sabaq", labelKey: "hifzTeach.sabaq", hintKey: "hifzTeach.sabaqHint" },
+  { value: "sabqi", labelKey: "hifzTeach.sabqi", hintKey: "hifzTeach.sabqiHint" },
+  { value: "manzil", labelKey: "hifzTeach.manzil", hintKey: "hifzTeach.manzilHint" },
 ];
-const EXTRA_KINDS: Array<{ value: HifzKind; label: string; hint: string }> = [
-  { value: "memorized", label: "Memorized", hint: "Newly memorized" },
-  { value: "revised", label: "Revised", hint: "General revision" },
-  { value: "tested", label: "Tested", hint: "Formal test" },
+// Academic Quran tracks only — plain strings pass through untranslated.
+const EXTRA_KINDS: Array<{ value: HifzKind; labelKey: string; hintKey: string }> = [
+  { value: "memorized", labelKey: "Memorized", hintKey: "Newly memorized" },
+  { value: "revised", labelKey: "Revised", hintKey: "General revision" },
+  { value: "tested", labelKey: "Tested", hintKey: "Formal test" },
 ];
 
-const QUALITY_OPTIONS: Array<{ value: HifzQuality; label: string }> = [
-  { value: "excellent", label: "Excellent" },
-  { value: "good", label: "Good" },
-  { value: "needs_practice", label: "Needs practice" },
-  { value: "weak", label: "Weak" },
-  { value: "not_learned", label: "Not learned today" },
+const QUALITY_OPTIONS: Array<{ value: HifzQuality; labelKey: string }> = [
+  { value: "excellent", labelKey: "hifzTeach.qExcellent" },
+  { value: "good", labelKey: "hifzTeach.qGood" },
+  { value: "needs_practice", labelKey: "hifzTeach.qNeedsPractice" },
+  { value: "weak", labelKey: "hifzTeach.qWeak" },
+  { value: "not_learned", labelKey: "hifzTeach.qNotLearned" },
 ];
 
 // Standard (hafs) juz start positions — used as the stored position
@@ -124,6 +126,7 @@ export function HifzLogEntry({
   onNextStudent = null,
   positionLabel = null,
 }: Props) {
+  const { t } = useTranslation();
   const [surahNumber, setSurahNumber] = useState<number>(1);
   const [ayahFrom, setAyahFrom] = useState<number>(1);
   const [ayahTo, setAyahTo] = useState<number>(1);
@@ -322,11 +325,11 @@ export function HifzLogEntry({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Log hifz — {studentName}</DialogTitle>
+          <DialogTitle>{t("hifzTeach.dialogTitle", { name: studentName })}</DialogTitle>
           <DialogDescription>
             {positionLabel ? `${positionLabel} · ` : ""}
             {hifzOnly
-              ? "Record today's sabaq, sabqi, or manzil."
+              ? t("hifzTeach.dialogHintHifz")
               : "Record sabaq, sabqi, manzil, or any hifz progress."}
           </DialogDescription>
         </DialogHeader>
@@ -334,7 +337,7 @@ export function HifzLogEntry({
         <div className="space-y-4">
           {/* Kind FIRST — it decides which fields make sense below. */}
           <div className="space-y-2">
-            <Label>Kind</Label>
+            <Label>{t("hifzTeach.kind")}</Label>
             <RadioGroup
               value={kind}
               onValueChange={(v) => setKind(v as HifzKind)}
@@ -350,8 +353,8 @@ export function HifzLogEntry({
                 >
                   <RadioGroupItem value={k.value} className="mt-0.5" />
                   <div>
-                    <p className="text-sm font-medium">{k.label}</p>
-                    <p className="text-xs text-muted-foreground">{k.hint}</p>
+                    <p className="text-sm font-medium">{k.labelKey.startsWith("hifzTeach.") ? t(k.labelKey) : k.labelKey}</p>
+                    <p className="text-xs text-muted-foreground">{k.hintKey.startsWith("hifzTeach.") ? t(k.hintKey) : k.hintKey}</p>
                   </div>
                 </label>
               ))}
@@ -367,9 +370,9 @@ export function HifzLogEntry({
                 onChange={(e) => setMissed(e.target.checked)}
               />
               <span className="text-sm text-rose-900">
-                <span className="font-medium">Missed sabaq today</span>
+                <span className="font-medium">{t("hifzTeach.missedToday")}</span>
                 <span className="ml-1 text-xs text-rose-700">
-                  — record the absence so it shows in the parent's 14-day grid
+                  {t("hifzTeach.missedHint")}
                 </span>
               </span>
             </label>
@@ -378,31 +381,31 @@ export function HifzLogEntry({
           {/* Standing assignment (from the previous sabaq log). */}
           {isSabaq && lastAssigned && !missed && (
             <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 px-3 py-2 text-sm text-indigo-900">
-              Assigned last time: <span className="font-medium">{lastAssigned}</span>
-              {parseNextSabaq(lastAssigned) ? " — prefilled below." : ""}
+              {t("hifzTeach.assignedLastTime")} <span className="font-medium">{lastAssigned}</span>
+              {parseNextSabaq(lastAssigned) ? ` ${t("hifzTeach.prefilledBelow")}` : ""}
             </div>
           )}
 
           {isManzil ? (
             <div className="space-y-1">
-              <Label>Which juz (para) was revised?</Label>
+              <Label>{t("hifzTeach.whichJuz")}</Label>
               <Select
                 value={manzilJuz === "" ? "" : String(manzilJuz)}
                 onValueChange={(v) => setManzilJuz(Number(v))}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Pick a juz…" />
+                  <SelectValue placeholder={t("hifzTeach.pickJuz")} />
                 </SelectTrigger>
                 <SelectContent className="max-h-64">
                   {Array.from({ length: 30 }, (_, i) => i + 1).map((j) => (
                     <SelectItem key={j} value={String(j)}>
-                      Juz {j}
+                      {t("hifzTeach.juzN", { n: j })}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                Manzil is older revision — tracked per juz, no ayah typing needed.
+                {t("hifzTeach.manzilNote")}
               </p>
             </div>
           ) : (
@@ -410,7 +413,7 @@ export function HifzLogEntry({
               <>
                 <div className="space-y-1">
                   <Label>
-                    {isSabaq ? "Today's sabaq — surah" : kind === "sabqi" ? "Sabqi portion — surah" : "Surah"}
+                    {isSabaq ? t("hifzTeach.sabaqSurah") : kind === "sabqi" ? t("hifzTeach.sabqiSurah") : t("hifzTeach.surah")}
                   </Label>
                   <Select
                     value={String(surahNumber)}
@@ -436,7 +439,7 @@ export function HifzLogEntry({
 
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <Label>Ayah from</Label>
+                    <Label>{t("hifzTeach.ayahFrom")}</Label>
                     <Input
                       type="number"
                       inputMode="numeric"
@@ -449,7 +452,7 @@ export function HifzLogEntry({
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label>Ayah to</Label>
+                    <Label>{t("hifzTeach.ayahTo")}</Label>
                     <Input
                       type="number"
                       inputMode="numeric"
@@ -469,7 +472,7 @@ export function HifzLogEntry({
           )}
 
           <div className="space-y-1">
-            <Label>Quality (optional)</Label>
+            <Label>{t("hifzTeach.quality")}</Label>
             <Select
               value={quality || "__none__"}
               onValueChange={(v) =>
@@ -477,13 +480,13 @@ export function HifzLogEntry({
               }
             >
               <SelectTrigger>
-                <SelectValue placeholder="Not rated" />
+                <SelectValue placeholder={t("hifzTeach.notRated")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="__none__">Not rated</SelectItem>
+                <SelectItem value="__none__">{t("hifzTeach.notRated")}</SelectItem>
                 {QUALITY_OPTIONS.map((q) => (
                   <SelectItem key={q.value} value={q.value}>
-                    {q.label}
+                    {t(q.labelKey)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -503,7 +506,7 @@ export function HifzLogEntry({
                   onChange={(e) => setAssignOn(e.target.checked)}
                 />
                 <span className="text-sm font-medium text-indigo-900">
-                  Assign next sabaq (the student's next lesson)
+                  {t("hifzTeach.assignNext")}
                 </span>
               </label>
               {assignOn && (
@@ -556,7 +559,7 @@ export function HifzLogEntry({
                     </div>
                   </div>
                   <p className="text-[11px] text-indigo-800">
-                    Saved as the standing lesson — prefilled next time you log this student's sabaq, and shown to the parent as tomorrow's target.
+                    {t("hifzTeach.assignHint")}
                   </p>
                 </div>
               )}
@@ -569,25 +572,25 @@ export function HifzLogEntry({
               note, targets, missed reason, parent_comments) live in Advanced.
               All previous fields still send — backend/storage unchanged. */}
           <div className="space-y-1">
-            <Label>Note (parent-visible)</Label>
+            <Label>{t("hifzTeach.parentNote")}</Label>
             <Textarea
               value={teacherRemarks}
               onChange={(e) => setTeacherRemarks(e.target.value)}
               rows={3}
-              placeholder="One short summary the parent will read"
+              placeholder={t("hifzTeach.parentNotePh")}
             />
           </div>
 
           <div className="space-y-1 rounded-lg border border-emerald-200 bg-emerald-50/40 p-3">
-            <Label className="text-emerald-900">What should the parent do tonight? (optional)</Label>
+            <Label className="text-emerald-900">{t("hifzTeach.parentTonight")}</Label>
             <Input
               value={parentAction}
               onChange={(e) => setParentAction(e.target.value)}
-              placeholder="e.g. Revise Surah Al-Mulk after Maghrib"
+              placeholder={t("hifzTeach.parentTonightPh")}
               className="bg-white"
             />
             <p className="text-[11px] text-emerald-800">
-              Shows on the parent portal as a green &quot;What to do tonight&quot; card.
+              {t("hifzTeach.parentTonightHint")}
             </p>
           </div>
 
@@ -598,7 +601,7 @@ export function HifzLogEntry({
             onClick={() => setAdvancedOpen((v) => !v)}
             className="w-full text-left text-xs font-medium text-indigo-700 hover:underline"
           >
-            {advancedOpen ? "− Hide" : "+ Show"} advanced fields (mistakes / tajweed / targets)
+            {advancedOpen ? t("hifzTeach.advancedHide") : t("hifzTeach.advancedShow")}
           </button>
 
           {advancedOpen && (
@@ -720,21 +723,21 @@ export function HifzLogEntry({
 
         <DialogFooter className="flex-wrap gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t("hifzTeach.cancel")}
           </Button>
           <Button variant="outline" onClick={() => void handleSubmit("kind")} disabled={submitting}>
-            {submitting ? "Saving…" : "Save · next kind"}
+            {submitting ? t("hifzTeach.saving") : t("hifzTeach.saveNextKind")}
           </Button>
           <Button
             variant={onNextStudent ? "outline" : "default"}
             onClick={() => void handleSubmit("close")}
             disabled={submitting}
           >
-            {submitting ? "Saving…" : "Save & close"}
+            {submitting ? t("hifzTeach.saving") : t("hifzTeach.saveClose")}
           </Button>
           {onNextStudent && (
             <Button onClick={() => void handleSubmit("student")} disabled={submitting}>
-              {submitting ? "Saving…" : "Save · next student →"}
+              {submitting ? t("hifzTeach.saving") : t("hifzTeach.saveNextStudent")}
             </Button>
           )}
         </DialogFooter>

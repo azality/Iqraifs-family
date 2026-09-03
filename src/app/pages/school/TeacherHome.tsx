@@ -10,6 +10,7 @@
 // teacher-relevant pieces and links into existing per-section pages.
 
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, useParams, useLocation } from "react-router";
 import { UpNextCard } from "../../components/school-ui/UpNextCard";
 import {
@@ -103,6 +104,7 @@ function timeAgo(iso: string): string {
 }
 
 export function TeacherHome({ orgId, me }: Props) {
+  const { t } = useTranslation();
   const [sections, setSections] = useState<LeaderboardRow[] | null>(null);
   // Hifz daily banner (pilot: "Start today's round should be at the top
   // of MY dashboard"). Per hifz section the teacher works in: how many
@@ -490,17 +492,17 @@ export function TeacherHome({ orgId, me }: Props) {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <div className="font-medium">
-                {h.label} — aaj ka sabaq: {h.heard} of {h.total} students heard
+                {t("hifzTeach.banner", { label: h.label, heard: h.heard, total: h.total })}
               </div>
               <div className="text-xs text-emerald-700">
-                Sabaq · sabqi · manzil — one student at a time, "Save · next student" walks the class.
+                {t("hifzTeach.bannerHint")}
               </div>
             </div>
             <Link
               to={`/school/orgs/${orgId}/sections/${h.sectionId}/hifz?round=1`}
               className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
             >
-              Start today's round →
+              {t("hifzTeach.startRound")}
             </Link>
           </div>
         </div>
@@ -724,7 +726,7 @@ export function TeacherHome({ orgId, me }: Props) {
                             className="inline-flex flex-[2] items-center justify-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
                           >
                             <BookMarked className="h-3.5 w-3.5" />
-                            Sunain — sabaq · sabqi · manzil
+                            {t("hifzTeach.sunainBtn")}
                           </Link>
                           {isOwn && (
                             <Link
@@ -732,7 +734,7 @@ export function TeacherHome({ orgId, me }: Props) {
                               className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
                             >
                               <CheckCircle className="h-3.5 w-3.5" />
-                              Attendance
+                              {t("hifzTeach.attendanceBtn")}
                             </Link>
                           )}
                         </>
