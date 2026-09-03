@@ -4,7 +4,7 @@
 // a row to open the HifzLogEntry modal pre-filled for that student.
 
 import { useEffect, useMemo, useState } from "react";
-import { Link, Navigate, useParams } from "react-router";
+import { Link, Navigate, useParams, useSearchParams } from "react-router";
 import { Button } from "../../components/ui/button";
 import { ArrowUpDown } from "lucide-react";
 import {
@@ -40,6 +40,10 @@ function formatDate(iso: string | null): string {
 
 export function SectionHifzOverview() {
   const { orgId = "", sectionId = "" } = useParams();
+  // ?round=1 (from the dashboard banner) auto-starts today's round once
+  // the roster is loaded — the dialog opens on the first student.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [roundConsumed, setRoundConsumed] = useState(false);
   const [me, setMe] = useState<SchoolMeResponse | null>(null);
   const [meLoading, setMeLoading] = useState(true);
   const [students, setStudents] = useState<SectionHifzSummaryRow[]>([]);
@@ -108,6 +112,18 @@ export function SectionHifzOverview() {
     });
     return arr;
   }, [students, sortKey, sortDir]);
+
+  useEffect(() => {
+    if (roundConsumed || searchParams.get("round") !== "1") return;
+    if (loading || sorted.length === 0) return;
+    setRoundConsumed(true);
+    setLogRoster(sorted);
+    setLogTarget(sorted[0]);
+    const next = new URLSearchParams(searchParams);
+    next.delete("round");
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, sorted, roundConsumed, searchParams]);
 
   if (meLoading) return null;
   if (!me) return <Navigate to="/school" replace />;

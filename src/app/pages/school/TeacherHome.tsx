@@ -41,6 +41,7 @@ import {
   type TeacherSnapshot,
   getSectionBehaviorNotes,
   type LeaderboardRow,
+  getSectionHifzSummary,
   type BehaviorNote,
   type SchoolMeResponse,
   createMyTimeOff,
@@ -103,6 +104,37 @@ function timeAgo(iso: string): string {
 
 export function TeacherHome({ orgId, me }: Props) {
   const [sections, setSections] = useState<LeaderboardRow[] | null>(null);
+  // Hifz daily banner (pilot: "Start today's round should be at the top
+  // of MY dashboard"). Per hifz section the teacher works in: how many
+  // students have been heard today vs total.
+  const [hifzToday, setHifzToday] = useState<
+    Array<{ sectionId: string; label: string; heard: number; total: number }>
+  >([]);
+  useEffect(() => {
+    if (!orgId || !sections) return;
+    const hifzSecs = sections.filter(
+      (s) => (s as any).classKind === "hifz" || (s as any).scheduleKey === "hifz",
+    );
+    if (hifzSecs.length === 0) { setHifzToday([]); return; }
+    Promise.all(
+      hifzSecs.map(async (sec) => {
+        try {
+          const r = await getSectionHifzSummary(orgId, sec.sectionId);
+          const heard = r.students.filter(
+            (st) => st.today && (st.today.sabaq || st.today.sabqi || st.today.manzil),
+          ).length;
+          return {
+            sectionId: sec.sectionId,
+            label: `${sec.className} · ${sec.sectionName}`,
+            heard,
+            total: r.students.length,
+          };
+        } catch {
+          return null;
+        }
+      }),
+    ).then((rows) => setHifzToday(rows.filter((x): x is NonNullable<typeof x> => x !== null)));
+  }, [orgId, sections]);
   const [notes, setNotes] = useState<BehaviorNote[]>([]);
   const [mySubjects, setMySubjects] = useState<MySectionSubject[]>([]);
   const [snapshot, setSnapshot] = useState<TeacherSnapshot | null>(null);
@@ -450,6 +482,29 @@ export function TeacherHome({ orgId, me }: Props) {
           </div>
         </section>
       )}
+
+      {/* Hifz daily round — the day's actual work for a hifz teacher,
+          so it sits at the very top like the attendance nudge. */}
+      {!loading && hifzToday.map((h) => (
+        <div key={h.sectionId} className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="font-medium">
+                {h.label} — aaj ka sabaq: {h.heard} of {h.total} students heard
+              </div>
+              <div className="text-xs text-emerald-700">
+                Sabaq · sabqi · manzil — one student at a time, "Save · next student" walks the class.
+              </div>
+            </div>
+            <Link
+              to={`/school/orgs/${orgId}/sections/${h.sectionId}/hifz?round=1`}
+              className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+            >
+              Start today's round →
+            </Link>
+          </div>
+        </div>
+      ))}
 
       {/* Roll-call nudge */}
       {!loading && needRollCall.length > 0 && (
