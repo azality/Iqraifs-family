@@ -28,7 +28,7 @@
 
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
-import { hasAnyRoleInOrg as hasAnyOrgRole } from "./schoolAuth.ts";
+import { hasAnyRoleInOrg as hasAnyOrgRole, hasAdminOrPrincipal, inchargeClassIds } from "./schoolAuth.ts";
 
 export function installAcademics(school: Hono) {
   school.get("/orgs/:orgId/academics", async (c) => {
@@ -39,18 +39,45 @@ export function installAcademics(school: Hono) {
       return c.json({ error: "forbidden" }, 403);
     }
 
+    // Class scope (incharge lens, Sep 3 2026): admins/principals see the
+    // whole org; everyone else sees only classes they're attached to —
+    // their incharge wing plus the classes of sections they own/teach.
+    // Closes the "org-wide curriculum tile for an incharge" softness.
+    let allowedClassIds: Set<string> | null = null; // null = unrestricted
+    if (!(await hasAdminOrPrincipal(userId, orgId))) {
+      const ids = new Set<string>(await inchargeClassIds(userId, orgId));
+      const [{ data: owned }, { data: taught }] = await Promise.all([
+        serviceRoleClient.from("class_section")
+          .select("class_id, class:class_id!inner(org_id)")
+          .or(`class_teacher_user_id.eq.${userId},hifz_teacher_user_id.eq.${userId}`),
+        serviceRoleClient.from("section_subject")
+          .select("class_section:class_section_id(class_id)")
+          .eq("org_id", orgId).eq("teacher_user_id", userId).is("archived_at", null),
+      ]);
+      for (const r of (owned ?? []) as any[]) {
+        if (r.class?.org_id === orgId && r.class_id) ids.add(r.class_id);
+      }
+      for (const r of (taught ?? []) as any[]) {
+        if (r.class_section?.class_id) ids.add(r.class_section.class_id);
+      }
+      allowedClassIds = ids;
+    }
+
     // ────────────────────────────────────────────────────────────────────────
     // 1. Curriculum coverage. Sum topic counts across the LATEST curriculum
     //    per (class_subject_id) — older years are excluded so the rollup
     //    reflects "this year's syllabus", not historical totals.
     // ────────────────────────────────────────────────────────────────────────
 
-    // class_subjects in this org
-    const { data: classSubjects } = await serviceRoleClient
+    // class_subjects in this org (class-scoped for non-admin callers)
+    const { data: classSubjectsAll } = await serviceRoleClient
       .from("class_subject")
-      .select("id, name, class:class_id(name)")
+      .select("id, name, class_id, class:class_id(name)")
       .eq("org_id", orgId)
       .is("archived_at", null);
+    const classSubjects = ((classSubjectsAll ?? []) as any[]).filter(
+      (r) => allowedClassIds === null || allowedClassIds.has(r.class_id),
+    );
     const csIds = (classSubjects ?? []).map((r: any) => r.id);
 
     // All curricula for those class_subjects, newest first → first-seen wins.

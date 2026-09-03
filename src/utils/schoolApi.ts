@@ -5399,3 +5399,20 @@ export const getAcademicsDay = (
   date?: string,
 ): Promise<AcademicsDayResponse> =>
   apiCall(`/school/orgs/${orgId}/academics-day${date ? `?date=${date}` : ""}`);
+
+// ── Right now (incharge/principal coverage view) ──────────────────────
+export interface NowSectionPeriod {
+  slotName: string; start: string; end: string;
+  subjectName: string | null; teacherName: string | null; room: string | null;
+  teacherOnLeave: boolean; substituteName: string | null; needsCover: boolean;
+}
+export interface NowSection {
+  sectionId: string; label: string; kind: string;
+  current: NowSectionPeriod | null;
+  next: NowSectionPeriod | null;
+  lessonsToday: Array<{ subjectName: string | null; title: string; topicName: string | null }>;
+}
+export const getNow = (
+  orgId: string,
+): Promise<{ date: string; time: string; dayOfWeek: number; sections: NowSection[] }> =>
+  apiCall(`/school/orgs/${orgId}/now`);
