@@ -5,6 +5,8 @@
 // The backend returns the same shape for both audiences.
 
 import { Link } from "react-router";
+import { useTranslation } from "react-i18next";
+import i18n from "../../../i18n";
 import {
   Calendar, BookOpen, MapPin, Clock,
   Video, FileText, ListChecks, Link2, FileQuestion,
@@ -12,15 +14,19 @@ import {
 } from "lucide-react";
 import type { LessonPrepItem } from "../../../utils/schoolApi";
 
-const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const DAY_KEYS = ["dayMon", "dayTue", "dayWed", "dayThu", "dayFri", "daySat", "daySun"];
 
 function fmtWhen(slot: LessonPrepItem["slot"]): string {
   const todayDow = ((new Date().getDay() + 6) % 7) + 1;
-  const dayLabel = slot.dayOfWeek === todayDow ? "Today" : DAY_NAMES[slot.dayOfWeek - 1];
+  const dayLabel = slot.dayOfWeek === todayDow
+    ? i18n.t("upNext.today")
+    : i18n.t(`upNext.${DAY_KEYS[slot.dayOfWeek - 1]}`);
   return `${dayLabel} · ${slot.startTime.slice(0, 5)}–${slot.endTime.slice(0, 5)}`;
 }
 
-function fmtMinutesUntil(slot: LessonPrepItem["slot"]): string | null {
+function fmtMinutesUntil(
+  slot: LessonPrepItem["slot"],
+): { label: string; active: boolean } | null {
   const todayDow = ((new Date().getDay() + 6) % 7) + 1;
   if (slot.dayOfWeek !== todayDow) return null;
   const now = new Date();
@@ -28,11 +34,16 @@ function fmtMinutesUntil(slot: LessonPrepItem["slot"]): string | null {
   const [h, m] = slot.startTime.split(":").map((n) => parseInt(n, 10) || 0);
   const startM = h * 60 + m;
   const diff = startM - nowM;
-  if (diff <= 0) return "In progress";
-  if (diff < 60) return `In ${diff} min`;
+  if (diff <= 0) return { label: i18n.t("upNext.inProgress"), active: true };
+  if (diff < 60) return { label: i18n.t("upNext.inMin", { m: diff }), active: false };
   const hh = Math.floor(diff / 60);
   const mm = diff % 60;
-  return `In ${hh}h${mm ? ` ${mm}m` : ""}`;
+  return {
+    label: mm
+      ? i18n.t("upNext.inHM", { h: hh, m: mm })
+      : i18n.t("upNext.inH", { h: hh }),
+    active: false,
+  };
 }
 
 interface Props {
@@ -47,12 +58,13 @@ interface Props {
 }
 
 export function UpNextCard({ items, audience, orgId, studentId }: Props) {
+  const { t } = useTranslation();
   if (items.length === 0) {
     return (
       <section className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-4 shadow-sm">
         <div className="text-sm text-emerald-900 inline-flex items-center gap-2">
           <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-          {audience === "teacher" ? "All done for today — no more classes." : "No more classes today."}
+          {audience === "teacher" ? t("upNext.allDoneTeacher") : t("upNext.allDoneStudent")}
         </div>
       </section>
     );
@@ -63,18 +75,18 @@ export function UpNextCard({ items, audience, orgId, studentId }: Props) {
       <div className="mb-3 flex items-center justify-between">
         <h2 className="inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-slate-700">
           <Calendar className="h-4 w-4 text-indigo-500" />
-          Up next ({items.length})
+          {t("upNext.heading", { count: items.length })}
         </h2>
         {audience === "teacher" && orgId && (
           <Link to={`/school/orgs/${orgId}/my-schedule`}
                 className="text-xs text-indigo-600 hover:text-indigo-800 underline">
-            See full week →
+            {t("upNext.seeFullWeek")}
           </Link>
         )}
         {audience === "student" && studentId && (
           <Link to={`/school-portal/students/${studentId}/timetable`}
                 className="text-xs text-indigo-600 hover:text-indigo-800 underline">
-            See full week →
+            {t("upNext.seeFullWeek")}
           </Link>
         )}
       </div>
@@ -94,6 +106,7 @@ function UpNextItem({ item, audience, orgId, studentId }: {
   orgId?: string;
   studentId?: string;
 }) {
+  const { t } = useTranslation();
   const when = fmtWhen(item.slot);
   const inMin = fmtMinutesUntil(item.slot);
 
@@ -104,12 +117,12 @@ function UpNextItem({ item, audience, orgId, studentId }: {
         <div className="flex items-center gap-2 flex-wrap text-sm">
           <span className="inline-flex items-center gap-1 font-semibold text-slate-900">
             <BookOpen className="h-3.5 w-3.5 text-indigo-500" />
-            {item.subjectName ?? "Class"}
+            {item.subjectName ?? t("upNext.classFallback")}
           </span>
           <span className="text-slate-600">{item.scopeLabel}</span>
           {item.room && (
             <span className="inline-flex items-center gap-1 text-xs text-slate-500">
-              <MapPin className="h-3 w-3" /> Room {item.room}
+              <MapPin className="h-3 w-3" /> {t("upNext.room", { room: item.room })}
             </span>
           )}
         </div>
@@ -120,11 +133,11 @@ function UpNextItem({ item, audience, orgId, studentId }: {
           {inMin && (
             <span className={
               "text-[11px] font-medium px-2 py-0.5 rounded-full " +
-              (inMin === "In progress"
+              (inMin.active
                 ? "bg-emerald-100 text-emerald-800"
                 : "bg-indigo-100 text-indigo-800")
             }>
-              {inMin}
+              {inMin.label}
             </span>
           )}
         </div>
@@ -136,19 +149,19 @@ function UpNextItem({ item, audience, orgId, studentId }: {
         {item.resources.total > 0 && (
           <div className="flex items-center gap-2 text-[11px] text-slate-600">
             {item.resources.worksheets > 0 && (
-              <Chip Icon={FileText} label={`${item.resources.worksheets} worksheet${item.resources.worksheets === 1 ? "" : "s"}`} />
+              <Chip Icon={FileText} label={t("upNext.worksheets", { count: item.resources.worksheets })} />
             )}
             {item.resources.videos > 0 && (
-              <Chip Icon={Video} label={`${item.resources.videos} video${item.resources.videos === 1 ? "" : "s"}`} />
+              <Chip Icon={Video} label={t("upNext.videos", { count: item.resources.videos })} />
             )}
             {item.resources.quizzes > 0 && (
-              <Chip Icon={FileQuestion} label={`${item.resources.quizzes} quiz${item.resources.quizzes === 1 ? "" : "zes"}`} />
+              <Chip Icon={FileQuestion} label={t("upNext.quizzes", { count: item.resources.quizzes })} />
             )}
             {item.resources.pdfs > 0 && (
-              <Chip Icon={FileText} label={`${item.resources.pdfs} PDF${item.resources.pdfs === 1 ? "" : "s"}`} />
+              <Chip Icon={FileText} label={t("upNext.pdfs", { count: item.resources.pdfs })} />
             )}
             {item.resources.links > 0 && (
-              <Chip Icon={Link2} label={`${item.resources.links} link${item.resources.links === 1 ? "" : "s"}`} />
+              <Chip Icon={Link2} label={t("upNext.links", { count: item.resources.links })} />
             )}
           </div>
         )}
@@ -163,6 +176,7 @@ function UpNextItem({ item, audience, orgId, studentId }: {
 }
 
 function PrepStateBadge({ item, audience }: { item: LessonPrepItem; audience: "teacher" | "student" }) {
+  const { t } = useTranslation();
   // "Planned" = the teacher chose this topic for this day (target_date);
   // otherwise it's the next topic in sequence. Teachers see the
   // distinction; students just see the topic.
@@ -171,7 +185,7 @@ function PrepStateBadge({ item, audience }: { item: LessonPrepItem; audience: "t
     return (
       <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">
         <CheckCircle2 className="h-3 w-3" />
-        Lesson ready · {item.lesson?.title ?? item.topic?.name ?? "topic"}{planned ? " · planned" : ""}
+        {t("upNext.lessonReady")} · {item.lesson?.title ?? item.topic?.name ?? t("upNext.topicFallback")}{planned ? ` · ${t("upNext.plannedTag")}` : ""}
       </span>
     );
   }
@@ -179,8 +193,10 @@ function PrepStateBadge({ item, audience }: { item: LessonPrepItem; audience: "t
     return (
       <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full">
         <Lightbulb className="h-3 w-3" />
-        {audience === "teacher" ? (planned ? "Planned:" : "Prepare (next in sequence):") : "Topic:"}{" "}
-        {item.topic?.name ?? "next topic"}
+        {audience === "teacher"
+          ? (planned ? t("upNext.plannedPrefix") : t("upNext.preparePrefix"))
+          : t("upNext.topicPrefix")}{" "}
+        {item.topic?.name ?? t("upNext.nextTopic")}
       </span>
     );
   }
@@ -188,14 +204,14 @@ function PrepStateBadge({ item, audience }: { item: LessonPrepItem; audience: "t
     return (
       <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full">
         <ListChecks className="h-3 w-3" />
-        {audience === "teacher" ? "No topics left — all ticked done, or no syllabus yet" : "Topic to be announced"}
+        {audience === "teacher" ? t("upNext.noTopicsLeft") : t("upNext.topicTBA")}
       </span>
     );
   }
   return (
     <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
       <AlertCircle className="h-3 w-3" />
-      Subject not assigned
+      {t("upNext.subjectNotAssigned")}
     </span>
   );
 }
@@ -206,6 +222,7 @@ function UpNextCta({ item, audience, orgId, studentId }: {
   orgId?: string;
   studentId?: string;
 }) {
+  const { t } = useTranslation();
   if (audience === "teacher" && orgId) {
     // NOTE: these previously pointed at /admin/lessons/* — routes that
     // never existed, so tapping them rendered a blank shell (pilot
@@ -215,7 +232,7 @@ function UpNextCta({ item, audience, orgId, studentId }: {
       return (
         <Link to={`/school/orgs/${orgId}/lessons/${item.lesson.id}/edit`}
               className="inline-flex items-center gap-1 text-xs font-medium text-indigo-700 hover:text-indigo-900">
-          Review lesson <ChevronRight className="h-3 w-3" />
+          {t("upNext.reviewLesson")} <ChevronRight className="h-3 w-3" />
         </Link>
       );
     }
@@ -226,7 +243,7 @@ function UpNextCta({ item, audience, orgId, studentId }: {
       return (
         <Link to={`/school/orgs/${orgId}/sections/${item.sectionId}/lessons/new?${q}`}
               className="inline-flex items-center gap-1 text-xs font-medium text-amber-800 hover:text-amber-950">
-          Prepare lesson <ChevronRight className="h-3 w-3" />
+          {t("upNext.prepareLesson")} <ChevronRight className="h-3 w-3" />
         </Link>
       );
     }
@@ -238,7 +255,7 @@ function UpNextCta({ item, audience, orgId, studentId }: {
       return (
         <Link to={`/school-portal/students/${studentId}/topics/${item.topic.id}`}
               className="inline-flex items-center gap-1 text-xs font-medium text-indigo-700 hover:text-indigo-900">
-          Open resources <ChevronRight className="h-3 w-3" />
+          {t("upNext.openResources")} <ChevronRight className="h-3 w-3" />
         </Link>
       );
     }
@@ -246,7 +263,7 @@ function UpNextCta({ item, audience, orgId, studentId }: {
       return (
         <Link to={`/school-portal/students/${studentId}/lessons/${item.lesson.id}`}
               className="inline-flex items-center gap-1 text-xs font-medium text-indigo-700 hover:text-indigo-900">
-          Open lesson <ChevronRight className="h-3 w-3" />
+          {t("upNext.openLesson")} <ChevronRight className="h-3 w-3" />
         </Link>
       );
     }
