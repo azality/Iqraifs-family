@@ -11,6 +11,7 @@
 //      enriched with parent-friendly comments.
 
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useParams } from "react-router";
 import {
   BookOpen,
@@ -22,6 +23,7 @@ import {
   ChevronUp,
 } from "lucide-react";
 import { DataTable, HeroCard } from "../../components/school-ui";
+import { formatJuzExtent } from "../../../utils/hifzExtent";
 import {
   getMyStudentHifz,
   type MyStudentHifzResponse,
@@ -292,6 +294,7 @@ function TodayCard({ today }: { today: MyStudentHifzToday }) {
 }
 
 export function StudentHifz() {
+  const { t } = useTranslation();
   const { studentId = "" } = useParams<{ studentId: string }>();
   const [data, setData] = useState<MyStudentHifzResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -390,10 +393,10 @@ export function StudentHifz() {
             emptyMessage="No hifz entries yet."
             columns={[
               {
-                key: "recorded_at",
+                key: "recordedAt",
                 header: "Date",
                 width: "w-28",
-                cell: (r) => new Date(r.recorded_at).toLocaleDateString(),
+                cell: (r) => new Date(r.recordedAt).toLocaleDateString(),
               },
               {
                 key: "kind",
@@ -406,9 +409,16 @@ export function StudentHifz() {
                 ),
               },
               {
-                key: "surah_number",
+                key: "surahNumber",
                 header: "Surah",
-                cell: (r) => <span className="text-sm">{surahLabel(r.surah_number)}</span>,
+                cell: (r) =>
+                  r.juzExtent && r.juzNumber ? (
+                    <span className="text-sm">
+                      {t("hifzTeach.juzN", { n: r.juzNumber })}
+                    </span>
+                  ) : (
+                    <span className="text-sm">{surahLabel(r.surahNumber)}</span>
+                  ),
               },
               {
                 key: "ayahs",
@@ -416,7 +426,9 @@ export function StudentHifz() {
                 width: "w-24",
                 cell: (r) => (
                   <span className="tabular-nums text-sm">
-                    {r.ayah_from}–{r.ayah_to}
+                    {r.juzExtent
+                      ? formatJuzExtent(r.juzExtent).replace(/^ — /, "")
+                      : `${r.ayahFrom}–${r.ayahTo}`}
                   </span>
                 ),
               },

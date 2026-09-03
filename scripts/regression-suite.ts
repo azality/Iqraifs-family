@@ -908,6 +908,67 @@ await check("27. portal privacy: internal notes stripped, student concern/fee ga
   }
 });
 
+await check("28. hifz sabqi-by-para: juzExtent stored, returned, portal-visible; bad values rejected", async () => {
+  // Para-based sabqi (pilot: Qari Waqar) — juz_number + juz_extent with
+  // the juz-start marker in surah/ayah. Backend must round-trip the
+  // extent and degrade invalid values to null instead of erroring.
+  const mk = await api(teacher.token, `/school/orgs/${ORG}/hifz-progress`, {
+    method: "POST",
+    body: JSON.stringify({
+      studentId: pStu1, surahNumber: 58, ayahFrom: 1, ayahTo: 1,
+      kind: "sabqi", juzNumber: 28, juzExtent: "half", quality: "good",
+    }),
+  });
+  const mkJ = await mk.json();
+  assert(mk.status === 201, `para sabqi create ${mk.status}`);
+  const id1 = mkJ.entry?.id;
+  const mk2 = await api(teacher.token, `/school/orgs/${ORG}/hifz-progress`, {
+    method: "POST",
+    body: JSON.stringify({
+      studentId: pStu1, surahNumber: 78, ayahFrom: 1, ayahTo: 1,
+      kind: "sabqi", juzNumber: 30, juzExtent: "to_surah:95",
+    }),
+  });
+  const mk2J = await mk2.json();
+  assert(mk2.status === 201, `to_surah sabqi create ${mk2.status}`);
+  const id2 = mk2J.entry?.id;
+  // Invalid extent degrades to null, never a 500.
+  const mk3 = await api(teacher.token, `/school/orgs/${ORG}/hifz-progress`, {
+    method: "POST",
+    body: JSON.stringify({
+      studentId: pStu1, surahNumber: 1, ayahFrom: 1, ayahTo: 1,
+      kind: "sabqi", juzNumber: 1, juzExtent: "banana; drop table--",
+    }),
+  });
+  const mk3J = await mk3.json();
+  assert(mk3.status === 201, `bad-extent create ${mk3.status}`);
+  const id3 = mk3J.entry?.id;
+  try {
+    // Staff read returns the extent.
+    const list = await api(teacher.token, `/school/orgs/${ORG}/students/${pStu1}/hifz-progress?limit=10`);
+    const listJ = await list.json();
+    assert(list.status === 200, `hifz list ${list.status}`);
+    const e1 = (listJ.entries ?? []).find((e: any) => e.id === id1);
+    const e2 = (listJ.entries ?? []).find((e: any) => e.id === id2);
+    const e3 = (listJ.entries ?? []).find((e: any) => e.id === id3);
+    assert(e1?.juzExtent === "half" && e1?.juzNumber === 28, `extent half round-trip: ${JSON.stringify(e1?.juzExtent)}`);
+    assert(e2?.juzExtent === "to_surah:95", `to_surah round-trip: ${JSON.stringify(e2?.juzExtent)}`);
+    assert(e3 && e3.juzExtent == null, `bad extent should store null, got ${JSON.stringify(e3?.juzExtent)}`);
+    // Portal sees juzExtent (it's the position reference, parent-visible).
+    const pTok = (await (await pinLogin(PARENT_PHONE, "3456")).json()).token;
+    const pr = await fetch(`${FUNC}/school/pin-me/students/${pStu1}/hifz`, {
+      headers: { apikey: ANON, "X-Pin-Token": pTok },
+    });
+    const prRaw = await pr.text();
+    assert(pr.status === 200, `portal hifz ${pr.status}`);
+    assert(prRaw.includes('"juzExtent":"half"'), "juzExtent missing from portal payload");
+  } finally {
+    for (const id of [id1, id2, id3]) {
+      if (id) await admin.from("hifz_progress").delete().eq("id", id);
+    }
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

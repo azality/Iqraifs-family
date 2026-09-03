@@ -247,6 +247,7 @@ function hifzToJson(r: any) {
     tajweedNotes: r.tajweed_notes ?? null,
     fluencyNotes: r.fluency_notes ?? null,
     juzNumber: r.juz_number ?? null,
+    juzExtent: r.juz_extent ?? null,
     pageNumber: r.page_number ?? null,
     mistakesCount: r.mistakes_count ?? null,
     dailyTarget: r.daily_target ?? null,
