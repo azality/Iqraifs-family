@@ -269,10 +269,29 @@ export function RootLayout() {
     navigate(target);
   };
 
-  // Mobile bottom nav. In school workspace we collapse it to a single
-  // "Dashboard → /school" pill (everything reachable inside that page).
+  // Mobile bottom nav. School workspace gets real role-aware tabs
+  // (design review P0: a principal on a phone had ONE "Dashboard" pill
+  // and a drawer for everything else): Home + the first three nav
+  // groups, each tab landing on its group's first destination. "More"
+  // still opens the full drawer.
   const quickAccess = isSchoolWorkspace
-    ? schoolNavGroups[0].items
+    ? [
+        {
+          name: 'Home',
+          href: schoolOrgId ? `/school/orgs/${schoolOrgId}` : '/school',
+          icon: School,
+          childAccess: false,
+        },
+        ...visibleGroups
+          .filter((g) => g.items.length > 0)
+          .slice(0, 3)
+          .map((g) => ({
+            name: g.label,
+            href: g.items[0].href,
+            icon: g.items[0].icon,
+            childAccess: false,
+          })),
+      ]
     : (isKidMode ? kidQuickAccess : parentQuickAccess);
 
   return (
@@ -746,7 +765,7 @@ export function RootLayout() {
 
       {/* =============== Mobile Bottom Navigation =============== */}
       <div className="sm:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-200 z-20 shadow-[0_-4px_12px_rgba(0,0,0,0.04)]">
-        <div className="grid grid-cols-4 gap-0.5 px-2 py-1.5">
+        <div className={cn("grid gap-0.5 px-2 py-1.5", quickAccess.length >= 4 ? "grid-cols-5" : "grid-cols-4")}>
           {quickAccess.map((item) => {
             const Icon = item.icon;
             const href = getHref(item);
