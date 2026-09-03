@@ -146,7 +146,7 @@ export function PermissionsEditor() {
     <div className="space-y-4">
       <HeroCard
         title="Role permissions"
-        subtitle="Toggle what each role can do — saved as overrides to the system defaults. Incharge isn't listed: an incharge's access comes from their wing (People → Teachers → crown icon), not org-wide toggles."
+        subtitle="Toggle what each role can do — saved as overrides to the system defaults. Incharge: these toggles govern org-level features only (e.g. fees); which CLASSES an incharge sees comes from their wing (People → Teachers → crown icon)."
         rightSlot={
           <div className="flex gap-2 items-center">
             <span className="inline-flex items-center gap-1 rounded-full bg-white/10 border border-white/20 px-2 py-0.5 text-xs text-white">

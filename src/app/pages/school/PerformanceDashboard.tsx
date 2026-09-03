@@ -76,6 +76,8 @@ import {
 import { SetupChecklist, setupChecklistDismissed, PendingTimeOffWidget, TermSwitchNudge } from "../../components/school-ui";
 import { AttendanceDayNotes } from "./AttendanceDayNotes";
 import { RightNowPanel } from "./RightNowPanel";
+import { useOrgPermission } from "./useOrgPermission";
+import { viewerRoleForOrg as resolveViewerRole } from "../../../utils/schoolApi";
 import { RoleTour } from "../../components/RoleTour";
 import { pickTourForUser } from "../../../utils/tours";
 
@@ -782,6 +784,7 @@ export function PerformanceDashboard() {
   // Phase 6a: academic aggregates (curriculum coverage, resources, hygiene,
   // subjects at risk). Loaded in parallel with the existing dashboard fetch.
   const [academics, setAcademics] = useState<AcademicsResponse | null>(null);
+
   const [atRisk, setAtRisk] = useState<AtRiskAttendanceResponse | null>(null);
   const [todayOps, setTodayOps] = useState<TodayOpsResponse | null>(null);
   const [atRiskPeriod, setAtRiskPeriod] = useState<string>("TERM");
@@ -790,6 +793,15 @@ export function PerformanceDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [me, setMe] = useState<SchoolMeResponse | null>(null);
+  // Permission-aware tiles (pilot Sep 3, from the incharge review): a
+  // tile a role has no business with (fees for an incharge) hides
+  // unless the principal grants that permission in Admin -> Role
+  // permissions. Admin/principal short-circuit to true inside the hook.
+  const fullViewerRole = me ? resolveViewerRole(me, orgId) : null;
+  const canFees = useOrgPermission(orgId, fullViewerRole, "mark_fees_status");
+  const canApprovals = useOrgPermission(orgId, fullViewerRole, "manage_students");
+  const canForms = useOrgPermission(orgId, fullViewerRole, "create_forms");
+  const canTeachers = useOrgPermission(orgId, fullViewerRole, "manage_teachers");
 
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null));
@@ -1152,13 +1164,13 @@ export function PerformanceDashboard() {
             <KpiTile label={t("dashboard.tiles.students")} tile={dashboard.tiles.students} Icon={Users} bound="current" to={`/school/orgs/${orgId}/admin/students`} />
             <KpiTile label={t("dashboard.tiles.attendanceToday")} tile={dashboard.tiles.attendanceToday} Icon={CheckCircle} asPercent bound="current" />
             <KpiTile label={t("dashboard.tiles.attendancePeriod")} tile={dashboard.tiles.attendancePeriod} Icon={TrendingUp} asPercent bound="period" />
-            <KpiTile label={t("dashboard.tiles.teachers")} tile={dashboard.tiles.teachers} Icon={GraduationCap} bound="current" to={`/school/orgs/${orgId}/admin/teachers`} />
+            {canTeachers && <KpiTile label={t("dashboard.tiles.teachers")} tile={dashboard.tiles.teachers} Icon={GraduationCap} bound="current" to={`/school/orgs/${orgId}/admin/teachers`} />}
             <KpiTile label={t("dashboard.tiles.behaviorScore")} tile={dashboard.tiles.behaviorScore} Icon={Sparkles} signed bound="period" />
-            <KpiTile label={t("dashboard.tiles.pendingApprovals")} tile={dashboard.tiles.pendingApprovals} Icon={Clock} bound="current" to={`/school/orgs/${orgId}/admin/roster-requests`} />
+            {canApprovals && <KpiTile label={t("dashboard.tiles.pendingApprovals")} tile={dashboard.tiles.pendingApprovals} Icon={Clock} bound="current" to={`/school/orgs/${orgId}/admin/roster-requests`} />}
             <KpiTile label={t("dashboard.tiles.concernsOpen")} tile={dashboard.tiles.concernsOpen} Icon={AlertTriangle} bound="period" />
-            <KpiTile label={t("dashboard.tiles.feesPaidPct")} tile={dashboard.tiles.feesPaidPct} Icon={DollarSign} asPercent bound="current" to={`/school/orgs/${orgId}/admin/fees`} />
+            {canFees && <KpiTile label={t("dashboard.tiles.feesPaidPct")} tile={dashboard.tiles.feesPaidPct} Icon={DollarSign} asPercent bound="current" to={`/school/orgs/${orgId}/admin/fees`} />}
             <KpiTile label={t("dashboard.tiles.hifzProgress")} tile={dashboard.tiles.hifzProgress} Icon={BookOpen} asPercent bound="current" to={`/school/orgs/${orgId}/admin/hifz-program`} />
-            <KpiTile label={t("dashboard.tiles.formsAwaiting")} tile={dashboard.tiles.formsAwaiting} Icon={FileText} bound="current" to={`/school/orgs/${orgId}/admin/forms`} />
+            {canForms && <KpiTile label={t("dashboard.tiles.formsAwaiting")} tile={dashboard.tiles.formsAwaiting} Icon={FileText} bound="current" to={`/school/orgs/${orgId}/admin/forms`} />}
             {/* Phase 6a: curriculum coverage + resources tiles */}
             {academics && (
               <>
