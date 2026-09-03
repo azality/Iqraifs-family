@@ -1351,6 +1351,49 @@ await check("37. teaching overview: principal org rows, incharge wing rows, offi
   }
 });
 
+await check("38. teacher alerts: stale gradebook surfaces on the (wing) dashboard", async () => {
+  // Deterministic trigger: an assignment due 8 days ago with no grades
+  // in the Sandbox wing -> the qa-incharge dashboard must carry the
+  // teacher_gradebook_stale alert. (Pace alert needs 3+ topics and the
+  // quiet-week alert needs 5+ scheduled periods, so neither fires from
+  // QA scaffolding - by design.)
+  const eightAgo = new Date(Date.now() - 8 * 86400e3).toISOString().slice(0, 10);
+  // Direct insert (check 34's password reset revokes teacher.token, so
+  // the API path would 401 here); created_by must be qa-teacher so the
+  // alert body names them.
+  const { data: probe, error: probeErr } = await admin.from("assignment").insert({
+    org_id: ORG, class_section_id: sandboxSec.id, section_subject_id: qaSs.id,
+    title: "QA stale-alert probe", kind: "homework", max_score: 10,
+    assigned_date: eightAgo, due_date: eightAgo, created_by: teacher.id,
+  }).select("id").single();
+  assert(!probeErr && probe?.id, `probe insert: ${probeErr?.message}`);
+  const probeId = probe.id;
+  // Arm qa-incharge on Sandbox.
+  const inch = await ensureUser("qa-incharge@azality.com", "QA Incharge", "class_teacher");
+  await admin.from("user_roles").update({ revoked_at: new Date().toISOString() })
+    .eq("user_id", inch.id).eq("scope_type", "organization").eq("scope_id", ORG).is("revoked_at", null);
+  const { data: exRow } = await admin.from("user_roles").select("id").eq("user_id", inch.id)
+    .eq("role_type", "incharge").eq("scope_type", "class").eq("scope_id", sandboxClass.id).maybeSingle();
+  if (exRow) await admin.from("user_roles").update({ revoked_at: null }).eq("id", exRow.id);
+  else await admin.from("user_roles").insert({
+    user_id: inch.id, role_type: "incharge", scope_type: "class",
+    scope_id: sandboxClass.id, granted_by: inch.id,
+  });
+  try {
+    const r = await api(inch.token, `/school/orgs/${ORG}/dashboard?period=MTD`);
+    const j = await r.json();
+    assert(r.status === 200, `dashboard ${r.status}`);
+    const stale = (j.alerts ?? []).find((a: any) => a.id === "teacher_gradebook_stale");
+    assert(stale, `stale-gradebook alert missing: ${JSON.stringify((j.alerts ?? []).map((a: any) => a.id))}`);
+    assert(String(stale.body).includes("QA Teacher"), `alert body missing teacher name: ${stale.body}`);
+    assert(String(stale.actionPath).includes("teaching-overview"), "alert should link to teaching overview");
+  } finally {
+    if (probeId) await admin.from("assignment").delete().eq("id", probeId);
+    await admin.from("user_roles").update({ revoked_at: new Date().toISOString() })
+      .eq("user_id", inch.id).eq("role_type", "incharge").is("revoked_at", null);
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
