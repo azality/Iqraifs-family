@@ -1870,6 +1870,14 @@ export interface AdminTeacher {
   inchargeClasses?: Array<{ id: string; name: string }>;
 }
 
+/** Teacher Track Record Phase 2 — one row per teacher, org-wide for
+ *  principals/admins, wing-scoped for incharges. */
+export const getTeachingOverview = (
+  orgId: string,
+  termId?: string,
+): Promise<any> =>
+  apiCall(`/school/orgs/${orgId}/teaching-overview${termId ? `?term=${termId}` : ""}`);
+
 /** Teacher Track Record Phase 1 — aggregated performance for one staff
  *  member (principal/admin only). Loosely typed; the tab renders what
  *  the backend computes. */

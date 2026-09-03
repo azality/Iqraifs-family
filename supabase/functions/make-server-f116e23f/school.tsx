@@ -29,7 +29,7 @@ import { installPhaseC } from "./schoolPhaseC.tsx";
 import { installPhaseC2 } from "./schoolPhaseC2.tsx";
 import { installPhaseCD } from "./schoolPhaseCD.tsx";
 import { installDashboard } from "./schoolDashboard.tsx";
-import { installTeacherPerf } from "./schoolTeacherPerf.tsx";
+import { installTeacherPerf, installTeachingOverview } from "./schoolTeacherPerf.tsx";
 import { installSubjects } from "./schoolSubjects.tsx";
 import { installCurriculum } from "./schoolCurriculum.tsx";
 import { installAcademics } from "./schoolAcademics.tsx";
@@ -3265,6 +3265,7 @@ installFinance(school);
 // -----------------------------------------------------------------------------
 installDashboard(school);
 installTeacherPerf(school);
+installTeachingOverview(school);
 
 // -----------------------------------------------------------------------------
 // Phase E — student/parent portal (PIN-authenticated read endpoints)
