@@ -1311,6 +1311,46 @@ await check("36. incharge lens: /now wing-scoped, academics rollup class-scoped"
   }
 });
 
+await check("37. teaching overview: principal org rows, incharge wing rows, office denied", async () => {
+  // Office staff: no track-record access.
+  const denied = await api(office.token, `/school/orgs/${ORG}/teaching-overview`);
+  assert(denied.status === 403, `office overview expected 403, got ${denied.status}`);
+  // Principal: org-wide rows with a sane shape; Sandbox (QA) hidden.
+  const r = await api(principal.token, `/school/orgs/${ORG}/teaching-overview`);
+  const j = await r.json();
+  assert(r.status === 200, `overview ${r.status}`);
+  assert(Array.isArray(j.rows) && j.rows.length > 3, `expected many rows, got ${(j.rows ?? []).length}`);
+  assert(j.wingScoped === false, "principal should not be wing-scoped");
+  const sample = j.rows[0];
+  for (const k of ["userId", "name", "paceDeltaPp", "lessonsPerWeek", "notes", "inRamp"]) {
+    assert(k in sample, `row missing ${k}`);
+  }
+  assert(!j.rows.some((x: any) => x.name === "QA Teacher"), "Sandbox teacher leaked into org overview");
+  // Incharge (wing = Sandbox): wing-scoped, and DOES see the QA teacher.
+  const inch = await ensureUser("qa-incharge@azality.com", "QA Incharge", "class_teacher");
+  await admin.from("user_roles").update({ revoked_at: new Date().toISOString() })
+    .eq("user_id", inch.id).eq("scope_type", "organization").eq("scope_id", ORG).is("revoked_at", null);
+  const { data: exRow } = await admin.from("user_roles").select("id").eq("user_id", inch.id)
+    .eq("role_type", "incharge").eq("scope_type", "class").eq("scope_id", sandboxClass.id).maybeSingle();
+  if (exRow) await admin.from("user_roles").update({ revoked_at: null }).eq("id", exRow.id);
+  else await admin.from("user_roles").insert({
+    user_id: inch.id, role_type: "incharge", scope_type: "class",
+    scope_id: sandboxClass.id, granted_by: inch.id,
+  });
+  try {
+    const ir = await api(inch.token, `/school/orgs/${ORG}/teaching-overview`);
+    const ij = await ir.json();
+    assert(ir.status === 200 && ij.wingScoped === true, `incharge overview ${ir.status}/${ij.wingScoped}`);
+    assert((ij.rows ?? []).some((x: any) => x.userId === teacher.id), "wing teacher missing from incharge overview");
+    assert((ij.rows ?? []).every((x: any) => x.userId === teacher.id || x.sectionCount >= 1),
+      "unexpected rows in wing overview");
+    assert(!(ij.rows ?? []).some((x: any) => x.name === "Amna Shahzad"), "non-wing teacher leaked to incharge");
+  } finally {
+    await admin.from("user_roles").update({ revoked_at: new Date().toISOString() })
+      .eq("user_id", inch.id).eq("role_type", "incharge").is("revoked_at", null);
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

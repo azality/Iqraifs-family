@@ -13,7 +13,7 @@
 
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
-import { hasAdminOrPrincipal } from "./schoolAuth.ts";
+import { hasAdminOrPrincipal, inchargeClassIds } from "./schoolAuth.ts";
 
 const DAY = 86400e3;
 
@@ -371,6 +371,302 @@ export function installTeacherPerf(school: Hono) {
         substitutionsCovered: (subsCovered ?? []).length,
         substitutionsNeeded: subsNeeded,
       },
+    });
+  });
+}
+
+// ─── Phase 2: Teaching overview ───────────────────────────────────────
+// One screen, every teacher as a row (scope artifact, Phase 2):
+// pace delta, gradebook freshness, roll-call, lessons, heard-rate,
+// feedback footprint — sorted most-behind-first so the principal's eye
+// lands where coaching is needed. Principals/admins see the school;
+// incharges automatically see only teachers who teach in their wing.
+// All metrics come from ~a dozen org-wide batch queries, not one
+// Phase-1 call per teacher.
+
+export function installTeachingOverview(school: Hono) {
+  school.get("/orgs/:orgId/teaching-overview", async (c) => {
+    const callerId = getAuthUserId(c);
+    if (!callerId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    const isTop = await hasAdminOrPrincipal(callerId, orgId);
+    let wing: string[] | null = null; // class ids; null = whole org
+    if (!isTop) {
+      const w = await inchargeClassIds(callerId, orgId);
+      if (w.length === 0) return c.json({ error: "forbidden" }, 403);
+      wing = w;
+    }
+
+    // Window = requested/current term, else last 90 days (Phase 1 rule).
+    const { data: terms } = await serviceRoleClient
+      .from("academic_term")
+      .select("id, name, start_date, end_date, is_current")
+      .eq("org_id", orgId).is("archived_at", null).order("start_date");
+    const reqTerm = c.req.query("term");
+    const term =
+      (terms ?? []).find((t: any) => t.id === reqTerm) ??
+      (terms ?? []).find((t: any) => t.is_current) ?? null;
+    const today = new Date();
+    const winStart = term ? new Date(`${term.start_date}T00:00:00Z`) : new Date(Date.now() - 90 * DAY);
+    const winEndRaw = term ? new Date(`${term.end_date}T23:59:59Z`) : today;
+    const winEnd = winEndRaw < today ? winEndRaw : today;
+    const startStr = winStart.toISOString().slice(0, 10);
+    const endStr = winEnd.toISOString().slice(0, 10);
+    const weeksElapsed = Math.max(1, (winEnd.getTime() - winStart.getTime()) / (7 * DAY));
+    const termElapsedPct = term
+      ? Math.min(100, Math.max(0, Math.round(
+          ((today.getTime() - winStart.getTime()) /
+            (new Date(`${term.end_date}T00:00:00Z`).getTime() - winStart.getTime())) * 100)))
+      : null;
+
+    // ── Teaching footprint (wing-filtered when scoped).
+    const [{ data: secs }, { data: subjRows }] = await Promise.all([
+      serviceRoleClient.from("class_section")
+        .select("id, name, class_teacher_user_id, hifz_teacher_user_id, class:class_id!inner(id, name, org_id, kind)")
+        .eq("class.org_id", orgId),
+      serviceRoleClient.from("section_subject")
+        .select("id, name, class_subject_id, class_section_id, teacher_user_id")
+        .eq("org_id", orgId).is("archived_at", null).not("teacher_user_id", "is", null),
+    ]);
+    const inWingClass = (classId: string | null | undefined) =>
+      wing === null || (!!classId && wing.includes(classId));
+    const sections = ((secs ?? []) as any[])
+      // QA class stays out of the org-wide view; a wing that explicitly
+      // contains it (the QA incharge) still sees it.
+      .filter((s) => wing !== null || s.class?.name !== "Sandbox")
+      .filter((s) => inWingClass(s.class?.id));
+    const secById = new Map(sections.map((s) => [s.id, s]));
+    const subjects = ((subjRows ?? []) as any[]).filter((ss) => secById.has(ss.class_section_id));
+
+    type Row = {
+      userId: string; sections: Set<string>; hifzSections: Set<string>;
+      subjects: Set<string>; classSubjects: Set<string>; ownedSections: Set<string>;
+    };
+    const rows = new Map<string, Row>();
+    const rowFor = (uid: string): Row => {
+      let r = rows.get(uid);
+      if (!r) {
+        r = { userId: uid, sections: new Set(), hifzSections: new Set(), subjects: new Set(), classSubjects: new Set(), ownedSections: new Set() };
+        rows.set(uid, r);
+      }
+      return r;
+    };
+    for (const s of sections) {
+      if (s.class_teacher_user_id) {
+        const r = rowFor(s.class_teacher_user_id);
+        r.sections.add(s.id); r.ownedSections.add(s.id);
+        if (s.class?.kind === "hifz") r.hifzSections.add(s.id);
+      }
+      if (s.hifz_teacher_user_id) {
+        const r = rowFor(s.hifz_teacher_user_id);
+        r.sections.add(s.id); r.hifzSections.add(s.id);
+      }
+    }
+    for (const ss of subjects) {
+      const r = rowFor(ss.teacher_user_id);
+      r.sections.add(ss.class_section_id);
+      r.subjects.add(ss.name);
+      r.classSubjects.add(ss.class_subject_id);
+    }
+    if (rows.size === 0) return c.json({ term: null, rows: [] });
+
+    const userIds = Array.from(rows.keys());
+
+    // Curriculum pace per class_subject (term-aware topic counting).
+    const allCs = Array.from(new Set(subjects.map((ss) => ss.class_subject_id)));
+    const paceByCs = new Map<string, { done: number; total: number }>();
+    if (allCs.length > 0) {
+      const { data: curricula } = await serviceRoleClient
+        .from("curriculum").select("id, class_subject_id")
+        .in("class_subject_id", allCs).eq("academic_year", "2026-27");
+      const curToCs = new Map(((curricula ?? []) as any[]).map((cu) => [cu.id, cu.class_subject_id]));
+      if (curToCs.size > 0) {
+        const { data: topics } = await serviceRoleClient
+          .from("curriculum_topic")
+          .select("curriculum_id, completed, academic_term_id")
+          .in("curriculum_id", Array.from(curToCs.keys()))
+          .limit(20000);
+        for (const t of (topics ?? []) as any[]) {
+          if (term && t.academic_term_id && t.academic_term_id !== term.id) continue;
+          const cs = curToCs.get(t.curriculum_id);
+          if (!cs) continue;
+          const agg = paceByCs.get(cs) ?? { done: 0, total: 0 };
+          agg.total++; if (t.completed) agg.done++;
+          paceByCs.set(cs, agg);
+        }
+      }
+    }
+
+    // Lessons in window by taught_by.
+    const { data: lessons } = await serviceRoleClient
+      .from("lesson").select("taught_by")
+      .eq("org_id", orgId).gte("lesson_date", startStr).lte("lesson_date", endStr)
+      .in("taught_by", userIds).limit(10000);
+    const lessonsBy = new Map<string, number>();
+    for (const l of (lessons ?? []) as any[]) {
+      lessonsBy.set(l.taught_by, (lessonsBy.get(l.taught_by) ?? 0) + 1);
+    }
+
+    // Gradebook freshness by assignment creator.
+    const { data: asgs } = await serviceRoleClient
+      .from("assignment").select("id, created_by, due_date")
+      .eq("org_id", orgId).in("created_by", userIds)
+      .gte("assigned_date", startStr).lte("assigned_date", endStr).limit(5000);
+    const dueDone = ((asgs ?? []) as any[]).filter((a) => a.due_date && a.due_date <= endStr);
+    const firstGrade = new Map<string, string>();
+    if (dueDone.length > 0) {
+      const { data: grades } = await serviceRoleClient
+        .from("grade").select("assignment_id, created_at")
+        .in("assignment_id", dueDone.map((a) => a.id)).limit(50000);
+      for (const g of (grades ?? []) as any[]) {
+        const cur = firstGrade.get(g.assignment_id);
+        if (!cur || g.created_at < cur) firstGrade.set(g.assignment_id, g.created_at);
+      }
+    }
+    const lagsBy = new Map<string, number[]>();
+    const ungradedBy = new Map<string, number>();
+    for (const a of dueDone) {
+      const fg = firstGrade.get(a.id);
+      if (!fg) { ungradedBy.set(a.created_by, (ungradedBy.get(a.created_by) ?? 0) + 1); continue; }
+      const lag = Math.max(0, Math.round((new Date(fg).getTime() - new Date(`${a.due_date}T00:00:00Z`).getTime()) / DAY));
+      const arr = lagsBy.get(a.created_by) ?? [];
+      arr.push(lag);
+      lagsBy.set(a.created_by, arr);
+    }
+
+    // Roll-call days per section + org school days.
+    const { data: attRows } = await serviceRoleClient
+      .from("school_attendance").select("class_section_id, attendance_date")
+      .eq("org_id", orgId).gte("attendance_date", startStr).lte("attendance_date", endStr)
+      .limit(100000);
+    const schoolDays = new Set<string>();
+    const secDays = new Map<string, Set<string>>();
+    for (const a of (attRows ?? []) as any[]) {
+      schoolDays.add(a.attendance_date);
+      const set = secDays.get(a.class_section_id) ?? new Set<string>();
+      set.add(a.attendance_date);
+      secDays.set(a.class_section_id, set);
+    }
+
+    // Behavior notes by recorder.
+    const { data: notes } = await serviceRoleClient
+      .from("behavior_note").select("recorded_by, kind")
+      .in("recorded_by", userIds)
+      .gte("created_at", winStart.toISOString()).lte("created_at", winEnd.toISOString())
+      .limit(20000);
+    const notesBy = new Map<string, { pos: number; con: number }>();
+    for (const n of (notes ?? []) as any[]) {
+      const agg = notesBy.get(n.recorded_by) ?? { pos: 0, con: 0 };
+      if (n.kind === "positive") agg.pos++; else agg.con++;
+      notesBy.set(n.recorded_by, agg);
+    }
+
+    // Hifz heard-rate per hifz section (distinct students per day).
+    const hifzSecIds = sections.filter((s) => s.class?.kind === "hifz").map((s) => s.id);
+    const heardBySec = new Map<string, { days: Map<string, Set<string>>; roster: number }>();
+    if (hifzSecIds.length > 0) {
+      const { data: students } = await serviceRoleClient
+        .from("student").select("id, class_section_id")
+        .eq("org_id", orgId).in("class_section_id", hifzSecIds).neq("status", "withdrawn");
+      const secOf = new Map<string, string>();
+      for (const st of (students ?? []) as any[]) {
+        secOf.set(st.id, st.class_section_id);
+        const agg = heardBySec.get(st.class_section_id) ?? { days: new Map(), roster: 0 };
+        agg.roster++;
+        heardBySec.set(st.class_section_id, agg);
+      }
+      const ids = Array.from(secOf.keys());
+      const { data: heard } = ids.length
+        ? await serviceRoleClient.from("hifz_progress")
+            .select("student_id, recorded_at").in("student_id", ids)
+            .gte("recorded_at", winStart.toISOString()).lte("recorded_at", winEnd.toISOString())
+            .limit(100000)
+        : { data: [] };
+      for (const h of (heard ?? []) as any[]) {
+        const sec = secOf.get(h.student_id);
+        if (!sec) continue;
+        const d = new Date(new Date(h.recorded_at).getTime() + 5 * 3600e3).toISOString().slice(0, 10);
+        const agg = heardBySec.get(sec)!;
+        const set = agg.days.get(d) ?? new Set<string>();
+        set.add(h.student_id);
+        agg.days.set(d, set);
+      }
+    }
+
+    // Ramp: first active grant per user.
+    const { data: grants } = await serviceRoleClient
+      .from("user_roles").select("user_id, granted_at")
+      .in("user_id", userIds).is("revoked_at", null).order("granted_at");
+    const firstGrant = new Map<string, string>();
+    for (const g of (grants ?? []) as any[]) {
+      if (!firstGrant.has(g.user_id)) firstGrant.set(g.user_id, g.granted_at);
+    }
+
+    // ── Assemble one row per teacher.
+    const out: any[] = [];
+    for (const [uid, r] of rows) {
+      let name = "Teacher";
+      try {
+        const { data: u } = await serviceRoleClient.auth.admin.getUserById(uid);
+        name = u?.user?.user_metadata?.name || u?.user?.email || "Teacher";
+      } catch { /* keep fallback */ }
+      let paceDelta: number | null = null;
+      if (termElapsedPct != null && r.classSubjects.size > 0) {
+        const deltas: number[] = [];
+        for (const cs of r.classSubjects) {
+          const agg = paceByCs.get(cs);
+          if (!agg || agg.total === 0) continue;
+          deltas.push(Math.round((agg.done / agg.total) * 100) - termElapsedPct);
+        }
+        if (deltas.length) paceDelta = Math.round(deltas.reduce((a, b) => a + b, 0) / deltas.length);
+      }
+      // Roll-call: judged by their most-marked owned section.
+      let rollCall: { marked: number; schoolDays: number } | null = null;
+      if (r.ownedSections.size > 0 && schoolDays.size > 0) {
+        let best = 0;
+        for (const sid of r.ownedSections) best = Math.max(best, secDays.get(sid)?.size ?? 0);
+        rollCall = { marked: best, schoolDays: schoolDays.size };
+      }
+      let heardRatePct: number | null = null;
+      if (r.hifzSections.size > 0) {
+        let sum = 0, cnt = 0;
+        for (const sid of r.hifzSections) {
+          const agg = heardBySec.get(sid);
+          if (!agg || agg.roster === 0 || agg.days.size === 0) continue;
+          const avg = Array.from(agg.days.values()).reduce((acc, s) => acc + s.size, 0) / agg.days.size;
+          sum += (avg / agg.roster) * 100; cnt++;
+        }
+        if (cnt) heardRatePct = Math.round(sum / cnt);
+      }
+      const fg = firstGrant.get(uid);
+      const rampUntil = fg ? new Date(new Date(fg).getTime() + 42 * DAY) : null;
+      out.push({
+        userId: uid,
+        name,
+        sectionCount: r.sections.size,
+        subjectCount: r.subjects.size,
+        isHifz: r.hifzSections.size > 0,
+        paceDeltaPp: paceDelta,
+        lessons: lessonsBy.get(uid) ?? 0,
+        lessonsPerWeek: Math.round(((lessonsBy.get(uid) ?? 0) / weeksElapsed) * 10) / 10,
+        freshnessDays: median(lagsBy.get(uid) ?? []),
+        ungradedPastDue: ungradedBy.get(uid) ?? 0,
+        rollCall,
+        heardRatePct,
+        notes: notesBy.get(uid) ?? { pos: 0, con: 0 },
+        inRamp: !!rampUntil && today < rampUntil,
+      });
+    }
+    // Most-behind first; rows with no pace data sink below scored rows.
+    out.sort((a, b) => (a.paceDeltaPp ?? 999) - (b.paceDeltaPp ?? 999) || a.name.localeCompare(b.name));
+
+    return c.json({
+      term: term ? { id: term.id, name: term.name } : null,
+      terms: (terms ?? []).map((t: any) => ({ id: t.id, name: t.name, isCurrent: !!t.is_current })),
+      window: { start: startStr, end: endStr },
+      expectedPct: termElapsedPct,
+      wingScoped: wing !== null,
+      rows: out,
     });
   });
 }
