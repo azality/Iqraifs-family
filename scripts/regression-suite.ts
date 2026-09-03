@@ -1164,6 +1164,49 @@ await check("32. parent phone change: PIN login identifier follows, same PIN wor
   }
 });
 
+await check("33. incharge admin: grouped teachers list, wing editor grant/revoke, teacher denied", async () => {
+  try {
+    // Teacher cannot edit wings.
+    const denied = await api(teacher.token, `/school/orgs/${ORG}/teachers/${teacher.id}/incharge`, {
+      method: "PUT", body: JSON.stringify({ classIds: [sandboxClass.id] }),
+    });
+    assert(denied.status === 403, `teacher wing edit expected 403, got ${denied.status}`);
+    // Principal grants qa-teacher an incharge wing (Sandbox).
+    const grant = await api(principal.token, `/school/orgs/${ORG}/teachers/${teacher.id}/incharge`, {
+      method: "PUT", body: JSON.stringify({ classIds: [sandboxClass.id] }),
+    });
+    assert(grant.status === 200, `wing grant ${grant.status}`);
+    // Non-org class rejected.
+    const bad = await api(principal.token, `/school/orgs/${ORG}/teachers/${teacher.id}/incharge`, {
+      method: "PUT", body: JSON.stringify({ classIds: ["00000000-0000-0000-0000-000000000001"] }),
+    });
+    assert(bad.status === 400, `foreign class expected 400, got ${bad.status}`);
+    // Teachers list: ONE row for qa-teacher, roles include both,
+    // incharge wing carries the class name.
+    const list = await api(principal.token, `/school/orgs/${ORG}/teachers`);
+    const listJ = await list.json();
+    assert(list.status === 200, `teachers list ${list.status}`);
+    const rows = (listJ.teachers ?? []).filter((t: any) => t.user_id === teacher.id);
+    assert(rows.length === 1, `expected 1 grouped row for qa-teacher, got ${rows.length}`);
+    assert(rows[0].roles.includes("class_teacher") && rows[0].roles.includes("incharge"),
+      `roles missing: ${JSON.stringify(rows[0].roles)}`);
+    assert((rows[0].inchargeClasses ?? []).some((cl: any) => cl.id === sandboxClass.id && cl.name === "Sandbox"),
+      `wing class missing: ${JSON.stringify(rows[0].inchargeClasses)}`);
+    // Empty selection removes the role.
+    const drop = await api(principal.token, `/school/orgs/${ORG}/teachers/${teacher.id}/incharge`, {
+      method: "PUT", body: JSON.stringify({ classIds: [] }),
+    });
+    assert(drop.status === 200, `wing drop ${drop.status}`);
+    const list2 = await api(principal.token, `/school/orgs/${ORG}/teachers`);
+    const list2J = await list2.json();
+    const row2 = (list2J.teachers ?? []).find((t: any) => t.user_id === teacher.id);
+    assert(row2 && !row2.roles.includes("incharge"), `incharge still present after drop: ${JSON.stringify(row2?.roles)}`);
+  } finally {
+    await admin.from("user_roles").update({ revoked_at: new Date().toISOString() })
+      .eq("user_id", teacher.id).eq("role_type", "incharge").is("revoked_at", null);
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

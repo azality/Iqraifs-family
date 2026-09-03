@@ -1857,27 +1857,42 @@ export function installPhaseA(school: Hono) {
        // financial staff added via the same form silently vanish from the
        // list — they're stored correctly but the filter excluded them.
       .or(
-        "role_type.eq.class_teacher,role_type.eq.visiting_teacher,role_type.eq.teacher,role_type.eq.financial_staff,role_type.eq.office_staff",
+        "role_type.eq.class_teacher,role_type.eq.visiting_teacher,role_type.eq.teacher,role_type.eq.financial_staff,role_type.eq.office_staff,role_type.eq.incharge",
       )
       .is("revoked_at", null);
     if (rolesErr) return c.json({ error: rolesErr.message }, 500);
 
-    // Filter rows scoped to this org (org-scoped roles) OR to a class_section
-    // whose class belongs to this org. We resolve class scope through class_section.
+    // Filter rows scoped to this org (org-scoped roles) OR class-scoped
+    // rows owned here. scope_type='class' carries TWO id kinds: section
+    // ids (visiting_teacher legacy) and CLASS ids (incharge wings) —
+    // resolve both.
     const orgScoped = (roleRows ?? []).filter(
       (r: any) => r.scope_type === "organization" && r.scope_id === orgId,
     );
     const classScoped = (roleRows ?? []).filter((r: any) => r.scope_type === "class");
-    let classOwnedHere = new Set<string>();
+    const classOwnedHere = new Set<string>();
+    const classNameById = new Map<string, string>();
     if (classScoped.length > 0) {
-      const sectionIds = classScoped.map((r: any) => r.scope_id);
-      const { data: sections } = await serviceRoleClient
-        .from("class_section")
-        .select("id, class:class_id(org_id)")
-        .in("id", sectionIds);
-      for (const s of sections ?? []) {
-        const c2 = (s as any).class;
-        if (c2 && c2.org_id === orgId) classOwnedHere.add(s.id);
+      const ids = classScoped.map((r: any) => r.scope_id);
+      const [{ data: sections }, { data: classes }] = await Promise.all([
+        serviceRoleClient
+          .from("class_section")
+          .select("id, class:class_id(org_id)")
+          .in("id", ids),
+        serviceRoleClient
+          .from("class")
+          .select("id, name, org_id")
+          .in("id", ids),
+      ]);
+      for (const sec of sections ?? []) {
+        const c2 = (sec as any).class;
+        if (c2 && c2.org_id === orgId) classOwnedHere.add((sec as any).id);
+      }
+      for (const cl of classes ?? []) {
+        if ((cl as any).org_id === orgId) {
+          classOwnedHere.add((cl as any).id);
+          classNameById.set((cl as any).id, (cl as any).name);
+        }
       }
     }
     const inScope = [
@@ -1885,35 +1900,102 @@ export function installPhaseA(school: Hono) {
       ...classScoped.filter((r: any) => classOwnedHere.has(r.scope_id)),
     ];
 
-    // Dedupe to a unique set of (user_id, role_type) pairs and hydrate name+email.
-    const seen = new Set<string>();
-    const dedup: Array<{ user_id: string; role_type: string }> = [];
+    // Group per PERSON (feat incharge-admin-ui, Sep 3 2026). The old
+    // one-row-per-(user, role) shape rendered duplicate people whenever
+    // someone held two roles — the pilot's list showed several teachers
+    // twice. Frontend keeps role_template (primary role) for backward
+    // compat and gets the full set in `roles` + incharge wing details.
+    const ROLE_PRIORITY = [
+      "class_teacher", "visiting_teacher", "teacher",
+      "office_staff", "financial_staff", "incharge",
+    ];
+    const byUser = new Map<string, { roles: Set<string>; inchargeClassIds: Set<string> }>();
     for (const r of inScope) {
-      const key = `${r.user_id}::${r.role_type}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      dedup.push({ user_id: r.user_id, role_type: r.role_type });
-    }
-    // Frontend AdminTeacher type expects `role_template` (and reads it
-     // directly: t.role_template.replace(...)). Return both keys so the
-     // page doesn't crash on undefined.replace().
-    const out: Array<{ user_id: string; full_name: string; email: string; role_type: string; role_template: string }> = [];
-    for (const d of dedup) {
-      try {
-        const { data: lookup } = await serviceRoleClient.auth.admin.getUserById(d.user_id);
-        const u: any = lookup?.user;
-        out.push({
-          user_id: d.user_id,
-          full_name: u?.user_metadata?.name || u?.email?.split("@")[0] || "Unknown",
-          email: u?.email || "",
-          role_type: d.role_type,
-          role_template: d.role_type,
-        });
-      } catch {
-        out.push({ user_id: d.user_id, full_name: "Unknown", email: "", role_type: d.role_type, role_template: d.role_type });
+      const entry = byUser.get(r.user_id) ?? { roles: new Set<string>(), inchargeClassIds: new Set<string>() };
+      entry.roles.add(r.role_type);
+      if (r.role_type === "incharge" && classNameById.has(r.scope_id)) {
+        entry.inchargeClassIds.add(r.scope_id);
       }
+      byUser.set(r.user_id, entry);
+    }
+    const out: Array<Record<string, unknown>> = [];
+    for (const [uid, entry] of byUser) {
+      const roles = Array.from(entry.roles);
+      const primary = ROLE_PRIORITY.find((rt) => entry.roles.has(rt)) ?? roles[0];
+      let full_name = "Unknown";
+      let email = "";
+      try {
+        const { data: lookup } = await serviceRoleClient.auth.admin.getUserById(uid);
+        const u: any = lookup?.user;
+        full_name = u?.user_metadata?.name || u?.email?.split("@")[0] || "Unknown";
+        email = u?.email || "";
+      } catch { /* keep fallbacks */ }
+      out.push({
+        user_id: uid,
+        full_name,
+        email,
+        role_type: primary,
+        role_template: primary,
+        roles,
+        inchargeClasses: Array.from(entry.inchargeClassIds).map((id) => ({
+          id,
+          name: classNameById.get(id) ?? "",
+        })),
+      });
     }
     return c.json({ teachers: out });
+  });
+
+  // Set/edit a staff member's incharge wing (feat incharge-admin-ui).
+  // Body: { classIds: string[] } — the FULL desired wing; rows are
+  // reconciled (missing ones granted, removed ones revoked). Empty array
+  // removes the incharge role entirely. Principal/admin only.
+  school.put("/orgs/:orgId/teachers/:userId/incharge", async (c) => {
+    const callerId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const targetUserId = c.req.param("userId");
+    if (!(await requireAdminOrPrincipal(callerId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    const wanted: string[] = Array.isArray(body?.classIds) ? body.classIds.filter((x: unknown) => typeof x === "string") : [];
+    // Validate every requested class belongs to this org.
+    const { data: orgClasses } = await serviceRoleClient
+      .from("class").select("id").eq("org_id", orgId);
+    const valid = new Set((orgClasses ?? []).map((cl: any) => cl.id));
+    for (const id of wanted) {
+      if (!valid.has(id)) return c.json({ error: `class not in this org: ${id}` }, 400);
+    }
+    // Existing incharge rows for this user on classes of THIS org
+    // (revoked ones included so re-grants un-revoke instead of
+    // colliding with the unique constraint).
+    const { data: rows } = await serviceRoleClient
+      .from("user_roles")
+      .select("id, scope_id, revoked_at")
+      .eq("user_id", targetUserId)
+      .eq("role_type", "incharge")
+      .eq("scope_type", "class");
+    const mine = (rows ?? []).filter((r: any) => valid.has(r.scope_id));
+    const wantedSet = new Set(wanted);
+    for (const r of mine) {
+      if (wantedSet.has(r.scope_id) && r.revoked_at) {
+        await serviceRoleClient.from("user_roles").update({ revoked_at: null }).eq("id", r.id);
+      }
+      if (!wantedSet.has(r.scope_id) && !r.revoked_at) {
+        await serviceRoleClient.from("user_roles").update({ revoked_at: new Date().toISOString() }).eq("id", r.id);
+      }
+    }
+    const haveIds = new Set(mine.map((r: any) => r.scope_id));
+    for (const id of wanted) {
+      if (haveIds.has(id)) continue;
+      const { error } = await serviceRoleClient.from("user_roles").insert({
+        user_id: targetUserId, role_type: "incharge", scope_type: "class",
+        scope_id: id, granted_by: callerId,
+      });
+      if (error) return c.json({ error: error.message }, 500);
+    }
+    return c.json({ ok: true, classIds: wanted });
   });
 
   // -------------------------------------------------------------------------

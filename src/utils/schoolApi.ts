@@ -1860,8 +1860,25 @@ export interface AdminTeacher {
   user_id: string;
   email: string;
   full_name: string;
+  /** Primary role (highest-priority of `roles`) — kept for old readers. */
   role_template: RoleTemplate;
+  /** All active staff roles this person holds in the org (incl. incharge). */
+  roles?: string[];
+  /** Incharge wing, when the person holds the incharge role. */
+  inchargeClasses?: Array<{ id: string; name: string }>;
 }
+
+/** Replace a staff member's incharge wing with exactly these classes
+ *  (empty array removes the role). Principal/admin only. */
+export const setInchargeWing = (
+  orgId: string,
+  userId: string,
+  classIds: string[],
+): Promise<{ ok: boolean; classIds: string[] }> =>
+  apiCall(`/school/orgs/${orgId}/teachers/${userId}/incharge`, {
+    method: "PUT",
+    body: JSON.stringify({ classIds }),
+  });
 
 export const listAdminTeachers = async (orgId: string): Promise<AdminTeacher[]> => {
   // Backend wraps the array in { teachers: [...] }.
