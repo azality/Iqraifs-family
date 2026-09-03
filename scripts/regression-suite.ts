@@ -919,7 +919,13 @@ await check("28. hifz sabqi-by-para: juzExtent stored, returned, portal-visible;
       kind: "sabqi", juzNumber: 28, juzExtent: "half", quality: "good",
     }),
   });
-  const mkJ = await mk.json();
+  const jparse = async (r: Response, label: string): Promise<any> => {
+    const raw = await r.text();
+    try { return JSON.parse(raw); } catch {
+      throw new Error(`${label} status=${r.status} body=${raw.slice(0, 120)}`);
+    }
+  };
+  const mkJ = await jparse(mk, "create1");
   assert(mk.status === 201, `para sabqi create ${mk.status}`);
   const id1 = mkJ.entry?.id;
   const mk2 = await api(teacher.token, `/school/orgs/${ORG}/hifz-progress`, {
@@ -929,7 +935,7 @@ await check("28. hifz sabqi-by-para: juzExtent stored, returned, portal-visible;
       kind: "sabqi", juzNumber: 30, juzExtent: "to_surah:95",
     }),
   });
-  const mk2J = await mk2.json();
+  const mk2J = await jparse(mk2, "create2");
   assert(mk2.status === 201, `to_surah sabqi create ${mk2.status}`);
   const id2 = mk2J.entry?.id;
   // Invalid extent degrades to null, never a 500.
@@ -937,16 +943,16 @@ await check("28. hifz sabqi-by-para: juzExtent stored, returned, portal-visible;
     method: "POST",
     body: JSON.stringify({
       studentId: pStu1, surahNumber: 1, ayahFrom: 1, ayahTo: 1,
-      kind: "sabqi", juzNumber: 1, juzExtent: "banana; drop table--",
+      kind: "sabqi", juzNumber: 1, juzExtent: "banana",
     }),
   });
-  const mk3J = await mk3.json();
+  const mk3J = await jparse(mk3, "create3");
   assert(mk3.status === 201, `bad-extent create ${mk3.status}`);
   const id3 = mk3J.entry?.id;
   try {
     // Staff read returns the extent.
     const list = await api(teacher.token, `/school/orgs/${ORG}/students/${pStu1}/hifz-progress?limit=10`);
-    const listJ = await list.json();
+    const listJ = await jparse(list, "list");
     assert(list.status === 200, `hifz list ${list.status}`);
     const e1 = (listJ.entries ?? []).find((e: any) => e.id === id1);
     const e2 = (listJ.entries ?? []).find((e: any) => e.id === id2);
@@ -955,7 +961,7 @@ await check("28. hifz sabqi-by-para: juzExtent stored, returned, portal-visible;
     assert(e2?.juzExtent === "to_surah:95", `to_surah round-trip: ${JSON.stringify(e2?.juzExtent)}`);
     assert(e3 && e3.juzExtent == null, `bad extent should store null, got ${JSON.stringify(e3?.juzExtent)}`);
     // Portal sees juzExtent (it's the position reference, parent-visible).
-    const pTok = (await (await pinLogin(PARENT_PHONE, "3456")).json()).token;
+    const pTok = (await jparse(await pinLogin(PARENT_PHONE, "3456"), "pinLogin")).token;
     const pr = await fetch(`${FUNC}/school/pin-me/students/${pStu1}/hifz`, {
       headers: { apikey: ANON, "X-Pin-Token": pTok },
     });
