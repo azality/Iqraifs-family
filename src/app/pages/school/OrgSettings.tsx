@@ -61,6 +61,7 @@ interface OrgFormState {
   school_day_start: string; // HH:MM
   school_day_end: string;
   student_sees_concerns: boolean;
+  pass_mark_pct: string;
   office_day_start: string;
   office_day_end: string;
 }
@@ -88,6 +89,7 @@ export function OrgSettings() {
     office_day_start: "",
     office_day_end: "",
     student_sees_concerns: false,
+    pass_mark_pct: "",
   });
   const [orgSaving, setOrgSaving] = useState(false);
   const [orgError, setOrgError] = useState<string | null>(null);
@@ -157,6 +159,7 @@ export function OrgSettings() {
           address: (o.organization.settings?.address as string | undefined) ?? "",
           timezone: (o.organization.settings?.timezone as string | undefined) ?? "",
           student_sees_concerns: (o.organization.settings?.student_sees_concerns as boolean | undefined) === true,
+          pass_mark_pct: String((o.organization.settings?.pass_mark_pct as number | undefined) ?? 40),
           logo_url: (o.organization.settings?.logo_url as string | undefined) ?? "",
           theme_color: (o.organization.settings?.theme_color as string | undefined) ?? "",
           school_motto: (o.organization.settings?.school_motto as string | undefined) ?? "",
@@ -202,6 +205,7 @@ export function OrgSettings() {
         office_day_start: orgForm.office_day_start,
         office_day_end: orgForm.office_day_end,
         student_sees_concerns: orgForm.student_sees_concerns,
+        pass_mark_pct: Math.min(100, Math.max(1, Number(orgForm.pass_mark_pct) || 40)),
       });
       setOrgSavedAt(Date.now());
     } catch (e) {
@@ -643,6 +647,27 @@ export function OrgSettings() {
                   Parents always see everything either way.
                 </span>
               </span>
+            </label>
+          </div>
+
+          {/* Teacher Track Record: what counts as a pass in the
+              outcomes metrics on teacher Performance tabs. */}
+          <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-3">
+            <label className="block text-sm text-slate-800">
+              <span className="font-medium">Pass mark (%)</span>
+              <span className="block text-xs text-slate-500">
+                A score at or above this counts as a pass in teacher
+                performance metrics. Default 40.
+              </span>
+              <input
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={100}
+                value={orgForm.pass_mark_pct}
+                onChange={(e) => setOrgForm((st) => ({ ...st, pass_mark_pct: e.target.value }))}
+                className="mt-1.5 w-24 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm"
+              />
             </label>
           </div>
 

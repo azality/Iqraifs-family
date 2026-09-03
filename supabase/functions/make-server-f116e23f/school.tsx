@@ -29,6 +29,7 @@ import { installPhaseC } from "./schoolPhaseC.tsx";
 import { installPhaseC2 } from "./schoolPhaseC2.tsx";
 import { installPhaseCD } from "./schoolPhaseCD.tsx";
 import { installDashboard } from "./schoolDashboard.tsx";
+import { installTeacherPerf } from "./schoolTeacherPerf.tsx";
 import { installSubjects } from "./schoolSubjects.tsx";
 import { installCurriculum } from "./schoolCurriculum.tsx";
 import { installAcademics } from "./schoolAcademics.tsx";
@@ -604,6 +605,9 @@ school.patch("/orgs/:orgId", async (c) => {
     // login can see concern notes about themselves. Off by default;
     // parents always see everything.
     "student_sees_concerns",
+    // Teacher Track Record: score >= this % counts as a pass in the
+    // outcomes metrics. Default 40 when unset.
+    "pass_mark_pct",
   ];
 
   // Load current settings so we merge rather than overwrite.
@@ -3260,6 +3264,7 @@ installFinance(school);
 // Dashboard aggregate routes (school-at-a-glance, leaderboard, insights)
 // -----------------------------------------------------------------------------
 installDashboard(school);
+installTeacherPerf(school);
 
 // -----------------------------------------------------------------------------
 // Phase E — student/parent portal (PIN-authenticated read endpoints)

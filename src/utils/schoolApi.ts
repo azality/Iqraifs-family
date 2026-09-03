@@ -266,6 +266,8 @@ export const updateOrganization = (
     substitute_teacher_ids: string[];
     /** Portal privacy: student logins see concern notes only when true. */
     student_sees_concerns: boolean;
+    /** Teacher Track Record: pass threshold %, default 40. */
+    pass_mark_pct: number;
   }>,
 ): Promise<OrganizationDetail> =>
   apiCall(`/school/orgs/${orgId}`, {
@@ -1867,6 +1869,18 @@ export interface AdminTeacher {
   /** Incharge wing, when the person holds the incharge role. */
   inchargeClasses?: Array<{ id: string; name: string }>;
 }
+
+/** Teacher Track Record Phase 1 — aggregated performance for one staff
+ *  member (principal/admin only). Loosely typed; the tab renders what
+ *  the backend computes. */
+export const getTeacherPerformance = (
+  orgId: string,
+  userId: string,
+  termId?: string,
+): Promise<any> =>
+  apiCall(
+    `/school/orgs/${orgId}/teachers/${userId}/performance${termId ? `?term=${termId}` : ""}`,
+  );
 
 /** Admin-edit a staff member's profile (name / email / phone). */
 export const updateTeacherProfile = (

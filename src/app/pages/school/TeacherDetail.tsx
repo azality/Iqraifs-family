@@ -36,6 +36,7 @@ import {
   isOrgAdmin,
   updateTeacherProfile,
   resetTeacherPassword,
+  getTeacherPerformance,
   type TeacherDetail as TeacherDetailType,
   type SchoolMeResponse,
 } from "../../../utils/schoolApi";
@@ -82,6 +83,11 @@ export function TeacherDetail() {
   const [profileForm, setProfileForm] = useState({ fullName: "", email: "", phone: "" });
   const [profileBusy, setProfileBusy] = useState(false);
   const [tempPassword, setTempPassword] = useState<string | null>(null);
+  // Teacher Track Record Phase 1 — aggregated performance for this
+  // staff member, per term. See the scope artifact for definitions.
+  const [perf, setPerf] = useState<any>(null);
+  const [perfTerm, setPerfTerm] = useState<string>("");
+  const [perfLoading, setPerfLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -90,6 +96,15 @@ export function TeacherDetail() {
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!orgId || !userId) return;
+    setPerfLoading(true);
+    getTeacherPerformance(orgId, userId, perfTerm || undefined)
+      .then(setPerf)
+      .catch(() => setPerf(null))
+      .finally(() => setPerfLoading(false));
+  }, [orgId, userId, perfTerm]);
 
   useEffect(() => {
     if (!orgId || !userId) return;
@@ -236,6 +251,208 @@ export function TeacherDetail() {
           {error}
         </div>
       )}
+
+      {/* Performance — Teacher Track Record Phase 1. Read as a coaching
+          agenda, not a scoreboard: term-scoped, ramp-aware, and only
+          visible to principal/admin (backend-gated). */}
+      <section className={`${cardBase} ${cardElev} p-5`}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className={sectionTitleClasses}>Performance</h3>
+          {perf?.terms?.length > 0 && (
+            <select
+              value={perfTerm || (perf.term?.id ?? "")}
+              onChange={(e) => setPerfTerm(e.target.value)}
+              className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs"
+            >
+              {perf.terms.map((t: any) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}{t.isCurrent ? " (current)" : ""}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+
+        {perfLoading ? (
+          <p className="mt-3 text-sm text-slate-500">Computing…</p>
+        ) : !perf || perf.empty ? (
+          <p className="mt-3 text-sm text-slate-500">
+            No sections or subjects assigned yet — nothing to measure.
+          </p>
+        ) : (
+          <div className="mt-3 space-y-5">
+            {perf.ramp?.inRamp && (
+              <div className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
+                New-staff ramp until {perf.ramp.rampUntil} — read the numbers
+                as onboarding, not performance.
+              </div>
+            )}
+
+            {/* Consistency */}
+            <div>
+              <div className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
+                Is the daily work happening?
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {perf.consistency.rollCall && (
+                  <div className="rounded-lg border border-slate-200 p-3">
+                    <div className="text-lg font-semibold tabular-nums">
+                      {perf.consistency.rollCall.markedDays}/{perf.consistency.rollCall.schoolDays}
+                    </div>
+                    <div className="text-[11px] text-slate-500">days roll call marked</div>
+                  </div>
+                )}
+                <div className="rounded-lg border border-slate-200 p-3">
+                  <div className="text-lg font-semibold tabular-nums">
+                    {perf.consistency.lessonsLogged}
+                    <span className="text-xs font-normal text-slate-500"> · {perf.consistency.lessonsPerWeek}/wk</span>
+                  </div>
+                  <div className="text-[11px] text-slate-500">
+                    lessons logged ({perf.consistency.scheduledPerWeek} periods/wk scheduled)
+                  </div>
+                </div>
+                <div className="rounded-lg border border-slate-200 p-3">
+                  <div className="text-lg font-semibold tabular-nums">
+                    {perf.consistency.gradebookFreshnessDays == null ? "—" : `${perf.consistency.gradebookFreshnessDays}d`}
+                    {perf.consistency.ungradedPastDue > 0 && (
+                      <span className="ml-1 text-xs font-semibold text-amber-700">
+                        {perf.consistency.ungradedPastDue} ungraded
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[11px] text-slate-500">median due-date → grades</div>
+                </div>
+                {perf.hifz && (
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-3">
+                    <div className="text-lg font-semibold tabular-nums text-emerald-800">
+                      {perf.hifz.heardRatePct}%
+                    </div>
+                    <div className="text-[11px] text-emerald-700">
+                      hifz heard-rate · {perf.hifz.avgHeardPerDay}/{perf.hifz.roster} per day
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Pace */}
+            {perf.pace.length > 0 && (
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
+                  Is the syllabus on pace?
+                </div>
+                <div className="mt-2 space-y-1">
+                  {perf.pace.map((pc: any, i: number) => (
+                    <div key={i} className="flex items-center justify-between gap-3 rounded-md border border-slate-100 px-3 py-2 text-sm">
+                      <span className="min-w-0 truncate">
+                        <span className="font-medium">{pc.subjectName}</span>
+                        <span className="text-slate-500"> · {pc.sectionLabel}</span>
+                      </span>
+                      <span className="flex items-center gap-2 whitespace-nowrap tabular-nums">
+                        <span className="text-slate-600">{pc.topicsDone}/{pc.topicsTotal} · {pc.completePct}%</span>
+                        {pc.deltaPp != null && (
+                          <span className={
+                            "rounded-full px-2 py-0.5 text-[11px] font-semibold " +
+                            (pc.deltaPp >= 0
+                              ? "bg-emerald-50 text-emerald-700"
+                              : pc.deltaPp <= -15
+                              ? "bg-rose-50 text-rose-700"
+                              : "bg-amber-50 text-amber-800")
+                          }>
+                            {pc.deltaPp >= 0 ? "+" : ""}{pc.deltaPp}pp vs pace
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Outcomes */}
+            {perf.outcomes.length > 0 && (
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
+                  How are the students doing?
+                  <span className="ml-2 normal-case font-normal tracking-normal">pass ≥ {perf.passMarkPct}%</span>
+                </div>
+                <div className="mt-2 space-y-1">
+                  {perf.outcomes.map((o: any, i: number) => (
+                    <div key={i} className="rounded-md border border-slate-100 px-3 py-2 text-sm">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="font-medium">{o.subjectName}</span>
+                        <span className="tabular-nums text-slate-700">
+                          avg {o.avgPct}% · pass {o.passRatePct}% · {o.gradesEntered} grades
+                          {o.prevTermAvgPct != null && (
+                            <span className={"ml-2 font-semibold " + (o.avgPct >= o.prevTermAvgPct ? "text-emerald-700" : "text-rose-700")}>
+                              {o.avgPct >= o.prevTermAvgPct ? "▲" : "▼"} vs last term {o.prevTermAvgPct}%
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                      <div className="mt-1.5 flex h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                        {o.buckets.below40 > 0 && <div className="bg-rose-400" style={{ width: `${(o.buckets.below40 / o.gradesEntered) * 100}%` }} />}
+                        {o.buckets.b40to59 > 0 && <div className="bg-amber-400" style={{ width: `${(o.buckets.b40to59 / o.gradesEntered) * 100}%` }} />}
+                        {o.buckets.b60to79 > 0 && <div className="bg-emerald-400" style={{ width: `${(o.buckets.b60to79 / o.gradesEntered) * 100}%` }} />}
+                        {o.buckets.b80plus > 0 && <div className="bg-emerald-600" style={{ width: `${(o.buckets.b80plus / o.gradesEntered) * 100}%` }} />}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-1.5 text-[11px] text-slate-400">
+                  Distribution: &lt;40 · 40–59 · 60–79 · 80+. Term comparison appears
+                  once a second term has grades.
+                </p>
+              </div>
+            )}
+
+            {/* Hifz depth */}
+            {perf.hifz && (
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
+                  Hifz progress
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2 text-sm">
+                  <span className="rounded-md border border-slate-200 px-3 py-1.5 tabular-nums">
+                    {perf.hifz.newAyahs} new ayahs · {perf.hifz.ayahsPerStudent}/student
+                  </span>
+                  {Object.entries(perf.hifz.qualityMix as Record<string, number>).map(([q, n]) => (
+                    <span key={q} className="rounded-md bg-slate-50 px-3 py-1.5 text-xs text-slate-600">
+                      {q.replace("_", " ")}: <span className="font-semibold tabular-nums">{n as number}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Engagement */}
+            <div>
+              <div className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
+                How engaged is the teacher?
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2 text-sm">
+                <span className="rounded-md border border-slate-200 px-3 py-1.5 tabular-nums">
+                  {perf.engagement.behaviorNotes} behavior notes
+                  <span className="text-slate-500"> ({perf.engagement.positiveNotes}+ / {perf.engagement.concernNotes}−)</span>
+                </span>
+                {perf.engagement.resourceRatePct != null && (
+                  <span className="rounded-md border border-slate-200 px-3 py-1.5 tabular-nums">
+                    {perf.engagement.resourceRatePct}% lessons with resources
+                  </span>
+                )}
+                {perf.engagement.quizShare != null && (
+                  <span className="rounded-md border border-slate-200 px-3 py-1.5 tabular-nums">
+                    {perf.engagement.quizShare}% quizzes of {perf.engagement.assignmentsGiven} assignments
+                  </span>
+                )}
+                <span className="rounded-md border border-slate-200 px-3 py-1.5 tabular-nums">
+                  subs: covered {perf.engagement.substitutionsCovered} · needed {perf.engagement.substitutionsNeeded}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+      </section>
 
       {/* Profile — admin-edited name/email/phone + password reset.
           Staff can self-serve name & password from My account; this is
