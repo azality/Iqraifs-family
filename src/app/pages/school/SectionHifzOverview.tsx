@@ -4,6 +4,7 @@
 // a row to open the HifzLogEntry modal pre-filled for that student.
 
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, Navigate, useParams, useSearchParams } from "react-router";
 import { Button } from "../../components/ui/button";
 import { ArrowUpDown } from "lucide-react";
@@ -39,6 +40,7 @@ function formatDate(iso: string | null): string {
 }
 
 export function SectionHifzOverview() {
+  const { t } = useTranslation();
   const { orgId = "", sectionId = "" } = useParams();
   // ?round=1 (from the dashboard banner) auto-starts today's round once
   // the roster is loaded — the dialog opens on the first student.
@@ -144,7 +146,7 @@ export function SectionHifzOverview() {
       key: "name",
       header: (
         <button type="button" onClick={() => toggleSort("name")} className="inline-flex items-center gap-1">
-          Student <ArrowUpDown className="h-3 w-3" />
+          {t("hifzTeach.colStudent")} <ArrowUpDown className="h-3 w-3" />
         </button>
       ),
       cell: (s) => <span className="font-medium">{s.studentName}</span>,
@@ -153,7 +155,7 @@ export function SectionHifzOverview() {
       key: "ayahs",
       header: (
         <button type="button" onClick={() => toggleSort("ayahs")} className="inline-flex items-center gap-1">
-          Ayahs memorized <ArrowUpDown className="h-3 w-3" />
+          {t("hifzTeach.colAyahs")} <ArrowUpDown className="h-3 w-3" />
         </button>
       ),
       cell: (s) => {
@@ -172,7 +174,7 @@ export function SectionHifzOverview() {
     },
     {
       key: "today",
-      header: "Today",
+      header: t("hifzTeach.colToday"),
       cell: (s) => {
         const t = s.today ?? { sabaq: false, sabqi: false, manzil: false };
         const chip = (done: boolean, label: string) => (
@@ -201,7 +203,7 @@ export function SectionHifzOverview() {
       key: "last",
       header: (
         <button type="button" onClick={() => toggleSort("last")} className="inline-flex items-center gap-1">
-          Last entry <ArrowUpDown className="h-3 w-3" />
+          {t("hifzTeach.colLast")} <ArrowUpDown className="h-3 w-3" />
         </button>
       ),
       cell: (s) => <span className="text-xs text-slate-500">{formatDate(s.lastEntry)}</span>,
@@ -221,7 +223,7 @@ export function SectionHifzOverview() {
               setHistoryTarget(s);
             }}
           >
-            History
+            {t("hifzTeach.history")}
           </Button>
           <Button
             variant="outline"
@@ -232,7 +234,7 @@ export function SectionHifzOverview() {
               setLogTarget(s);
             }}
           >
-            Log
+            {t("hifzTeach.log")}
           </Button>
         </div>
       ),
@@ -242,8 +244,8 @@ export function SectionHifzOverview() {
   return (
     <div className="space-y-4">
       <HeroCard
-        title="Hifz Progress"
-        subtitle={`${sorted.length} student${sorted.length === 1 ? "" : "s"} · S/Sq/M show what's already heard today`}
+        title={t("hifzTeach.progressTitle")}
+        subtitle={t("hifzTeach.progressSubtitle", { count: sorted.length })}
         rightSlot={
           <div className="flex items-center gap-2 flex-wrap">
             {/* Pilot (hifz teachers): one tap starts the daily round —
@@ -258,11 +260,11 @@ export function SectionHifzOverview() {
                   setLogTarget(sorted[0]);
                 }}
               >
-                Start today's round →
+                {t("hifzTeach.startRound")}
               </Button>
             )}
             <Link to={`/school/orgs/${orgId}/admin/classes`}>
-              <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">← Classes</Button>
+              <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">{t("hifzTeach.backClasses")}</Button>
             </Link>
           </div>
         }
@@ -312,7 +314,7 @@ export function SectionHifzOverview() {
         <Dialog open={!!historyTarget} onOpenChange={(v) => { if (!v) setHistoryTarget(null); }}>
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Hifz history — {historyTarget.studentName}</DialogTitle>
+              <DialogTitle>{t("hifzTeach.historyTitle", { name: historyTarget.studentName })}</DialogTitle>
             </DialogHeader>
             <HifzProgressFeed
               orgId={orgId}
