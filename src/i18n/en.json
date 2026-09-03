@@ -35,6 +35,13 @@
     "signingIn": "Signing in…"
   },
   "toolbar": {
+    "dashboard": "Dashboard",
+    "mySchedule": "My schedule",
+    "myClasses": "My classes",
+    "mySubjects": "My subjects",
+    "myHifzGroups": "My hifz groups",
+    "timeOff": "Request time off",
+    "logout": "Logout",
     "classes": "Classes",
     "students": "Students",
     "parents": "Parents",

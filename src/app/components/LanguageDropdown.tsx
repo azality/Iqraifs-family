@@ -12,14 +12,18 @@ import {
 import { Button } from "./ui/button";
 import { useTranslation } from "react-i18next";
 import { getCurrentLang, setCurrentLang, type Lang } from "../../i18n";
+import { persistLangToAccount } from "../../i18n/accountLang";
 
 export function LanguageDropdown() {
   const { t } = useTranslation();
   const cur = getCurrentLang();
 
-  const choose = (lang: Lang): void => {
+  const choose = async (lang: Lang): Promise<void> => {
     if (lang === cur) return;
     setCurrentLang(lang);
+    // Also remember on the account so the choice follows the user to
+    // their next login / another device (fire-safe: no-op when logged out).
+    await persistLangToAccount(lang);
     window.location.reload();
   };
 

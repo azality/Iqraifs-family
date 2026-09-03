@@ -445,7 +445,7 @@ export function RootLayout() {
                 className="gap-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100"
               >
                 <LogOut className="h-4 w-4" />
-                <span className="hidden lg:inline text-xs font-medium">Logout</span>
+                <span className="hidden lg:inline text-xs font-medium">{t("toolbar.logout")}</span>
               </Button>
 
               {/* Mobile menu button (only for parents; kids use the bottom tab bar) */}
@@ -737,7 +737,7 @@ export function RootLayout() {
                 className="w-full justify-start gap-2 text-slate-700 hover:text-red-600 hover:bg-red-50"
               >
                 <LogOut className="h-4 w-4" />
-                <span className="text-sm">Logout</span>
+                <span className="text-sm">{t("toolbar.logout")}</span>
               </Button>
             </div>
           </div>

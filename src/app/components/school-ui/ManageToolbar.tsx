@@ -94,12 +94,12 @@ function flatItemsForRole(
       // Hifz teachers' daily driver is the groups/sections hifz view on
       // TeacherHome — anchor there instead of the academic "My subjects".
       return [
-        I("dashboard", "Dashboard", `/school/orgs/${orgId}`, Home),
-        I("my-schedule", "My schedule", `/school/orgs/${orgId}/my-schedule`, Calendar),
-        I("my-hifz", "My hifz groups", `/school/orgs/${orgId}#my-hifz-groups`, BookMarked),
-        I("my-classes", "My classes", `/school/orgs/${orgId}#my-classes`, Users),
+        I("dashboard", t("toolbar.dashboard"), `/school/orgs/${orgId}`, Home),
+        I("my-schedule", t("toolbar.mySchedule"), `/school/orgs/${orgId}/my-schedule`, Calendar),
+        I("my-hifz", t("toolbar.myHifzGroups"), `/school/orgs/${orgId}#my-hifz-groups`, BookMarked),
+        I("my-classes", t("toolbar.myClasses"), `/school/orgs/${orgId}#my-classes`, Users),
         announcements,
-        I("time-off", "Request time off", `/school/orgs/${orgId}/my-schedule?action=time-off`, CalendarOff),
+        I("time-off", t("toolbar.timeOff"), `/school/orgs/${orgId}/my-schedule?action=time-off`, CalendarOff),
       ];
     case "class_teacher":
     case "visiting_teacher":
@@ -109,12 +109,12 @@ function flatItemsForRole(
       // on TeacherHome; Request time off opens the modal on the
       // calendar via ?action=time-off.
       return [
-        I("dashboard", "Dashboard", `/school/orgs/${orgId}`, Home),
-        I("my-schedule", "My schedule", `/school/orgs/${orgId}/my-schedule`, Calendar),
-        I("my-classes", "My classes", `/school/orgs/${orgId}#my-classes`, Users),
-        I("my-subjects", "My subjects", `/school/orgs/${orgId}#my-subjects`, BookOpen),
+        I("dashboard", t("toolbar.dashboard"), `/school/orgs/${orgId}`, Home),
+        I("my-schedule", t("toolbar.mySchedule"), `/school/orgs/${orgId}/my-schedule`, Calendar),
+        I("my-classes", t("toolbar.myClasses"), `/school/orgs/${orgId}#my-classes`, Users),
+        I("my-subjects", t("toolbar.mySubjects"), `/school/orgs/${orgId}#my-subjects`, BookOpen),
         announcements,
-        I("time-off", "Request time off", `/school/orgs/${orgId}/my-schedule?action=time-off`, CalendarOff),
+        I("time-off", t("toolbar.timeOff"), `/school/orgs/${orgId}/my-schedule?action=time-off`, CalendarOff),
       ];
     case "office_staff":
       return [
