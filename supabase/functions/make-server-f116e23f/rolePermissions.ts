@@ -67,6 +67,7 @@ export const PERMISSION_KEYS: PermissionKey[] = [
 // would be dead data that misleads the reader.
 export const OVERRIDABLE_ROLE_TEMPLATES: Exclude<SchoolRole, "principal">[] = [
   "admin",
+  "incharge",
   "class_teacher",
   "visiting_teacher",
   "teacher",
