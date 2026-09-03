@@ -3538,8 +3538,11 @@ export const getStudentHifzSummary = (
 export interface SectionHifzSummaryRow {
   studentId: string;
   studentName: string;
+  grNumber?: string | null;
   ayahsMemorized: number;
   lastEntry: string | null;
+  /** Which of the daily trio has been logged today (org-local day). */
+  today?: { sabaq: boolean; sabqi: boolean; manzil: boolean };
 }
 
 export const getSectionHifzSummary = (

@@ -872,12 +872,27 @@ export function installPhaseC(school: Hono): void {
       byStudent.set(e.student_id, arr);
     }
 
+    // Today's status per student — drives the roster's S/Sq/M chips so a
+    // teacher sees at a glance who's already been heard today. "Today"
+    // uses Karachi wall clock (UTC+5), matching the portal's 14-day grid
+    // approach — good enough at pilot scale.
+    const todayStr = new Date(Date.now() + 5 * 3600e3).toISOString().slice(0, 10);
+
     const out = studentList.map((s) => {
       const rows = byStudent.get(s.id) ?? [];
       const { ayahsMemorized } = computeMemorizedTotals(rows);
       let lastEntry: string | null = null;
+      const today = { sabaq: false, sabqi: false, manzil: false };
       for (const r of rows) {
         if (!lastEntry || r.recorded_at > lastEntry) lastEntry = r.recorded_at;
+        if (
+          new Date(new Date(r.recorded_at).getTime() + 5 * 3600e3)
+            .toISOString().slice(0, 10) === todayStr
+        ) {
+          if (r.kind === "sabaq") today.sabaq = true;
+          else if (r.kind === "sabqi") today.sabqi = true;
+          else if (r.kind === "manzil") today.manzil = true;
+        }
       }
       return {
         studentId: s.id,
@@ -885,6 +900,7 @@ export function installPhaseC(school: Hono): void {
         grNumber: s.gr_number,
         ayahsMemorized,
         lastEntry,
+        today,
       };
     });
 
