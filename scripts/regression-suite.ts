@@ -1243,6 +1243,25 @@ await check("34. staff profile admin: profile patch, temp-password reset + force
   assert(!cleared?.user?.app_metadata?.must_change_password, "flag not cleared");
 });
 
+await check("35. teacher performance: admin-gated aggregate, sane shape", async () => {
+  // Non-admin staff cannot view a track record. (Use office.token —
+  // check 34's password reset revokes qa-teacher's session, so its
+  // stale token would 401 here instead of exercising the 403 gate.)
+  const denied = await api(office.token, `/school/orgs/${ORG}/teachers/${teacher.id}/performance`);
+  assert(denied.status === 403, `office perf expected 403, got ${denied.status}`);
+  // Principal gets a well-formed aggregate for qa-teacher.
+  const r = await api(principal.token, `/school/orgs/${ORG}/teachers/${teacher.id}/performance`);
+  const j = await r.json();
+  assert(r.status === 200, `perf ${r.status}: ${JSON.stringify(j).slice(0, 150)}`);
+  assert(!j.empty, "qa-teacher should have a footprint (QA Subject in Sandbox)");
+  assert(typeof j.passMarkPct === "number" && j.passMarkPct >= 1, `passMarkPct: ${j.passMarkPct}`);
+  assert(j.consistency && typeof j.consistency.lessonsLogged === "number", "consistency block missing");
+  assert(Array.isArray(j.pace) && Array.isArray(j.outcomes), "pace/outcomes arrays missing");
+  assert(j.engagement && typeof j.engagement.behaviorNotes === "number", "engagement block missing");
+  assert((j.footprint?.subjects ?? []).some((x: string) => x.includes("QA Subject")), `footprint: ${JSON.stringify(j.footprint)}`);
+  assert(j.ramp && "inRamp" in j.ramp, "ramp block missing");
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
