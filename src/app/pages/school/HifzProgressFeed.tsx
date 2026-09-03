@@ -18,6 +18,7 @@ import {
   type StudentHifzSummary,
 } from "../../../utils/schoolApi";
 import { getSurah } from "../../../utils/quranSurahs";
+import { formatJuzExtent } from "../../../utils/hifzExtent";
 
 interface Props {
   orgId: string;
@@ -100,7 +101,7 @@ export function HifzProgressFeed({
   const canDelete = (entry: HifzEntry) =>
     allowDelete &&
     me &&
-    (isOrgAdmin(me, orgId) || entry.recorded_by === me.userId);
+    (isOrgAdmin(me, orgId) || entry.recordedBy === me.userId);
 
   const handleDelete = async (entry: HifzEntry) => {
     if (!confirm("Delete this hifz entry?")) return;
@@ -140,7 +141,7 @@ export function HifzProgressFeed({
           </p>
         )}
         {entries.map((e) => {
-          const surah = getSurah(e.surah_number);
+          const surah = getSurah(e.surahNumber);
           return (
             <div
               key={e.id}
@@ -154,18 +155,22 @@ export function HifzProgressFeed({
                   >
                     {KIND_LABEL[e.kind]}
                   </Badge>
-                  {/* Manzil is revised per juz — the stored ayah is just
-                      a position marker, so show "Juz N" instead. */}
-                  {e.kind === "manzil" && e.juzNumber ? (
-                    <span className="text-sm font-medium">Juz {e.juzNumber}</span>
+                  {/* Manzil (and para-based sabqi) are revised per juz —
+                      the stored ayah is just a position marker, so show
+                      "Juz N" (+ how much of it) instead. */}
+                  {(e.kind === "manzil" || (e as any).juzExtent) && e.juzNumber ? (
+                    <span className="text-sm font-medium">
+                      Juz {e.juzNumber}
+                      {formatJuzExtent((e as any).juzExtent)}
+                    </span>
                   ) : (
                     <span className="text-sm font-medium">
                       {surah
                         ? `${surah.number}. ${surah.nameTransliterated}`
-                        : `Surah ${e.surah_number}`}
+                        : `Surah ${e.surahNumber}`}
                       {" · ayah "}
-                      {e.ayah_from}
-                      {e.ayah_to !== e.ayah_from && `–${e.ayah_to}`}
+                      {e.ayahFrom}
+                      {e.ayahTo !== e.ayahFrom && `–${e.ayahTo}`}
                     </span>
                   )}
                   {e.quality && (
@@ -190,7 +195,7 @@ export function HifzProgressFeed({
                   </p>
                 )}
                 <p className="text-xs text-muted-foreground">
-                  {e.recorded_by_name || "—"} · {formatRelative(e.recorded_at)}
+                  {e.recordedByName || "—"} · {formatRelative(e.recordedAt)}
                 </p>
               </div>
               {canDelete(e) && (

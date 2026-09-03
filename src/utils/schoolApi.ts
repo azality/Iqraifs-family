@@ -3435,18 +3435,22 @@ export type HifzKind =
 
 export type HifzQuality = "excellent" | "good" | "needs_practice" | "weak" | "not_learned";
 
+// NOTE: field names match the backend's hifzToJson serializer, which
+// returns camelCase. The old snake_case names here never matched the
+// runtime payload — HifzProgressFeed rendered "Surah undefined" (pilot
+// bug found Sep 3 2026 while adding sabqi-by-para).
 export interface HifzEntry {
   id: string;
-  student_id: string;
-  surah_number: number;
-  ayah_from: number;
-  ayah_to: number;
+  studentId: string;
+  surahNumber: number;
+  ayahFrom: number;
+  ayahTo: number;
   kind: HifzKind;
   quality: HifzQuality | null;
   notes: string | null;
-  recorded_by: string | null;
-  recorded_by_name?: string | null;
-  recorded_at: string;
+  recordedBy: string | null;
+  recordedByName?: string | null;
+  recordedAt: string;
   // PR feat/hifz-trends-missed-teacher — explicit "missed sabaq" marker.
   // Trend grid renders these days as red and the summary aggregator
   // excludes them so a missed day doesn't count toward ayahs memorized.
@@ -3454,6 +3458,9 @@ export interface HifzEntry {
   // Full-module fields (PR feat/hifz-full-module). Backend returns
   // camelCase keys via hifzToJson; legacy rows arrive with null.
   juzNumber?: number | null;
+  /** Sabqi-by-para: how much of juzNumber was revised —
+   *  'quarter' | 'half' | 'three_quarters' | 'full' | 'to_surah:<n>'. */
+  juzExtent?: string | null;
   pageNumber?: number | null;
   mistakesCount?: number | null;
   tajweedNotes?: string | null;
@@ -3481,6 +3488,7 @@ export interface HifzEntryInput {
   // Full-module optional fields. Numeric ones server-validates; text
   // ones get trimmed and stored as-is.
   juzNumber?: number;
+  juzExtent?: string;
   pageNumber?: number;
   mistakesCount?: number;
   tajweedNotes?: string;

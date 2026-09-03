@@ -122,6 +122,7 @@ function hifzToJson(r: any) {
     // so the UI can fall back to the generic `notes` for old data.
     missed: !!r.missed,
     juzNumber: r.juz_number ?? null,
+    juzExtent: r.juz_extent ?? null,
     pageNumber: r.page_number ?? null,
     mistakesCount: r.mistakes_count ?? null,
     tajweedNotes: r.tajweed_notes ?? null,
@@ -670,6 +671,15 @@ export function installPhaseC(school: Hono): void {
       const n = Number(v);
       return Number.isInteger(n) && n >= min && n <= max ? n : null;
     };
+    // Sabqi-by-para: how much of juz_number was revised. Mirrors the DB
+    // CHECK constraint so a bad value degrades to null, not a 500.
+    const safeExtent = (v: unknown): string | null => {
+      if (typeof v !== "string") return null;
+      if (["quarter", "half", "three_quarters", "full"].includes(v)) return v;
+      const m = v.match(/^to_surah:([1-9][0-9]{0,2})$/);
+      if (m && Number(m[1]) >= 1 && Number(m[1]) <= 114) return v;
+      return null;
+    };
 
     const { data: ins, error: insErr } = await serviceRoleClient
       .from("hifz_progress")
@@ -683,6 +693,7 @@ export function installPhaseC(school: Hono): void {
         quality: body.quality ?? null,
         notes: body.notes ?? null,
         juz_number: safeInt(body.juzNumber, 1, 30),
+        juz_extent: safeExtent(body.juzExtent),
         page_number: safeInt(body.pageNumber, 1, 9999),
         mistakes_count: safeInt(body.mistakesCount, 0, 9999),
         tajweed_notes: safeText(body.tajweedNotes),
