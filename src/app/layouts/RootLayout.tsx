@@ -126,10 +126,29 @@ export function RootLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const { viewMode, switchToParentMode, isPreviewingAsKid } = useViewMode();
-  const { workspace, me: schoolMe } = useWorkspace();
+  const { workspace, me: schoolMe, switchToSchool } = useWorkspace();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { t } = useTranslation();
   const { logout, user } = useAuth();
+
+  // Chrome must follow the route: a /school/orgs/* URL must NEVER render
+  // inside family chrome (family header, Kid View/Parent toggle, family
+  // bottom tabs around school data = the exact family/school mixing the
+  // workspace model exists to prevent). Deep links, bookmarks, and
+  // notification links can land on a school URL while the stored
+  // workspace is still "family" — sync it to the org in the URL, but
+  // only when /school/me confirms the user actually has that org.
+  useEffect(() => {
+    if (workspace.kind === 'school') return;
+    const m = location.pathname.match(/^\/school(?:\/orgs\/([^/]+))?/);
+    if (!m) return;
+    const urlOrgId = m[1];
+    const org = urlOrgId
+      ? schoolMe?.organizations.find((o) => o.id === urlOrgId)
+      : schoolMe?.organizations[0];
+    if (org) switchToSchool(org.id, org.name);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname, schoolMe, workspace.kind]);
 
   const isKidMode = viewMode === 'kid';
   // Workspace gates the entire nav. Kid mode is family-only (kids don't
@@ -274,16 +293,19 @@ export function RootLayout() {
   // and a drawer for everything else): Home + the first three nav
   // groups, each tab landing on its group's first destination. "More"
   // still opens the full drawer.
+  const schoolHomeHref = schoolOrgId ? `/school/orgs/${schoolOrgId}` : '/school';
   const quickAccess = isSchoolWorkspace
     ? [
         {
           name: 'Home',
-          href: schoolOrgId ? `/school/orgs/${schoolOrgId}` : '/school',
+          href: schoolHomeHref,
           icon: School,
           childAccess: false,
         },
+        // Skip any group whose first destination IS the home page (the
+        // "Dashboard" group) — no point in two tabs to the same place.
         ...visibleGroups
-          .filter((g) => g.items.length > 0)
+          .filter((g) => g.items.length > 0 && g.items[0].href !== schoolHomeHref)
           .slice(0, 3)
           .map((g) => ({
             name: g.label,
