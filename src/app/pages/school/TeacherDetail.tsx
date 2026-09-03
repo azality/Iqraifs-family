@@ -34,9 +34,13 @@ import {
   resendInvite,
   getSchoolMe,
   isOrgAdmin,
+  updateTeacherProfile,
+  resetTeacherPassword,
   type TeacherDetail as TeacherDetailType,
   type SchoolMeResponse,
 } from "../../../utils/schoolApi";
+import { Input } from "../../components/ui/input";
+import { Label } from "../../components/ui/label";
 
 const ROLE_LABEL: Record<string, string> = {
   class_teacher: "Class Teacher",
@@ -72,6 +76,12 @@ export function TeacherDetail() {
   const [me, setMe] = useState<SchoolMeResponse | null>(null);
   const [meLoading, setMeLoading] = useState(true);
   const [detail, setDetail] = useState<TeacherDetailType | null>(null);
+  // Admin-editable profile (pilot Sep 3): name / email / phone, plus a
+  // temp-password reset that forces the teacher to choose their own at
+  // next login (mirrors the parent-PIN model).
+  const [profileForm, setProfileForm] = useState({ fullName: "", email: "", phone: "" });
+  const [profileBusy, setProfileBusy] = useState(false);
+  const [tempPassword, setTempPassword] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -86,10 +96,50 @@ export function TeacherDetail() {
     setLoading(true);
     setError(null);
     getTeacherDetail(orgId, userId)
-      .then(setDetail)
+      .then((d) => {
+        setDetail(d);
+        setProfileForm({
+          fullName: d.fullName ?? "",
+          email: d.email ?? "",
+          phone: (d as any).phone ?? "",
+        });
+      })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
   }, [orgId, userId]);
+
+  const saveProfile = async () => {
+    setProfileBusy(true);
+    try {
+      await updateTeacherProfile(orgId, userId, {
+        fullName: profileForm.fullName.trim() || undefined,
+        email: profileForm.email.trim() || undefined,
+        phone: profileForm.phone,
+      });
+      setNotice("Profile updated. Name/email changes apply on their next sign-in.");
+      setError(null);
+      const d = await getTeacherDetail(orgId, userId);
+      setDetail(d);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setProfileBusy(false);
+    }
+  };
+
+  const handleResetPassword = async () => {
+    if (!confirm("Reset this staff member's password? They'll get a temporary password and must choose their own at next login.")) return;
+    setProfileBusy(true);
+    try {
+      const res = await resetTeacherPassword(orgId, userId);
+      setTempPassword(res.tempPassword);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setProfileBusy(false);
+    }
+  };
 
   if (meLoading) return null;
   // Detail view is for admins/principals only; class teachers shouldn't
@@ -186,6 +236,61 @@ export function TeacherDetail() {
           {error}
         </div>
       )}
+
+      {/* Profile — admin-edited name/email/phone + password reset.
+          Staff can self-serve name & password from My account; this is
+          the office-side path when someone can't log in or an email
+          needs correcting. */}
+      <section className={`${cardBase} ${cardElev} p-5`}>
+        <h3 className={sectionTitleClasses}>Profile</h3>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <div className="space-y-1">
+            <Label className="text-xs">Full name</Label>
+            <Input
+              value={profileForm.fullName}
+              onChange={(e) => setProfileForm({ ...profileForm, fullName: e.target.value })}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Email (login)</Label>
+            <Input
+              value={profileForm.email}
+              onChange={(e) => setProfileForm({ ...profileForm, email: e.target.value })}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Phone</Label>
+            <Input
+              value={profileForm.phone}
+              onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })}
+            />
+          </div>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <Button onClick={saveProfile} disabled={profileBusy}>
+            {profileBusy ? "Saving…" : "Save profile"}
+          </Button>
+          <Button variant="outline" onClick={handleResetPassword} disabled={profileBusy}>
+            Reset password (temporary)
+          </Button>
+        </div>
+        {tempPassword && (
+          <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-center">
+            <div className="text-[11px] uppercase tracking-wide text-emerald-700">
+              Temporary password — share with the staff member
+            </div>
+            <div className="mt-1 text-2xl font-bold tracking-widest text-emerald-900">{tempPassword}</div>
+            <div className="mt-1 text-[11px] text-emerald-800">
+              They sign in with it once and are asked to choose their own password.
+            </div>
+          </div>
+        )}
+        <p className="mt-3 text-xs text-slate-500">
+          Changing the email changes their LOGIN — tell them before saving.
+          Staff can update their own name &amp; password anytime from the
+          workspace menu → My account.
+        </p>
+      </section>
 
       {/* Quick actions row — resend invite + revoke access. Adding a new
           assignment (e.g. to another section) is done from the section

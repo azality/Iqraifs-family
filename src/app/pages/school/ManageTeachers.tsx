@@ -90,6 +90,11 @@ export function ManageTeachers() {
   const [wingClasses, setWingClasses] = useState<AdminClass[]>([]);
   const [wingSel, setWingSel] = useState<Set<string>>(new Set());
   const [wingBusy, setWingBusy] = useState(false);
+  // Search + role filter (pilot Sep 3): find staff by name/email, or
+  // narrow to one role — dual-role people appear under EVERY role they
+  // hold (filter by Class Teacher also shows Rabia, who is incharge too).
+  const [staffQuery, setStaffQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState<string>("all");
 
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
@@ -319,6 +324,15 @@ export function ManageTeachers() {
     return <Badge variant="outline" className={cls + " text-[10px] font-medium"}>{label}</Badge>;
   };
 
+  const ROLE_FILTERS: Array<{ value: string; label: string }> = [
+    { value: "all", label: "All" },
+    { value: "incharge", label: "Incharge" },
+    { value: "class_teacher", label: "Class Teacher" },
+    { value: "visiting_teacher", label: "Visiting Teacher" },
+    { value: "office_staff", label: "Office" },
+    { value: "financial_staff", label: "Finance" },
+  ];
+
   const teacherColumns: DataTableColumn<AdminTeacher>[] = [
     {
       key: "full_name",
@@ -492,9 +506,39 @@ export function ManageTeachers() {
       )}
 
       <div className={cardBase}>
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <Input
+            value={staffQuery}
+            onChange={(e) => setStaffQuery(e.target.value)}
+            placeholder="Search staff by name or email…"
+            className="h-8 w-64 text-sm"
+          />
+          {ROLE_FILTERS.map((f) => (
+            <button
+              key={f.value}
+              onClick={() => setRoleFilter(f.value)}
+              className={
+                "rounded-full px-3 py-1 text-xs font-medium ring-1 " +
+                (roleFilter === f.value
+                  ? "bg-indigo-600 text-white ring-indigo-600"
+                  : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50")
+              }
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
         <DataTable<AdminTeacher>
           columns={teacherColumns}
-          rows={teachers}
+          rows={teachers.filter((t) => {
+            const q = staffQuery.trim().toLowerCase();
+            if (q && !(`${t.full_name} ${t.email}`.toLowerCase().includes(q))) return false;
+            if (roleFilter === "all") return true;
+            const roles = (t.roles && t.roles.length > 0)
+              ? t.roles
+              : [t.role_template ?? (t as any).role_type ?? ""];
+            return roles.includes(roleFilter);
+          })}
           rowKey={(t) => t.user_id}
           emptyMessage="No teachers yet."
         />
