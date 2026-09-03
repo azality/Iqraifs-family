@@ -2736,7 +2736,10 @@ export const setPin = (
   orgId: string,
   body: { subjectType: PinSubjectType; subjectId: string; pin: string },
 ): Promise<void> =>
-  apiCall(`/school/orgs/${orgId}/pin`, {
+  // NOTE: the backend route is /pin/set (pilot bug Sep 3: this helper
+  // posted to /pin -> "Route not found" for BOTH the parent PIN dialog
+  // and StudentDetail's Set PIN; only auto-generate (/pin/reset) worked).
+  apiCall(`/school/orgs/${orgId}/pin/set`, {
     method: "POST",
     body: JSON.stringify(body),
   });
