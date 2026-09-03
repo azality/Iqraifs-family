@@ -938,11 +938,6 @@ export function installDashboard(school: Hono): void {
       }
     }
 
-    // Sort by severity (critical > warning > info), cap to 8.
-    const sevRank = { critical: 0, warning: 1, info: 2 } as const;
-    alerts.sort((a, b) => sevRank[a.severity] - sevRank[b.severity]);
-    const cappedAlerts = alerts.slice(0, 8);
-
     // FEES PAID tile — % of fee_status rows for the current period that are
     // marked paid. "Current period" here means the month-string matching
     // today (e.g. "2026-06"). Honest fallback when no rows exist.
@@ -978,6 +973,188 @@ export function installDashboard(school: Hono): void {
         hint: open === 0 ? "No open forms" : `${open} open form${open === 1 ? "" : "s"}`,
       };
     })());
+
+    // ── Teacher Track Record Phase 3: self-surfacing teaching alerts ──
+    // Three signals the scope artifact promised, computed over the
+    // caller's in-scope sections (principal = school, incharge = wing):
+    //   stale gradebook  — grades missing 7+ days past a due date
+    //   pace slipping    — a subject 15+ pp behind the term expectation
+    //   quiet week       — a scheduled teacher with zero lessons in 7 days
+    // Aggregated to ONE card per signal so the row never floods.
+    try {
+      const scopeSecIds = skeleton.sections.map((s) => s.id);
+      const todayStr = fmtDate(today);
+      const nameCacheTA: Record<string, string> = {};
+      const taName = async (uid: string): Promise<string> => {
+        if (!nameCacheTA[uid]) {
+          try {
+            const { data: u } = await serviceRoleClient.auth.admin.getUserById(uid);
+            nameCacheTA[uid] = u?.user?.user_metadata?.name || u?.user?.email || "Teacher";
+          } catch { nameCacheTA[uid] = "Teacher"; }
+        }
+        return nameCacheTA[uid];
+      };
+      // Ramp exclusion (fairness guardrail): first role grant < 6 weeks ago.
+      const rampCutoff = new Date(today.getTime() - 42 * 24 * 3600e3).toISOString();
+
+      if (scopeSecIds.length > 0) {
+        // 1. Stale gradebook — due 7+ days ago, zero grades.
+        const staleCut = fmtDate(new Date(today.getTime() - 7 * 24 * 3600e3));
+        const { data: staleAsgs } = await serviceRoleClient
+          .from("assignment")
+          .select("id, created_by")
+          .eq("org_id", orgId)
+          .in("class_section_id", scopeSecIds)
+          .lte("due_date", staleCut)
+          .gte("due_date", fmtDate(new Date(today.getTime() - 60 * 24 * 3600e3)))
+          .limit(1000);
+        const staleRows = (staleAsgs ?? []) as any[];
+        if (staleRows.length > 0) {
+          const { data: graded } = await serviceRoleClient
+            .from("grade").select("assignment_id")
+            .in("assignment_id", staleRows.map((a) => a.id)).limit(50000);
+          const hasGrades = new Set(((graded ?? []) as any[]).map((g) => g.assignment_id));
+          const staleByTeacher = new Map<string, number>();
+          for (const a of staleRows) {
+            if (hasGrades.has(a.id) || !a.created_by) continue;
+            staleByTeacher.set(a.created_by, (staleByTeacher.get(a.created_by) ?? 0) + 1);
+          }
+          if (staleByTeacher.size > 0) {
+            const parts: string[] = [];
+            for (const [uid, n] of Array.from(staleByTeacher.entries()).slice(0, 4)) {
+              parts.push(`${await taName(uid)} (${n})`);
+            }
+            const totalStale = Array.from(staleByTeacher.values()).reduce((a, b) => a + b, 0);
+            alerts.push({
+              id: "teacher_gradebook_stale",
+              severity: "warning",
+              kind: "attendance_gap",
+              title: `${totalStale} assignment${totalStale === 1 ? "" : "s"} ungraded 7+ days past due`,
+              body: `${parts.join(", ")}${staleByTeacher.size > 4 ? ` and ${staleByTeacher.size - 4} more` : ""} — grades still missing after the due date.`,
+              actionLabel: "Teaching overview",
+              actionPath: `/school/orgs/${orgId}/admin/teaching-overview`,
+            });
+          }
+        }
+
+        // 2. Pace slipping — subjects 15+ pp behind term expectation.
+        const { data: curTerm } = await serviceRoleClient
+          .from("academic_term")
+          .select("id, start_date, end_date")
+          .eq("org_id", orgId).eq("is_current", true).is("archived_at", null)
+          .limit(1).maybeSingle();
+        if (curTerm?.start_date && curTerm?.end_date) {
+          const tStart = new Date(`${curTerm.start_date}T00:00:00Z`).getTime();
+          const tEnd = new Date(`${curTerm.end_date}T00:00:00Z`).getTime();
+          const expectedPct = Math.min(100, Math.max(0, Math.round(((today.getTime() - tStart) / (tEnd - tStart)) * 100)));
+          if (expectedPct >= 25) { // too-early terms produce noise, not signal
+            const { data: scopeSubj } = await serviceRoleClient
+              .from("section_subject")
+              .select("class_subject_id, name, class_section_id")
+              .eq("org_id", orgId).in("class_section_id", scopeSecIds).is("archived_at", null);
+            const csIds = Array.from(new Set(((scopeSubj ?? []) as any[]).map((x) => x.class_subject_id)));
+            if (csIds.length > 0) {
+              const { data: curricula } = await serviceRoleClient
+                .from("curriculum").select("id, class_subject_id, class_subject:class_subject_id(name, class:class_id(name))")
+                .in("class_subject_id", csIds).eq("academic_year", "2026-27");
+              const curMap = new Map(((curricula ?? []) as any[]).map((cu) => [cu.id, cu]));
+              if (curMap.size > 0) {
+                const { data: topics } = await serviceRoleClient
+                  .from("curriculum_topic")
+                  .select("curriculum_id, completed, academic_term_id")
+                  .in("curriculum_id", Array.from(curMap.keys())).limit(20000);
+                const agg = new Map<string, { done: number; total: number }>();
+                for (const t of (topics ?? []) as any[]) {
+                  if (t.academic_term_id && t.academic_term_id !== curTerm.id) continue;
+                  const a = agg.get(t.curriculum_id) ?? { done: 0, total: 0 };
+                  a.total++; if (t.completed) a.done++;
+                  agg.set(t.curriculum_id, a);
+                }
+                const behind: string[] = [];
+                for (const [curId, a] of agg) {
+                  if (a.total < 3) continue; // tiny syllabi swing wildly
+                  const delta = Math.round((a.done / a.total) * 100) - expectedPct;
+                  if (delta <= -15) {
+                    const cu = curMap.get(curId);
+                    behind.push(`${cu?.class_subject?.class?.name ?? ""} ${cu?.class_subject?.name ?? ""} (${delta}pp)`.trim());
+                  }
+                }
+                if (behind.length > 0) {
+                  alerts.push({
+                    id: "teacher_pace_slipping",
+                    severity: behind.length > 5 ? "critical" : "warning",
+                    kind: "attendance_dip",
+                    title: `${behind.length} subject${behind.length === 1 ? "" : "s"} 15+ points behind pace`,
+                    body: `${behind.slice(0, 4).join(", ")}${behind.length > 4 ? ` and ${behind.length - 4} more` : ""} vs ~${expectedPct}% expected by now.`,
+                    actionLabel: "Teaching overview",
+                    actionPath: `/school/orgs/${orgId}/admin/teaching-overview`,
+                  });
+                }
+              }
+            }
+          }
+        }
+
+        // 3. Quiet week — scheduled teachers with zero lessons in 7 days.
+        const weekAgo = fmtDate(new Date(today.getTime() - 7 * 24 * 3600e3));
+        const { data: schedEntries } = await serviceRoleClient
+          .from("timetable_entry")
+          .select("teacher_user_id")
+          .eq("org_id", orgId).in("scope_section_id", scopeSecIds)
+          .not("teacher_user_id", "is", null);
+        const periodsBy = new Map<string, number>();
+        for (const e of (schedEntries ?? []) as any[]) {
+          periodsBy.set(e.teacher_user_id, (periodsBy.get(e.teacher_user_id) ?? 0) + 1);
+        }
+        const scheduled = Array.from(periodsBy.entries())
+          .filter(([, n]) => n >= 5).map(([uid]) => uid);
+        if (scheduled.length > 0) {
+          const [{ data: weekLessons }, { data: weekHifz }, { data: grantRows }] = await Promise.all([
+            serviceRoleClient.from("lesson").select("taught_by")
+              .eq("org_id", orgId).gte("lesson_date", weekAgo).lte("lesson_date", todayStr)
+              .in("taught_by", scheduled).limit(5000),
+            // A Qari's daily work is hifz entries, not lesson rows — count
+            // them as activity so hifz teachers aren't falsely "quiet".
+            serviceRoleClient.from("hifz_progress").select("recorded_by")
+              .eq("org_id", orgId)
+              .gte("recorded_at", new Date(today.getTime() - 7 * 24 * 3600e3).toISOString())
+              .in("recorded_by", scheduled).limit(20000),
+            serviceRoleClient.from("user_roles").select("user_id, granted_at")
+              .in("user_id", scheduled).is("revoked_at", null).order("granted_at"),
+          ]);
+          const activeSet = new Set<string>();
+          for (const l of (weekLessons ?? []) as any[]) activeSet.add(l.taught_by);
+          for (const h of (weekHifz ?? []) as any[]) if (h.recorded_by) activeSet.add(h.recorded_by);
+          const firstGrantBy = new Map<string, string>();
+          for (const g of (grantRows ?? []) as any[]) {
+            if (!firstGrantBy.has(g.user_id)) firstGrantBy.set(g.user_id, g.granted_at);
+          }
+          const quiet = scheduled.filter((uid) =>
+            !activeSet.has(uid) && (firstGrantBy.get(uid) ?? "") < rampCutoff);
+          if (quiet.length > 0) {
+            const names: string[] = [];
+            for (const uid of quiet.slice(0, 4)) names.push(await taName(uid));
+            alerts.push({
+              id: "teacher_quiet_week",
+              severity: "info",
+              kind: "roster_stale",
+              title: `${quiet.length} teacher${quiet.length === 1 ? "" : "s"} with nothing logged in 7 days`,
+              body: `${names.join(", ")}${quiet.length > 4 ? ` and ${quiet.length - 4} more` : ""} have scheduled periods but no lessons (or hifz entries) this week.`,
+              actionLabel: "Teaching overview",
+              actionPath: `/school/orgs/${orgId}/admin/teaching-overview`,
+            });
+          }
+        }
+      }
+    } catch (taErr) {
+      // Teaching alerts must never break the dashboard.
+      console.error("[dashboard] teaching alerts failed:", taErr);
+    }
+
+    // Sort by severity (critical > warning > info), cap to 8.
+    const sevRank = { critical: 0, warning: 1, info: 2 } as const;
+    alerts.sort((a, b) => sevRank[a.severity] - sevRank[b.severity]);
+    const cappedAlerts = alerts.slice(0, 8);
 
     return c.json({
       asOf: now.toISOString(),
