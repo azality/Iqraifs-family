@@ -183,6 +183,7 @@ function groupsForAdmin(
       Icon: GraduationCap,
       items: [
         I("classes", t("toolbar.classes"), `/school/orgs/${orgId}/admin/classes`, BookOpen),
+        I("academics-day", "Daily academics", `/school/orgs/${orgId}/admin/academics-day`, ListChecks),
         I("hifz-program", "Hifz program", `/school/orgs/${orgId}/admin/hifz-program`, BookMarked),
         // "Hifz groups" hidden until a school actually needs cross-class
         // Quran groupings — its presence next to the Hifz program entry

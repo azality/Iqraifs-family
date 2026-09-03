@@ -5294,3 +5294,33 @@ export const putAttendanceDayNote = (
     method: "PUT",
     body: JSON.stringify({ note }),
   });
+
+// ── Academics day view (incharge digest) ──────────────────────────────
+export interface AcademicsDayLesson {
+  id: string; title: string;
+  subjectName: string | null; topicName: string | null; teacherName: string | null;
+}
+export interface AcademicsDayAssignment {
+  id: string; title: string; kind: string;
+  dueDate: string | null; teacherName: string | null;
+}
+export interface AcademicsDaySection {
+  sectionId: string; className: string; sectionName: string;
+  lessons: AcademicsDayLesson[]; assignments: AcademicsDayAssignment[];
+}
+export interface AcademicsDayResponse {
+  date: string;
+  sections: AcademicsDaySection[];
+  plannedTopics: Array<{
+    name: string; targetDate: string; completed: boolean;
+    subjectName: string | null; className: string | null;
+  }>;
+  hifz: Array<{ sectionId: string; label: string; heard: number; total: number }>;
+  totals: { lessons: number; homework: number; quizzes: number; tests: number; otherAssignments: number };
+}
+
+export const getAcademicsDay = (
+  orgId: string,
+  date?: string,
+): Promise<AcademicsDayResponse> =>
+  apiCall(`/school/orgs/${orgId}/academics-day${date ? `?date=${date}` : ""}`);

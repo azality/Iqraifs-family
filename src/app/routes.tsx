@@ -64,6 +64,7 @@ import { StudentReportCard } from "./pages/school/StudentReportCard";
 import { ImportCenter } from "./pages/school/ImportCenter";
 import { ManageHifzGroups } from "./pages/school/ManageHifzGroups";
 import { HifzProgramDashboard } from "./pages/school/HifzProgramDashboard";
+import { AdminAcademicsDay } from "./pages/school/AdminAcademicsDay";
 import { ManageTimetable } from "./pages/school/ManageTimetable";
 import { MasterTimetable } from "./pages/school/MasterTimetable";
 import { TimetableSchedulePage } from "./pages/school/TimetableSchedulePage";
@@ -557,6 +558,7 @@ export const router = createBrowserRouter([
               { path: "admin/import", element: <ImportCenter /> },
               { path: "admin/hifz-groups", element: <ManageHifzGroups /> },
               { path: "admin/hifz-program", element: <HifzProgramDashboard /> },
+              { path: "admin/academics-day", element: <AdminAcademicsDay /> },
               { path: "admin/timetable", element: <ManageTimetable /> },
               { path: "admin/timetable/master", element: <MasterTimetable /> },
               { path: "admin/timetable/substitutions", element: <TimetableSubstitutionsPage /> },
