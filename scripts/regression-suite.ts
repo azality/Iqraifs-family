@@ -1120,6 +1120,50 @@ await check("31. incharge role: wing-scoped access, no org powers", async () => 
   }
 });
 
+await check("32. parent phone change: PIN login identifier follows, same PIN works", async () => {
+  // pin_credential snapshots the phone at set time; the parents PATCH
+  // must re-point it when the phone changes (pilot Sep 3) — same PIN,
+  // new username, must_change untouched.
+  const { data: qaParent } = await admin.from("parent").select("id, phone")
+    .eq("org_id", ORG).eq("full_name", "QA Portal Parent").maybeSingle();
+  assert(qaParent, "QA Portal Parent row missing");
+  const oldPhone = qaParent.phone;
+  const newPhone = "+920000000902";
+  try {
+    // Known PIN via the API (also re-exercises /pin/set end to end).
+    const setR = await api(office.token, `/school/orgs/${ORG}/pin/set`, {
+      method: "POST",
+      body: JSON.stringify({ subjectType: "parent", subjectId: qaParent.id, pin: "7311" }),
+    });
+    assert(setR.status === 200, `pin/set ${setR.status}`);
+    // Change the phone through the real PATCH endpoint.
+    const patchR = await api(office.token, `/school/orgs/${ORG}/parents/${qaParent.id}`, {
+      method: "PATCH", body: JSON.stringify({ phone: newPhone }),
+    });
+    assert(patchR.status === 200, `parent patch ${patchR.status}`);
+    // Credential follows: old identifier gone, new one present.
+    const { data: cred } = await admin.from("pin_credential").select("login_identifier, must_change")
+      .eq("org_id", ORG).eq("subject_type", "parent").eq("subject_id", qaParent.id).maybeSingle();
+    assert(cred?.login_identifier === newPhone, `identifier not synced: ${JSON.stringify(cred)}`);
+    assert(cred.must_change === true, "parent set should force must_change");
+    // And the same PIN logs in with the NEW number.
+    const login = await pinLogin(newPhone, "7311");
+    assert(login.status === 200, `pin login with new phone ${login.status}`);
+    const oldLogin = await pinLogin(oldPhone, "7311");
+    assert(oldLogin.status !== 200, `old phone should no longer log in, got ${oldLogin.status}`);
+  } finally {
+    // Restore phone (PATCH re-syncs the credential back) and re-seed the
+    // canonical QA pin so later runs/checks keep their assumptions.
+    await api(office.token, `/school/orgs/${ORG}/parents/${qaParent.id}`, {
+      method: "PATCH", body: JSON.stringify({ phone: oldPhone }),
+    });
+    await api(office.token, `/school/orgs/${ORG}/pin/set`, {
+      method: "POST",
+      body: JSON.stringify({ subjectType: "parent", subjectId: qaParent.id, pin: "3456" }),
+    });
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
