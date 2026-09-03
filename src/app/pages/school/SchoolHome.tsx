@@ -28,6 +28,7 @@ import {
 const ROLE_LABEL: Record<SchoolViewerRole, string> = {
   principal: "Principal",
   admin: "Admin",
+  incharge: "Incharge",
   class_teacher: "Class Teacher",
   visiting_teacher: "Visiting Teacher",
   hifz_teacher: "Hifz Teacher",

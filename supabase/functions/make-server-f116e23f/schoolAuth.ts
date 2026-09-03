@@ -119,6 +119,55 @@ export async function hasAnyRoleInOrg(userId: string, orgId: string): Promise<bo
   return (await getOrgRoles(userId, orgId)).size > 0;
 }
 
+// =============================================================================
+// Incharge (Sep 2026) — school-appointed wing overseers:
+//   Montessori (Reception/Junior/Senior), Primary+Secondary (I..X),
+//   Hifz (Hifz I..IV). One user_roles row PER CLASS in the wing:
+//   role_type='incharge', scope_type='class', scope_id=CLASS id (note:
+//   visiting_teacher uses SECTION ids on the same scope_type — both are
+//   resolved in getOrgRoles). Powers: teacher-equivalent within wing
+//   sections + wing-scoped dashboards. No org-level powers.
+// =============================================================================
+
+/** Class ids of this user's incharge wing within the org ([] = not an
+ *  incharge here). Validity window enforced. */
+export async function inchargeClassIds(userId: string, orgId: string): Promise<string[]> {
+  const today = todayUtcDate();
+  const { data } = await serviceRoleClient
+    .from("user_roles")
+    .select("scope_id, valid_from, valid_until")
+    .eq("user_id", userId)
+    .eq("role_type", "incharge")
+    .eq("scope_type", "class")
+    .is("revoked_at", null);
+  const ids = (data ?? [])
+    .filter((r: any) => isRoleActiveNow(
+      { revoked_at: null, valid_from: r.valid_from ?? null, valid_until: r.valid_until ?? null },
+      today,
+    ))
+    .map((r: any) => r.scope_id);
+  if (ids.length === 0) return [];
+  const { data: classes } = await serviceRoleClient
+    .from("class")
+    .select("id")
+    .eq("org_id", orgId)
+    .in("id", ids);
+  return (classes ?? []).map((cl: any) => cl.id);
+}
+
+export async function isInchargeInOrg(userId: string, orgId: string): Promise<boolean> {
+  return (await inchargeClassIds(userId, orgId)).length > 0;
+}
+
+/** Is this user incharge of the wing containing the given CLASS? */
+export async function isInchargeOfClass(
+  userId: string,
+  orgId: string,
+  classId: string,
+): Promise<boolean> {
+  return (await inchargeClassIds(userId, orgId)).includes(classId);
+}
+
 export async function getOrgRoles(userId: string, orgId: string): Promise<Set<SchoolRole>> {
   const out = new Set<SchoolRole>();
   const today = todayUtcDate();
@@ -181,6 +230,18 @@ export async function getOrgRoles(userId: string, orgId: string): Promise<Set<Sc
         .select("id, class:class_id(org_id)")
         .in("id", ids);
       const orgOf = new Map<string, string>((secs ?? []).map((s: any) => [s.id, s.class?.org_id ?? null]));
+      // Incharge rows scope to CLASS ids (not section ids) — resolve any
+      // id that wasn't a section against the class table directly.
+      const unresolved = ids.filter((id) => !orgOf.has(id));
+      if (unresolved.length > 0) {
+        const { data: classes } = await serviceRoleClient
+          .from("class")
+          .select("id, org_id")
+          .in("id", unresolved);
+        for (const cl of classes ?? []) {
+          orgOf.set((cl as any).id, (cl as any).org_id);
+        }
+      }
       for (const r of validClassRoles) {
         if (orgOf.get(r.scope_id) === orgId) out.add(r.role_type as SchoolRole);
       }
@@ -296,6 +357,10 @@ export async function requireTeacherOfSection(
   // their org. Tighten this if needed per Q5 in SCHOOL_ROLES.md).
   if (await userHasRoleRow(userId, "visiting_teacher", "organization", orgId)) return { ok: true };
 
+  // Incharge of the wing containing this section's class — teacher-
+  // equivalent within the wing (school decision, Sep 2026).
+  if (await isInchargeOfClass(userId, orgId, sec.class_id)) return { ok: true };
+
   return {
     ok: false,
     status: 403,
@@ -315,13 +380,14 @@ export async function isTeacherOfSection(
 ): Promise<boolean> {
   const { data: sec } = await serviceRoleClient
     .from("class_section")
-    .select("class_teacher_user_id")
+    .select("class_teacher_user_id, class_id")
     .eq("id", sectionId)
     .maybeSingle();
   if (sec?.class_teacher_user_id === userId) return true;
   if (await teachesSubjectInSection(userId, sectionId)) return true;
   if (await userHasRoleRow(userId, "visiting_teacher", "class", sectionId)) return true;
   if (await userHasRoleRow(userId, "visiting_teacher", "organization", orgId)) return true;
+  if (sec?.class_id && (await isInchargeOfClass(userId, orgId, sec.class_id))) return true;
   return false;
 }
 

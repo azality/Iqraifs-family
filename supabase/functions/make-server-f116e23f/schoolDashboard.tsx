@@ -22,7 +22,7 @@
 
 import { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
-import { hasAnyRoleInOrg, hasAdminOrPrincipal } from "./schoolAuth.ts";
+import { hasAnyRoleInOrg, hasAdminOrPrincipal, inchargeClassIds } from "./schoolAuth.ts";
 import { todayInOrgTz } from "./tz.ts";
 
 // -----------------------------------------------------------------------------
@@ -169,6 +169,20 @@ async function determineScope(
     .is("archived_at", null);
   for (const r of (taught ?? []) as Array<{ class_section_id: string }>) {
     if (r.class_section_id) scopedSectionIds.add(r.class_section_id);
+  }
+
+  // 2a.7. Incharge wing (Sep 2026) — every section of every class in
+  // the wing. This is what scopes the dashboard/leaderboard for the
+  // three school-appointed incharges.
+  const wingClassIds = await inchargeClassIds(userId, orgId);
+  if (wingClassIds.length > 0) {
+    const { data: wingSecs } = await serviceRoleClient
+      .from("class_section")
+      .select("id")
+      .in("class_id", wingClassIds);
+    for (const ws of (wingSecs ?? []) as Array<{ id: string }>) {
+      scopedSectionIds.add(ws.id);
+    }
   }
 
   // 2b. user_roles rows: visiting_teacher class-scoped
@@ -1127,13 +1141,19 @@ export function installDashboard(school: Hono): void {
     const userId = getAuthUserId(c);
     if (!userId) return c.json({ error: "unauthenticated" }, 401);
     const orgId = c.req.param("orgId");
+    // Admin/principal: all hifz classes. Hifz-wing incharge: their wing.
+    let hifzWing: string[] | null = null;
     if (!(await hasAdminOrPrincipal(userId, orgId))) {
-      return c.json({ error: "forbidden" }, 403);
+      const w = await inchargeClassIds(userId, orgId);
+      if (w.length === 0) return c.json({ error: "forbidden" }, 403);
+      hifzWing = w;
     }
 
     const skeleton = withoutSandbox(await loadOrgSkeleton(orgId));
     const hifzSections = skeleton.sections.filter(
-      (s) => s.class_kind === "hifz" || s.schedule_key === "hifz",
+      (s) =>
+        (s.class_kind === "hifz" || s.schedule_key === "hifz") &&
+        (hifzWing === null || hifzWing.includes(s.class_id)),
     );
     const hifzSectionIds = new Set(hifzSections.map((s) => s.id));
     const sectionLabel = new Map(
@@ -1876,8 +1896,12 @@ export function installDashboard(school: Hono): void {
     const userId = getAuthUserId(c);
     if (!userId) return c.json({ error: "unauthenticated" }, 401);
     const orgId = c.req.param("orgId");
+    // Admin/principal: whole org. Incharge: their wing only.
+    let wing: string[] | null = null; // null = unrestricted
     if (!(await hasAdminOrPrincipal(userId, orgId))) {
-      return c.json({ error: "forbidden" }, 403);
+      const w = await inchargeClassIds(userId, orgId);
+      if (w.length === 0) return c.json({ error: "forbidden" }, 403);
+      wing = w;
     }
     const qDate = c.req.query("date");
     const pktToday = new Date(Date.now() + 5 * 3600e3).toISOString().slice(0, 10);
@@ -1891,23 +1915,31 @@ export function installDashboard(school: Hono): void {
     const [lessonsQ, assignQ, plannedQ, hifzSecQ] = await Promise.all([
       serviceRoleClient
         .from("lesson")
-        .select("id, title, taught_by, class_section_id, section_subject:section_subject_id(name), topic:curriculum_topic_id(name), section:class_section_id(name, class:class_id(name))")
+        .select("id, title, taught_by, class_section_id, section_subject:section_subject_id(name), topic:curriculum_topic_id(name), section:class_section_id(name, class_id, class:class_id(name))")
         .eq("org_id", orgId).eq("lesson_date", date).limit(300),
       serviceRoleClient
         .from("assignment")
-        .select("id, title, kind, due_date, created_by, class_section_id, section:class_section_id(name, class:class_id(name))")
+        .select("id, title, kind, due_date, created_by, class_section_id, section:class_section_id(name, class_id, class:class_id(name))")
         .eq("org_id", orgId).eq("assigned_date", date).limit(300),
       serviceRoleClient
         .from("curriculum_topic")
-        .select("name, target_date, completed, curriculum:curriculum_id!inner(org_id, class_subject:class_subject_id(name, class:class_id(name)))")
+        .select("name, target_date, completed, curriculum:curriculum_id!inner(org_id, class_subject:class_subject_id(name, class_id, class:class_id(name)))")
         .eq("curriculum.org_id", orgId)
         .gte("target_date", date).lt("target_date", weekEnd)
         .order("target_date", { ascending: true }).limit(100),
       serviceRoleClient
         .from("class_section")
-        .select("id, name, class:class_id!inner(name, kind, org_id)")
+        .select("id, name, class_id, class:class_id!inner(name, kind, org_id)")
         .eq("class.org_id", orgId).eq("class.kind", "hifz"),
     ]);
+
+    // Wing filter (incharge): keep only rows for classes in the wing.
+    const inWing = (classId: string | null | undefined): boolean =>
+      wing === null || (!!classId && wing.includes(classId));
+    const lessonsRows = ((lessonsQ.data ?? []) as any[]).filter((l) => inWing(l.section?.class_id));
+    const assignRows = ((assignQ.data ?? []) as any[]).filter((a) => inWing(a.section?.class_id));
+    const plannedRows = ((plannedQ.data ?? []) as any[]).filter((tp) => inWing(tp.curriculum?.class_subject?.class_id));
+    const hifzSecRows = ((hifzSecQ.data ?? []) as any[]).filter((sec) => inWing(sec.class_id));
 
     // Teacher names, one lookup per distinct id.
     const nameCache: Record<string, string> = {};
@@ -1937,7 +1969,7 @@ export function installDashboard(school: Hono): void {
       }
       return buckets[sectionId];
     };
-    for (const l of (lessonsQ.data ?? []) as any[]) {
+    for (const l of lessonsRows) {
       bucketFor(l.class_section_id, l.section).lessons.push({
         id: l.id, title: l.title,
         subjectName: l.section_subject?.name ?? null,
@@ -1945,7 +1977,7 @@ export function installDashboard(school: Hono): void {
         teacherName: await nameOf(l.taught_by),
       });
     }
-    for (const a of (assignQ.data ?? []) as any[]) {
+    for (const a of assignRows) {
       bucketFor(a.class_section_id, a.section).assignments.push({
         id: a.id, title: a.title, kind: a.kind, dueDate: a.due_date,
         teacherName: await nameOf(a.created_by),
@@ -1955,7 +1987,7 @@ export function installDashboard(school: Hono): void {
       (x.className + x.sectionName).localeCompare(y.className + y.sectionName));
 
     // Hifz: distinct students heard today per hifz section.
-    const hifzSections = (hifzSecQ.data ?? []) as any[];
+    const hifzSections = hifzSecRows;
     let hifz: unknown[] = [];
     if (hifzSections.length > 0) {
       const secIds = hifzSections.map((s) => s.id);
@@ -1992,23 +2024,22 @@ export function installDashboard(school: Hono): void {
         .sort((a: any, b: any) => a.label.localeCompare(b.label));
     }
 
-    const kindCount = (k: string) =>
-      ((assignQ.data ?? []) as any[]).filter((a) => a.kind === k).length;
+    const kindCount = (k: string) => assignRows.filter((a) => a.kind === k).length;
     return c.json({
       date,
       sections,
-      plannedTopics: ((plannedQ.data ?? []) as any[]).map((tp) => ({
+      plannedTopics: plannedRows.map((tp) => ({
         name: tp.name, targetDate: tp.target_date, completed: !!tp.completed,
         subjectName: tp.curriculum?.class_subject?.name ?? null,
         className: tp.curriculum?.class_subject?.class?.name ?? null,
       })),
       hifz,
       totals: {
-        lessons: (lessonsQ.data ?? []).length,
+        lessons: lessonsRows.length,
         homework: kindCount("homework"),
         quizzes: kindCount("quiz"),
         tests: kindCount("test"),
-        otherAssignments: ((assignQ.data ?? []) as any[]).filter(
+        otherAssignments: assignRows.filter(
           (a) => !["homework", "quiz", "test"].includes(a.kind)).length,
       },
     });

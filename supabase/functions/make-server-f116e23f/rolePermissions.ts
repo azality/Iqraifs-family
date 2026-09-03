@@ -20,7 +20,12 @@ export type SchoolRole =
   | "visiting_teacher"
   | "teacher" // legacy alias for class_teacher in some rows
   | "financial_staff"
-  | "office_staff";
+  | "office_staff"
+  // Wing overseer (Sep 2026): Montessori / Primary+Secondary / Hifz.
+  // Access is WING-scoped via explicit incharge checks in schoolAuth —
+  // the org-wide permission matrix below stays all-false on purpose so
+  // userCanInOrg() never grants an incharge org-wide powers.
+  | "incharge";
 
 export type PermissionKey =
   | "manage_students"
@@ -36,6 +41,7 @@ export type PermissionKey =
 export const ROLES: SchoolRole[] = [
   "principal",
   "admin",
+  "incharge",
   "class_teacher",
   "visiting_teacher",
   "teacher",
@@ -77,6 +83,19 @@ export const OVERRIDABLE_ROLE_TEMPLATES: Exclude<SchoolRole, "principal">[] = [
  *    forms. NO fees, NO grades. (PR C #6 elevated mark_attendance to true.)
  *  Overrides from role_template_override (per org) win over these. */
 export const DEFAULT_PERMISSIONS: Record<SchoolRole, Record<PermissionKey, boolean>> = {
+  // Wing access is granted by explicit incharge checks (schoolAuth), not
+  // by this org-wide matrix — everything false here is intentional.
+  incharge: {
+    manage_students: false,
+    mark_attendance: false,
+    edit_grades: false,
+    mark_fees_status: false,
+    create_forms: false,
+    define_curriculum: false,
+    manage_teachers: false,
+    view_all_classes: false,
+    manage_public_site: false,
+  },
   principal: {
     manage_students: true,
     mark_attendance: true,
