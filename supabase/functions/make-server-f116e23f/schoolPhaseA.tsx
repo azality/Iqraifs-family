@@ -1662,6 +1662,25 @@ export function installPhaseA(school: Hono) {
       .from("parent").update(patch).eq("id", parentId).eq("org_id", orgId)
       .select().single();
     if (error) return c.json({ error: error.message }, 500);
+    // PIN follows the phone (pilot Sep 3): pin_credential snapshots the
+    // phone as login_identifier at set time. Without this sync, changing
+    // a parent's phone stranded the PIN on the OLD number — the parent
+    // had to log in with a number that no longer matched their profile,
+    // and the new number didn't work at all. Same PIN, new username;
+    // must_change is untouched.
+    if ("phone" in patch && patch.phone) {
+      const { error: pinErr } = await serviceRoleClient
+        .from("pin_credential")
+        .update({ login_identifier: patch.phone })
+        .eq("org_id", orgId)
+        .eq("subject_type", "parent")
+        .eq("subject_id", parentId);
+      if (pinErr) {
+        // Non-fatal: the profile update succeeded; surface the mismatch
+        // so the operator re-issues a PIN instead of silently stranding it.
+        console.error("[parents PATCH] pin_credential sync failed:", pinErr.message);
+      }
+    }
     return c.json(data);
   });
 
