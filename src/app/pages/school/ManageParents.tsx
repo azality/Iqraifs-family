@@ -14,7 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../../components/ui/dialog";
-import { Plus, Upload, Search, Trash2, Pencil, Mail, Phone, GraduationCap, Link2, X } from "lucide-react";
+import { Plus, Upload, Search, Trash2, Pencil, Mail, Phone, GraduationCap, Link2, X, KeyRound } from "lucide-react";
 import {
   HeroCard,
   cardBase,
@@ -40,6 +40,8 @@ import {
   type AdminStudent,
   type CreateParentBody,
   type SchoolMeResponse,
+  setPin,
+  resetPin,
 } from "../../../utils/schoolApi";
 import { useOrgPermissionState } from "./useOrgPermission";
 import { CsvUploadDialog } from "./components/CsvUploadDialog";
@@ -55,6 +57,13 @@ export function ManageParents() {
   const [search, setSearch] = useState("");
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<AdminParent | null>(null);
+
+  // PIN dialog (pilot Sep 3): admin sets or auto-generates a TEMPORARY
+  // parent PIN; the parent is asked to choose their own at next login.
+  const [pinFor, setPinFor] = useState<AdminParent | null>(null);
+  const [pinValue, setPinValue] = useState("");
+  const [pinBusy, setPinBusy] = useState(false);
+  const [generatedPin, setGeneratedPin] = useState<string | null>(null);
   const [form, setForm] = useState<CreateParentBody>(empty);
   const [csvOpen, setCsvOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -251,6 +260,42 @@ export function ManageParents() {
   }
 
   const resetLinkPicker = () => { setStudentSearch(""); setStudentResults([]); setSelectedStudents([]); };
+  const openPin = (p: AdminParent) => {
+    setPinFor(p);
+    setPinValue("");
+    setGeneratedPin(null);
+  };
+
+  const handleSetPin = async () => {
+    if (!pinFor) return;
+    if (!/^\d{4}$/.test(pinValue)) { toast.error("PIN must be exactly 4 digits"); return; }
+    setPinBusy(true);
+    try {
+      await setPin(orgId, { subjectType: "parent", subjectId: pinFor.id, pin: pinValue });
+      toast.success("PIN set — the parent will be asked to choose their own PIN at first login");
+      setGeneratedPin(pinValue);
+      setPinValue("");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not set PIN");
+    } finally {
+      setPinBusy(false);
+    }
+  };
+
+  const handleAutoPin = async () => {
+    if (!pinFor) return;
+    setPinBusy(true);
+    try {
+      const res = await resetPin(orgId, { subjectType: "parent", subjectId: pinFor.id });
+      setGeneratedPin(res.pin);
+      toast.success("New PIN generated");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not reset PIN");
+    } finally {
+      setPinBusy(false);
+    }
+  };
+
   const startCreate = () => { setEditing(null); setForm(empty); resetLinkPicker(); setFormOpen(true); };
   const startEdit = (p: AdminParent) => {
     setEditing(p);
@@ -481,7 +526,12 @@ export function ManageParents() {
                 <div className="flex flex-col gap-2">
                   {family.parents.map((p) => (
                     <div key={p.id} className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 flex-1">
+                      <div
+                        className="min-w-0 flex-1 cursor-pointer rounded-md -m-1 p-1 hover:bg-slate-50"
+                        onClick={() => startEdit(p)}
+                        role="button"
+                        title="Open parent details"
+                      >
                         <div className="font-medium text-slate-900 truncate">{p.full_name}</div>
                         <div className="mt-0.5 text-xs text-slate-500 capitalize">
                           {p.relationship || "Parent"}
@@ -498,6 +548,15 @@ export function ManageParents() {
                       <div className="flex flex-col gap-0.5">
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => startEdit(p)}>
                           <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 w-7 p-0"
+                          title="Login PIN"
+                          onClick={() => openPin(p)}
+                        >
+                          <KeyRound className="h-3.5 w-3.5 text-indigo-600" />
                         </Button>
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleDelete(p)}>
                           <Trash2 className="h-3.5 w-3.5 text-rose-600" />
@@ -639,6 +698,62 @@ export function ManageParents() {
             <Button variant="outline" onClick={() => setFormOpen(false)}>Cancel</Button>
             <Button onClick={submitForm}>{editing ? "Save" : "Create"}</Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Parent PIN dialog — set/auto-generate a temporary login PIN.
+          Parent logs in with phone + PIN and must choose their own PIN
+          at next login (backend forces must_change for parents). */}
+      <Dialog open={!!pinFor} onOpenChange={(o) => { if (!o) setPinFor(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Login PIN — {pinFor?.full_name}</DialogTitle>
+          </DialogHeader>
+          {!pinFor?.phone ? (
+            <p className="text-sm text-rose-700">
+              This parent has no phone number yet — PIN login uses the
+              phone as the username. Add a phone first (pencil icon).
+            </p>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-xs text-slate-500">
+                The parent signs in at the school login page with phone{" "}
+                <span className="font-medium text-slate-700">{pinFor.phone}</span>{" "}
+                + this PIN, and will be asked to choose their own PIN
+                right away. Set or generate a new one anytime to reset —
+                same first-login rule applies.
+              </p>
+              {generatedPin && (
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-center">
+                  <div className="text-[11px] uppercase tracking-wide text-emerald-700">Temporary PIN — share with the parent</div>
+                  <div className="mt-1 text-3xl font-bold tracking-[0.4em] text-emerald-900">{generatedPin}</div>
+                </div>
+              )}
+              <div className="flex items-end gap-2">
+                <div className="flex-1 space-y-1">
+                  <Label className="text-xs">Choose a 4-digit PIN</Label>
+                  <Input
+                    inputMode="numeric"
+                    maxLength={4}
+                    value={pinValue}
+                    onChange={(e) => setPinValue(e.target.value.replace(/\D/g, ""))}
+                    placeholder="e.g. 4257"
+                  />
+                </div>
+                <Button onClick={handleSetPin} disabled={pinBusy || pinValue.length !== 4}>
+                  Set PIN
+                </Button>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="h-px flex-1 bg-slate-200" />
+                <span className="text-[10px] uppercase text-slate-400">or</span>
+                <div className="h-px flex-1 bg-slate-200" />
+              </div>
+              <Button variant="outline" className="w-full" onClick={handleAutoPin} disabled={pinBusy}>
+                <KeyRound className="h-3.5 w-3.5 mr-1.5" /> Auto-generate a PIN
+              </Button>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 
