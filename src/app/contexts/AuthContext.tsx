@@ -7,6 +7,7 @@
 
 import React, { createContext, useContext, useState, ReactNode, useEffect, useRef } from 'react';
 import { supabase } from '../../../utils/supabase/client';
+import { syncLangFromUser } from '../../i18n/accountLang';
 import { clearAllSessions, getCurrentRole, hasSupabaseSession } from '../utils/authHelpers';
 import { getStorageSync, setStorageSync, removeStorageSync, getMultipleSync, STORAGE_KEYS } from '../../utils/storage';
 
@@ -425,6 +426,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           session: { session, error: null },
           timestamp: Date.now(),
         };
+
+        // Re-apply the account's saved language (user_metadata.lang) so a
+        // teacher who picked اردو gets it back on any device / next login.
+        if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session?.user) {
+          syncLangFromUser(session.user);
+        }
 
         // Password-recovery links normally land on /reset-password (the
         // redirectTo we pass), but if the redirect gets stripped (e.g. a

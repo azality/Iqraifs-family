@@ -5,7 +5,8 @@
 // TRANSLATION SCOPE (pilot decision, July 2026; amended Sep 2026): the
 // STAFF UI (src/app/pages/school/*) ships English-only for the pilot —
 // with ONE exception: the hifz teaching flow (`hifzTeach.*` keys —
-// dashboard banner, roster, log dialog), translated Sep 2026 because
+// dashboard banner, roster, log dialog) plus the teacher toolbar and
+// Logout button (`toolbar.*` keys), translated Sep 2026 because
 // hifz teachers are the staff most comfortable in Urdu (Muneeb, after
 // a hifz teacher switched to اردو and hit an English wall). Everything
 // PARENT- or STUDENT-facing (src/app/pages/portal/*) must go through

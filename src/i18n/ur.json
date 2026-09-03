@@ -35,6 +35,13 @@
     "signingIn": "سائن ان ہو رہا ہے…"
   },
   "toolbar": {
+    "dashboard": "ڈیش بورڈ",
+    "mySchedule": "میرا شیڈول",
+    "myClasses": "میری کلاسیں",
+    "mySubjects": "میرے مضامین",
+    "myHifzGroups": "میرے حفظ گروپ",
+    "timeOff": "چھٹی کی درخواست",
+    "logout": "لاگ آؤٹ",
     "classes": "کلاسز",
     "students": "طلباء",
     "parents": "والدین",
