@@ -975,6 +975,48 @@ await check("28. hifz sabqi-by-para: juzExtent stored, returned, portal-visible;
   }
 });
 
+await check("29. attendance day notes: admin upsert/read/delete, teacher read-only", async () => {
+  // Org-wide "why was attendance unusual" annotations. Principal/admin
+  // write; any org staff read. Use a far-past date so a live dashboard
+  // viewer never sees the QA note as "today".
+  const qaDate = "2020-01-15";
+  try {
+    // Teacher (class_teacher) cannot write.
+    const denied = await api(teacher.token, `/school/orgs/${ORG}/attendance-day-notes/${qaDate}`, {
+      method: "PUT", body: JSON.stringify({ note: "QA should be denied" }),
+    });
+    assert(denied.status === 403, `teacher write expected 403, got ${denied.status}`);
+    // Principal writes.
+    const put = await api(principal.token, `/school/orgs/${ORG}/attendance-day-notes/${qaDate}`, {
+      method: "PUT", body: JSON.stringify({ note: "QA strike day note" }),
+    });
+    assert(put.status === 200, `principal put ${put.status}`);
+    // Bad date rejected.
+    const bad = await api(principal.token, `/school/orgs/${ORG}/attendance-day-notes/not-a-date`, {
+      method: "PUT", body: JSON.stringify({ note: "x" }),
+    });
+    assert(bad.status === 400, `bad date expected 400, got ${bad.status}`);
+    // Teacher can read it back (range-filtered).
+    const list = await api(teacher.token, `/school/orgs/${ORG}/attendance-day-notes?startDate=2020-01-01&endDate=2020-01-31`);
+    const listJ = await list.json();
+    assert(list.status === 200, `list ${list.status}`);
+    const row = (listJ.notes ?? []).find((n: any) => n.noteDate === qaDate);
+    assert(row?.note === "QA strike day note", `note round-trip: ${JSON.stringify(row)}`);
+    assert(typeof row.createdByName === "string" && row.createdByName.length > 0, "createdByName missing");
+    // Blank note deletes.
+    const del = await api(principal.token, `/school/orgs/${ORG}/attendance-day-notes/${qaDate}`, {
+      method: "PUT", body: JSON.stringify({ note: "  " }),
+    });
+    const delJ = await del.json();
+    assert(del.status === 200 && delJ.deleted === true, `blank-note delete: ${del.status} ${JSON.stringify(delJ)}`);
+    const list2 = await api(teacher.token, `/school/orgs/${ORG}/attendance-day-notes?startDate=2020-01-01&endDate=2020-01-31`);
+    const list2J = await list2.json();
+    assert(!(list2J.notes ?? []).some((n: any) => n.noteDate === qaDate), "note still present after delete");
+  } finally {
+    await admin.from("attendance_day_note").delete().eq("org_id", ORG).eq("note_date", qaDate);
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

@@ -1863,6 +1863,90 @@ export function installDashboard(school: Hono): void {
       recentActivity,
     });
   });
+
+  // ── Attendance day notes ────────────────────────────────────────────
+  // Pilot ask (Sep 3 2026): when whole-school attendance is unusual
+  // (strike / protest call in Karachi keeping kids home), the admin
+  // records WHY against that date so the dip stays explainable later.
+  // One note per org+date, upsert semantics; blank note deletes.
+
+  // GET /orgs/:orgId/attendance-day-notes?startDate&endDate — any staff.
+  school.get("/orgs/:orgId/attendance-day-notes", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    if (!(await hasAnyRoleInOrg(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+    let q = serviceRoleClient
+      .from("attendance_day_note")
+      .select("note_date, note, created_by, updated_at")
+      .eq("org_id", orgId)
+      .order("note_date", { ascending: false })
+      .limit(120);
+    const startDate = c.req.query("startDate");
+    const endDate = c.req.query("endDate");
+    if (startDate && dateRe.test(startDate)) q = q.gte("note_date", startDate);
+    if (endDate && dateRe.test(endDate)) q = q.lte("note_date", endDate);
+    const { data, error } = await q;
+    if (error) return c.json({ error: error.message }, 500);
+    // Resolve author names in one pass (small list; cached per request).
+    const names: Record<string, string> = {};
+    for (const r of data ?? []) {
+      const uid = r.created_by;
+      if (!uid || names[uid]) continue;
+      const { data: u } = await serviceRoleClient.auth.admin.getUserById(uid);
+      names[uid] = u?.user?.user_metadata?.name || u?.user?.email || "Staff";
+    }
+    return c.json({
+      notes: (data ?? []).map((r) => ({
+        noteDate: r.note_date,
+        note: r.note,
+        createdByName: r.created_by ? names[r.created_by] : null,
+        updatedAt: r.updated_at,
+      })),
+    });
+  });
+
+  // PUT /orgs/:orgId/attendance-day-notes/:date — principal/admin only.
+  school.put("/orgs/:orgId/attendance-day-notes/:date", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    if (!(await hasAdminOrPrincipal(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const date = c.req.param("date");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return c.json({ error: "invalid date" }, 400);
+    }
+    const body = await c.req.json().catch(() => ({}));
+    const note = typeof body.note === "string" ? body.note.trim().slice(0, 2000) : "";
+    if (!note) {
+      const { error } = await serviceRoleClient
+        .from("attendance_day_note")
+        .delete()
+        .eq("org_id", orgId)
+        .eq("note_date", date);
+      if (error) return c.json({ error: error.message }, 500);
+      return c.json({ ok: true, deleted: true });
+    }
+    const { error } = await serviceRoleClient
+      .from("attendance_day_note")
+      .upsert(
+        {
+          org_id: orgId,
+          note_date: date,
+          note,
+          created_by: userId,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "org_id,note_date" },
+      );
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ ok: true });
+  });
 }
 
 export default installDashboard;

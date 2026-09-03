@@ -5261,3 +5261,36 @@ export const deleteQuizQuestion = (
   questionId: string,
 ): Promise<{ ok: true }> =>
   apiCall(`/school/orgs/${orgId}/quiz-questions/${questionId}`, { method: "DELETE" });
+
+// ── Attendance day notes ──────────────────────────────────────────────
+// Org-wide "why was attendance unusual on this date" annotations
+// (pilot ask Sep 3 2026: strike/protest days). One note per org+date.
+
+export interface AttendanceDayNote {
+  noteDate: string; // YYYY-MM-DD
+  note: string;
+  createdByName?: string | null;
+  updatedAt: string;
+}
+
+export const listAttendanceDayNotes = (
+  orgId: string,
+  opts: { startDate?: string; endDate?: string } = {},
+): Promise<{ notes: AttendanceDayNote[] }> => {
+  const q = new URLSearchParams();
+  if (opts.startDate) q.append("startDate", opts.startDate);
+  if (opts.endDate) q.append("endDate", opts.endDate);
+  const qs = q.toString() ? `?${q}` : "";
+  return apiCall(`/school/orgs/${orgId}/attendance-day-notes${qs}`);
+};
+
+/** Upsert the note for a date; an empty note deletes it. Principal/admin only. */
+export const putAttendanceDayNote = (
+  orgId: string,
+  date: string,
+  note: string,
+): Promise<{ ok: boolean; deleted?: boolean }> =>
+  apiCall(`/school/orgs/${orgId}/attendance-day-notes/${date}`, {
+    method: "PUT",
+    body: JSON.stringify({ note }),
+  });
