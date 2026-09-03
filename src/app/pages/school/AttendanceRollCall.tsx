@@ -63,6 +63,13 @@ export function AttendanceRollCall() {
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [flags, setFlags] = useState<AttendanceFlag[]>([]);
   const [reloadKey, setReloadKey] = useState(0);
+  // Exception-first (UX review §4): a fresh roll call starts with every
+  // student Present and the teacher taps only the exceptions. `dirty`
+  // tracks whether the teacher touched anything, so a late-arriving
+  // "this is an off day" timetable hint can still clear the assumption.
+  const [dirty, setDirty] = useState(false);
+  // Notes are the 5% case — keep them behind a per-row disclosure.
+  const [openNotes, setOpenNotes] = useState<Set<string>>(new Set());
 
   const max = todayIso();
   const min = minDateIso();
@@ -109,13 +116,22 @@ export function AttendanceRollCall() {
         const init: Record<string, RowState> = {};
         const le: Record<string, { at: string; reason: string }> = {};
         const saved = new Set<string>();
+        const notesOpen = new Set<string>();
+        // Exception-first default: unmarked students start as Present —
+        // UNLESS the timetable says this looks like an off day (one tap
+        // of Save must never fabricate a register for a day the class
+        // didn't meet).
+        const js = new Date(`${date}T00:00:00`).getDay();
+        const dow = js === 0 ? 7 : js;
+        const offDayNow = scheduledDays !== null && !scheduledDays.has(dow);
         for (const s of students) {
           const existing = byId.get(s.id);
           init[s.id] = {
-            status: existing?.status ?? null,
+            status: existing?.status ?? (offDayNow ? null : "present"),
             notes: existing?.notes ?? "",
           };
           if (existing) saved.add(s.id);
+          if (existing?.notes) notesOpen.add(s.id);
           if (existing?.leftEarlyAt) {
             le[s.id] = { at: existing.leftEarlyAt, reason: existing.leftEarlyReason ?? "" };
           }
@@ -123,6 +139,8 @@ export function AttendanceRollCall() {
         setRows(init);
         setLeftEarly(le);
         setSavedIds(saved);
+        setOpenNotes(notesOpen);
+        setDirty(false);
       })
       .catch((e) => setError(e?.message || "Failed to load attendance"))
       .finally(() => setLoading(false));
@@ -174,6 +192,7 @@ export function AttendanceRollCall() {
   };
 
   const markAll = (status: RollCallStatus) => {
+    setDirty(true);
     setRows((s) => {
       const next: Record<string, RowState> = {};
       for (const sid of Object.keys(s)) next[sid] = { ...s[sid], status };
@@ -181,10 +200,39 @@ export function AttendanceRollCall() {
     });
   };
 
-  const setStatus = (sid: string, status: RollCallStatus) =>
+  const setStatus = (sid: string, status: RollCallStatus) => {
+    setDirty(true);
     setRows((s) => ({ ...s, [sid]: { ...(s[sid] ?? { status: null, notes: "" }), status } }));
-  const setNote = (sid: string, notes: string) =>
+  };
+  const setNote = (sid: string, notes: string) => {
+    setDirty(true);
     setRows((s) => ({ ...s, [sid]: { ...(s[sid] ?? { status: null, notes: "" }), notes } }));
+  };
+  // One-tap exception: tapping the student's name flips Present↔Absent.
+  const toggleAbsent = (sid: string) => {
+    const cur = rows[sid]?.status;
+    setStatus(sid, cur === "absent" ? "present" : "absent");
+  };
+  const toggleNoteOpen = (sid: string) =>
+    setOpenNotes((prev) => {
+      const next = new Set(prev);
+      if (next.has(sid)) next.delete(sid);
+      else next.add(sid);
+      return next;
+    });
+
+  // The timetable can resolve AFTER attendance prefilled. If it says
+  // off-day and the teacher hasn't touched or saved anything, withdraw
+  // the assumed-Present defaults rather than inviting a bogus register.
+  useEffect(() => {
+    if (!isOffDay || dirty || savedIds.size > 0) return;
+    setRows((prev) => {
+      const next: Record<string, RowState> = {};
+      for (const k of Object.keys(prev)) next[k] = { ...prev[k], status: null };
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOffDay]);
 
   const submit = async () => {
     setSaving(true);
@@ -326,6 +374,15 @@ export function AttendanceRollCall() {
         />
       </div>
 
+      {/* Exception-first hint — only on a fresh (unsaved) roll call. */}
+      {!isOffDay && savedIds.size === 0 && students.length > 0 && !loading && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+          Everyone starts as <b>Present</b> — tap a student&apos;s name to mark them
+          absent (or use L / E for late / excused), then Save. No exceptions? Just
+          hit Save.
+        </div>
+      )}
+
       {counts.unmarked > 0 && (
         <p className="text-xs text-slate-500">
           <span className="tabular-nums text-slate-700">{counts.unmarked}</span> unmarked
@@ -380,13 +437,30 @@ export function AttendanceRollCall() {
               {students.map((s) => {
                 const row = rows[s.id] ?? { status: null, notes: "" };
                 return (
-                  <li key={s.id} className="p-3 flex flex-wrap items-center gap-3">
-                    <div className="min-w-[180px] flex-1">
-                      <div className="font-medium text-sm">{s.full_name}</div>
-                      <div className="text-xs text-muted-foreground font-mono">
+                  <li
+                    key={s.id}
+                    className={
+                      "flex flex-wrap items-center gap-3 p-3 transition-colors " +
+                      (row.status === "absent"
+                        ? "bg-rose-50/60"
+                        : row.status === "late"
+                          ? "bg-amber-50/50"
+                          : "")
+                    }
+                  >
+                    {/* Tapping the name is the one-tap exception:
+                        Present ↔ Absent. */}
+                    <button
+                      type="button"
+                      onClick={() => toggleAbsent(s.id)}
+                      className="min-w-[180px] flex-1 text-left"
+                      title={row.status === "absent" ? "Tap to mark present" : "Tap to mark absent"}
+                    >
+                      <div className="text-sm font-medium">{s.full_name}</div>
+                      <div className="font-mono text-xs text-muted-foreground">
                         GR# {s.gr_number}
                       </div>
-                    </div>
+                    </button>
                     <div className="inline-flex rounded-md border border-slate-200 bg-slate-50 p-0.5">
                       {STATUSES.map((opt) => {
                         const active = row.status === opt.value;
@@ -396,7 +470,7 @@ export function AttendanceRollCall() {
                             type="button"
                             onClick={() => setStatus(s.id, opt.value)}
                             className={
-                              "h-8 w-9 rounded text-xs font-semibold transition-colors " +
+                              "h-9 w-10 rounded text-xs font-semibold transition-colors " +
                               (active ? opt.cls : "text-slate-600 hover:bg-white")
                             }
                             title={opt.value}
@@ -406,12 +480,26 @@ export function AttendanceRollCall() {
                         );
                       })}
                     </div>
-                    <Input
-                      className="w-full sm:w-64 h-8 text-sm"
-                      placeholder="Notes (optional)"
-                      value={row.notes}
-                      onChange={(e) => setNote(s.id, e.target.value)}
-                    />
+                    {/* Notes are the exception's exception — disclosed on
+                        demand, always visible once they hold text. */}
+                    {openNotes.has(s.id) ? (
+                      <Input
+                        className="h-8 w-full text-sm sm:w-64"
+                        placeholder="Notes (optional)"
+                        value={row.notes}
+                        autoFocus={!row.notes}
+                        onChange={(e) => setNote(s.id, e.target.value)}
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => toggleNoteOpen(s.id)}
+                        className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-500 hover:bg-slate-50"
+                        title="Add a note"
+                      >
+                        + note
+                      </button>
+                    )}
                     {leftEarly[s.id] ? (
                       <span className="inline-flex items-center gap-1.5 rounded-full bg-sky-100 px-2 py-1 text-[11px] font-medium text-sky-800">
                         <LogOut className="h-3 w-3" />
@@ -448,14 +536,34 @@ export function AttendanceRollCall() {
       <div className="fixed inset-x-0 bottom-0 z-20 border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-3">
           <p className="text-xs text-slate-500">
-            <span className="tabular-nums text-slate-700">{students.length - counts.unmarked}</span> of {students.length} marked · {date}
+            {counts.unmarked === 0 && students.length > 0 ? (
+              <>
+                <span className="font-medium text-emerald-700 tabular-nums">{counts.present} present</span>
+                {counts.absent > 0 && (
+                  <span className="font-medium text-rose-700"> · {counts.absent} absent</span>
+                )}
+                {counts.late > 0 && (
+                  <span className="font-medium text-amber-700"> · {counts.late} late</span>
+                )}
+                {counts.excused > 0 && <span> · {counts.excused} excused</span>}
+                <span className="text-slate-400"> · {date}</span>
+              </>
+            ) : (
+              <>
+                <span className="tabular-nums text-slate-700">{students.length - counts.unmarked}</span> of {students.length} marked · {date}
+              </>
+            )}
           </p>
           <Button
             onClick={submit}
             disabled={saving || students.length === 0}
             className="bg-indigo-600 hover:bg-indigo-700"
           >
-            {saving ? "Saving…" : "Save attendance"}
+            {saving
+              ? "Saving…"
+              : counts.unmarked === 0 && counts.absent + counts.late + counts.excused === 0 && students.length > 0
+                ? "Save — all present"
+                : "Save attendance"}
           </Button>
         </div>
       </div>
