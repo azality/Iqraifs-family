@@ -1864,6 +1864,156 @@ export function installDashboard(school: Hono): void {
     });
   });
 
+  // ── Academics day view (incharge digest) ────────────────────────────
+  // Pilot ask (Sep 3 2026): the academic incharge (Amna) can see topic
+  // coverage per class, but not the DAY-TO-DAY — what was taught today,
+  // what homework/quiz was assigned, what's planned this week. One
+  // endpoint aggregates it org-wide for a given date. Hifz incharge
+  // (Rizwan) gets the same day's "heard sabaq" counts per hifz section.
+  //
+  // GET /orgs/:orgId/academics-day?date=YYYY-MM-DD (default: today PKT)
+  school.get("/orgs/:orgId/academics-day", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    if (!(await hasAdminOrPrincipal(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const qDate = c.req.query("date");
+    const pktToday = new Date(Date.now() + 5 * 3600e3).toISOString().slice(0, 10);
+    const date = qDate && /^\d{4}-\d{2}-\d{2}$/.test(qDate) ? qDate : pktToday;
+    const weekEnd = new Date(new Date(`${date}T00:00:00Z`).getTime() + 7 * 86400e3)
+      .toISOString().slice(0, 10);
+    // PKT day window for timestamp-based hifz rows.
+    const dayStartUtc = new Date(new Date(`${date}T00:00:00Z`).getTime() - 5 * 3600e3).toISOString();
+    const dayEndUtc = new Date(new Date(`${date}T00:00:00Z`).getTime() + 19 * 3600e3).toISOString();
+
+    const [lessonsQ, assignQ, plannedQ, hifzSecQ] = await Promise.all([
+      serviceRoleClient
+        .from("lesson")
+        .select("id, title, taught_by, class_section_id, section_subject:section_subject_id(name), topic:curriculum_topic_id(name), section:class_section_id(name, class:class_id(name))")
+        .eq("org_id", orgId).eq("lesson_date", date).limit(300),
+      serviceRoleClient
+        .from("assignment")
+        .select("id, title, kind, due_date, created_by, class_section_id, section:class_section_id(name, class:class_id(name))")
+        .eq("org_id", orgId).eq("assigned_date", date).limit(300),
+      serviceRoleClient
+        .from("curriculum_topic")
+        .select("name, target_date, completed, curriculum:curriculum_id!inner(org_id, class_subject:class_subject_id(name, class:class_id(name)))")
+        .eq("curriculum.org_id", orgId)
+        .gte("target_date", date).lt("target_date", weekEnd)
+        .order("target_date", { ascending: true }).limit(100),
+      serviceRoleClient
+        .from("class_section")
+        .select("id, name, class:class_id!inner(name, kind, org_id)")
+        .eq("class.org_id", orgId).eq("class.kind", "hifz"),
+    ]);
+
+    // Teacher names, one lookup per distinct id.
+    const nameCache: Record<string, string> = {};
+    const nameOf = async (uid: string | null): Promise<string | null> => {
+      if (!uid) return null;
+      if (!nameCache[uid]) {
+        const { data: u } = await serviceRoleClient.auth.admin.getUserById(uid);
+        nameCache[uid] = u?.user?.user_metadata?.name || u?.user?.email || "Teacher";
+      }
+      return nameCache[uid];
+    };
+
+    // Group lessons + assignments per section.
+    type SectionBucket = {
+      sectionId: string; className: string; sectionName: string;
+      lessons: unknown[]; assignments: unknown[];
+    };
+    const buckets: Record<string, SectionBucket> = {};
+    const bucketFor = (sectionId: string, sec: any): SectionBucket => {
+      if (!buckets[sectionId]) {
+        buckets[sectionId] = {
+          sectionId,
+          className: sec?.class?.name ?? "Class",
+          sectionName: sec?.name ?? "",
+          lessons: [], assignments: [],
+        };
+      }
+      return buckets[sectionId];
+    };
+    for (const l of (lessonsQ.data ?? []) as any[]) {
+      bucketFor(l.class_section_id, l.section).lessons.push({
+        id: l.id, title: l.title,
+        subjectName: l.section_subject?.name ?? null,
+        topicName: l.topic?.name ?? null,
+        teacherName: await nameOf(l.taught_by),
+      });
+    }
+    for (const a of (assignQ.data ?? []) as any[]) {
+      bucketFor(a.class_section_id, a.section).assignments.push({
+        id: a.id, title: a.title, kind: a.kind, dueDate: a.due_date,
+        teacherName: await nameOf(a.created_by),
+      });
+    }
+    const sections = Object.values(buckets).sort((x, y) =>
+      (x.className + x.sectionName).localeCompare(y.className + y.sectionName));
+
+    // Hifz: distinct students heard today per hifz section.
+    const hifzSections = (hifzSecQ.data ?? []) as any[];
+    let hifz: unknown[] = [];
+    if (hifzSections.length > 0) {
+      const secIds = hifzSections.map((s) => s.id);
+      const { data: students } = await serviceRoleClient
+        .from("student")
+        .select("id, class_section_id")
+        .eq("org_id", orgId).in("class_section_id", secIds)
+        .neq("status", "withdrawn");
+      const secOfStudent: Record<string, string> = {};
+      const totals: Record<string, number> = {};
+      for (const st of students ?? []) {
+        secOfStudent[st.id] = st.class_section_id;
+        totals[st.class_section_id] = (totals[st.class_section_id] ?? 0) + 1;
+      }
+      const { data: heardRows } = await serviceRoleClient
+        .from("hifz_progress")
+        .select("student_id")
+        .eq("org_id", orgId)
+        .gte("recorded_at", dayStartUtc).lt("recorded_at", dayEndUtc)
+        .in("student_id", Object.keys(secOfStudent).length ? Object.keys(secOfStudent) : ["00000000-0000-0000-0000-000000000000"]);
+      const heardBySec: Record<string, Set<string>> = {};
+      for (const r of heardRows ?? []) {
+        const sec = secOfStudent[r.student_id];
+        if (!sec) continue;
+        (heardBySec[sec] ??= new Set()).add(r.student_id);
+      }
+      hifz = hifzSections
+        .map((s) => ({
+          sectionId: s.id,
+          label: `${s.class?.name} · ${s.name}`,
+          heard: heardBySec[s.id]?.size ?? 0,
+          total: totals[s.id] ?? 0,
+        }))
+        .sort((a: any, b: any) => a.label.localeCompare(b.label));
+    }
+
+    const kindCount = (k: string) =>
+      ((assignQ.data ?? []) as any[]).filter((a) => a.kind === k).length;
+    return c.json({
+      date,
+      sections,
+      plannedTopics: ((plannedQ.data ?? []) as any[]).map((tp) => ({
+        name: tp.name, targetDate: tp.target_date, completed: !!tp.completed,
+        subjectName: tp.curriculum?.class_subject?.name ?? null,
+        className: tp.curriculum?.class_subject?.class?.name ?? null,
+      })),
+      hifz,
+      totals: {
+        lessons: (lessonsQ.data ?? []).length,
+        homework: kindCount("homework"),
+        quizzes: kindCount("quiz"),
+        tests: kindCount("test"),
+        otherAssignments: ((assignQ.data ?? []) as any[]).filter(
+          (a) => !["homework", "quiz", "test"].includes(a.kind)).length,
+      },
+    });
+  });
+
   // ── Attendance day notes ────────────────────────────────────────────
   // Pilot ask (Sep 3 2026): when whole-school attendance is unusual
   // (strike / protest call in Karachi keeping kids home), the admin

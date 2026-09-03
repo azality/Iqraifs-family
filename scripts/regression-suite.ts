@@ -1017,6 +1017,46 @@ await check("29. attendance day notes: admin upsert/read/delete, teacher read-on
   }
 });
 
+await check("30. academics-day digest: lessons+assignments grouped, admin-gated", async () => {
+  // The incharge day view: what was taught/assigned org-wide on a date.
+  const day = new Date().toISOString().slice(0, 10);
+  let lessonId: string | null = null;
+  let asgId: string | null = null;
+  try {
+    const mkL = await api(teacher.token, `/school/orgs/${ORG}/sections/${sandboxSec.id}/lessons`, {
+      method: "POST",
+      body: JSON.stringify({ title: "QA day-digest lesson", lessonDate: day, sectionSubjectId: qaSs.id }),
+    });
+    const mkLj = await mkL.json();
+    assert(mkL.status === 201, `lesson create ${mkL.status}`);
+    lessonId = mkLj.lesson?.id;
+    const mkA = await api(teacher.token, `/school/orgs/${ORG}/sections/${sandboxSec.id}/assignments`, {
+      method: "POST",
+      body: JSON.stringify({ title: "QA day-digest homework", kind: "homework", maxScore: 10, sectionSubjectId: qaSs.id, assignedDate: day }),
+    });
+    const mkAj = await mkA.json();
+    assert(mkA.status === 201, `assignment create ${mkA.status}`);
+    asgId = mkAj.assignment?.id ?? mkAj.id;
+
+    // Plain teacher is NOT an incharge — 403.
+    const denied = await api(teacher.token, `/school/orgs/${ORG}/academics-day?date=${day}`);
+    assert(denied.status === 403, `teacher digest expected 403, got ${denied.status}`);
+    // Principal sees the Sandbox section with both rows + counted totals.
+    const r = await api(principal.token, `/school/orgs/${ORG}/academics-day?date=${day}`);
+    const j = await r.json();
+    assert(r.status === 200, `digest ${r.status}`);
+    const sec = (j.sections ?? []).find((s: any) => s.sectionId === sandboxSec.id);
+    assert(sec, "sandbox section missing from digest");
+    assert(sec.lessons.some((l: any) => l.id === lessonId && l.teacherName), "lesson row (with teacher name) missing");
+    assert(sec.assignments.some((a: any) => a.id === asgId && a.kind === "homework"), "homework row missing");
+    assert(j.totals.lessons >= 1 && j.totals.homework >= 1, `totals off: ${JSON.stringify(j.totals)}`);
+    assert(Array.isArray(j.hifz), "hifz strip missing");
+  } finally {
+    if (lessonId) await admin.from("lesson").delete().eq("id", lessonId);
+    if (asgId) await admin.from("assignment").delete().eq("id", asgId);
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
