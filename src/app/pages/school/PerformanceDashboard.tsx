@@ -75,6 +75,7 @@ import {
 } from "../../../utils/schoolApi";
 import { SetupChecklist, setupChecklistDismissed, PendingTimeOffWidget, TermSwitchNudge } from "../../components/school-ui";
 import { AttendanceDayNotes } from "./AttendanceDayNotes";
+import { RightNowPanel } from "./RightNowPanel";
 import { RoleTour } from "../../components/RoleTour";
 import { pickTourForUser } from "../../../utils/tours";
 
@@ -1260,6 +1261,10 @@ export function PerformanceDashboard() {
           </div>
         );
       })()}
+
+      {/* Right now — which period is running per in-scope section, who
+          is teaching, and who needs cover (wing-scoped for incharges). */}
+      <RightNowPanel orgId={orgId} />
 
       {/* Attendance day note — org-wide "why was today unusual" strip. */}
       <AttendanceDayNotes

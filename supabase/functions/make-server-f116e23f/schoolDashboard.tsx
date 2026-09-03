@@ -1884,6 +1884,129 @@ export function installDashboard(school: Hono): void {
     });
   });
 
+  // ── Right now (incharge/principal coverage view) ────────────────────
+  // Pilot ask (Muneeb, Sep 3): "if I want to see class 1 that I am
+  // incharge of — what are they doing right now, which subject, who is
+  // teaching, and if the teacher is sick can I arrange coverage
+  // quickly?" Per in-scope section: the CURRENT timetable period with
+  // subject/teacher/room, whether that teacher is on approved leave,
+  // whether a substitution is already arranged, and today's logged
+  // lesson topic. Scope comes from determineScope, so a principal sees
+  // the school and an incharge sees exactly their wing.
+  school.get("/orgs/:orgId/now", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    if (!(await hasAnyRoleInOrg(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+
+    const skeleton = withoutSandbox(await loadOrgSkeleton(orgId));
+    const scope = await determineScope(userId, orgId, skeleton.sections.map((s) => s.id));
+    const scopeSet = new Set(scope.sectionIds);
+    const sections = skeleton.sections.filter(
+      (s) => scope.kind === "org" || scopeSet.has(s.id),
+    );
+    if (sections.length === 0) return c.json({ now: null, sections: [] });
+
+    // School clock runs on PKT.
+    const pkt = new Date(Date.now() + 5 * 3600e3);
+    const dow = ((pkt.getUTCDay() + 6) % 7) + 1; // ISO Mon=1..Sun=7
+    const hhmm = `${String(pkt.getUTCHours()).padStart(2, "0")}:${String(pkt.getUTCMinutes()).padStart(2, "0")}`;
+    const todayStr = pkt.toISOString().slice(0, 10);
+
+    const [{ data: slots }, { data: leave }, { data: subsToday }] = await Promise.all([
+      serviceRoleClient.from("timetable_slot")
+        .select("id, name, start_time, end_time, schedule_key")
+        .eq("org_id", orgId).eq("day_of_week", dow).is("archived_at", null)
+        .order("start_time"),
+      serviceRoleClient.from("time_off_request")
+        .select("subject_id")
+        .eq("org_id", orgId).eq("subject_type", "teacher").eq("status", "approved")
+        .lte("start_date", todayStr).gte("end_date", todayStr),
+      serviceRoleClient.from("timetable_substitution")
+        .select("entry_id, substitute_teacher_user_id")
+        .eq("org_id", orgId).eq("date", todayStr),
+    ]);
+    const onLeave = new Set(((leave ?? []) as any[]).map((r) => r.subject_id));
+    const subByEntry = new Map(((subsToday ?? []) as any[]).map((r) => [r.entry_id, r.substitute_teacher_user_id]));
+
+    const slotRows = (slots ?? []) as any[];
+    const slotIds = slotRows.map((s) => s.id);
+    const { data: entries } = slotIds.length
+      ? await serviceRoleClient.from("timetable_entry")
+          .select("id, slot_id, scope_section_id, teacher_user_id, room, section_subject:section_subject_id(name)")
+          .eq("org_id", orgId).in("slot_id", slotIds)
+          .in("scope_section_id", sections.map((s) => s.id))
+      : { data: [] };
+    const entryRows = (entries ?? []) as any[];
+
+    // Today's lessons for these sections → topic being covered.
+    const { data: lessonsToday } = await serviceRoleClient
+      .from("lesson")
+      .select("class_section_id, title, section_subject:section_subject_id(name), topic:curriculum_topic_id(name)")
+      .eq("org_id", orgId).eq("lesson_date", todayStr)
+      .in("class_section_id", sections.map((s) => s.id))
+      .limit(500);
+
+    const nameCache: Record<string, string> = {};
+    const nameOf = async (uid: string | null): Promise<string | null> => {
+      if (!uid) return null;
+      if (!nameCache[uid]) {
+        try {
+          const { data: u } = await serviceRoleClient.auth.admin.getUserById(uid);
+          nameCache[uid] = u?.user?.user_metadata?.name || u?.user?.email || "Teacher";
+        } catch { nameCache[uid] = "Teacher"; }
+      }
+      return nameCache[uid];
+    };
+
+    const slotById = new Map(slotRows.map((s) => [s.id, s]));
+    const isNow = (s: any) => s.start_time.slice(0, 5) <= hhmm && hhmm < s.end_time.slice(0, 5);
+    const isNext = (s: any) => s.start_time.slice(0, 5) > hhmm;
+
+    const out: unknown[] = [];
+    for (const sec of sections) {
+      const secEntries = entryRows.filter((e) => e.scope_section_id === sec.id);
+      const cur = secEntries.find((e) => { const sl = slotById.get(e.slot_id); return sl && isNow(sl); });
+      const nextEntry = secEntries
+        .map((e) => ({ e, sl: slotById.get(e.slot_id) }))
+        .filter((x) => x.sl && isNext(x.sl))
+        .sort((a, b) => a.sl.start_time.localeCompare(b.sl.start_time))[0];
+      const lessons = ((lessonsToday ?? []) as any[]).filter((l) => l.class_section_id === sec.id);
+      const pack = async (e: any) => {
+        const sl = slotById.get(e.slot_id);
+        const teacherOnLeave = e.teacher_user_id ? onLeave.has(e.teacher_user_id) : false;
+        const subId = subByEntry.get(e.id) ?? null;
+        return {
+          slotName: sl?.name ?? "",
+          start: sl?.start_time?.slice(0, 5) ?? "",
+          end: sl?.end_time?.slice(0, 5) ?? "",
+          subjectName: e.section_subject?.name ?? null,
+          teacherName: await nameOf(e.teacher_user_id),
+          room: e.room ?? null,
+          teacherOnLeave,
+          substituteName: subId ? await nameOf(subId) : null,
+          needsCover: teacherOnLeave && !subId,
+        };
+      };
+      out.push({
+        sectionId: sec.id,
+        label: `${sec.class_name} · ${sec.name}`,
+        kind: sec.class_kind ?? "academic",
+        current: cur ? await pack(cur) : null,
+        next: nextEntry ? await pack(nextEntry.e) : null,
+        lessonsToday: lessons.map((l) => ({
+          subjectName: l.section_subject?.name ?? null,
+          title: l.title,
+          topicName: l.topic?.name ?? null,
+        })),
+      });
+    }
+    out.sort((a: any, b: any) => a.label.localeCompare(b.label));
+    return c.json({ date: todayStr, time: hhmm, dayOfWeek: dow, sections: out });
+  });
+
   // ── Academics day view (incharge digest) ────────────────────────────
   // Pilot ask (Sep 3 2026): the academic incharge (Amna) can see topic
   // coverage per class, but not the DAY-TO-DAY — what was taught today,

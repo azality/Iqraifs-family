@@ -1262,6 +1262,55 @@ await check("35. teacher performance: admin-gated aggregate, sane shape", async 
   assert(j.ramp && "inRamp" in j.ramp, "ramp block missing");
 });
 
+await check("36. incharge lens: /now wing-scoped, academics rollup class-scoped", async () => {
+  // Arm qa-incharge (wing = Sandbox only); revoked again in finally.
+  const inch = await ensureUser("qa-incharge@azality.com", "QA Incharge", "class_teacher");
+  await admin.from("user_roles").update({ revoked_at: new Date().toISOString() })
+    .eq("user_id", inch.id).eq("scope_type", "organization").eq("scope_id", ORG).is("revoked_at", null);
+  const { data: exRow } = await admin.from("user_roles").select("id").eq("user_id", inch.id)
+    .eq("role_type", "incharge").eq("scope_type", "class").eq("scope_id", sandboxClass.id).maybeSingle();
+  if (exRow) await admin.from("user_roles").update({ revoked_at: null }).eq("id", exRow.id);
+  else await admin.from("user_roles").insert({
+    user_id: inch.id, role_type: "incharge", scope_type: "class",
+    scope_id: sandboxClass.id, granted_by: inch.id,
+  });
+  try {
+    // /now: 200 and ONLY wing sections (withoutSandbox strips Sandbox
+    // from the skeleton, so the wing view may legitimately be empty —
+    // the assertion is that nothing OUTSIDE the wing leaks).
+    const nowR = await api(inch.token, `/school/orgs/${ORG}/now`);
+    const nowJ = await nowR.json();
+    assert(nowR.status === 200, `now ${nowR.status}`);
+    for (const s of nowJ.sections ?? []) {
+      assert(s.sectionId === sandboxSec.id, `non-wing section leaked into /now: ${s.label}`);
+    }
+    // Principal /now: 200 with a sane shape and at least one section.
+    const pNow = await api(principal.token, `/school/orgs/${ORG}/now`);
+    const pNowJ = await pNow.json();
+    assert(pNow.status === 200 && Array.isArray(pNowJ.sections) && pNowJ.sections.length > 0,
+      `principal now: ${pNow.status} / ${(pNowJ.sections ?? []).length} sections`);
+    const withCur = (pNowJ.sections as any[]).find((s) => s.current);
+    if (withCur) {
+      assert("needsCover" in withCur.current && "teacherOnLeave" in withCur.current, "coverage fields missing");
+    }
+    // Academics rollup: incharge sees only wing classes (QA Subject's
+    // class = Sandbox), never the whole org's curriculum counts.
+    const ac = await api(inch.token, `/school/orgs/${ORG}/academics`);
+    const acJ = await ac.json();
+    assert(ac.status === 200, `academics ${ac.status}`);
+    const pAc = await api(principal.token, `/school/orgs/${ORG}/academics`);
+    const pAcJ = await pAc.json();
+    assert(pAc.status === 200, `principal academics ${pAc.status}`);
+    assert(
+      (acJ.curriculum?.totalTopics ?? 0) < (pAcJ.curriculum?.totalTopics ?? 0),
+      `incharge topics (${acJ.curriculum?.totalTopics}) should be < org-wide (${pAcJ.curriculum?.totalTopics})`,
+    );
+  } finally {
+    await admin.from("user_roles").update({ revoked_at: new Date().toISOString() })
+      .eq("user_id", inch.id).eq("role_type", "incharge").is("revoked_at", null);
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
