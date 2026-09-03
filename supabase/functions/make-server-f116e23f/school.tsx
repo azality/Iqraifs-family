@@ -205,6 +205,21 @@ school.get("/health", async (c) => {
 // so the frontend can route them to the right surface (principal / teacher /
 // neither).
 // -----------------------------------------------------------------------------
+// Clear the caller's own must_change_password flag — called by My
+// account right after a successful password change (the client cannot
+// write app_metadata itself).
+school.post("/me/password-changed", async (c) => {
+  const userId = getAuthUserId(c);
+  if (!userId) return c.json({ error: "unauthenticated" }, 401);
+  // NOTE: admin updateUserById MERGES app_metadata — deleting a key from
+  // the object is a no-op. Explicitly set false to clear the flag.
+  const { error } = await serviceRoleClient.auth.admin.updateUserById(userId, {
+    app_metadata: { must_change_password: false },
+  });
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json({ ok: true });
+});
+
 school.get("/me", async (c) => {
   const userId = getAuthUserId(c);
   if (!userId) return c.json({ error: "unauthenticated" }, 401);

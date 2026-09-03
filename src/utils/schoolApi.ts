@@ -1868,6 +1868,33 @@ export interface AdminTeacher {
   inchargeClasses?: Array<{ id: string; name: string }>;
 }
 
+/** Admin-edit a staff member's profile (name / email / phone). */
+export const updateTeacherProfile = (
+  orgId: string,
+  userId: string,
+  body: { fullName?: string; email?: string; phone?: string },
+): Promise<{ ok: boolean }> =>
+  apiCall(`/school/orgs/${orgId}/teachers/${userId}/profile`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+
+/** Admin password reset: returns a temporary password; the staff member
+ *  is asked to choose their own at next login. */
+export const resetTeacherPassword = (
+  orgId: string,
+  userId: string,
+): Promise<{ ok: boolean; tempPassword: string }> =>
+  apiCall(`/school/orgs/${orgId}/teachers/${userId}/reset-password`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+
+/** Clear the caller's own must-change-password flag (after My account
+ *  successfully changes the password). */
+export const clearMustChangePassword = (): Promise<{ ok: boolean }> =>
+  apiCall(`/school/me/password-changed`, { method: "POST", body: JSON.stringify({}) });
+
 /** Replace a staff member's incharge wing with exactly these classes
  *  (empty array removes the role). Principal/admin only. */
 export const setInchargeWing = (

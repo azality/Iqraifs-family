@@ -13,6 +13,7 @@ import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { HeroCard } from "../../components/school-ui";
+import { clearMustChangePassword } from "../../../utils/schoolApi";
 
 export function SchoolAccount() {
   const [email, setEmail] = useState<string>("");
@@ -21,11 +22,14 @@ export function SchoolAccount() {
   const [pwd, setPwd] = useState("");
   const [confirm, setConfirm] = useState("");
   const [savingPwd, setSavingPwd] = useState(false);
+  // Admin issued a temporary password — nudge until they set their own.
+  const [mustChange, setMustChange] = useState(false);
 
   useEffect(() => {
     void supabase.auth.getUser().then(({ data }) => {
       setEmail(data.user?.email ?? "");
       setName(((data.user?.user_metadata as any)?.name as string) ?? "");
+      setMustChange(!!(data.user?.app_metadata as any)?.must_change_password);
     });
   }, []);
 
@@ -54,6 +58,10 @@ export function SchoolAccount() {
       const { error } = await supabase.auth.updateUser({ password: pwd });
       if (error) throw error;
       setPwd(""); setConfirm("");
+      if (mustChange) {
+        // Clear the server-side flag so the next login goes straight in.
+        try { await clearMustChangePassword(); setMustChange(false); } catch { /* non-fatal */ }
+      }
       toast.success("Password changed.");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not change the password.");
@@ -64,6 +72,13 @@ export function SchoolAccount() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-4 p-4">
+      {mustChange && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <span className="font-semibold">Set your own password now.</span>{" "}
+          You signed in with a temporary password issued by the school —
+          choose a new one below before continuing.
+        </div>
+      )}
       <HeroCard
         eyebrow="Account"
         title="My account"

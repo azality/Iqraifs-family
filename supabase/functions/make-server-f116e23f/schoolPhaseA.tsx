@@ -1998,6 +1998,68 @@ export function installPhaseA(school: Hono) {
     return c.json({ ok: true, classIds: wanted });
   });
 
+  // Admin-edited staff profile (pilot Sep 3): name / email / phone.
+  // Email is set with email_confirm so no verification loop blocks a
+  // school-managed account. Phone lives in user_metadata (informational).
+  school.patch("/orgs/:orgId/teachers/:userId/profile", async (c) => {
+    const callerId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const targetUserId = c.req.param("userId");
+    if (!(await requireAdminOrPrincipal(callerId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    if (!(await hasAnyRoleInOrg(targetUserId, orgId))) {
+      return c.json({ error: "staff member not found in this org" }, 404);
+    }
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    const { data: lookup, error: luErr } = await serviceRoleClient.auth.admin.getUserById(targetUserId);
+    if (luErr || !lookup?.user) return c.json({ error: "user not found" }, 404);
+    const meta = { ...(lookup.user.user_metadata ?? {}) };
+    const authPatch: Record<string, unknown> = {};
+    if (typeof body.fullName === "string" && body.fullName.trim()) {
+      meta.name = body.fullName.trim();
+      authPatch.user_metadata = meta;
+    }
+    if (typeof body.phone === "string") {
+      meta.phone = body.phone.trim() || null;
+      authPatch.user_metadata = meta;
+    }
+    if (typeof body.email === "string" && body.email.trim()) {
+      authPatch.email = body.email.trim().toLowerCase();
+      authPatch.email_confirm = true;
+    }
+    if (Object.keys(authPatch).length === 0) return c.json({ error: "no fields to update" }, 400);
+    const { error } = await serviceRoleClient.auth.admin.updateUserById(targetUserId, authPatch);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ ok: true });
+  });
+
+  // Admin password reset for staff: sets a TEMPORARY password and flags
+  // app_metadata.must_change_password — the login flow routes them to
+  // My account to choose their own (mirrors the parent-PIN model).
+  school.post("/orgs/:orgId/teachers/:userId/reset-password", async (c) => {
+    const callerId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const targetUserId = c.req.param("userId");
+    if (!(await requireAdminOrPrincipal(callerId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    if (!(await hasAnyRoleInOrg(targetUserId, orgId))) {
+      return c.json({ error: "staff member not found in this org" }, 404);
+    }
+    const { data: lookup } = await serviceRoleClient.auth.admin.getUserById(targetUserId);
+    const appMeta = { ...(lookup?.user?.app_metadata ?? {}), must_change_password: true };
+    const rnd = crypto.getRandomValues(new Uint32Array(1))[0] % 1000000;
+    const tempPassword = `Iqra${String(rnd).padStart(6, "0")}!`;
+    const { error } = await serviceRoleClient.auth.admin.updateUserById(targetUserId, {
+      password: tempPassword,
+      app_metadata: appMeta,
+    });
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ ok: true, tempPassword });
+  });
+
   // -------------------------------------------------------------------------
   // TEACHER DETAIL — single staff member, hydrated for the admin detail
   // page. Returns role + email/name, plus every active assignment (org-

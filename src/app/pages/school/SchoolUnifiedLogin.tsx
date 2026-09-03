@@ -160,6 +160,13 @@ export function SchoolUnifiedLogin() {
         // access to multiple orgs lands in THIS slug's workspace, not
         // the generic chooser. branding.id was resolved on mount via
         // getOrgBySlug. Falls back to /school if branding never loaded.
+        // Admin-reset temp password (pilot Sep 3): route straight to
+        // My account so they choose their own password before anything
+        // else — mirrors the parent-PIN must-change flow.
+        if ((data.user.app_metadata as any)?.must_change_password) {
+          window.location.href = "/school/account?forcePw=1";
+          return;
+        }
         window.location.href = branding?.id
           ? `/school/orgs/${branding.id}`
           : "/school";

@@ -1207,6 +1207,42 @@ await check("33. incharge admin: grouped teachers list, wing editor grant/revoke
   }
 });
 
+await check("34. staff profile admin: profile patch, temp-password reset + forced change loop", async () => {
+  // Teacher cannot edit staff profiles.
+  const denied = await api(teacher.token, `/school/orgs/${ORG}/teachers/${office.id}/profile`, {
+    method: "PATCH", body: JSON.stringify({ fullName: "X" }),
+  });
+  assert(denied.status === 403, `teacher profile patch expected 403, got ${denied.status}`);
+  // Principal edits name+phone (email path is the same admin API call;
+  // left untouched so the suite scaffolding's email lookups stay valid).
+  const patch = await api(principal.token, `/school/orgs/${ORG}/teachers/${teacher.id}/profile`, {
+    method: "PATCH", body: JSON.stringify({ fullName: "QA Teacher", phone: "+920000000777" }),
+  });
+  assert(patch.status === 200, `profile patch ${patch.status}`);
+  const { data: after } = await admin.auth.admin.getUserById(teacher.id);
+  assert(after?.user?.user_metadata?.phone === "+920000000777", "phone not saved to user_metadata");
+  // Temp-password reset: flag set, temp login works, self-clear works.
+  const reset = await api(principal.token, `/school/orgs/${ORG}/teachers/${teacher.id}/reset-password`, {
+    method: "POST", body: JSON.stringify({}),
+  });
+  const resetJ = await reset.json();
+  assert(reset.status === 200 && /^Iqra\d{6}!$/.test(resetJ.tempPassword ?? ""), `reset ${reset.status}: ${JSON.stringify(resetJ)}`);
+  const anonC = createClient(URL_, ANON) as any;
+  const { data: sess, error: sErr } = await anonC.auth.signInWithPassword({
+    email: "qa-teacher@azality.com", password: resetJ.tempPassword,
+  });
+  assert(!sErr, `temp password login failed: ${sErr?.message}`);
+  assert(sess.user?.app_metadata?.must_change_password === true, "must_change_password flag missing");
+  const clear = await fetch(`${FUNC}/school/me/password-changed`, {
+    method: "POST",
+    headers: { apikey: ANON, Authorization: `Bearer ${sess.session.access_token}`, "Content-Type": "application/json" },
+    body: "{}",
+  });
+  assert(clear.status === 200, `password-changed ${clear.status}`);
+  const { data: cleared } = await admin.auth.admin.getUserById(teacher.id);
+  assert(!cleared?.user?.app_metadata?.must_change_password, "flag not cleared");
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
