@@ -11,6 +11,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import i18n, { getCurrentLang } from "../../../i18n";
 import { Link, useParams, useLocation } from "react-router";
 import { UpNextCard } from "../../components/school-ui/UpNextCard";
 import {
@@ -68,15 +69,14 @@ function firstName(me: SchoolMeResponse | null): string {
       ? window.localStorage.getItem("fgs_user_name")
       : null;
   if (stored) return stored.split(/\s+/)[0];
-  return "Teacher";
+  return i18n.t("teacherHome.teacherFallback");
 }
 
 function todayLabel(): string {
-  return new Date().toLocaleDateString(undefined, {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-  });
+  return new Date().toLocaleDateString(
+    getCurrentLang() === "ur" ? "ur-PK" : undefined,
+    { weekday: "long", month: "long", day: "numeric" },
+  );
 }
 
 function statusTone(status: LeaderboardRow["status"]): string {
@@ -96,11 +96,11 @@ function timeAgo(iso: string): string {
   const then = new Date(iso).getTime();
   const now = Date.now();
   const mins = Math.max(1, Math.round((now - then) / 60000));
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 60) return i18n.t("teacherHome.minsAgo", { m: mins });
   const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
+  if (hrs < 24) return i18n.t("teacherHome.hrsAgo", { h: hrs });
   const days = Math.round(hrs / 24);
-  return `${days}d ago`;
+  return i18n.t("teacherHome.daysAgo", { d: days });
 }
 
 export function TeacherHome({ orgId, me }: Props) {
@@ -335,7 +335,7 @@ export function TeacherHome({ orgId, me }: Props) {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-            Welcome back, {firstName(me)}
+            {t("teacherHome.welcome", { name: firstName(me) })}
           </h1>
           <p className="mt-0.5 text-sm text-slate-500">{todayLabel()}</p>
         </div>
@@ -343,14 +343,16 @@ export function TeacherHome({ orgId, me }: Props) {
           {sections && sections.length > 0 && (
             <div className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600">
               <ClipboardList className="h-3.5 w-3.5 text-indigo-500" />
-              {sections.length} {sections.length === 1 ? "section" : "sections"}
+              {sections.length === 1
+                ? t("teacherHome.sectionOne")
+                : t("teacherHome.sectionsMany", { count: sections.length })}
             </div>
           )}
           <button
             onClick={() => setShowTimeOff(true)}
             className="inline-flex items-center gap-1.5 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
           >
-            Request time off
+            {t("teacherHome.requestTimeOff")}
           </button>
         </div>
       </div>
@@ -364,12 +366,12 @@ export function TeacherHome({ orgId, me }: Props) {
 
       {loading && (
         <div className="rounded-xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">
-          Loading your classes…
+          {t("teacherHome.loading")}
         </div>
       )}
       {error && !loading && (
         <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
-          Could not load: {error}
+          {t("teacherHome.loadError", { msg: error })}
         </div>
       )}
 
@@ -390,7 +392,7 @@ export function TeacherHome({ orgId, me }: Props) {
       {sectionsToWatch.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
-            Needs attention
+            {t("teacherHome.needsAttention")}
           </h2>
           <div className="rounded-xl border border-slate-200 bg-white">
             <ul className="divide-y divide-slate-100">
@@ -406,8 +408,8 @@ export function TeacherHome({ orgId, me }: Props) {
                       </div>
                       <div className="mt-0.5 text-xs text-slate-500">
                         {s.status === "flagged"
-                          ? "Attendance below 60% this period"
-                          : "Attendance trending down"}
+                          ? t("teacherHome.attnFlagged")
+                          : t("teacherHome.attnTrendingDown")}
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
@@ -430,7 +432,7 @@ export function TeacherHome({ orgId, me }: Props) {
         <section className="rounded-xl border border-amber-100 bg-amber-50/40 p-4 shadow-sm">
           <h2 className="inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-amber-900">
             <Calendar className="h-4 w-4 text-amber-600" />
-            Substitutions today
+            {t("teacherHome.subsToday")}
           </h2>
           <div className="mt-2 space-y-1.5">
             {todayCells.filter((c) => c.substitution).map((c) => {
@@ -459,22 +461,26 @@ export function TeacherHome({ orgId, me }: Props) {
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 min-w-0 flex-1">
                     <span className="inline-flex items-center gap-1 font-medium text-slate-800">
                       <BookOpen className="h-3.5 w-3.5 text-indigo-500" />
-                      {c.entry.subjectName ?? "Class"}
+                      {c.entry.subjectName ?? t("upNext.classFallback")}
                     </span>
                     <span className="text-xs text-slate-600">{c.scopeLabel}</span>
                     {c.entry.room && (
                       <span className="inline-flex items-center gap-1 text-xs text-slate-500">
-                        <MapPin className="h-3 w-3" /> Room {c.entry.room}
+                        <MapPin className="h-3 w-3" /> {t("upNext.room", { room: c.entry.room })}
                       </span>
                     )}
                     {covering && (
                       <span className="text-[11px] font-medium text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded">
-                        Covering{c.substitution?.originalTeacherName ? ` for ${c.substitution.originalTeacherName}` : ""}
+                        {c.substitution?.originalTeacherName
+                          ? t("teacherHome.coveringFor", { name: c.substitution.originalTeacherName })
+                          : t("teacherHome.covering")}
                       </span>
                     )}
                     {covered && (
                       <span className="text-[11px] font-medium text-slate-600 bg-slate-200 px-1.5 py-0.5 rounded">
-                        Covered{c.substitution?.substituteTeacherName ? ` by ${c.substitution.substituteTeacherName}` : ""}
+                        {c.substitution?.substituteTeacherName
+                          ? t("teacherHome.coveredBy", { name: c.substitution.substituteTeacherName })
+                          : t("teacherHome.covered")}
                       </span>
                     )}
                   </div>
@@ -517,11 +523,9 @@ export function TeacherHome({ orgId, me }: Props) {
             <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
             <div className="flex-1">
               <div className="font-medium">
-                Attendance not yet recorded for{" "}
                 {needRollCall.length === 1
-                  ? "1 section"
-                  : `${needRollCall.length} sections`}{" "}
-                today
+                  ? t("teacherHome.attendanceNotRecordedOne")
+                  : t("teacherHome.attendanceNotRecordedMany", { count: needRollCall.length })}
               </div>
               <div className="mt-1 flex flex-wrap gap-2">
                 {needRollCall.map((s) => (
@@ -553,12 +557,14 @@ export function TeacherHome({ orgId, me }: Props) {
         <div className="rounded-xl border border-slate-200 bg-white p-8 text-center">
           <Users className="mx-auto h-8 w-8 text-slate-300" />
           <h3 className="mt-3 text-sm font-semibold text-slate-900">
-            {mySubjects.length > 0 ? "Subject teacher" : "No sections assigned"}
+            {mySubjects.length > 0
+              ? t("teacherHome.subjectTeacher")
+              : t("teacherHome.noSections")}
           </h3>
           <p className="mt-1 text-sm text-slate-500">
             {mySubjects.length > 0
-              ? "You're set up as a subject teacher — your assigned subjects are listed below. Class teachers see roll-call here."
-              : "Your principal hasn't assigned you to a class or hifz group yet. Once they do, you'll see your students and daily tools here."}
+              ? t("teacherHome.subjectTeacherHint")
+              : t("teacherHome.noSectionsHint")}
           </p>
         </div>
       )}
@@ -570,10 +576,10 @@ export function TeacherHome({ orgId, me }: Props) {
         <section id="my-hifz-groups" className="space-y-3 scroll-mt-20">
           <div className="flex items-end justify-between">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
-              My hifz groups
+              {t("teacherHome.myHifzGroups")}
             </h2>
             <span className="text-xs text-slate-400">
-              Tap a student to view progress &amp; log hifz
+              {t("teacherHome.tapStudentHint")}
             </span>
           </div>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -588,7 +594,7 @@ export function TeacherHome({ orgId, me }: Props) {
                     <div className="min-w-0">
                       <div className="inline-flex items-center gap-1.5 text-xs uppercase tracking-wider text-emerald-600">
                         <BookMarked className="h-3.5 w-3.5" />
-                        Hifz group
+                        {t("teacherHome.hifzGroup")}
                       </div>
                       <div className="mt-0.5 text-base font-semibold text-slate-900">
                         {g.name}
@@ -600,7 +606,9 @@ export function TeacherHome({ orgId, me }: Props) {
                       )}
                     </div>
                     <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-200">
-                      {g.studentCount} {g.studentCount === 1 ? "student" : "students"}
+                      {g.studentCount === 1
+                        ? t("teacherHome.studentOne")
+                        : t("teacherHome.studentsMany", { count: g.studentCount })}
                     </span>
                   </div>
 
@@ -619,8 +627,7 @@ export function TeacherHome({ orgId, me }: Props) {
                     </div>
                   ) : (
                     <p className="mt-3 text-xs text-slate-400">
-                      No students in this group yet — your admin assigns
-                      students under Manage students.
+                      {t("teacherHome.noGroupStudents")}
                     </p>
                   )}
                 </div>
@@ -634,9 +641,9 @@ export function TeacherHome({ orgId, me }: Props) {
         <section id="my-classes" className="space-y-3 scroll-mt-20">
           <div className="flex items-end justify-between">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
-              My classes
+              {t("teacherHome.myClasses")}
             </h2>
-            <span className="text-xs text-slate-400">Week-to-date</span>
+            <span className="text-xs text-slate-400">{t("teacherHome.weekToDate")}</span>
           </div>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             {sections.map((s) => (
@@ -650,7 +657,7 @@ export function TeacherHome({ orgId, me }: Props) {
                       {s.className}
                     </div>
                     <div className="mt-0.5 text-base font-semibold text-slate-900">
-                      Section {s.sectionName}
+                      {t("teacherHome.sectionLabel", { name: s.sectionName })}
                     </div>
                   </div>
                   <span
@@ -659,7 +666,7 @@ export function TeacherHome({ orgId, me }: Props) {
                       statusTone(s.status)
                     }
                   >
-                    {s.status}
+                    {t(`teacherHome.status_${s.status}`, { defaultValue: s.status })}
                   </span>
                 </div>
 
@@ -669,7 +676,7 @@ export function TeacherHome({ orgId, me }: Props) {
                       {Math.round(s.attendancePct)}%
                     </div>
                     <div className="text-[10px] uppercase tracking-wider text-slate-400">
-                      Attendance
+                      {t("teacherHome.statAttendance")}
                     </div>
                   </div>
                   <div>
@@ -677,7 +684,7 @@ export function TeacherHome({ orgId, me }: Props) {
                       {s.studentCount}
                     </div>
                     <div className="text-[10px] uppercase tracking-wider text-slate-400">
-                      Students
+                      {t("teacherHome.statStudents")}
                     </div>
                   </div>
                   <div>
@@ -691,7 +698,7 @@ export function TeacherHome({ orgId, me }: Props) {
                       {s.behaviorScore}
                     </div>
                     <div className="text-[10px] uppercase tracking-wider text-slate-400">
-                      Behavior
+                      {t("teacherHome.statBehavior")}
                     </div>
                   </div>
                 </div>
@@ -746,20 +753,20 @@ export function TeacherHome({ orgId, me }: Props) {
                             className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
                           >
                             <CheckCircle className="h-3.5 w-3.5" />
-                            Take attendance
+                            {t("teacherHome.takeAttendance")}
                           </Link>
                           <Link
                             to={`/school/orgs/${orgId}/sections/${s.sectionId}/hifz`}
                             className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
                           >
                             <BookMarked className="h-3.5 w-3.5" />
-                            Hifz
+                            {t("teacherHome.hifzBtn")}
                           </Link>
                         </>
                       )}
                       {!isOwn && !isHifzClass && (
                         <span className="inline-flex flex-1 items-center justify-center rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-500">
-                          Subject teacher{s.classTeacherName ? ` · CT: ${s.classTeacherName}` : ""}
+                          {t("teacherHome.subjectTeacher")}{s.classTeacherName ? ` · ${t("teacherHome.ctName", { name: s.classTeacherName })}` : ""}
                         </span>
                       )}
                       <Link
@@ -767,7 +774,7 @@ export function TeacherHome({ orgId, me }: Props) {
                         className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
                       >
                         <Eye className="h-3.5 w-3.5" />
-                        Overview
+                        {t("teacherHome.overview")}
                       </Link>
                     </div>
                   );
@@ -786,10 +793,10 @@ export function TeacherHome({ orgId, me }: Props) {
         <section id="my-subjects" className="space-y-3 scroll-mt-20">
           <div className="flex items-end justify-between">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
-              My subjects
+              {t("teacherHome.mySubjects")}
             </h2>
             <span className="text-xs text-slate-400">
-              Curriculum progress · this academic year
+              {t("teacherHome.curriculumProgress")}
             </span>
           </div>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -810,8 +817,8 @@ export function TeacherHome({ orgId, me }: Props) {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="text-xs uppercase tracking-wider text-slate-400">
-                        {s.className ?? "Class"} ·{" "}
-                        {s.sectionName ?? "Section"}
+                        {s.className ?? t("upNext.classFallback")} ·{" "}
+                        {s.sectionName ?? t("teacherHome.sectionFallback")}
                       </div>
                       <div className="mt-0.5 text-base font-semibold text-slate-900">
                         {s.subjectName}
@@ -828,7 +835,7 @@ export function TeacherHome({ orgId, me }: Props) {
                     <>
                       <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
                         <span>
-                          {s.curriculum.topicCompleted}/{s.curriculum.topicTotal} topics
+                          {t("teacherHome.topicsCount", { done: s.curriculum.topicCompleted, total: s.curriculum.topicTotal })}
                         </span>
                         <span className="font-semibold text-slate-700">
                           {pct}%
@@ -843,8 +850,7 @@ export function TeacherHome({ orgId, me }: Props) {
                     </>
                   ) : (
                     <p className="mt-3 text-xs text-slate-400">
-                      No curriculum defined yet — ask your admin to set up the
-                      syllabus for {s.subjectName}.
+                      {t("teacherHome.noCurriculum", { subject: s.subjectName })}
                     </p>
                   )}
 
@@ -854,21 +860,21 @@ export function TeacherHome({ orgId, me }: Props) {
                       onClick={(e) => e.stopPropagation()}
                       className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] font-medium text-slate-700 hover:bg-slate-50"
                     >
-                      Assignments
+                      {t("teacherHome.assignments")}
                     </Link>
                     <Link
                       to={`/school/orgs/${s.orgId}/sections/${s.classSectionId}/gradebook`}
                       onClick={(e) => e.stopPropagation()}
                       className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] font-medium text-slate-700 hover:bg-slate-50"
                     >
-                      Gradebook
+                      {t("teacherHome.gradebook")}
                     </Link>
                     <Link
                       to={`/school/orgs/${s.orgId}/sections/${s.classSectionId}/lessons?subjectId=${encodeURIComponent(s.id)}`}
                       onClick={(e) => e.stopPropagation()}
                       className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] font-medium text-slate-700 hover:bg-slate-50"
                     >
-                      Lessons
+                      {t("teacherHome.lessons")}
                     </Link>
                   </div>
                 </Link>
@@ -889,7 +895,7 @@ export function TeacherHome({ orgId, me }: Props) {
           snapshot.recentGradesGiven.length > 0) && (
           <section className="space-y-3">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
-              Focus this week
+              {t("teacherHome.focusWeek")}
             </h2>
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               {/* Topics due soon */}
@@ -897,7 +903,7 @@ export function TeacherHome({ orgId, me }: Props) {
                 <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="text-sm font-semibold text-slate-900">
-                      Topics due soon
+                      {t("teacherHome.topicsDueSoon")}
                     </h3>
                     <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-700 ring-1 ring-violet-200">
                       <ListChecks className="h-2.5 w-2.5" />
@@ -905,8 +911,8 @@ export function TeacherHome({ orgId, me }: Props) {
                     </span>
                   </div>
                   <ul className="divide-y divide-slate-100">
-                    {snapshot.topicsDueSoon.slice(0, 5).map((t) => {
-                      const due = new Date(t.targetDate);
+                    {snapshot.topicsDueSoon.slice(0, 5).map((tp) => {
+                      const due = new Date(tp.targetDate);
                       const days = Math.max(
                         0,
                         Math.round(
@@ -921,23 +927,23 @@ export function TeacherHome({ orgId, me }: Props) {
                           ? "text-amber-700"
                           : "text-slate-700";
                       return (
-                        <li key={t.topicId} className="py-2">
+                        <li key={tp.topicId} className="py-2">
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
                               <div className="text-xs font-medium text-slate-900 truncate">
-                                {t.topicName}
+                                {tp.topicName}
                               </div>
                               <div className="text-[10px] text-slate-500">
-                                {t.subjectName}
-                                {t.className ? ` · ${t.className}` : ""}
+                                {tp.subjectName}
+                                {tp.className ? ` · ${tp.className}` : ""}
                               </div>
                             </div>
                             <span className={"text-[10px] font-semibold whitespace-nowrap " + tone}>
                               {days === 0
-                                ? "today"
+                                ? t("teacherHome.dueToday")
                                 : days === 1
-                                ? "tomorrow"
-                                : `${days}d`}
+                                ? t("teacherHome.dueTomorrow")
+                                : t("teacherHome.dueDays", { d: days })}
                             </span>
                           </div>
                         </li>
@@ -952,7 +958,7 @@ export function TeacherHome({ orgId, me }: Props) {
                 <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="text-sm font-semibold text-slate-900">
-                      Grades to enter
+                      {t("teacherHome.gradesToEnter")}
                     </h3>
                     <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-800 ring-1 ring-amber-200">
                       <AlertTriangle className="h-2.5 w-2.5" />
@@ -972,12 +978,12 @@ export function TeacherHome({ orgId, me }: Props) {
                                 {a.title}
                               </div>
                               <div className="text-[10px] text-slate-500">
-                                {a.subjectName ?? "General"} · due{" "}
-                                {new Date(a.dueDate).toLocaleDateString()}
+                                {a.subjectName ?? t("teacherHome.generalSubject")} ·{" "}
+                                {t("teacherHome.dueOn", { date: new Date(a.dueDate).toLocaleDateString(getCurrentLang() === "ur" ? "ur-PK" : undefined) })}
                               </div>
                             </div>
                             <span className="text-[10px] font-semibold text-amber-700 whitespace-nowrap">
-                              {a.missingCount}/{a.rosterSize} ungraded
+                              {t("teacherHome.ungraded", { missing: a.missingCount, total: a.rosterSize })}
                             </span>
                           </div>
                         </Link>
@@ -994,12 +1000,10 @@ export function TeacherHome({ orgId, me }: Props) {
                     <AlertTriangle className="h-4 w-4 text-amber-700 mt-0.5 flex-shrink-0" />
                     <div className="min-w-0 flex-1">
                       <div className="text-sm font-medium text-amber-900">
-                        {snapshot.untaggedLessonsCount} of your lessons (last 30
-                        days) have no subject tag
+                        {t("teacherHome.untaggedLessons", { count: snapshot.untaggedLessonsCount })}
                       </div>
                       <p className="text-[11px] text-amber-800 mt-0.5">
-                        Tag them to subjects so curriculum progress updates and
-                        parents see the academic context.
+                        {t("teacherHome.untaggedHint")}
                       </p>
                       {snapshot.untaggedLessons.length > 0 && (
                         <ul className="mt-2 space-y-1">
@@ -1029,10 +1033,10 @@ export function TeacherHome({ orgId, me }: Props) {
                 <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm md:col-span-2">
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="text-sm font-semibold text-slate-900">
-                      Recent grades you entered
+                      {t("teacherHome.recentGrades")}
                     </h3>
                     <span className="text-[10px] text-slate-500">
-                      Latest {snapshot.recentGradesGiven.length}
+                      {t("teacherHome.latestN", { count: snapshot.recentGradesGiven.length })}
                     </span>
                   </div>
                   <ul className="divide-y divide-slate-100">
@@ -1083,7 +1087,7 @@ export function TeacherHome({ orgId, me }: Props) {
       {notes.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
-            Recent behavior notes
+            {t("teacherHome.recentBehavior")}
           </h2>
           <div className="rounded-xl border border-slate-200 bg-white">
             <ul className="divide-y divide-slate-100">
@@ -1099,7 +1103,7 @@ export function TeacherHome({ orgId, me }: Props) {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-baseline justify-between gap-3">
                         <div className="text-sm font-medium text-slate-900 truncate">
-                          {n.studentName ?? "Student"}{" "}
+                          {n.studentName ?? t("teacherHome.studentFallback")}{" "}
                           {n.category && (
                             <span className="font-normal text-slate-500">
                               · {n.category}
