@@ -2626,13 +2626,18 @@ export function installPhaseA(school: Hono) {
       loginIdentifier = p.phone;
     }
 
-    // Determine must_change: false if a row already exists (operator resetting),
-    // true on first set.
+    // must_change semantics (pilot decision Sep 3 2026, Muneeb):
+    //   PARENTS: any operator-set PIN is temporary — the parent is asked
+    //   to choose their own PIN at next login, whether this is the first
+    //   set or an admin re-set. Only the parent's own change-pin flow
+    //   clears the flag.
+    //   STUDENTS: unchanged — first set forces a change, an operator
+    //   re-typing a known PIN doesn't (young kids keep school-set PINs).
     const { data: existing } = await serviceRoleClient
       .from("pin_credential").select("id")
       .eq("org_id", orgId).eq("subject_type", subjectType).eq("subject_id", subjectId)
       .maybeSingle();
-    const mustChange = !existing;
+    const mustChange = subjectType === "parent" ? true : !existing;
 
     const pin_hash = await hashPin(pin);
     const { error } = await serviceRoleClient
