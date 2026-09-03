@@ -288,6 +288,8 @@
     "qNotLearned": "Not learned today",
     "assignNext": "Assign next sabaq (the student's next lesson)",
     "assignHint": "Saved as the standing lesson — prefilled next time you log this student's sabaq, and shown to the parent as tomorrow's target.",
+    "suggestedAdvance": "Suggested automatically from today's sabaq — adjust if needed.",
+    "suggestedRepeat": "Same sabaq suggested again (today wasn't solid) — adjust if needed.",
     "parentNote": "Note (parent-visible)",
     "parentNotePh": "One short summary the parent will read",
     "parentTonight": "What should the parent do tonight? (optional)",
