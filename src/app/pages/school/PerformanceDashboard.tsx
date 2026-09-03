@@ -101,7 +101,7 @@ function PeriodSelector({
 }) {
   const { t } = useTranslation();
   return (
-    <div className="inline-flex items-center rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
+    <div className="inline-flex max-w-full items-center overflow-x-auto rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
       {PERIODS.map((p) => {
         const active = p.value === value;
         return (
@@ -1363,7 +1363,10 @@ export function PerformanceDashboard() {
             </p>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        {/* flex-wrap + scrollable selector: with the campus chip present,
+            this row overflowed the screen on phones and Quarter/Year
+            became unreachable (principal screenshot, Sep 4). */}
+        <div className="flex max-w-full flex-wrap items-center gap-2">
           {myGroups.map((g) => (
             <Link
               key={g.id}
