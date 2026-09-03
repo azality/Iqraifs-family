@@ -658,7 +658,11 @@ export function TeacherHome({ orgId, me }: Props) {
                     (s as any).classKind === "hifz" || (s as any).scheduleKey === "hifz";
                   return (
                     <div className="mt-4 flex gap-2">
-                      {isOwn && isHifzClass && (
+                      {/* Hifz: EVERY teacher of the class gets the sabaq
+                          button (Muneeb: "irrespective — if he's teaching
+                          a hifz class"); the hifz log admits subject
+                          teachers too. Attendance stays class-teacher-only. */}
+                      {isHifzClass && (
                         <>
                           <Link
                             to={`/school/orgs/${orgId}/sections/${s.sectionId}/hifz`}
@@ -667,13 +671,15 @@ export function TeacherHome({ orgId, me }: Props) {
                             <BookMarked className="h-3.5 w-3.5" />
                             Sunain — sabaq · sabqi · manzil
                           </Link>
-                          <Link
-                            to={`/school/orgs/${orgId}/sections/${s.sectionId}/attendance`}
-                            className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
-                          >
-                            <CheckCircle className="h-3.5 w-3.5" />
-                            Attendance
-                          </Link>
+                          {isOwn && (
+                            <Link
+                              to={`/school/orgs/${orgId}/sections/${s.sectionId}/attendance`}
+                              className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+                            >
+                              <CheckCircle className="h-3.5 w-3.5" />
+                              Attendance
+                            </Link>
+                          )}
                         </>
                       )}
                       {isOwn && !isHifzClass && (
@@ -694,7 +700,7 @@ export function TeacherHome({ orgId, me }: Props) {
                           </Link>
                         </>
                       )}
-                      {!isOwn && (
+                      {!isOwn && !isHifzClass && (
                         <span className="inline-flex flex-1 items-center justify-center rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-500">
                           Subject teacher{s.classTeacherName ? ` · CT: ${s.classTeacherName}` : ""}
                         </span>
