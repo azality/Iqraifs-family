@@ -298,7 +298,7 @@ export function SectionHifzOverview() {
             studentId={logTarget.studentId}
             studentName={logTarget.studentName}
             hifzOnly={isHifzSection}
-            positionLabel={idx >= 0 ? `Student ${idx + 1} of ${logRoster.length}` : null}
+            positionLabel={idx >= 0 ? t("hifzTeach.studentOf", { n: idx + 1, total: logRoster.length }) : null}
             onNextStudent={next ? () => setLogTarget(next) : null}
             open={!!logTarget}
             onOpenChange={(v) => { if (!v) setLogTarget(null); }}

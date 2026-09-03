@@ -478,7 +478,7 @@ export function HifzLogEntry({
                   </Select>
                   {surah && (
                     <p className="text-xs text-muted-foreground">
-                      {surah.nameArabic} · {surah.ayahCount} ayahs
+                      {surah.nameArabic} · {t("hifzTeach.ayahsCount", { count: surah.ayahCount })}
                     </p>
                   )}
                 </div>
@@ -580,7 +580,7 @@ export function HifzLogEntry({
                   </Select>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
-                      <Label className="text-xs">Ayah from</Label>
+                      <Label className="text-xs">{t("hifzTeach.ayahFrom")}</Label>
                       <Input
                         type="number"
                         inputMode="numeric"
@@ -595,7 +595,7 @@ export function HifzLogEntry({
                       />
                     </div>
                     <div className="space-y-1">
-                      <Label className="text-xs">Ayah to</Label>
+                      <Label className="text-xs">{t("hifzTeach.ayahTo")}</Label>
                       <Input
                         type="number"
                         inputMode="numeric"
@@ -669,7 +669,7 @@ export function HifzLogEntry({
             <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-3 space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <Label>Mistakes today</Label>
+                  <Label>{t("hifzTeach.mistakesToday")}</Label>
                   <Input
                     type="number"
                     inputMode="numeric"
@@ -683,18 +683,18 @@ export function HifzLogEntry({
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label>Tajweed note</Label>
+                  <Label>{t("hifzTeach.tajweedNote")}</Label>
                   <Input
                     value={tajweedNotes}
                     onChange={(e) => setTajweedNotes(e.target.value)}
-                    placeholder="e.g. madd-letter weak"
+                    placeholder={t("hifzTeach.tajweedNotePh")}
                   />
                 </div>
               </div>
               {!isManzil && (
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <Label>Juz / Para</Label>
+                    <Label>{t("hifzTeach.juzPara")}</Label>
                     <Input
                       type="number"
                       inputMode="numeric"
@@ -710,7 +710,7 @@ export function HifzLogEntry({
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label>Mushaf page</Label>
+                    <Label>{t("hifzTeach.mushafPage")}</Label>
                     <Input
                       type="number"
                       inputMode="numeric"
@@ -725,38 +725,38 @@ export function HifzLogEntry({
                 </div>
               )}
               <div className="space-y-1">
-                <Label>Fluency note</Label>
+                <Label>{t("hifzTeach.fluencyNote")}</Label>
                 <Input
                   value={fluencyNotes}
                   onChange={(e) => setFluencyNotes(e.target.value)}
-                  placeholder="e.g. pauses too long mid-ayah"
+                  placeholder={t("hifzTeach.fluencyNotePh")}
                 />
               </div>
               <div className="space-y-1">
-                <Label>Internal note (teacher only)</Label>
+                <Label>{t("hifzTeach.internalNote")}</Label>
                 <Textarea
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   rows={2}
-                  placeholder="Not shown to the parent"
+                  placeholder={t("hifzTeach.internalNotePh")}
                 />
               </div>
               <div className="space-y-1">
-                <Label>Parent-facing extra comment</Label>
+                <Label>{t("hifzTeach.parentExtra")}</Label>
                 <Textarea
                   value={parentComments}
                   onChange={(e) => setParentComments(e.target.value)}
                   rows={2}
-                  placeholder="Encouragement / specific guidance"
+                  placeholder={t("hifzTeach.parentExtraPh")}
                 />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <Label>Today's target</Label>
+                  <Label>{t("hifzTeach.todaysTarget")}</Label>
                   <Input
                     value={dailyTarget}
                     onChange={(e) => setDailyTarget(e.target.value)}
-                    placeholder="e.g. Memorize 5 ayahs"
+                    placeholder={t("hifzTeach.todaysTargetPh")}
                   />
                 </div>
                 {!(isSabaq || hifzOnly) && (
@@ -771,11 +771,11 @@ export function HifzLogEntry({
                 )}
               </div>
               <div className="space-y-1">
-                <Label>Missed-target reason (if any)</Label>
+                <Label>{t("hifzTeach.missedReason")}</Label>
                 <Input
                   value={missedTargetReason}
                   onChange={(e) => setMissedTargetReason(e.target.value)}
-                  placeholder="e.g. Distracted / unwell"
+                  placeholder={t("hifzTeach.missedReasonPh")}
                 />
               </div>
             </div>
