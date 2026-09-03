@@ -8,7 +8,7 @@
 // renders nothing while loading and stays a single slim strip.
 
 import { useEffect, useState } from "react";
-import { StickyNote, Pencil, ChevronDown, ChevronUp } from "lucide-react";
+import { StickyNote, Pencil, ChevronDown, ChevronUp, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import {
   getSchoolMe,
@@ -33,7 +33,15 @@ function dayLabel(iso: string): string {
   });
 }
 
-export function AttendanceDayNotes({ orgId }: { orgId: string }) {
+interface Props {
+  orgId: string;
+  /** Today's school-wide attendance %, when the dashboard has it. */
+  todayPct?: number | null;
+  /** Period average %, for "unusually low vs normal" comparison. */
+  periodPct?: number | null;
+}
+
+export function AttendanceDayNotes({ orgId, todayPct = null, periodPct = null }: Props) {
   const [me, setMe] = useState<SchoolMeResponse | null>(null);
   const [notes, setNotes] = useState<AttendanceDayNote[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -46,6 +54,16 @@ export function AttendanceDayNotes({ orgId }: { orgId: string }) {
   const canEdit = isOrgAdmin(me, orgId);
   const todayNote = notes.find((n) => n.noteDate === today) ?? null;
   const pastNotes = notes.filter((n) => n.noteDate !== today);
+
+  // Auto-nudge: today's attendance is unusually low — either in absolute
+  // terms (< 70%) or well below the period's normal (10+ points under).
+  // Only when some attendance HAS been recorded (null = nothing marked
+  // yet this morning; nudging then would be noise).
+  const lowToday =
+    todayPct != null &&
+    todayPct > 0 &&
+    (todayPct < 70 || (periodPct != null && periodPct - todayPct >= 10));
+  const nudge = lowToday && !todayNote && canEdit;
 
   const refresh = () => {
     const start = new Date(Date.now() - 60 * 24 * 3600 * 1000)
@@ -83,10 +101,24 @@ export function AttendanceDayNotes({ orgId }: { orgId: string }) {
   };
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm">
+    <div
+      className={
+        "rounded-xl border px-4 py-2.5 text-sm " +
+        (nudge ? "border-amber-300 bg-amber-50" : "border-slate-200 bg-white")
+      }
+    >
       <div className="flex flex-wrap items-center gap-2">
-        <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-          <StickyNote className="h-3.5 w-3.5 text-amber-500" />
+        <span
+          className={
+            "inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide " +
+            (nudge ? "text-amber-700" : "text-slate-400")
+          }
+        >
+          {nudge ? (
+            <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
+          ) : (
+            <StickyNote className="h-3.5 w-3.5 text-amber-500" />
+          )}
           Day note
         </span>
 
@@ -102,15 +134,31 @@ export function AttendanceDayNotes({ orgId }: { orgId: string }) {
         )}
 
         {!editing && !todayNote && canEdit && (
-          <button
-            onClick={() => {
-              setDraft("");
-              setEditing(true);
-            }}
-            className="text-xs text-indigo-600 hover:text-indigo-800 hover:underline"
-          >
-            Add a note about today's attendance (e.g. strike, rain, event)
-          </button>
+          nudge ? (
+            <span className="min-w-0 flex-1 text-amber-900">
+              Attendance is low today ({Math.round(todayPct as number)}%) —{" "}
+              <button
+                onClick={() => {
+                  setDraft("");
+                  setEditing(true);
+                }}
+                className="font-medium text-amber-900 underline hover:text-amber-950"
+              >
+                add a reason
+              </button>{" "}
+              so it's explainable later (strike, rain, event…).
+            </span>
+          ) : (
+            <button
+              onClick={() => {
+                setDraft("");
+                setEditing(true);
+              }}
+              className="text-xs text-indigo-600 hover:text-indigo-800 hover:underline"
+            >
+              Add a note about today's attendance (e.g. strike, rain, event)
+            </button>
+          )
         )}
 
         {!editing && todayNote && canEdit && (

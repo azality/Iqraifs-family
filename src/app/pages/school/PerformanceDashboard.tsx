@@ -1262,7 +1262,11 @@ export function PerformanceDashboard() {
       })()}
 
       {/* Attendance day note — org-wide "why was today unusual" strip. */}
-      <AttendanceDayNotes orgId={orgId} />
+      <AttendanceDayNotes
+        orgId={orgId}
+        todayPct={dashboard?.tiles.attendanceToday.value ?? null}
+        periodPct={dashboard?.tiles.attendancePeriod.value ?? null}
+      />
 
       {/* Alerts row */}
       {dashboard && (
