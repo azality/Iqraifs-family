@@ -650,9 +650,33 @@ export function TeacherHome({ orgId, me }: Props) {
                     s.classTeacherUserId === undefined ||
                     s.classTeacherUserId === me?.userId ||
                     s.hifzTeacherUserId === me?.userId;
+                  // Hifz classes are recitation-first (pilot: teachers were
+                  // hunting for where to "give sabaq") — the big button IS
+                  // the daily work; attendance drops to secondary. Keyed on
+                  // the school-authored class kind, not the teacher's role.
+                  const isHifzClass =
+                    (s as any).classKind === "hifz" || (s as any).scheduleKey === "hifz";
                   return (
                     <div className="mt-4 flex gap-2">
-                      {isOwn && (
+                      {isOwn && isHifzClass && (
+                        <>
+                          <Link
+                            to={`/school/orgs/${orgId}/sections/${s.sectionId}/hifz`}
+                            className="inline-flex flex-[2] items-center justify-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
+                          >
+                            <BookMarked className="h-3.5 w-3.5" />
+                            Sunain — sabaq · sabqi · manzil
+                          </Link>
+                          <Link
+                            to={`/school/orgs/${orgId}/sections/${s.sectionId}/attendance`}
+                            className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+                          >
+                            <CheckCircle className="h-3.5 w-3.5" />
+                            Attendance
+                          </Link>
+                        </>
+                      )}
+                      {isOwn && !isHifzClass && (
                         <>
                           <Link
                             to={`/school/orgs/${orgId}/sections/${s.sectionId}/attendance`}

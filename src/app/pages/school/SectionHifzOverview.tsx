@@ -155,6 +155,33 @@ export function SectionHifzOverview() {
       },
     },
     {
+      key: "today",
+      header: "Today",
+      cell: (s) => {
+        const t = s.today ?? { sabaq: false, sabqi: false, manzil: false };
+        const chip = (done: boolean, label: string) => (
+          <span
+            className={
+              "inline-flex items-center justify-center rounded px-1.5 py-0.5 text-[10px] font-semibold " +
+              (done
+                ? "bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300"
+                : "bg-slate-100 text-slate-400")
+            }
+            title={label + (done ? " — heard today" : " — pending")}
+          >
+            {label}
+          </span>
+        );
+        return (
+          <div className="inline-flex gap-1">
+            {chip(t.sabaq, "S")}
+            {chip(t.sabqi, "Sq")}
+            {chip(t.manzil, "M")}
+          </div>
+        );
+      },
+    },
+    {
       key: "last",
       header: (
         <button type="button" onClick={() => toggleSort("last")} className="inline-flex items-center gap-1">
@@ -200,11 +227,28 @@ export function SectionHifzOverview() {
     <div className="space-y-4">
       <HeroCard
         title="Hifz Progress"
-        subtitle={`${sorted.length} student${sorted.length === 1 ? "" : "s"} · cumulative memorization`}
+        subtitle={`${sorted.length} student${sorted.length === 1 ? "" : "s"} · S/Sq/M show what's already heard today`}
         rightSlot={
-          <Link to={`/school/orgs/${orgId}/admin/classes`}>
-            <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">← Classes</Button>
-          </Link>
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Pilot (hifz teachers): one tap starts the daily round —
+                the dialog opens on the first student and "Save · next
+                student" walks the whole class. */}
+            {sorted.length > 0 && (
+              <Button
+                size="sm"
+                className="bg-emerald-600 text-white hover:bg-emerald-700"
+                onClick={() => {
+                  setLogRoster(sorted);
+                  setLogTarget(sorted[0]);
+                }}
+              >
+                Start today's round →
+              </Button>
+            )}
+            <Link to={`/school/orgs/${orgId}/admin/classes`}>
+              <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">← Classes</Button>
+            </Link>
+          </div>
         }
       />
 
