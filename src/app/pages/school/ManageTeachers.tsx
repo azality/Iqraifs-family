@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
 import { Badge } from "../../components/ui/badge";
+import { toast } from "sonner";
+import { Crown } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
@@ -48,6 +50,9 @@ import {
   type OrgAdmin,
   type RoleTemplate,
   type SchoolMeResponse,
+  setInchargeWing,
+  listClasses,
+  type AdminClass,
 } from "../../../utils/schoolApi";
 import { useOrgPermissionState } from "./useOrgPermission";
 import { CsvUploadDialog } from "./components/CsvUploadDialog";
@@ -77,6 +82,14 @@ export function ManageTeachers() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [substitutePool, setSubstitutePool] = useState<Set<string>>(new Set());
+  // Incharge wing dialog (feat incharge-admin-ui): pick the classes a
+  // staff member oversees; empty selection removes the role. Declared
+  // here with the rest of the state — hooks must precede the early
+  // permission returns below.
+  const [wingFor, setWingFor] = useState<AdminTeacher | null>(null);
+  const [wingClasses, setWingClasses] = useState<AdminClass[]>([]);
+  const [wingSel, setWingSel] = useState<Set<string>>(new Set());
+  const [wingBusy, setWingBusy] = useState(false);
 
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
@@ -263,6 +276,33 @@ export function ManageTeachers() {
     return res;
   };
 
+  const openWing = async (t: AdminTeacher) => {
+    setWingFor(t);
+    setWingSel(new Set((t.inchargeClasses ?? []).map((c) => c.id)));
+    if (wingClasses.length === 0) {
+      try { setWingClasses(await listClasses(orgId)); } catch { /* toast below on save */ }
+    }
+  };
+
+  const saveWing = async () => {
+    if (!wingFor) return;
+    setWingBusy(true);
+    try {
+      await setInchargeWing(orgId, wingFor.user_id, Array.from(wingSel));
+      toast.success(
+        wingSel.size === 0
+          ? `${wingFor.full_name} is no longer an incharge`
+          : `${wingFor.full_name} is now incharge of ${wingSel.size} class${wingSel.size === 1 ? "" : "es"}`,
+      );
+      setWingFor(null);
+      refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not update incharge wing");
+    } finally {
+      setWingBusy(false);
+    }
+  };
+
   // Role-badge styling by template — keeps the four staff types visually
   // distinct in the list so the admin can scan "who's office vs teacher
   // vs finance" without reading the role column.
@@ -274,6 +314,7 @@ export function ManageTeachers() {
       : key === "visiting_teacher" ? "bg-amber-50 text-amber-700 border-amber-200"
       : key === "financial_staff" ? "bg-emerald-50 text-emerald-700 border-emerald-200"
       : key === "office_staff" ? "bg-sky-50 text-sky-700 border-sky-200"
+      : key === "incharge" ? "bg-violet-50 text-violet-700 border-violet-200"
       : "bg-slate-50 text-slate-700 border-slate-200";
     return <Badge variant="outline" className={cls + " text-[10px] font-medium"}>{label}</Badge>;
   };
@@ -298,7 +339,29 @@ export function ManageTeachers() {
     {
       key: "role_template",
       header: "Role",
-      cell: (t) => roleBadge(t.role_template ?? (t as any).role_type ?? ""),
+      // One row per person now — show every role they hold. Incharge
+      // carries the wing size; hover lists the classes.
+      cell: (t) => {
+        const roles = (t.roles && t.roles.length > 0)
+          ? t.roles
+          : [t.role_template ?? (t as any).role_type ?? ""];
+        const ordered = [...roles].sort((a, b) => (a === "incharge" ? -1 : b === "incharge" ? 1 : 0));
+        return (
+          <div className="flex flex-wrap gap-1">
+            {ordered.map((r) =>
+              r === "incharge" ? (
+                <span key={r} title={(t.inchargeClasses ?? []).map((c) => c.name).join(", ")}>
+                  <Badge variant="outline" className="bg-violet-50 text-violet-700 border-violet-200 text-[10px] font-medium">
+                    Incharge · {(t.inchargeClasses ?? []).length}
+                  </Badge>
+                </span>
+              ) : (
+                <span key={r}>{roleBadge(r)}</span>
+              ),
+            )}
+          </div>
+        );
+      },
     },
     {
       key: "actions",
@@ -309,6 +372,14 @@ export function ManageTeachers() {
         const inPool = substitutePool.has(t.user_id);
         return (
         <div className="flex justify-end gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => openWing(t)}
+            title="Incharge wing — which classes this person oversees"
+          >
+            <Crown className={"h-3.5 w-3.5 " + ((t.inchargeClasses ?? []).length > 0 ? "text-violet-600" : "text-slate-400")} />
+          </Button>
           <Link
             to={`/school/orgs/${orgId}/admin/teachers/${t.user_id}/schedule`}
             onClick={(e) => e.stopPropagation()}
@@ -535,6 +606,59 @@ export function ManageTeachers() {
         ]}
         onSubmit={handleCsvSubmit}
       />
+
+      {/* Incharge wing dialog — the classes this person oversees.
+          School structure (Sep 2026): Montessori / Primary+Secondary /
+          Hifz; empty selection removes the incharge role. */}
+      <Dialog open={!!wingFor} onOpenChange={(o) => { if (!o) setWingFor(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Incharge wing — {wingFor?.full_name}</DialogTitle>
+          </DialogHeader>
+          <p className="text-xs text-slate-500">
+            Tick the classes this person oversees. An incharge sees a
+            dashboard scoped to these classes, their Daily academics, and
+            can open every section in them like a teacher — with no
+            school-wide admin powers. Untick everything to remove the
+            incharge role.
+          </p>
+          <div className="max-h-64 space-y-1 overflow-y-auto rounded-md border border-slate-200 p-2">
+            {wingClasses.length === 0 ? (
+              <p className="p-2 text-xs text-slate-400">Loading classes…</p>
+            ) : (
+              wingClasses.map((cl) => (
+                <label
+                  key={cl.id}
+                  className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-slate-50"
+                >
+                  <input
+                    type="checkbox"
+                    checked={wingSel.has(cl.id)}
+                    onChange={(e) => {
+                      const next = new Set(wingSel);
+                      if (e.target.checked) next.add(cl.id);
+                      else next.delete(cl.id);
+                      setWingSel(next);
+                    }}
+                  />
+                  {cl.name}
+                </label>
+              ))
+            )}
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-slate-500">
+              {wingSel.size === 0 ? "No classes — removes the role" : `${wingSel.size} selected`}
+            </span>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setWingFor(null)}>Cancel</Button>
+              <Button onClick={saveWing} disabled={wingBusy}>
+                {wingBusy ? "Saving…" : "Save"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
