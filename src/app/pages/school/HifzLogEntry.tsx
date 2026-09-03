@@ -135,17 +135,18 @@ export function HifzLogEntry({
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  // Manzil is revised per JUZ, not per ayah range.
-  const [manzilJuz, setManzilJuz] = useState<number | "">("");
-
-  // Sabqi by para (pilot: Qari Waqar) — hifz teachers reference sabqi
-  // as "para 26 until nisf/ruba/salasa" or "para 30 up to Surah X",
-  // not surah+ayah. Stored as juz_number + juz_extent; surah/ayah keep
-  // the juz-start marker (manzil's display-only convention).
+  // Revision position — sabqi AND manzil can both be referenced "by
+  // surah" (surah + ayah range) or "by para" ("para 26 until nisf/
+  // ruba/salasa", "para 30 up to Surah X"). Para entries store
+  // juz_number + juz_extent with the juz-start marker in surah/ayah
+  // (display-only convention; totals only count memorized+sabaq).
+  // Sabqi defaults to surah, manzil to para (its classic unit); the
+  // mode choices persist across students within a round.
   const [sabqiMode, setSabqiMode] = useState<"surah" | "para">("surah");
-  const [sabqiJuz, setSabqiJuz] = useState<number | "">("");
-  const [sabqiExtent, setSabqiExtent] = useState<string>("full");
-  const [sabqiToSurah, setSabqiToSurah] = useState<number>(1);
+  const [manzilMode, setManzilMode] = useState<"surah" | "para">("para");
+  const [revJuz, setRevJuz] = useState<number | "">("");
+  const [revExtent, setRevExtent] = useState<string>("full");
+  const [revToSurah, setRevToSurah] = useState<number>(1);
 
   // "Assign next sabaq" — the teacher gives the student their next
   // lesson while hearing today's. Stored in next_target; the standing
@@ -203,10 +204,9 @@ export function HifzLogEntry({
     setKind("sabaq");
     setQuality("");
     setNotes("");
-    setManzilJuz("");
-    setSabqiJuz("");
-    setSabqiExtent("full");
-    setSabqiToSurah(1);
+    setRevJuz("");
+    setRevExtent("full");
+    setRevToSurah(1);
     setAssignOn(false);
     setAssignSurah(1);
     setAssignFrom(1);
@@ -299,6 +299,8 @@ export function HifzLogEntry({
   const isManzil = kind === "manzil";
   const isSabaq = kind === "sabaq";
   const isParaSabqi = kind === "sabqi" && sabqiMode === "para";
+  const isParaManzil = isManzil && manzilMode === "para";
+  const isParaMode = isParaSabqi || isParaManzil;
 
   // after="kind": the daily trio (sabaq → sabqi → manzil) is three
   // entries per child; the dialog stays open and advances Kind.
@@ -309,21 +311,12 @@ export function HifzLogEntry({
     let sendSurah = surahNumber;
     let sendFrom = num(ayahFrom);
     let sendTo = num(ayahTo);
-    if (isManzil) {
-      if (typeof manzilJuz !== "number") {
-        toast.error("Pick which juz was revised");
-        return;
-      }
-      const start = JUZ_STARTS[manzilJuz - 1];
-      sendSurah = start.surah;
-      sendFrom = start.ayah;
-      sendTo = start.ayah;
-    } else if (isParaSabqi) {
-      if (typeof sabqiJuz !== "number") {
+    if (isParaMode) {
+      if (typeof revJuz !== "number") {
         toast.error(t("hifzTeach.pickParaFirst"));
         return;
       }
-      const start = JUZ_STARTS[sabqiJuz - 1];
+      const start = JUZ_STARTS[revJuz - 1];
       sendSurah = start.surah;
       sendFrom = start.ayah;
       sendTo = start.ayah;
@@ -354,13 +347,11 @@ export function HifzLogEntry({
         kind,
         quality: quality || undefined,
         notes: notes.trim() || undefined,
-        juzNumber: isManzil
-          ? (manzilJuz as number)
-          : isParaSabqi
-          ? (sabqiJuz as number)
+        juzNumber: isParaMode
+          ? (revJuz as number)
           : typeof juzNumber === "number" ? juzNumber : undefined,
-        juzExtent: isParaSabqi
-          ? (sabqiExtent === "to_surah" ? `to_surah:${sabqiToSurah}` : sabqiExtent)
+        juzExtent: isParaMode
+          ? (revExtent === "to_surah" ? `to_surah:${revToSurah}` : revExtent)
           : undefined,
         pageNumber: typeof pageNumber === "number" ? pageNumber : undefined,
         mistakesCount: typeof mistakesCount === "number" ? mistakesCount : undefined,
@@ -470,42 +461,47 @@ export function HifzLogEntry({
             </div>
           )}
 
-          {/* Sabqi position mode — by surah (default) or by para. */}
-          {kind === "sabqi" && (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">{t("hifzTeach.sabqiHow")}</span>
-              <div className="inline-flex rounded-md border border-slate-200 overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => setSabqiMode("surah")}
-                  className={
-                    "px-3 py-1 text-xs font-medium " +
-                    (sabqiMode === "surah" ? "bg-indigo-600 text-white" : "bg-white text-slate-600")
-                  }
-                >
-                  {t("hifzTeach.bySurah")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSabqiMode("para")}
-                  className={
-                    "px-3 py-1 text-xs font-medium " +
-                    (sabqiMode === "para" ? "bg-indigo-600 text-white" : "bg-white text-slate-600")
-                  }
-                >
-                  {t("hifzTeach.byPara")}
-                </button>
+          {/* Revision position mode — by surah or by para. Sabqi opens
+              on surah, manzil on para; both can switch. */}
+          {(kind === "sabqi" || isManzil) && (() => {
+            const posMode = isManzil ? manzilMode : sabqiMode;
+            const setPosMode = isManzil ? setManzilMode : setSabqiMode;
+            return (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">{t("hifzTeach.sabqiHow")}</span>
+                <div className="inline-flex rounded-md border border-slate-200 overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setPosMode("surah")}
+                    className={
+                      "px-3 py-1 text-xs font-medium " +
+                      (posMode === "surah" ? "bg-indigo-600 text-white" : "bg-white text-slate-600")
+                    }
+                  >
+                    {t("hifzTeach.bySurah")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPosMode("para")}
+                    className={
+                      "px-3 py-1 text-xs font-medium " +
+                      (posMode === "para" ? "bg-indigo-600 text-white" : "bg-white text-slate-600")
+                    }
+                  >
+                    {t("hifzTeach.byPara")}
+                  </button>
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
-          {isParaSabqi ? (
+          {isParaMode ? (
             <div className="space-y-2">
               <div className="space-y-1">
                 <Label>{t("hifzTeach.whichPara")}</Label>
                 <Select
-                  value={sabqiJuz === "" ? "" : String(sabqiJuz)}
-                  onValueChange={(v) => setSabqiJuz(Number(v))}
+                  value={revJuz === "" ? "" : String(revJuz)}
+                  onValueChange={(v) => setRevJuz(Number(v))}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder={t("hifzTeach.pickJuz")} />
@@ -521,7 +517,7 @@ export function HifzLogEntry({
               </div>
               <div className="space-y-1">
                 <Label>{t("hifzTeach.howMuchPara")}</Label>
-                <Select value={sabqiExtent} onValueChange={setSabqiExtent}>
+                <Select value={revExtent} onValueChange={setRevExtent}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -534,12 +530,12 @@ export function HifzLogEntry({
                   </SelectContent>
                 </Select>
               </div>
-              {sabqiExtent === "to_surah" && (
+              {revExtent === "to_surah" && (
                 <div className="space-y-1">
                   <Label>{t("hifzTeach.whichSurahTo")}</Label>
                   <Select
-                    value={String(sabqiToSurah)}
-                    onValueChange={(v) => setSabqiToSurah(Number(v))}
+                    value={String(revToSurah)}
+                    onValueChange={(v) => setRevToSurah(Number(v))}
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -555,29 +551,7 @@ export function HifzLogEntry({
                 </div>
               )}
               <p className="text-xs text-muted-foreground">
-                {t("hifzTeach.paraSabqiNote")}
-              </p>
-            </div>
-          ) : isManzil ? (
-            <div className="space-y-1">
-              <Label>{t("hifzTeach.whichJuz")}</Label>
-              <Select
-                value={manzilJuz === "" ? "" : String(manzilJuz)}
-                onValueChange={(v) => setManzilJuz(Number(v))}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder={t("hifzTeach.pickJuz")} />
-                </SelectTrigger>
-                <SelectContent className="max-h-64">
-                  {Array.from({ length: 30 }, (_, i) => i + 1).map((j) => (
-                    <SelectItem key={j} value={String(j)}>
-                      {t("hifzTeach.juzN", { n: j })}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                {t("hifzTeach.manzilNote")}
+                {isManzil ? t("hifzTeach.manzilNote") : t("hifzTeach.paraSabqiNote")}
               </p>
             </div>
           ) : (
