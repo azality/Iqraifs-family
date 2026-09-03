@@ -2837,6 +2837,7 @@ export function isOrgAdmin(me: SchoolMeResponse | null, orgId: string): boolean 
 export type SchoolViewerRole =
   | "principal"
   | "admin"
+  | "incharge"
   | "class_teacher"
   | "visiting_teacher"
   | "hifz_teacher"
@@ -2859,6 +2860,16 @@ export function viewerRoleForOrg(
     .filter((r) => r.scope_type === "organization" && r.scope_id === orgId)
     .map((r) => r.role_type as string);
   if (orgRoles.includes("admin")) return "admin";
+  // Incharge (wing overseer) beats teacher roles — Rabia is incharge of
+  // Montessori AND class teacher of Reception; the incharge cockpit
+  // still reaches her own section. Incharge rows are class-scoped
+  // (scope_id = class id), so check the class-scoped list too.
+  if (
+    orgRoles.includes("incharge") ||
+    me.roles.some((r) => r.role_type === ("incharge" as string) && r.scope_type === "class")
+  ) {
+    return "incharge";
+  }
   if (orgRoles.includes("office_staff")) return "office_staff";
   if (orgRoles.includes("financial_staff")) return "financial_staff";
   // class_teacher / visiting_teacher may be granted with scope_type
@@ -2910,6 +2921,9 @@ export function isSectionTeacherOnly(
       r.scope_id === orgId,
   );
   if (hasOrgTeacher) return false;
+  // Incharge (even one who also teaches, like Rabia) gets the
+  // wing-scoped PerformanceDashboard, not TeacherHome.
+  if (me.roles.some((r) => r.role_type === ("incharge" as string))) return false;
   // class_teacher / visiting_teacher rows can be scope_type "organization"
   // (seed default) or "class" (legacy). Either qualifies — the backend's
   // determineScope() resolves the actual section assignments.

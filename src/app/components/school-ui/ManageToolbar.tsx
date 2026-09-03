@@ -90,6 +90,20 @@ function flatItemsForRole(
     `/school/orgs/${orgId}/admin/announcements`, Megaphone);
 
   switch (role) {
+    case "incharge":
+      // Wing overseer (Sep 2026): the cockpit is the wing-scoped
+      // dashboard; Daily academics is the day-to-day digest; Hifz
+      // program shows the per-student rollup for hifz wings (empty
+      // for non-hifz wings). They may also teach (Rabia) — their own
+      // sections appear inside the dashboard leaderboard.
+      return [
+        I("dashboard", t("toolbar.dashboard"), `/school/orgs/${orgId}`, Home),
+        I("academics-day", "Daily academics", `/school/orgs/${orgId}/admin/academics-day`, ListChecks),
+        I("hifz-program", "Hifz program", `/school/orgs/${orgId}/admin/hifz-program`, BookMarked),
+        I("my-schedule", t("toolbar.mySchedule"), `/school/orgs/${orgId}/my-schedule`, Calendar),
+        announcements,
+        I("time-off", t("toolbar.timeOff"), `/school/orgs/${orgId}/my-schedule?action=time-off`, CalendarOff),
+      ];
     case "hifz_teacher":
       // Hifz teachers' daily driver is the groups/sections hifz view on
       // TeacherHome — anchor there instead of the academic "My subjects".

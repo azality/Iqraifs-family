@@ -157,8 +157,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         // financial_staff all need school chrome + auto-default behaviour.
         // Same enum as hasSchoolAccess below.
         const SCHOOL_ROLE_TYPES_LOCAL = [
-          "principal", "admin", "teacher",
-          "class_teacher", "visiting_teacher",
+          "principal", "admin", "incharge", "teacher",
+          "class_teacher", "visiting_teacher", "hifz_teacher",
           "office_staff", "financial_staff",
         ];
         const hasSchool = r.roles.some((role) =>
@@ -290,9 +290,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const SCHOOL_ROLE_TYPES = new Set([
     "principal",
     "admin",
+    "incharge",
     "teacher",
     "class_teacher",
     "visiting_teacher",
+    // Synthesized by /school/me for hifz-only attachments — without it a
+    // pure hifz teacher (or pure incharge) bounced to family onboarding.
+    "hifz_teacher",
     "office_staff",
     "financial_staff",
   ]);

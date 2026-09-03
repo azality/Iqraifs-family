@@ -21,7 +21,7 @@
 
 import { Hono } from "npm:hono";
 import { serviceRoleClient, requireAuth, getAuthUserId } from "./middleware.tsx";
-import { isPrincipalOf, hasAdminOrPrincipal, todayUtcDate, isRoleActiveNow } from "./schoolAuth.ts";
+import { isPrincipalOf, hasAdminOrPrincipal, hasAnyRoleInOrg, todayUtcDate, isRoleActiveNow } from "./schoolAuth.ts";
 import { logAuditWithLookup } from "./schoolAudit.ts";
 import { installPhaseA } from "./schoolPhaseA.tsx";
 import { installPhaseB } from "./schoolPhaseB.tsx";
@@ -320,10 +320,51 @@ school.get("/me", async (c) => {
     }
   }
 
+  // SYNTHETIC ORG MARKER FOR INCHARGE (Sep 2026). Incharge rows are
+  // class-scoped (scope_id = CLASS id) — without resolving them to an
+  // org, a pure incharge (Rabia before her class_teacher row, or a
+  // future incharge-only hire) gets me.organizations = [] and lands in
+  // family onboarding. Mirror the hifz_teacher materialization: resolve
+  // orgs via the class table and synthesize an org-scoped marker so
+  // viewerRoleForOrg resolves without scanning class rows.
+  const inchargeClassRowIds = roles
+    .filter((r) => r.role_type === "incharge" && r.scope_type === "class")
+    .map((r) => r.scope_id);
+  let inchargeOrgIds: string[] = [];
+  if (inchargeClassRowIds.length > 0) {
+    const { data: inchargeClasses } = await serviceRoleClient
+      .from("class")
+      .select("id, org_id")
+      .in("id", inchargeClassRowIds);
+    inchargeOrgIds = Array.from(
+      new Set(
+        ((inchargeClasses ?? []) as Array<{ org_id: string | null }>)
+          .map((cl) => cl.org_id)
+          .filter((x): x is string => !!x),
+      ),
+    );
+    for (const ioid of inchargeOrgIds) {
+      if (
+        !roles.some(
+          (r) =>
+            r.role_type === "incharge" &&
+            r.scope_type === "organization" &&
+            r.scope_id === ioid,
+        )
+      ) {
+        roles.push({
+          role_type: "incharge",
+          scope_type: "organization",
+          scope_id: ioid,
+        });
+      }
+    }
+  }
+
   // Hydrate scope names so the frontend doesn't need extra round trips.
   // For the org list we union real role-row orgs + Hifz section orgs +
-  // Hifz group orgs so a Hifz-only teacher gets their org in
-  // me.organizations.
+  // Hifz group orgs + incharge wing orgs so a Hifz-only teacher or a
+  // pure incharge gets their org in me.organizations.
   const orgIds = Array.from(
     new Set([
       ...roles
@@ -333,6 +374,7 @@ school.get("/me", async (c) => {
         .map((s) => s.class?.org_id)
         .filter((x): x is string => !!x),
       ...hifzGroupOrgIds,
+      ...inchargeOrgIds,
     ]),
   );
   const classIds = Array.from(
@@ -1083,16 +1125,11 @@ school.get("/organizations/:orgId", async (c) => {
   // caused PerformanceDashboard to throw "forbidden" for every
   // non-principal staff member because getOrganization() set the same
   // error state as the dashboard fetch.
-  const { data: anyRole } = await serviceRoleClient
-    .from("user_roles")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("scope_type", "organization")
-    .eq("scope_id", orgId)
-    .is("revoked_at", null)
-    .limit(1)
-    .maybeSingle();
-  if (!anyRole) {
+  // Unified role check (schoolAuth) — resolves org-scoped rows AND
+  // class-scoped ones (visiting_teacher sections, incharge wings). The
+  // previous hand-rolled org-scope-only query 403'd pure incharges,
+  // which poisoned PerformanceDashboard's shared error state.
+  if (!(await hasAnyRoleInOrg(userId, orgId))) {
     return c.json({ error: "forbidden" }, 403);
   }
 

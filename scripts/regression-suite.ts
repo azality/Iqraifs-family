@@ -1057,6 +1057,69 @@ await check("30. academics-day digest: lessons+assignments grouped, admin-gated"
   }
 });
 
+await check("31. incharge role: wing-scoped access, no org powers", async () => {
+  // Wing overseer (Sep 2026): teacher-equivalent within wing classes,
+  // wing-filtered digests, zero org-level powers. QA incharge's wing =
+  // the Sandbox class only.
+  const inch = await ensureUser("qa-incharge@azality.com", "QA Incharge", "class_teacher");
+  // ensureUser granted an org-scoped class_teacher row — replace it with
+  // a class-scoped incharge row so the account is a PURE incharge.
+  await admin.from("user_roles").update({ revoked_at: new Date().toISOString() })
+    .eq("user_id", inch.id).eq("scope_type", "organization").eq("scope_id", ORG).is("revoked_at", null);
+  const { data: existing } = await admin.from("user_roles").select("id").eq("user_id", inch.id)
+    .eq("role_type", "incharge").eq("scope_type", "class").eq("scope_id", sandboxClass.id).maybeSingle();
+  if (existing) {
+    await admin.from("user_roles").update({ revoked_at: null }).eq("id", existing.id);
+  } else {
+    await admin.from("user_roles").insert({
+      user_id: inch.id, role_type: "incharge", scope_type: "class",
+      scope_id: sandboxClass.id, granted_by: inch.id,
+    });
+  }
+  try {
+    // Wing digest: 200, and every row belongs to the Sandbox class.
+    const day = new Date().toISOString().slice(0, 10);
+    const dig = await api(inch.token, `/school/orgs/${ORG}/academics-day?date=${day}`);
+    const digJ = await dig.json();
+    assert(dig.status === 200, `digest ${dig.status}`);
+    for (const sec of digJ.sections ?? []) {
+      assert(sec.sectionId === sandboxSec.id, `non-wing section leaked: ${sec.className} ${sec.sectionName}`);
+    }
+    assert((digJ.hifz ?? []).length === 0, "hifz sections leaked into non-hifz wing");
+    // Section-scoped read inside the wing (lessons list) works.
+    const les = await api(inch.token, `/school/orgs/${ORG}/sections/${sandboxSec.id}/lessons?limit=5`);
+    assert(les.status === 200, `wing section lessons ${les.status}`);
+    // Sections leaderboard scoped to the wing.
+    const lb = await api(inch.token, `/school/orgs/${ORG}/sections/leaderboard?period=WTD`);
+    if (lb.status === 200) {
+      const lbJ = await lb.json();
+      const rows = lbJ.rows ?? lbJ.sections ?? [];
+      for (const r of rows) {
+        assert(r.sectionId === sandboxSec.id, `leaderboard leaked non-wing section`);
+      }
+    }
+    // NO org powers: day-note write forbidden; hifz-program allowed but
+    // wing-filtered to zero hifz sections.
+    const dn = await api(inch.token, `/school/orgs/${ORG}/attendance-day-notes/2020-02-02`, {
+      method: "PUT", body: JSON.stringify({ note: "nope" }),
+    });
+    assert(dn.status === 403, `incharge day-note write expected 403, got ${dn.status}`);
+    const hp = await api(inch.token, `/school/orgs/${ORG}/hifz-program`);
+    if (hp.status === 200) {
+      const hpJ = await hp.json();
+      const secs = hpJ.sections ?? hpJ.hifzSections ?? [];
+      assert(secs.length === 0, "hifz-program leaked sections to non-hifz wing");
+    } else {
+      assert(hp.status === 403, `hifz-program unexpected ${hp.status}`);
+    }
+  } finally {
+    // Leave the incharge row (revoked) so reruns are cheap; revoke to
+    // keep the account inert between runs.
+    await admin.from("user_roles").update({ revoked_at: new Date().toISOString() })
+      .eq("user_id", inch.id).eq("role_type", "incharge").is("revoked_at", null);
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
