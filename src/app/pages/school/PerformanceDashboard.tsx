@@ -74,6 +74,7 @@ import {
   type SchoolGroupSummary,
 } from "../../../utils/schoolApi";
 import { SetupChecklist, setupChecklistDismissed, PendingTimeOffWidget, TermSwitchNudge } from "../../components/school-ui";
+import { AttendanceDayNotes } from "./AttendanceDayNotes";
 import { RoleTour } from "../../components/RoleTour";
 import { pickTourForUser } from "../../../utils/tours";
 
@@ -1259,6 +1260,9 @@ export function PerformanceDashboard() {
           </div>
         );
       })()}
+
+      {/* Attendance day note — org-wide "why was today unusual" strip. */}
+      <AttendanceDayNotes orgId={orgId} />
 
       {/* Alerts row */}
       {dashboard && (
