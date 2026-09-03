@@ -101,7 +101,7 @@ function PeriodSelector({
 }) {
   const { t } = useTranslation();
   return (
-    <div className="inline-flex items-center rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
+    <div className="inline-flex max-w-full items-center overflow-x-auto rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
       {PERIODS.map((p) => {
         const active = p.value === value;
         return (
@@ -320,11 +320,11 @@ function AttendanceBar({ pct, status }: { pct: number; status: LeaderboardRow["s
     status === "compliant" ? "bg-emerald-500" : status === "watch" ? "bg-amber-500" : "bg-rose-500";
   const clamped = Math.max(0, Math.min(100, pct));
   return (
-    <div className="flex items-center gap-2">
-      <div className="relative h-2 w-24 overflow-hidden rounded-full bg-slate-100">
-        <div className={"absolute inset-y-0 left-0 " + color} style={{ width: `${clamped}%` }} />
+    <div className="flex w-full items-center gap-2">
+      <div className="relative h-1.5 min-w-16 flex-1 overflow-hidden rounded-full bg-slate-100">
+        <div className={"absolute inset-y-0 left-0 rounded-full " + color} style={{ width: `${clamped}%` }} />
       </div>
-      <span className="text-xs tabular-nums text-slate-700">{pct.toFixed(1)}%</span>
+      <span className="w-11 text-right text-xs font-semibold tabular-nums text-slate-700">{pct.toFixed(1)}%</span>
     </div>
   );
 }
@@ -448,101 +448,50 @@ function Leaderboard({
             ))
           )}
         </ul>
-        <div className="hidden sm:block overflow-x-auto">
-          <table className="w-full min-w-[820px] text-sm">
-            <thead>
-              <tr className="border-y border-slate-100 bg-slate-50/60 text-xs uppercase tracking-wide text-slate-500">
-                <th className="px-4 py-2 text-left">#</th>
-                <th className="px-4 py-2 text-left">Class · Section</th>
-                <th className="px-4 py-2 text-right">Students</th>
-                <th className="px-4 py-2 text-left">Attendance</th>
-                <th className="px-4 py-2 text-right">Behavior</th>
-                <th className="px-4 py-2 text-left">Pos / Conc</th>
-                <th className="px-4 py-2 text-left">10-day</th>
-                <th className="px-4 py-2 text-left">Status</th>
-                <th className="px-4 py-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-sm text-slate-500">
-                    No sections match this filter.
-                  </td>
-                </tr>
-              ) : (
-                visible.map((row, idx) => (
-                  <tr
-                    key={row.sectionId}
-                    // Row click → SectionOverview, the hub page for ONE
-                    // section. It shows attendance %, behavior score,
-                    // last-10-day spark, recent behavior notes, and
-                    // quick links to attendance / behavior / hifz /
-                    // students. Lets admins triage without losing
-                    // dashboard context.
-                    onClick={() =>
-                      navigate(
-                        `/school/orgs/${orgId}/sections/${encodeURIComponent(row.sectionId)}`,
-                      )
-                    }
-                    className="group cursor-pointer border-b border-slate-50 transition-colors hover:bg-indigo-50/40"
-                  >
-                    <td className="px-4 py-3 text-xs text-slate-500 tabular-nums">{idx + 1}</td>
-                    <td className="px-4 py-3">
-                      <div className="font-medium text-slate-900">
-                        {row.className} · {row.sectionName}
-                      </div>
-                      <div className="text-xs text-slate-500">
-                        {row.classTeacherName || "Unassigned"}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums text-slate-700">
-                      {row.studentCount}
-                    </td>
-                    <td className="px-4 py-3">
-                      <AttendanceBar pct={row.attendancePct} status={row.status} />
-                    </td>
-                    <td
-                      className={
-                        "px-4 py-3 text-right tabular-nums font-medium " +
-                        (row.behaviorScore >= 0 ? "text-emerald-600" : "text-rose-600")
-                      }
-                    >
-                      {row.behaviorScore >= 0 ? "+" : ""}
-                      {row.behaviorScore}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-1">
-                        <span className="inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-[11px] font-medium text-emerald-700">
-                          +{row.positiveCount}
-                        </span>
-                        <span className="inline-flex items-center rounded-full bg-rose-50 px-1.5 py-0.5 text-[11px] font-medium text-rose-700">
-                          −{row.concernCount}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <Sparkline data={row.last10Days} />
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={
-                          "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium " +
-                          STATUS_PILL[row.status]
-                        }
-                      >
-                        {STATUS_LABEL[row.status]}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <ChevronRight className="h-4 w-4 text-slate-300 transition-transform group-hover:translate-x-0.5 group-hover:text-indigo-500" />
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        {/* Desktop: compact rows (design 2a) — the old 9-column table
+            can't fit the dashboard's 600px left column (wrapped names +
+            an inner horizontal scrollbar). Rank, section, teacher, bar,
+            %, status; the extra columns live on SectionOverview. */}
+        <ul className="hidden sm:block">
+          {filtered.length === 0 ? (
+            <li className="px-4 py-8 text-center text-sm text-slate-500">
+              No sections match this filter.
+            </li>
+          ) : (
+            visible.map((row, idx) => (
+              <li
+                key={row.sectionId}
+                onClick={() =>
+                  navigate(
+                    `/school/orgs/${orgId}/sections/${encodeURIComponent(row.sectionId)}`,
+                  )
+                }
+                title={`${row.studentCount} students · behavior ${row.behaviorScore >= 0 ? "+" : ""}${row.behaviorScore} · +${row.positiveCount}/−${row.concernCount} notes`}
+                className="group flex cursor-pointer items-center gap-3 border-b border-slate-50 px-4 py-2.5 text-xs transition-colors hover:bg-indigo-50/40"
+              >
+                <span className="w-5 flex-none text-slate-400 tabular-nums">{idx + 1}</span>
+                <span className="w-28 flex-none truncate whitespace-nowrap text-sm font-semibold text-slate-900">
+                  {row.className} · {row.sectionName}
+                </span>
+                <span className="w-28 flex-none truncate text-slate-400">
+                  {row.classTeacherName || "Unassigned"}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <AttendanceBar pct={row.attendancePct} status={row.status} />
+                </div>
+                <span
+                  className={
+                    "inline-flex flex-none items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold " +
+                    STATUS_PILL[row.status]
+                  }
+                >
+                  {STATUS_LABEL[row.status]}
+                </span>
+                <ChevronRight className="h-4 w-4 flex-none text-slate-300 transition-transform group-hover:translate-x-0.5 group-hover:text-indigo-500" />
+              </li>
+            ))
+          )}
+        </ul>
         {filtered.length > 8 && (
           <button
             type="button"
@@ -1414,7 +1363,10 @@ export function PerformanceDashboard() {
             </p>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        {/* flex-wrap + scrollable selector: with the campus chip present,
+            this row overflowed the screen on phones and Quarter/Year
+            became unreachable (principal screenshot, Sep 4). */}
+        <div className="flex max-w-full flex-wrap items-center gap-2">
           {myGroups.map((g) => (
             <Link
               key={g.id}
@@ -1940,8 +1892,11 @@ export function PerformanceDashboard() {
           {insights && (
             <DashSection title="Attendance & behavior">
       {/* Breakdown panels */}
+      {/* Stacked, not 3-across: these live in the dashboard's right
+          column now, where three side-by-side cards clipped the donut
+          legend to "Pres…/Abs…". */}
       {insights && (
-        <div className="grid gap-4 lg:grid-cols-3">
+        <div className="grid gap-4">
           <AttendanceDonut data={insights.attendanceDistribution} />
           <BehaviorBars
             title="Top Positive Behaviors"
