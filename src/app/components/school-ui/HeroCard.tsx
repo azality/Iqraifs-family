@@ -10,7 +10,7 @@ import { useOrgBranding, brandedHeroStyle } from "../../contexts/OrgBrandingCont
 
 export interface HeroCardProps {
   title: string;
-  subtitle?: string;
+  subtitle?: ReactNode;
   /** e.g. "Today · 14:32". Rendered in indigo-300 below the subtitle. */
   asOf?: string;
   /** Right-aligned slot for a health pill, period selector, etc. */
