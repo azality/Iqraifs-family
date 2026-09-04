@@ -1595,8 +1595,18 @@ export interface AdminParent {
   }>;
 }
 
+export interface StudentSibling {
+  id: string; fullName: string; grNumber: string | null;
+  status: string | null; sectionLabel: string | null;
+}
+export interface StudentQuickFacts {
+  attendancePct?: number; attendanceDays?: number; feeStatus?: string;
+}
 export interface StudentWithParents extends AdminStudent {
-  parents: Array<AdminParent & { is_primary: boolean }>;
+  parents: Array<AdminParent & { is_primary: boolean; hasPortal?: boolean }>;
+  /** v1.0.88 (design 3a/5b) — additive; empty on older backends. */
+  siblings: StudentSibling[];
+  quickFacts: StudentQuickFacts;
 }
 
 export const listStudents = async (
@@ -1622,9 +1632,11 @@ export const getStudent = async (
   // StudentDetail.
   const r = await apiCall<{
     student: AdminStudent;
-    parents: Array<AdminParent & { is_primary: boolean }>;
+    parents: Array<AdminParent & { is_primary: boolean; hasPortal?: boolean }>;
+    siblings?: StudentSibling[];
+    quickFacts?: StudentQuickFacts;
   }>(`/school/orgs/${orgId}/students/${studentId}`);
-  return { ...r.student, parents: r.parents ?? [] };
+  return { ...r.student, parents: r.parents ?? [], siblings: r.siblings ?? [], quickFacts: r.quickFacts ?? {} };
 };
 
 /** Optional inline parent block — when present, backend creates (or

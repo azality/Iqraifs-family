@@ -573,12 +573,22 @@ export function ManageParents() {
 
                 {/* Children */}
                 <div className="border-t border-slate-100 pt-3">
-                  <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">
-                    {family.children.length === 0
-                      ? "No linked children"
-                      : family.children.length === 1
-                        ? "Child"
-                        : `${family.children.length} children`}
+                  <div className="mb-1 flex items-baseline justify-between">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                      {family.children.length === 0
+                        ? "No linked children"
+                        : family.children.length === 1
+                          ? "Child"
+                          : `${family.children.length} children`}
+                    </span>
+                    {family.children.length > 0 && (
+                      <Link
+                        to={`/school/orgs/${orgId}/admin/students/${family.children[0].id}?tab=family`}
+                        className="rounded-md border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[10.5px] font-semibold text-indigo-700 hover:bg-indigo-100"
+                      >
+                        Family →
+                      </Link>
+                    )}
                   </div>
                   {family.children.length === 0 ? (
                     <div className="flex items-center justify-between gap-2">

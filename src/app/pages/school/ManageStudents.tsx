@@ -196,6 +196,41 @@ export function ManageStudents() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId, search]);
 
+  // Design 3a: "+ Admit a sibling (parents pre-filled)" arrives here as
+  // ?admitSibling=<studentId> — load that student's linked parents into
+  // the father/mother/guardian slots and open the admission form.
+  useEffect(() => {
+    const sibOf = searchParams.get("admitSibling");
+    if (!sibOf || !orgId) return;
+    getStudent(orgId, sibOf)
+      .then((st) => {
+        setEditing(null);
+        setForm({ ...emptyForm, classSectionId: st.class_section_id ?? "" });
+        resetGuardianForms();
+        const fill = (p: (typeof st.parents)[number], role: GuardianInput["parentRole"]): GuardianInput => ({
+          ...emptyGuardian(role),
+          fullName: p.full_name ?? "",
+          cellPhone: p.phone ?? "",
+          email: p.email ?? "",
+        });
+        const rest: Array<(typeof st.parents)[number]> = [];
+        for (const par of st.parents) {
+          const rel = (par.relationship ?? "").toLowerCase();
+          if (rel.includes("father") && !rel.includes("step")) setFather(fill(par, "father"));
+          else if (rel.includes("mother") && !rel.includes("step")) setMother(fill(par, "mother"));
+          else rest.push(par);
+        }
+        if (rest.length > 0) {
+          setOtherGuardian(fill(rest[0], "guardian"));
+          setOtherGuardianOpen(true);
+        }
+        setFormOpen(true);
+        toast.success(`Admission form pre-filled with ${st.full_name}'s parents.`);
+      })
+      .catch(() => toast.error("Could not load the sibling's family."));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgId]);
+
   const sectionOptions: SectionOption[] = useMemo(() => {
     const out: SectionOption[] = [];
     for (const c of classes) for (const s of c.sections || []) {

@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { ReadmitDialog } from "./components/ReadmitDialog";
-import { Link, Navigate, useNavigate, useParams } from "react-router";
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
@@ -47,6 +47,9 @@ import {
 } from "../../../utils/schoolApi";
 
 export function StudentDetail() {
+  // eslint-disable-next-line
+  const [searchParamsSD] = useSearchParams();
+  const initialTab = searchParamsSD.get("tab") || "overview";
   const { orgId = "", studentId = "" } = useParams();
   const [me, setMe] = useState<SchoolMeResponse | null>(null);
   const [meLoading, setMeLoading] = useState(true);
@@ -304,6 +307,29 @@ export function StudentDetail() {
             {student.gender && <span><span className="text-slate-500">Gender</span> {student.gender}</span>}
             {student.guardian_phone && <span><span className="text-slate-500">Phone</span> {student.guardian_phone}</span>}
             {student.guardian_email && <span><span className="text-slate-500">Email</span> {student.guardian_email}</span>}
+            {/* Quick facts (design 5b): the hero answers the first three
+                questions before any tab is opened. */}
+            {student.quickFacts?.attendancePct != null && (
+              <span title={`Attendance over the last ${student.quickFacts.attendanceDays} marked days`}>
+                <span className={student.quickFacts.attendancePct >= 75 ? "font-semibold text-emerald-300" : "font-semibold text-amber-300"}>
+                  {student.quickFacts.attendancePct}%
+                </span>{" "}
+                <span className="text-slate-500">attendance</span>
+              </span>
+            )}
+            {student.quickFacts?.feeStatus && (
+              <span>
+                <span className={student.quickFacts.feeStatus === "paid" ? "font-semibold capitalize text-emerald-300" : "font-semibold capitalize text-amber-300"}>
+                  {student.quickFacts.feeStatus}
+                </span>{" "}
+                <span className="text-slate-500">this month</span>
+              </span>
+            )}
+            {(student.parents?.length ?? 0) === 0 && student.status !== "withdrawn" && (
+              <span className="rounded-full bg-rose-400/20 px-2.5 py-0.5 font-medium text-rose-200 ring-1 ring-rose-300/40">
+                No parents linked
+              </span>
+            )}
             {behav30 && (behav30.pos > 0 || behav30.con > 0) && (
               <span title="Behavior notes in the last 30 days">
                 <span className="text-emerald-300">+{behav30.pos}</span>{" "}
@@ -345,26 +371,6 @@ export function StudentDetail() {
                   <FileText className="h-3.5 w-3.5 mr-1" /> Report card
                 </Button>
               </Link>
-              {student.status !== "withdrawn" && (
-                <>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 border-white/30 bg-white/5 text-white hover:bg-white/10 hover:text-white"
-                onClick={() => setPinOpen(true)}
-              >
-                <KeyRound className="h-3.5 w-3.5 mr-1" /> Set PIN
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 border-white/30 bg-white/5 text-white hover:bg-white/10 hover:text-white"
-                onClick={handleGenerateCode}
-              >
-                <Link2 className="h-3.5 w-3.5 mr-1" /> Link code
-              </Button>
-                </>
-              )}
               {student.status !== "withdrawn" && transferTargets.length > 0 && (
                 <Button
                   size="sm"
@@ -380,70 +386,77 @@ export function StudentDetail() {
         }
       />
 
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <div className={sectionTitleClasses}>Linked parents</div>
-          <Button size="sm" variant="outline" onClick={() => setLinkOpen(true)}>
-            <Plus className="h-3.5 w-3.5 mr-1" /> Link parent
-          </Button>
-        </div>
-        <Card>
-          <CardContent className="p-3 space-y-2">
-          {student.parents.length === 0 && <p className="text-sm text-muted-foreground">No parents linked yet.</p>}
-          {student.parents.map((p) => (
-            <div key={p.id} className="flex items-center gap-2 p-2 border border-slate-100 rounded-lg hover:bg-slate-50/60">
-              <div className="flex-1">
-                <p className="text-sm font-medium">{p.full_name} {p.is_primary && <Badge variant="secondary" className="ml-1 text-xs">Primary</Badge>}</p>
-                <p className="text-xs text-muted-foreground">
-                  {p.relationship && <>{p.relationship} · </>}
-                  {p.phone || p.email || "no contact"}
-                </p>
-              </div>
-              <Button variant="ghost" size="sm" onClick={() => handleUnlink(p.id)}>
-                <Trash2 className="h-3.5 w-3.5 text-rose-600" />
-              </Button>
-            </div>
-          ))}
-          </CardContent>
-        </Card>
-      </div>
-
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <div className={sectionTitleClasses}>PIN & link code</div>
-        </div>
-        <Card>
-          <CardContent className="p-3 flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" onClick={() => setPinOpen(true)}>
-              <KeyRound className="h-3.5 w-3.5 mr-1" /> Set PIN
-            </Button>
-            <Button size="sm" variant="outline" onClick={handleResetPin}>
-              Reset PIN (auto-generate)
-            </Button>
-            <Button size="sm" variant="outline" onClick={handleGenerateCode}>
-              <Link2 className="h-3.5 w-3.5 mr-1" /> Generate parent link code
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-
       {/* Academic / Hifz / Fees as deliberate, separate tracks.
           Spec explicitly asks: the two progress systems shouldn't be
           mixed into one generic 'grades' screen. Both stay accessible
           from the SAME student profile, but each gets its own surface
           and visual identity (amber for Academic, indigo for Hifz). */}
-      <Tabs defaultValue="academic" className="w-full">
-        <TabsList className="grid w-full grid-cols-3 max-w-md">
+      <Tabs defaultValue={initialTab} className="w-full">
+        <TabsList className="flex w-full max-w-2xl flex-wrap">
+          <TabsTrigger value="overview" className="gap-1.5">Overview</TabsTrigger>
           <TabsTrigger value="academic" className="gap-1.5">
             <Trophy className="h-3.5 w-3.5" /> Academic
           </TabsTrigger>
           <TabsTrigger value="hifz" className="gap-1.5">
             <BookMarked className="h-3.5 w-3.5" /> Hifz
           </TabsTrigger>
+          <TabsTrigger value="attendance" className="gap-1.5">Attendance</TabsTrigger>
           <TabsTrigger value="fees" className="gap-1.5">
             <Wallet className="h-3.5 w-3.5" /> Fees
           </TabsTrigger>
+          <TabsTrigger value="family" className="gap-1.5">
+            Family
+            {(student.parents?.length ?? 0) === 0 && (
+              <span className="ml-1 h-1.5 w-1.5 rounded-full bg-rose-500" title="No parents linked" />
+            )}
+          </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="overview" className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Recent grades</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <StudentGradesFeed orgId={orgId} studentId={studentId} />
+            </CardContent>
+          </Card>
+          <Card className={(student.parents?.length ?? 0) === 0 ? "border-rose-200" : undefined}>
+            <CardContent className="pt-4">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Family</span>
+                {(student.parents?.length ?? 0) === 0 && (
+                  <span className="text-[11.5px] font-bold text-rose-600">⚠ No parents linked</span>
+                )}
+              </div>
+              {(student.parents?.length ?? 0) === 0 ? (
+                <p className="mt-2 text-xs leading-relaxed text-slate-500">
+                  No portal access, no fee payer on record. Link a parent or set
+                  a portal PIN from the Family tab.
+                </p>
+              ) : (
+                <ul className="mt-2 space-y-1.5 text-sm">
+                  {student.parents.slice(0, 3).map((par) => (
+                    <li key={par.id} className="flex items-center justify-between gap-2">
+                      <span className="truncate text-slate-800">{par.full_name}</span>
+                      <span className={"rounded-full px-2 py-0.5 text-[10.5px] font-bold " + (par.hasPortal ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800")}>
+                        {par.hasPortal ? "Portal ✓" : "No portal"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <TabsList className="mt-3 w-full bg-transparent p-0">
+                <TabsTrigger
+                  value="family"
+                  className="w-full rounded-lg border border-indigo-200 bg-indigo-50 py-2 text-xs font-bold text-indigo-800 data-[state=active]:bg-indigo-50"
+                >
+                  Open Family tab →
+                </TabsTrigger>
+              </TabsList>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         <TabsContent value="academic" className="mt-4 space-y-4">
           <Card>
@@ -504,6 +517,33 @@ export function StudentDetail() {
           />
         </TabsContent>
 
+        <TabsContent value="attendance" className="mt-4 space-y-4">
+          <Card>
+            <CardContent className="pt-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="font-semibold text-slate-900">Attendance</div>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    {student.quickFacts?.attendancePct != null
+                      ? `${student.quickFacts.attendancePct}% present over the last ${student.quickFacts.attendanceDays} marked days.`
+                      : "No attendance marked yet."}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Link to={`/school/orgs/${orgId}/students/${studentId}/attendance`}>
+                    <Button size="sm" variant="outline">Full history →</Button>
+                  </Link>
+                  {student.class_section_id && (
+                    <Link to={`/school/orgs/${orgId}/sections/${student.class_section_id}/attendance`}>
+                      <Button size="sm" variant="outline">Class roll call →</Button>
+                    </Link>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         <TabsContent value="fees" className="mt-4 space-y-4">
           <Card>
             <CardContent className="pt-4">
@@ -529,6 +569,102 @@ export function StudentDetail() {
               <StudentFeeOverrides orgId={orgId} studentId={studentId} canManage={true} />
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="family" className="mt-4 space-y-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+              <CardTitle className="text-base">Parents</CardTitle>
+              <Button size="sm" variant="outline" onClick={() => setLinkOpen(true)}>
+                <Plus className="h-3.5 w-3.5 mr-1" /> Link parent
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-2 pt-0">
+              {student.parents.length === 0 && (
+                <p className="text-sm text-slate-500">
+                  No parents linked — no portal access and no fee payer on
+                  record. Link an existing parent or create one here.
+                </p>
+              )}
+              {student.parents.map((p) => (
+                <div key={p.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-100 p-2.5 hover:bg-slate-50/60">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium">
+                      {p.full_name}
+                      {p.is_primary && <Badge variant="secondary" className="ml-1 text-xs">Primary</Badge>}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {p.relationship && <>{p.relationship} · </>}
+                      {p.phone || p.email || "no contact"}
+                    </p>
+                  </div>
+                  <span className={"rounded-full px-2 py-0.5 text-[10.5px] font-bold " + (p.hasPortal ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800")}>
+                    {p.hasPortal ? "Portal ✓" : "No portal"}
+                  </span>
+                  <Button variant="ghost" size="sm" onClick={() => handleUnlink(p.id)} title="Unlink parent">
+                    <Trash2 className="h-3.5 w-3.5 text-rose-600" />
+                  </Button>
+                </div>
+              ))}
+              <p className="text-[11px] text-slate-400">
+                Parent portal PINs are set from People → Parents (each parent
+                logs in with their own phone + PIN).
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Children in this family</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 pt-0">
+              <div className="flex items-center gap-2 rounded-lg bg-indigo-50/50 p-2.5">
+                <span className="text-sm font-medium text-slate-900">{student.full_name}</span>
+                <span className="text-xs text-slate-500">GR# {student.gr_number} · this student</span>
+              </div>
+              {(student.siblings ?? []).map((sib) => (
+                <Link
+                  key={sib.id}
+                  to={`/school/orgs/${orgId}/admin/students/${sib.id}`}
+                  className="flex items-center gap-2 rounded-lg border border-slate-100 p-2.5 hover:bg-slate-50"
+                >
+                  <span className="flex-1 text-sm font-medium text-slate-900">{sib.fullName}</span>
+                  <span className="text-xs text-slate-500">
+                    {sib.grNumber ? `GR# ${sib.grNumber} · ` : ""}
+                    {sib.sectionLabel ?? (sib.status === "withdrawn" ? "left" : "no class")}
+                  </span>
+                  <span className="text-xs font-semibold text-indigo-600">Open →</span>
+                </Link>
+              ))}
+              {student.status !== "withdrawn" && (
+                <Link
+                  to={`/school/orgs/${orgId}/admin/students?admitSibling=${studentId}`}
+                  className="block w-full rounded-lg border border-dashed border-slate-300 bg-white px-3 py-2 text-center text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  + Admit a sibling (parents pre-filled)
+                </Link>
+              )}
+            </CardContent>
+          </Card>
+
+          {student.status !== "withdrawn" && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Student login</CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-wrap gap-2 pt-0">
+                <Button size="sm" variant="outline" onClick={() => setPinOpen(true)}>
+                  <KeyRound className="h-3.5 w-3.5 mr-1" /> Set student PIN
+                </Button>
+                <Button size="sm" variant="outline" onClick={handleResetPin}>
+                  Reset PIN (auto-generate)
+                </Button>
+                <Button size="sm" variant="outline" onClick={handleGenerateCode}>
+                  <Link2 className="h-3.5 w-3.5 mr-1" /> Generate parent link code
+                </Button>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
       </Tabs>
 
