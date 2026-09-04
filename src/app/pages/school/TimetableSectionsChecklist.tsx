@@ -51,7 +51,7 @@ function ProgressRow({ to, primary, secondary, filled, total }: RowProps) {
                style={{ width: `${pct}%`, background: done ? "#059669" : "#4F46E5" }} />
         </div>
         <span className="text-[11px] font-medium tabular-nums text-slate-600 w-14 text-right">
-          {filled}/{total}
+          {filled} of {total} weekly periods
         </span>
       </div>
       <span className={
