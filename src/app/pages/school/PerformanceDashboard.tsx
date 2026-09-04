@@ -64,6 +64,7 @@ import {
   getRosterRequests,
   getInboxUnreadCount,
   listForms,
+  digestWeekStart,
   type DashboardAlert,
   type DashboardPeriod,
   type DashboardResponse,
@@ -1056,6 +1057,20 @@ export function PerformanceDashboard() {
     if (!orgId) return;
     const rows: Record<string, DashboardAlert> = {};
     const apply = () => setPendingOps(Object.values(rows));
+    // Weekly digest nudge — shown until this week's edition is opened
+    // (the digest page writes the same week id as its seen-marker).
+    try {
+      const weekId = digestWeekStart();
+      if (localStorage.getItem("fgs_digest_seen") !== weekId) {
+        rows.digest = {
+          id: "weekly_digest_ready", severity: "info", kind: "pending",
+          title: "Your weekly digest is ready",
+          body: `week of ${new Date(`${weekId}T00:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })} — wins, concerns, and every teacher week-vs-week`,
+          actionLabel: "Read it", actionPath: `/school/orgs/${orgId}/admin/weekly-digest`,
+        };
+        apply();
+      }
+    } catch { /* storage unavailable — skip the nudge */ }
     getRosterRequests(orgId, { status: "pending" })
       .then((r) => {
         if (r.requests.length > 0) {

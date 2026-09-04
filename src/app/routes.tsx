@@ -51,6 +51,7 @@ import { HifzProgress } from "./pages/school/HifzProgress";
 // side via getSchoolMe() — pages render <Navigate to="/school" /> if
 // the caller has no principal/admin role on the org.
 import { AdminDashboard } from "./pages/school/AdminDashboard";
+import { WeeklyDigest } from "./pages/school/WeeklyDigest";
 import { ManageClasses } from "./pages/school/ManageClasses";
 import { YearRollover } from "./pages/school/YearRollover";
 import { TeacherCalendar } from "./pages/school/TeacherCalendar";
@@ -541,6 +542,7 @@ export const router = createBrowserRouter([
               { path: "behavior-catalog", element: <BehaviorCatalog /> },
               // Phase A admin
               { path: "admin", element: <AdminDashboard /> },
+              { path: "admin/weekly-digest", element: <WeeklyDigest /> },
               { path: "admin/year-rollover", element: <YearRollover /> },
               { path: "admin/public-site", element: <ManagePublicSite /> },
               { path: "my-schedule", element: <TeacherCalendar /> },
