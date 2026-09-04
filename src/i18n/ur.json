@@ -114,7 +114,13 @@
       "reportCard": "رپورٹ کارڈ",
       "teacherComments": "تبصرے",
       "contactSchool": "اسکول سے رابطہ",
-      "homework": "ہوم ورک"
+      "homework": "ہوم ورک",
+      "today": "آج",
+      "learning": "تعلیم",
+      "more": "مزید",
+      "messageSchool": "اسکول کو پیغام",
+      "pickStudent": "طالبعلم منتخب کریں",
+      "notesThisWeek": "اس ہفتے {{count}}"
     },
     "tiles": {
       "attendance": "حاضری",
