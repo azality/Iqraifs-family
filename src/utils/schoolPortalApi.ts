@@ -527,9 +527,28 @@ export interface TodaySnapshot {
   };
   today: string;
   attendanceToday: { status: "present" | "late" | "absent" | "excused"; takenAt: string | null } | null;
-  homeworkPending: { count: number; soonestDueDate: string | null };
+  homeworkPending: {
+    count: number;
+    soonestDueDate: string | null;
+    /** Additive (10a): name the piece of work, not just a count. */
+    soonestTitle?: string | null;
+    soonestSubject?: string | null;
+  };
   feesDueNow: { amount: number; periodLabel: string; dueDate: string | null } | null;
   hifzRevisionNeeded: { lastEntryDate: string; daysSince: number } | null;
+  /** Additive (10a/10g): the parent's actionable hifz line. */
+  latestHifz?: {
+    recordedAt: string;
+    kind: string;
+    surahNumber: number;
+    ayahFrom: number;
+    ayahTo: number;
+    quality: string | null;
+    missed: boolean;
+    parentAction: string | null;
+    nextTarget: string | null;
+    teacherRemarks: string | null;
+  } | null;
   latestTeacherNote: { kind: "positive" | "concern"; summary: string; observedAt: string } | null;
   publishedReportCardTermName: string | null;
 }

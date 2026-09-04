@@ -9,7 +9,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "react-router";
 import { Award, BookOpen, ClipboardList, Bell } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { DataTable, HeroCard, TimeOffModal } from "../../components/school-ui";
+import { HeroCard, TimeOffModal } from "../../components/school-ui";
 import { UpNextCard } from "../../components/school-ui/UpNextCard";
 import {
   getStudentDashboard,
@@ -22,7 +22,6 @@ import {
   type TodaySnapshot,
   type MyStudentDiaryResponse,
 } from "../../../utils/schoolPortalApi";
-import { TodayStatusPills } from "./TodayStatusPills";
 
 // Friendly Surah name lookup for the Hifz line. Compact list; falls
 // back to "Surah N" for entries outside it.
@@ -242,22 +241,69 @@ export function StudentDashboard() {
   const sectionSubtitle = [snapshot.student.sectionName, snapshot.student.className]
     .filter(Boolean).join(" · ");
 
+  // ── 10b: three status chips + a human "This week" digest. ────────────
+  const att = snapshot.attendanceToday;
+  const fmtTime = (iso: string | null) => {
+    if (!iso) return "";
+    try { return new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }); } catch { return ""; }
+  };
+  const chips: Array<{ label: string; value: string; cls: string }> = [
+    att === null
+      ? { label: t("portal.nav.attendance"), value: t("portal.home.rollNotTaken"), cls: "border-slate-200 bg-white text-slate-600" }
+      : att.status === "present"
+      ? { label: t("portal.nav.attendance"), value: `${t("portal.home.present")} ${fmtTime(att.takenAt)}`.trim(), cls: "border-emerald-200 bg-emerald-50 text-emerald-800" }
+      : att.status === "late"
+      ? { label: t("portal.nav.attendance"), value: `${t("portal.home.late")} ${fmtTime(att.takenAt)}`.trim(), cls: "border-amber-200 bg-amber-50 text-amber-800" }
+      : att.status === "excused"
+      ? { label: t("portal.nav.attendance"), value: t("portal.home.excused"), cls: "border-sky-200 bg-sky-50 text-sky-800" }
+      : { label: t("portal.nav.attendance"), value: t("portal.home.absent"), cls: "border-rose-200 bg-rose-50 text-rose-800" },
+    snapshot.homeworkPending.count > 0
+      ? { label: t("portal.nav.homework"), value: t("portal.child.dueCount", { count: snapshot.homeworkPending.count }), cls: "border-amber-200 bg-amber-50 text-amber-800" }
+      : { label: t("portal.nav.homework"), value: t("portal.child.allIn"), cls: "border-slate-200 bg-white text-slate-600" },
+    snapshot.feesDueNow
+      ? { label: t("portal.nav.fees"), value: t("portal.child.feeDueShort", { amount: snapshot.feesDueNow.amount.toLocaleString() }), cls: "border-rose-200 bg-rose-50 text-rose-800" }
+      : { label: t("portal.nav.fees"), value: t("portal.child.upToDate"), cls: "border-slate-200 bg-white text-slate-600" },
+  ];
+
+  // Human week digest: attendance rows collapse to ONE line; everything
+  // else keeps a weekday prefix. Replaces the 11-identical-row table.
+  const digest: Array<{ day: string; text: string }> = [];
+  if (data) {
+    const rows = data.recentActivity ?? [];
+    const attRows = rows.filter((r) => r.kind === "attendance");
+    const others = rows.filter((r) => r.kind !== "attendance").slice(0, 5);
+    for (const r of others) {
+      const d = new Date(r.at);
+      digest.push({
+        day: Number.isFinite(d.getTime()) ? d.toLocaleDateString(undefined, { weekday: "short" }) : "",
+        text: `${KIND_LABEL[r.kind] ?? r.kind}: ${r.summary}`,
+      });
+    }
+    if (attRows.length > 0) {
+      const lates = attRows.filter((r) => /late/i.test(r.summary)).length;
+      const absents = attRows.filter((r) => /absent/i.test(r.summary)).length;
+      const text =
+        lates === 0 && absents === 0
+          ? t("portal.child.attAllPresent", { count: attRows.length })
+          : t("portal.child.attSummary", { count: attRows.length, late: lates, absent: absents });
+      digest.push({ day: "", text });
+    }
+  }
+
   return (
-    <div className="space-y-5 pb-12">
+    <div className="space-y-4 pb-12">
       <HeroCard
         title={snapshot.student.fullName}
         subtitle={sectionSubtitle || `GR # ${snapshot.student.grNumber}`}
-        asOf={`As of ${new Date().toLocaleDateString()}`}
+        rightSlot={
+          <button
+            onClick={() => setShowTimeOff(true)}
+            className="rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/20"
+          >
+            {t("portal.child.reportAbsence")}
+          </button>
+        }
       />
-
-      <div className="flex justify-end">
-        <button
-          onClick={() => setShowTimeOff(true)}
-          className="inline-flex items-center gap-1.5 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
-        >
-          Report absence / vacation
-        </button>
-      </div>
       {showTimeOff && (
         <TimeOffModal
           audience="student"
@@ -266,21 +312,17 @@ export function StudentDashboard() {
         />
       )}
 
-      {/* Today's plain-language status cards. */}
-      <section>
-        <h2 className="text-xs font-bold uppercase tracking-widest text-slate-500 mb-2">
-          Today
-        </h2>
-        <TodayStatusPills
-          studentId={studentId}
-          snapshot={snapshot}
-          variant="expanded"
-        />
-      </section>
+      {/* 10b status chips: attendance / homework / fees at a glance. */}
+      <div className="grid grid-cols-3 gap-2">
+        {chips.map((c) => (
+          <div key={c.label} className={`rounded-xl border px-3 py-2 ${c.cls}`}>
+            <div className="text-[10px] font-extrabold uppercase tracking-wide opacity-70">{c.label}</div>
+            <div className="truncate text-[12.5px] font-bold">{c.value}</div>
+          </div>
+        ))}
+      </div>
 
-      {/* Up next — smart per-period preview with the topic + resources
-          available so students can prepare ahead. Same component the
-          teacher dashboard uses, just in "student" mode. */}
+      {/* Rest of today — per-period preview with topic + resources. */}
       {upcoming !== null && (
         <UpNextCard items={upcoming} audience="student" studentId={studentId} />
       )}
@@ -288,38 +330,24 @@ export function StudentDashboard() {
       {/* Today's Diary — narrative for today (what we did, what to do tonight). */}
       {diary && <DiaryCard diary={diary} />}
 
-      {/* Recent activity timeline — still useful for "what happened last week". */}
+      {/* This week — the human digest that replaced the activity table. */}
       {data && (
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm">
-          <div className="px-5 py-3 border-b border-slate-100">
-            <h3 className="text-sm font-bold uppercase tracking-widest text-slate-500">
-              Recent activity
-            </h3>
-          </div>
-          <DataTable<DashboardActivityItem>
-            rows={data.recentActivity}
-            rowKey={(r) => r.id}
-            emptyMessage="No recent activity."
-            columns={[
-              {
-                key: "at",
-                header: "When",
-                width: "w-32",
-                cell: (r) => <span className="text-slate-500">{relativeTime(r.at)}</span>,
-              },
-              {
-                key: "kind",
-                header: "Kind",
-                width: "w-32",
-                cell: (r) => (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-indigo-50 text-indigo-700">
-                    {KIND_LABEL[r.kind] ?? r.kind.replace(/_/g, " ")}
-                  </span>
-                ),
-              },
-              { key: "summary", header: "What happened", cell: (r) => r.summary },
-            ]}
-          />
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <h3 className="text-[11px] font-extrabold uppercase tracking-widest text-slate-400">
+            {t("portal.child.thisWeek")}
+          </h3>
+          {digest.length === 0 ? (
+            <p className="mt-2 text-sm text-slate-500">{t("portal.child.quietWeek")}</p>
+          ) : (
+            <div className="mt-2 flex flex-col gap-1.5 text-[12.5px] text-slate-700">
+              {digest.map((l, i) => (
+                <div key={i} className="flex gap-2">
+                  <span className="w-12 flex-none text-slate-400">{l.day}</span>
+                  <span className="min-w-0 flex-1">{l.text}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
