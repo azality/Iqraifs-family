@@ -14,14 +14,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
-import {
-  Activity,
-  ClipboardCheck,
-  Heart,
-  TrendingDown,
-  TrendingUp,
-  Users,
-} from "lucide-react";
+import { ClipboardCheck } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { HeroCard, NoAccessRedirect } from "../../components/school-ui";
 import {
@@ -38,7 +31,6 @@ import {
   viewerRoleForOrg,
   type Assignment,
   type BehaviorNote,
-  type DashboardPeriod,
   type Lesson,
   type LeaderboardRow,
   type SchoolMeResponse,
@@ -49,12 +41,6 @@ import {
 import { toast } from "sonner";
 import { SectionSubjectsManager } from "./components/SectionSubjectsManager";
 import { useOrgPermission } from "./useOrgPermission";
-
-const PERIODS: ReadonlyArray<{ value: DashboardPeriod; label: string }> = [
-  { value: "T", label: "Today" },
-  { value: "WTD", label: "Week" },
-  { value: "MTD", label: "Month" },
-];
 
 function todayIsoLocal(): string {
   const d = new Date();
@@ -72,38 +58,10 @@ function relativeDate(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
-// Tiny inline sparkline using SVG paths. No recharts dep needed.
-function Sparkline({ values, color = "#0f766e" }: { values: number[]; color?: string }) {
-  if (values.length === 0) return <div className="h-8 w-full" />;
-  const max = Math.max(100, ...values);
-  const min = 0;
-  const w = 120;
-  const h = 28;
-  const step = w / Math.max(1, values.length - 1);
-  const points = values
-    .map((v, i) => {
-      const x = i * step;
-      const y = h - ((v - min) / (max - min || 1)) * h;
-      return `${x},${y}`;
-    })
-    .join(" ");
-  return (
-    <svg width={w} height={h} className="overflow-visible">
-      <polyline fill="none" stroke={color} strokeWidth="1.5" points={points} />
-      {values.map((v, i) => {
-        const x = i * step;
-        const y = h - ((v - min) / (max - min || 1)) * h;
-        return <circle key={i} cx={x} cy={y} r="1.5" fill={color} />;
-      })}
-    </svg>
-  );
-}
-
 export function SectionOverview() {
   const { orgId = "", sectionId = "" } = useParams();
   const [me, setMe] = useState<SchoolMeResponse | null>(null);
   const [meLoading, setMeLoading] = useState(true);
-  const [period, setPeriod] = useState<DashboardPeriod>("MTD");
   const [row, setRow] = useState<LeaderboardRow | null>(null);
   // Per-child Quran model (Classes II-VIII): the Quran/Nazra SUBJECT
   // teacher logs each student's daily portion through the Hifz view.
@@ -149,7 +107,9 @@ export function SectionOverview() {
     if (!orgId || !sectionId) return;
     setLoading(true);
     Promise.all([
-      getSectionsLeaderboard(orgId, period),
+      // Month-to-date, fixed — the hero's stat trio reads "attendance ·
+      // month" (design 8a dropped the period toggle from this page).
+      getSectionsLeaderboard(orgId, "MTD"),
       getSectionBehaviorNotes(orgId, sectionId),
     ])
       .then(([lb, bh]) => {
@@ -160,7 +120,7 @@ export function SectionOverview() {
         setNotes(bh.notes.slice(0, 10));
       })
       .finally(() => setLoading(false));
-  }, [orgId, sectionId, period]);
+  }, [orgId, sectionId]);
 
   // Today panel data — each piece independent and best-effort.
   useEffect(() => {
@@ -282,13 +242,6 @@ export function SectionOverview() {
     );
   }
 
-  const status = row.status; // compliant | watch | flagged | no_data
-  const statusColor =
-    status === "compliant" ? "text-emerald-600"
-    : status === "watch"   ? "text-amber-600"
-    : status === "no_data" ? "text-slate-400"
-    : "text-rose-600";
-
   const isHifzClass = row.classKind === "hifz" || row.scheduleKey === "hifz";
   // Attendance + Hifz are the section's own class/Hifz teacher's (or
   // admin's) tools — a subject teacher works through lessons / gradebook.
@@ -320,6 +273,14 @@ export function SectionOverview() {
   const attendanceMissing = todayAtt !== null && !attTaken;
   const todayLabel = new Date().toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
 
+  // Hero stat trio (8a): attendance · month, curriculum % across the
+  // section's subjects, open concerns. Hifz classes have no syllabus —
+  // the middle stat falls back to the student count.
+  const withCurriculum = subjects.filter((s) => s.curriculum && s.curriculum.topicTotal > 0);
+  const curriculumPct = withCurriculum.length > 0
+    ? Math.round(withCurriculum.reduce((sum, s) => sum + s.curriculum!.progressPct, 0) / withCurriculum.length)
+    : null;
+
   const goTo: Array<{ label: string; to: string } | null> = [
     canRollCall ? { label: "Attendance", to: `/school/orgs/${orgId}/sections/${sectionId}/attendance` } : null,
     (canRollCall || teachesQuranHere)
@@ -337,89 +298,62 @@ export function SectionOverview() {
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <Link
+          to={`/school/orgs/${orgId}`}
+          className="inline-flex items-center gap-1 text-sm text-indigo-700 hover:underline"
+        >
+          ← Back to dashboard
+        </Link>
+      </div>
+
+      {/* Hero (8a): compact header — name + teacher line, stat trio
+          (attendance · month / curriculum / concerns), and the primary
+          Take attendance. The old four-tile KPI grid + sparkline +
+          period toggle moved out; the leaderboard keeps the deep
+          analytics. */}
       <HeroCard
         eyebrow="Section"
         title={`${row.className} · ${row.sectionName}`}
-        subtitle={row.classTeacherName ? `Class teacher: ${row.classTeacherName} · ${row.studentCount} students` : "No class teacher assigned"}
+        subtitle={row.classTeacherName ? `Class teacher: ${row.classTeacherName} · ${row.studentCount} students` : `No class teacher assigned · ${row.studentCount} students`}
         rightSlot={
-          <div className="flex items-center gap-2 flex-wrap justify-end">
-            <Link to={`/school/orgs/${orgId}`}>
-              <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">
-                ← Dashboard
+          canRollCall ? (
+            <Link to={`/school/orgs/${orgId}/sections/${sectionId}/attendance`}>
+              <Button size="sm" className="h-8 bg-indigo-500 text-white hover:bg-indigo-400">
+                <ClipboardCheck className="mr-1 h-3.5 w-3.5" /> Take attendance
               </Button>
             </Link>
-            <div className="inline-flex items-center rounded-lg border border-white/20 bg-white/10 p-1">
-              {PERIODS.map((p) => {
-                const active = p.value === period;
-                return (
-                  <button
-                    key={p.value}
-                    type="button"
-                    onClick={() => setPeriod(p.value)}
-                    className={
-                      "rounded-md px-2 py-0.5 text-xs font-medium transition-colors " +
-                      (active ? "bg-white text-slate-900" : "text-white/80 hover:bg-white/10")
-                    }
-                  >
-                    {p.label}
-                  </button>
-                );
-              })}
-            </div>
-            {canRollCall && (
-              <Link to={`/school/orgs/${orgId}/sections/${sectionId}/attendance`}>
-                <Button size="sm" className="h-7 bg-indigo-500 text-white hover:bg-indigo-400">
-                  <ClipboardCheck className="mr-1 h-3.5 w-3.5" /> Take attendance
-                </Button>
-              </Link>
-            )}
-          </div>
+          ) : undefined
         }
       >
-        {/* KPI tiles inline within the hero */}
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="rounded-lg border border-white/10 bg-white/5 p-3">
-            <div className="flex items-center gap-2 text-[10px] uppercase tracking-wider text-slate-300">
-              <Users className="h-3 w-3" /> Students
+        <div className="flex flex-wrap gap-x-8 gap-y-3">
+          <div>
+            <div className="text-lg font-extrabold tabular-nums text-white">
+              {row.attendancePct.toFixed(1)}%
             </div>
-            <div className="mt-1 text-2xl font-semibold text-white">{row.studentCount}</div>
+            <div className="text-[11px] text-slate-400">attendance · month</div>
           </div>
-          <div className="rounded-lg border border-white/10 bg-white/5 p-3">
-            <div className="flex items-center gap-2 text-[10px] uppercase tracking-wider text-slate-300">
-              <ClipboardCheck className="h-3 w-3" /> Attendance
+          {curriculumPct != null ? (
+            <div>
+              <div className="text-lg font-extrabold tabular-nums text-white">{curriculumPct}%</div>
+              <div className="text-[11px] text-slate-400">
+                curriculum · {subjects.length} subject{subjects.length === 1 ? "" : "s"}
+              </div>
             </div>
-            <div className="mt-1 flex items-baseline gap-2">
-              <span className="text-2xl font-semibold text-white">{row.attendancePct.toFixed(1)}%</span>
-              {/* attendanceDelta is NULL when there's no prior-period
-                  data (fresh org) — null.toFixed crashed this page for
-                  every section on day one of the pilot. */}
-              {typeof row.attendanceDelta === "number" && row.attendanceDelta !== 0 && (
-                <span className={"inline-flex items-center gap-0.5 text-[10px] font-medium " + (row.attendanceDelta > 0 ? "text-emerald-300" : "text-rose-300")}>
-                  {row.attendanceDelta > 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                  {row.attendanceDelta > 0 ? "+" : ""}{row.attendanceDelta.toFixed(1)}pp
-                </span>
-              )}
+          ) : (
+            <div>
+              <div className="text-lg font-extrabold tabular-nums text-white">{row.studentCount}</div>
+              <div className="text-[11px] text-slate-400">students</div>
             </div>
-          </div>
-          <div className="rounded-lg border border-white/10 bg-white/5 p-3">
-            <div className="flex items-center gap-2 text-[10px] uppercase tracking-wider text-slate-300">
-              <Heart className="h-3 w-3" /> Behavior
+          )}
+          <div>
+            <div className={
+              "text-lg font-extrabold tabular-nums " +
+              (row.concernCount > 0 ? "text-amber-300" : "text-emerald-300")
+            }>
+              {row.concernCount}
             </div>
-            <div className="mt-1 text-2xl font-semibold text-white">
-              {row.behaviorScore > 0 ? "+" : ""}{row.behaviorScore}
-            </div>
-            <div className="mt-0.5 text-[10px] text-slate-400">
-              {row.positiveCount} positive · {row.concernCount} concerns
-            </div>
-          </div>
-          <div className="rounded-lg border border-white/10 bg-white/5 p-3">
-            <div className="mb-1 flex items-center gap-2 text-[10px] uppercase tracking-wider text-slate-300">
-              <Activity className="h-3 w-3" /> Last 10 schooldays
-            </div>
-            <Sparkline values={row.last10Days} color={status === "flagged" ? "#fb7185" : status === "watch" ? "#fbbf24" : status === "no_data" ? "#94a3b8" : "#34d399"} />
-            <div className={"mt-1 text-[10px] font-medium uppercase tracking-wide " + statusColor}>
-              {status === "no_data" ? "no data" : status}
-            </div>
+            <div className="text-[11px] text-slate-400">concerns · month</div>
           </div>
         </div>
       </HeroCard>
