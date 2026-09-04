@@ -1243,7 +1243,26 @@ export function installPhaseA(school: Hono) {
     }
     const { data, error } = await q.order("full_name").limit(500);
     if (error) return c.json({ error: error.message }, 500);
-    return c.json({ students: data ?? [] });
+    // linked_parent_count (design 1a follow-up): "no parent linked" is a
+    // different, harder fact than the admission form's guardians-pending
+    // flag — a student can have a phone typed on the card yet no parent
+    // record (so no portal access, no fee payer). One batched query.
+    const rows = (data ?? []) as any[];
+    try {
+      const ids = rows.map((s) => s.id);
+      if (ids.length > 0) {
+        const { data: links } = await serviceRoleClient
+          .from("student_parent").select("student_id").in("student_id", ids);
+        const counts: Record<string, number> = {};
+        for (const l of (links ?? []) as any[]) {
+          counts[l.student_id] = (counts[l.student_id] ?? 0) + 1;
+        }
+        for (const s of rows) s.linked_parent_count = counts[s.id] ?? 0;
+      }
+    } catch {
+      // additive enrichment — never break the roster over it
+    }
+    return c.json({ students: rows });
   });
 
   school.get("/orgs/:orgId/students/:studentId", async (c) => {
