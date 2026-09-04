@@ -47,6 +47,20 @@ const SENIOR: Record<string, Array<string | null>> = {
   "Class X":    ["Sindhi", "Maths", "Pak.studies", "English", "Physics", "Chemistry", "Computer/Biology", null],
 };
 
+// Sheet 3 — Class Senior. Its own document: NO Saturday papers, and
+// several papers are combined ("Norani Qaidah/ Islamiyat"), so dates
+// are listed explicitly rather than positionally.
+const SENIOR_CLASS: Record<string, Array<[string, string]>> = {
+  "Senior": [
+    ["2026-09-11", "Maths writing"],
+    ["2026-09-14", "Urdu writing"],
+    ["2026-09-15", "Ufaq Zakhera / General Knowledge"],
+    ["2026-09-16", "English writing"],
+    ["2026-09-17", "1000 Picture Book / Radiant Way"],
+    ["2026-09-18", "Norani Qaidah / Islamiyat"],
+  ],
+};
+
 // Sandbox (the DEMO family's class) gets a matching demo datesheet so
 // the parent portal demo shows the feature end-to-end. Sandbox is
 // excluded from every real rollup, so this never touches school data.
@@ -128,6 +142,22 @@ for (const sheet of [JUNIOR, SENIOR, SANDBOX]) {
   }
 }
 
+// Explicit-date sheets (Senior).
+for (const [className, papers] of Object.entries(SENIOR_CLASS)) {
+  const cid = classId.get(className);
+  if (!cid) { console.error(`class not found: ${className}`); continue; }
+  const subjects = subjectsByClass.get(cid) ?? [];
+  for (const [date, label] of papers) {
+    const csId = matchSubject(label, subjects);
+    if (csId) linked++; else unlinked.push(`${className}/${label}`);
+    rows.push({
+      org_id: ORG, term_id: term.id, class_id: cid, class_subject_id: csId,
+      subject_label: label, exam_date: date,
+      start_time: startTime(), end_time: endTime(date), notes: null,
+    });
+  }
+}
+
 const { error } = await sb.from("exam_schedule")
   .upsert(rows, { onConflict: "class_id,exam_date,subject_label" });
 if (error) { console.error("upsert:", error.message); Deno.exit(1); }
@@ -136,6 +166,9 @@ const { error: tErr } = await sb.from("academic_term")
   .update({ exam_instructions: INSTRUCTIONS }).eq("id", term.id);
 if (tErr) console.error("instructions:", tErr.message);
 
-console.log(`datesheet: ${rows.length} papers across ${Object.keys(JUNIOR).length + Object.keys(SENIOR).length + Object.keys(SANDBOX).length} classes (incl. Sandbox demo)`);
-console.log(`subject links: ${linked} linked, ${unlinked.length} label-only (${[...new Set(unlinked.map((u) => u.split("/")[1]))].join(", ")})`);
+const classCount = Object.keys(JUNIOR).length + Object.keys(SENIOR).length
+  + Object.keys(SENIOR_CLASS).length + Object.keys(SANDBOX).length;
+console.log(`datesheet: ${rows.length} papers across ${classCount} classes (incl. Sandbox demo)`);
+console.log(`subject links: ${linked} linked, ${unlinked.length} label-only`);
+for (const u of unlinked) console.log(`  label-only: ${u}`);
 console.log(`instructions: ${INSTRUCTIONS.length} lines on "${term.name}"`);
