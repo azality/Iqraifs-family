@@ -3,14 +3,17 @@
 // Sets `<html dir>` based on language so Urdu renders right-to-left.
 //
 // TRANSLATION SCOPE (pilot decision, July 2026; amended Sep 2026): the
-// STAFF UI (src/app/pages/school/*) ships English-only for the pilot —
-// with ONE exception: the hifz teaching flow (`hifzTeach.*` keys —
-// dashboard banner, roster, log dialog) plus the teacher toolbar and
-// Logout button (`toolbar.*` keys), translated Sep 2026 because
-// hifz teachers are the staff most comfortable in Urdu (Muneeb, after
-// a hifz teacher switched to اردو and hit an English wall). Everything
-// PARENT- or STUDENT-facing (src/app/pages/portal/*) must go through
-// t() with en + ur entries. Full staff translation stays post-pilot.
+// product is mobile-first and URDU-FIRST. Everything PARENT- or
+// STUDENT-facing (src/app/pages/portal/*) must go through t() with
+// en + ur entries. On the STAFF side the whole HIFZ surface is
+// translated (`hifzTeach.*`, `hifzRound.*`, `hifzProg.*` — dashboard
+// banner, roster, log dialog, Round Mode, Hifz Program page) plus the
+// teacher toolbar (`toolbar.*`), because hifz teachers are the staff
+// most comfortable in Urdu (Muneeb, after a hifz teacher switched to
+// اردو and hit an English wall; re-affirmed Sep 2026: "urdu first —
+// everything needs to work in urdu"). Remaining staff/admin pages are
+// still English-only; translate any staff surface you touch that a
+// teacher (not just office/admin) uses daily.
 
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
