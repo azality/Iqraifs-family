@@ -23,6 +23,7 @@ import {
   type SectionHifzSummaryRow,
 } from "../../../utils/schoolApi";
 import { HifzLogEntry } from "./HifzLogEntry";
+import { HifzRoundMode } from "./HifzRoundMode";
 import { HifzProgressFeed } from "./HifzProgressFeed";
 import {
   Dialog,
@@ -65,6 +66,11 @@ export function SectionHifzOverview() {
   // Hifz classes log only sabaq/sabqi/manzil; academic Quran/Nazra
   // tracks keep the full kind list.
   const [isHifzSection, setIsHifzSection] = useState(false);
+  // "Hifz I — A", shown in the Round Mode header.
+  const [sectionLabel, setSectionLabel] = useState("");
+  // Round Mode (design 6a/6b): the focused screen replaces the table
+  // while a round is running. The modal stays for one-off Log buttons.
+  const [roundActive, setRoundActive] = useState(false);
   useEffect(() => {
     if (!orgId || !sectionId) return;
     listClasses(orgId)
@@ -73,6 +79,7 @@ export function SectionHifzOverview() {
           for (const s of c.sections ?? []) {
             if (s.id === sectionId) {
               setIsHifzSection(c.kind === "hifz" || (s as any).schedule_key === "hifz");
+              setSectionLabel(`${c.name} — ${s.name}`);
               return;
             }
           }
@@ -119,8 +126,7 @@ export function SectionHifzOverview() {
     if (roundConsumed || searchParams.get("round") !== "1") return;
     if (loading || sorted.length === 0) return;
     setRoundConsumed(true);
-    setLogRoster(sorted);
-    setLogTarget(sorted[0]);
+    setRoundActive(true);
     const next = new URLSearchParams(searchParams);
     next.delete("round");
     setSearchParams(next, { replace: true });
@@ -129,6 +135,21 @@ export function SectionHifzOverview() {
 
   if (meLoading) return null;
   if (!me) return <Navigate to="/school" replace />;
+
+  // Round Mode takes over the page while running. Don't gate on `loading`
+  // — saves refresh the summary in the background and the round keeps its
+  // own queue.
+  if (roundActive && sorted.length > 0) {
+    return (
+      <HifzRoundMode
+        orgId={orgId}
+        sectionLabel={sectionLabel || t("hifzTeach.progressTitle")}
+        roster={sorted}
+        onExit={() => setRoundActive(false)}
+        onSaved={() => setReloadKey((k) => k + 1)}
+      />
+    );
+  }
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -255,10 +276,7 @@ export function SectionHifzOverview() {
               <Button
                 size="sm"
                 className="bg-emerald-600 text-white hover:bg-emerald-700"
-                onClick={() => {
-                  setLogRoster(sorted);
-                  setLogTarget(sorted[0]);
-                }}
+                onClick={() => setRoundActive(true)}
               >
                 {t("hifzTeach.startRound")}
               </Button>
