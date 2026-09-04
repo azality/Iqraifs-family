@@ -214,6 +214,18 @@ export function SectionOverview() {
   // (the admin Classes page bounces non-admins). Hook must run before
   // any early return so hook order stays stable across renders.
   const canEditCurriculum = useOrgPermission(orgId, viewerRole, "define_curriculum");
+  // Students chip: the roster page requires admin or manage_students —
+  // don't render a link that bounces a teacher to "no access".
+  const canManageStudents = useOrgPermission(orgId, viewerRole, "manage_students");
+
+  // Teachers came to this page to tick their syllabus topics (pre-8a
+  // behavior): when the viewer teaches subjects in this section, open
+  // the syllabus manager by default so their tick-boxes stay one
+  // glance away rather than behind the toggle.
+  useEffect(() => {
+    if (!me?.userId) return;
+    if (subjects.some((s) => s.teacherUserId === me.userId)) setManageOpen(true);
+  }, [subjects, me?.userId]);
 
   if (meLoading) return null;
   if (viewerRole === "other") {
@@ -289,10 +301,14 @@ export function SectionOverview() {
     { label: "Lessons / diary", to: `/school/orgs/${orgId}/sections/${sectionId}/lessons` },
     { label: "Assignments", to: `/school/orgs/${orgId}/sections/${sectionId}/assignments` },
     { label: "Gradebook", to: `/school/orgs/${orgId}/sections/${sectionId}/gradebook` },
-    { label: `Students (${row.studentCount})`, to: `/school/orgs/${orgId}/admin/students?classSectionId=${encodeURIComponent(sectionId)}` },
+    (viewerRole === "admin" || viewerRole === "principal" || canManageStudents)
+      ? { label: `Students (${row.studentCount})`, to: `/school/orgs/${orgId}/admin/students?classSectionId=${encodeURIComponent(sectionId)}` }
+      : null,
     { label: "Behavior feed", to: `/school/orgs/${orgId}/sections/${sectionId}/behavior` },
     (viewerRole === "admin" || viewerRole === "principal")
-      ? { label: "Timetable", to: `/school/orgs/${orgId}/admin/timetable` }
+      // Deep-link straight into THIS class's weekly grid, not the
+      // school-wide picker (pilot: "it takes me to the school timetable").
+      ? { label: "Timetable", to: `/school/orgs/${orgId}/admin/timetable?scope=section&id=${encodeURIComponent(sectionId)}` }
       : null,
   ];
 
@@ -459,7 +475,9 @@ export function SectionOverview() {
                   onClick={() => setManageOpen((v) => !v)}
                   className="text-xs font-semibold text-indigo-700 hover:underline"
                 >
-                  {manageOpen ? "Hide curriculum manager" : "Manage curriculum →"}
+                  {viewerRole === "admin" || viewerRole === "principal" || canEditCurriculum
+                    ? manageOpen ? "Hide curriculum manager" : "Manage curriculum →"
+                    : manageOpen ? "Hide syllabus" : "View syllabus & tick topics →"}
                 </button>
               </div>
               {subjects.length === 0 ? (
