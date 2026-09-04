@@ -193,6 +193,58 @@ export function installAssessment(school: Hono): void {
   });
 
   // ─── Exams CRUD ─────────────────────────────────────────────────────
+  // ───────────────────────────────────────────────────────────────────────
+  // GET /orgs/:orgId/exam-schedule?termId=… — the published written
+  // datesheet, grouped by class. Any staff role may read it: it is a
+  // notice, not a record. Labels are the school's own ("Sst",
+  // "Computer/Biology") and are never rewritten here.
+  // ───────────────────────────────────────────────────────────────────────
+  school.get("/orgs/:orgId/exam-schedule", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await hasAnyOrgRole(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const termId = c.req.query("termId");
+    let q = serviceRoleClient
+      .from("exam_schedule")
+      .select("id, class_id, subject_label, exam_date, start_time, end_time, notes, class:class_id(name), term:term_id(id, name, exam_instructions)")
+      .eq("org_id", orgId)
+      .order("exam_date")
+      .limit(2000);
+    if (termId) q = q.eq("term_id", termId);
+    const { data, error } = await q;
+    if (error) return c.json({ error: error.message }, 500);
+
+    const rows = (data ?? []) as any[];
+    const term = rows[0]?.term ?? null;
+    const byClass = new Map<string, { classId: string; className: string; papers: any[] }>();
+    const dates = new Set<string>();
+    for (const r of rows) {
+      dates.add(r.exam_date);
+      const key = r.class_id;
+      const g = byClass.get(key) ?? {
+        classId: r.class_id, className: r.class?.name ?? "—", papers: [],
+      };
+      g.papers.push({
+        id: r.id,
+        subjectLabel: r.subject_label,
+        examDate: r.exam_date,
+        startTime: r.start_time ? String(r.start_time).slice(0, 5) : null,
+        endTime: r.end_time ? String(r.end_time).slice(0, 5) : null,
+        notes: r.notes ?? null,
+      });
+      byClass.set(key, g);
+    }
+    return c.json({
+      termId: term?.id ?? null,
+      termName: term?.name ?? null,
+      instructions: (term?.exam_instructions ?? []) as string[],
+      dates: Array.from(dates).sort(),
+      classes: Array.from(byClass.values()).sort((a, b) => a.className.localeCompare(b.className)),
+    });
+  });
+
   school.get("/orgs/:orgId/terms/:termId/exams", async (c) => {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");

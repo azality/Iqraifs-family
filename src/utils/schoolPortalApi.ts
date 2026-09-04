@@ -553,6 +553,26 @@ export interface TodaySnapshot {
   publishedReportCardTermName: string | null;
 }
 
+// ─── Exam datesheet (written assessment timetable) ────────────────────
+// The school's published paper schedule for this child's class, plus
+// the term's printed instructions. Read-only for parents/students.
+export interface ExamPaper {
+  id: string;
+  subjectLabel: string;
+  examDate: string;
+  startTime: string | null;
+  endTime: string | null;
+  notes: string | null;
+}
+export interface MyExamScheduleResponse {
+  className?: string | null;
+  termName: string | null;
+  instructions: string[];
+  papers: ExamPaper[];
+}
+export const getMyExamSchedule = (studentId: string): Promise<MyExamScheduleResponse> =>
+  pinApiCall(`/school/pin-me/students/${studentId}/exam-schedule`);
+
 export const getTodaySnapshot = (studentId: string): Promise<TodaySnapshot> =>
   pinApiCall(`/school/pin-me/students/${studentId}/today-snapshot`);
 

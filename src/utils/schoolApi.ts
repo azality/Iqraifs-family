@@ -1900,6 +1900,28 @@ export interface AdminTeacher {
   last_sign_in_at?: string | null;
 }
 
+// ── Exam datesheet (published written-assessment timetable) ───────────
+export interface ExamSchedulePaper {
+  id: string;
+  subjectLabel: string;
+  examDate: string;
+  startTime: string | null;
+  endTime: string | null;
+  notes: string | null;
+}
+export interface ExamScheduleResponse {
+  termId: string | null;
+  termName: string | null;
+  instructions: string[];
+  dates: string[];
+  classes: Array<{ classId: string; className: string; papers: ExamSchedulePaper[] }>;
+}
+export const getExamSchedule = (
+  orgId: string,
+  termId?: string,
+): Promise<ExamScheduleResponse> =>
+  apiCall(`/school/orgs/${orgId}/exam-schedule${termId ? `?termId=${termId}` : ""}`);
+
 // ── Weekly digest (Teacher Track Record Phase 4) ──────────────────────
 // The principal's Monday-morning read: last completed week vs the week
 // before, org rollup + per-teacher counters. Data-only; the page

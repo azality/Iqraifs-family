@@ -6,11 +6,12 @@
 // the existing dashboard endpoint still appears at the bottom.
 
 import { useEffect, useState } from "react";
-import { useParams } from "react-router";
+import { Link, useParams } from "react-router";
 import { Award, BookOpen, ClipboardList, Bell } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { HeroCard, TimeOffModal } from "../../components/school-ui";
 import { UpNextCard } from "../../components/school-ui/UpNextCard";
+import { useExamSchedule } from "./ExamDatesheetCard";
 import {
   getStudentDashboard,
   getStudentUpcoming,
@@ -209,6 +210,9 @@ export function StudentDashboard() {
   const [upcoming, setUpcoming] = useState<import("../../../utils/schoolApi").LessonPrepItem[] | null>(null);
   const [showTimeOff, setShowTimeOff] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Assessment weeks dominate a parent's month — surface the next paper
+  // on Today, with the full datesheet one tap away under Timetable.
+  const examSchedule = useExamSchedule(studentId);
 
   useEffect(() => {
     let cancelled = false;
@@ -311,6 +315,38 @@ export function StudentDashboard() {
           onSubmit={(body) => createStudentTimeOff(studentId, body)}
         />
       )}
+
+      {/* Next assessment paper — only while the datesheet is live. */}
+      {(() => {
+        const today = new Date();
+        const pad = (n: number) => String(n).padStart(2, "0");
+        const iso = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+        const next = (examSchedule?.papers ?? [])
+          .filter((p) => p.examDate >= iso)
+          .sort((a, b) => a.examDate.localeCompare(b.examDate))[0];
+        if (!next) return null;
+        const away = Math.round(
+          (new Date(`${next.examDate}T00:00:00`).getTime() - new Date(`${iso}T00:00:00`).getTime()) / 86400e3,
+        );
+        const when = away === 0 ? t("portal.exam.today") : away === 1 ? t("portal.exam.tomorrow") : t("portal.exam.inDays", { count: away });
+        return (
+          <Link
+            to={`/school-portal/students/${studentId}/timetable`}
+            className="flex items-center gap-2.5 rounded-xl border border-indigo-200 bg-indigo-50 px-3.5 py-2.5"
+          >
+            <span className="flex-none text-[10.5px] font-extrabold uppercase tracking-wide text-indigo-700">
+              {t("portal.exam.next")}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-xs font-semibold text-indigo-900">
+              {next.subjectLabel} · {when}
+              {next.startTime ? ` · ${next.startTime}` : ""}
+            </span>
+            <span className="flex-none text-[11px] font-bold text-indigo-500">
+              {t("portal.exam.seeDatesheet")}
+            </span>
+          </Link>
+        );
+      })()}
 
       {/* 10b status chips: attendance / homework / fees at a glance. */}
       <div className="grid grid-cols-3 gap-2">

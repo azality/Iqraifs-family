@@ -22,7 +22,9 @@ import {
   getSchoolMe, isOrgAdmin,
   listTerms, createTerm, updateTerm, archiveTerm,
   listExams, createExam, updateExam, archiveExam,
+  getExamSchedule,
   type AcademicTerm, type Exam, type ExamType, type SchoolMeResponse,
+  type ExamScheduleResponse,
 } from "../../../utils/schoolApi";
 import { sectionTitleClasses } from "../../components/school-ui";
 
@@ -162,6 +164,11 @@ export function ManageAssessment() {
           {error}
         </div>
       )}
+
+      {/* Published written datesheet — the document parents see in the
+          portal, laid out the way the school printed it. Read-only for
+          now; seeded by scripts/seed-assessment-datesheet.ts. */}
+      <ExamDatesheetGrid orgId={orgId} />
 
       {/* Terms */}
       <section className="space-y-2">
@@ -327,6 +334,89 @@ export function ManageAssessment() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/** Read-only datesheet grid — dates down, classes across, exactly the
+ *  shape of the school's printed timetable so the office can eyeball
+ *  that what parents see matches the document they published. */
+function ExamDatesheetGrid({ orgId }: { orgId: string }) {
+  const [data, setData] = useState<ExamScheduleResponse | null>(null);
+
+  useEffect(() => {
+    if (!orgId) return;
+    getExamSchedule(orgId).then(setData).catch(() => setData(null));
+  }, [orgId]);
+
+  if (!data || data.classes.length === 0) return null;
+
+  const byClassDate = new Map<string, string>();
+  for (const c of data.classes) {
+    for (const p of c.papers) byClassDate.set(`${c.classId}|${p.examDate}`, p.subjectLabel);
+  }
+  const timeFor = (date: string): string => {
+    for (const c of data.classes) {
+      const p = c.papers.find((x) => x.examDate === date);
+      if (p?.startTime) return `${p.startTime}–${p.endTime ?? ""}`;
+    }
+    return "";
+  };
+
+  return (
+    <section className="space-y-2">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700">
+          Written datesheet
+          {data.termName && <span className="ml-2 font-normal normal-case text-slate-500">{data.termName}</span>}
+        </h2>
+        <span className="text-xs text-slate-500">
+          Parents and students see this in the portal under Timetable.
+        </span>
+      </div>
+      <Card>
+        <CardContent className="overflow-x-auto p-0">
+          <table className="w-full min-w-[640px] text-sm">
+            <thead>
+              <tr className="border-b border-slate-100 text-left text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                <th className="px-3 py-2">Date</th>
+                {data.classes.map((c) => (
+                  <th key={c.classId} className="px-2 py-2">{c.className.replace(/^Class /, "")}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {data.dates.map((d) => (
+                <tr key={d} className="border-t border-slate-50">
+                  <td className="whitespace-nowrap px-3 py-2">
+                    <div className="text-[12.5px] font-semibold text-slate-800">
+                      {new Date(`${d}T00:00:00`).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })}
+                    </div>
+                    <div className="text-[10px] tabular-nums text-slate-400">{timeFor(d)}</div>
+                  </td>
+                  {data.classes.map((c) => {
+                    const label = byClassDate.get(`${c.classId}|${d}`);
+                    return (
+                      <td key={c.classId} className="px-2 py-2">
+                        {label ? (
+                          <span className="text-[12px] font-medium text-slate-800">{label}</span>
+                        ) : (
+                          <span className="text-slate-300">—</span>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
+      {data.instructions.length > 0 && (
+        <ul className="list-disc space-y-1 pl-5 text-[11.5px] leading-relaxed text-slate-500">
+          {data.instructions.map((line, i) => <li key={i}>{line}</li>)}
+        </ul>
+      )}
+    </section>
   );
 }
 

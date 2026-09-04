@@ -307,6 +307,7 @@ async function loadStudentWithContext(studentId: string, orgId: string): Promise
       sectionId: string | null;
       sectionName: string | null;
       className: string | null;
+      classId: string | null;
     }
   | null
 > {
@@ -320,15 +321,17 @@ async function loadStudentWithContext(studentId: string, orgId: string): Promise
 
   let sectionName: string | null = null;
   let className: string | null = null;
+  let classId: string | null = null;
   if ((stu as any).class_section_id) {
     const { data: sec } = await serviceRoleClient
       .from("class_section")
-      .select("name, class:class_id(name)")
+      .select("name, class_id, class:class_id(name)")
       .eq("id", (stu as any).class_section_id)
       .maybeSingle();
     if (sec) {
       sectionName = (sec as any).name ?? null;
       className = (sec as any).class?.name ?? null;
+      classId = (sec as any).class_id ?? null;
     }
   }
   return {
@@ -339,6 +342,7 @@ async function loadStudentWithContext(studentId: string, orgId: string): Promise
     sectionId: (stu as any).class_section_id ?? null,
     sectionName,
     className,
+    classId,
   };
 }
 
@@ -1779,6 +1783,46 @@ export function installPortal(school: Hono): void {
       latestHifz,
       latestTeacherNote,
       publishedReportCardTermName,
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // GET /school/pin-me/students/:studentId/exam-schedule
+  //
+  // The published written-assessment datesheet for THIS child's class,
+  // plus the term's printed instructions (fee clearance, timings…).
+  // Read-only; labels come from the school's own document.
+  // ---------------------------------------------------------------------------
+  school.get("/pin-me/students/:studentId/exam-schedule", async (c) => {
+    const g = await gatePerStudent(c);
+    if (!g.ok) return g.resp;
+    const { studentId, subject } = g;
+    const stuCtx = await loadStudentWithContext(studentId, subject.orgId);
+    if (!stuCtx) return c.json({ error: "student not found" }, 404);
+    if (!stuCtx.classId) return c.json({ papers: [], instructions: [], termName: null });
+
+    const { data: rows } = await serviceRoleClient
+      .from("exam_schedule")
+      .select("id, subject_label, exam_date, start_time, end_time, notes, term:term_id(name, exam_instructions)")
+      .eq("org_id", subject.orgId)
+      .eq("class_id", stuCtx.classId)
+      .order("exam_date")
+      .limit(200);
+
+    const list = (rows ?? []) as any[];
+    const term = list[0]?.term ?? null;
+    return c.json({
+      className: stuCtx.className,
+      termName: term?.name ?? null,
+      instructions: (term?.exam_instructions ?? []) as string[],
+      papers: list.map((r) => ({
+        id: r.id,
+        subjectLabel: r.subject_label,
+        examDate: r.exam_date,
+        startTime: r.start_time ? String(r.start_time).slice(0, 5) : null,
+        endTime: r.end_time ? String(r.end_time).slice(0, 5) : null,
+        notes: r.notes ?? null,
+      })),
     });
   });
 

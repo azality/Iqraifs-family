@@ -154,6 +154,20 @@
       "school": "اسکول",
       "announcementCount": "{{count}} اعلان"
     },
+    "exam": {
+      "title": "{{term}} — تحریری ڈیٹ شیٹ",
+      "papersLeft": "{{count}} پرچے باقی",
+      "finished": "تمام پرچے مکمل",
+      "allDone": "اس اسیسمنٹ کے تمام پرچے مکمل ہو چکے ہیں۔",
+      "instructions": "اسکول کی ہدایات",
+      "today": "آج",
+      "tomorrow": "کل",
+      "inDays": "{{count}} دن میں",
+      "showPast": "{{count}} مکمل پرچے دکھائیں ▾",
+      "hidePast": "مکمل پرچے چھپائیں ▴",
+      "next": "اگلا پرچہ",
+      "seeDatesheet": "ڈیٹ شیٹ ←"
+    },
     "hifz": {
       "tonight": "آج رات گھر پر",
       "next": "اگلا:",
