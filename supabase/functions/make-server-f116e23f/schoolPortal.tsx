@@ -1605,12 +1605,20 @@ export function installPortal(school: Hono): void {
     // ── Homework pending: assignments past created_at, due in the
     // future (or today), no grade row for this student yet. Crude but
     // matches how teachers actually use the gradebook today.
-    let homeworkPending = { count: 0, soonestDueDate: null as string | null };
+    let homeworkPending = {
+      count: 0,
+      soonestDueDate: null as string | null,
+      // Additive (design 10a): the landing card names the piece of work,
+      // not just a count — "Maths homework due tomorrow — Addition with
+      // carrying, p. 15".
+      soonestTitle: null as string | null,
+      soonestSubject: null as string | null,
+    };
     if (stuCtx.sectionId) {
       const { data: assigns } = await serviceRoleClient
         .from("assignment")
         .select(
-          "id, due_date, section_subject:section_subject_id(class_section_id)",
+          "id, title, due_date, section_subject:section_subject_id(class_section_id, name)",
         )
         .gte("due_date", today)
         .limit(50);
@@ -1628,8 +1636,12 @@ export function installPortal(school: Hono): void {
         const pending = mine.filter((a) => !graded.has(a.id));
         homeworkPending.count = pending.length;
         if (pending.length > 0) {
-          const dates = pending.map((a) => a.due_date).filter(Boolean).sort();
-          homeworkPending.soonestDueDate = dates[0] ?? null;
+          const soonest = pending
+            .filter((a) => a.due_date)
+            .sort((a, b) => String(a.due_date).localeCompare(String(b.due_date)))[0] ?? null;
+          homeworkPending.soonestDueDate = soonest?.due_date ?? null;
+          homeworkPending.soonestTitle = soonest?.title ?? null;
+          homeworkPending.soonestSubject = soonest?.section_subject?.name ?? null;
         }
       }
     }
@@ -1664,13 +1676,36 @@ export function installPortal(school: Hono): void {
     // ── Hifz revision needed: latest sabqi/manzil entry older than 3
     // days OR no revision entry in the last 7 days flags revision.
     let hifzRevisionNeeded: { lastEntryDate: string; daysSince: number } | null = null;
+    // Additive (design 10a/10g): the parent's actionable hifz line —
+    // last heard portion + quality + "tonight" task from the teacher.
+    let latestHifz: {
+      recordedAt: string; kind: string; surahNumber: number;
+      ayahFrom: number; ayahTo: number; quality: string | null;
+      missed: boolean; parentAction: string | null; nextTarget: string | null;
+      teacherRemarks: string | null;
+    } | null = null;
     {
       const { data: hifz } = await serviceRoleClient
         .from("hifz_progress")
-        .select("recorded_at, kind")
+        .select("recorded_at, kind, surah_number, ayah_from, ayah_to, quality, missed, parent_action, next_target, teacher_remarks")
         .eq("student_id", studentId)
         .order("recorded_at", { ascending: false })
         .limit(20);
+      const latest = ((hifz ?? []) as any[])[0] ?? null;
+      if (latest) {
+        latestHifz = {
+          recordedAt: latest.recorded_at,
+          kind: latest.kind,
+          surahNumber: latest.surah_number,
+          ayahFrom: latest.ayah_from,
+          ayahTo: latest.ayah_to,
+          quality: latest.quality ?? null,
+          missed: latest.missed === true,
+          parentAction: latest.parent_action ?? null,
+          nextTarget: latest.next_target ?? null,
+          teacherRemarks: latest.teacher_remarks ?? null,
+        };
+      }
       const lastRevision = ((hifz ?? []) as any[]).find(
         (h) => h.kind === "sabqi" || h.kind === "manzil",
       );
@@ -1741,6 +1776,7 @@ export function installPortal(school: Hono): void {
       homeworkPending,
       feesDueNow,
       hifzRevisionNeeded,
+      latestHifz,
       latestTeacherNote,
       publishedReportCardTermName,
     });
