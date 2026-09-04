@@ -9,7 +9,7 @@ import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
-import { AlertCircle, Save } from "lucide-react";
+import { AlertCircle, Save, X } from "lucide-react";
 import { HeroCard, StatusPill, cardBase, cardElev } from "../../components/school-ui";
 import {
   getSectionGradebook,
@@ -20,6 +20,8 @@ import {
   type GradebookResponse,
   type GradeBatchEntry,
   type GradeEntry,
+  listTerms,
+  type AcademicTerm,
 } from "../../../utils/schoolApi";
 
 interface CellState {
@@ -54,6 +56,28 @@ export function SectionGradebook() {
   const focusStudentId = searchParams.get("studentId") ?? "";
   const [startDate, setStartDate] = useState(defaultStartDate());
   const [endDate, setEndDate] = useState(todayIso());
+  // Design 5a: click-to-grade panel + assessment-period picker.
+  const [activeCell, setActiveCell] = useState<{ studentId: string; assignmentId: string } | null>(null);
+  const [terms, setTerms] = useState<AcademicTerm[]>([]);
+  const [periodKey, setPeriodKey] = useState<string>("last30");
+  useEffect(() => {
+    if (!orgId) return;
+    listTerms(orgId).then((r) => setTerms(r.terms.filter((t) => !t.archivedAt))).catch(() => {});
+  }, [orgId]);
+  const pickPeriod = (key: string) => {
+    setPeriodKey(key);
+    if (key === "last30") {
+      setStartDate(defaultStartDate());
+      setEndDate(todayIso());
+      return;
+    }
+    if (key === "custom") return;
+    const t = terms.find((x) => x.id === key);
+    if (t) {
+      setStartDate(t.startDate);
+      setEndDate(t.endDate < todayIso() ? t.endDate : todayIso());
+    }
+  };
   const [data, setData] = useState<GradebookResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -125,11 +149,12 @@ export function SectionGradebook() {
   const visibleStudents = focusStudent ? [focusStudent] : data?.students ?? [];
 
   const studentAverage = useMemo(() => {
-    const out: Record<string, number | null> = {};
+    const out: Record<string, { pct: number | null; graded: number }> = {};
     if (!data) return out;
     for (const s of data.students) {
       let weightedSum = 0;
       let weightTotal = 0;
+      let graded = 0;
       for (const a of data.assignments) {
         const c = cells[s.id]?.[a.id];
         if (!c || c.status !== "graded" || c.score === "") continue;
@@ -138,8 +163,9 @@ export function SectionGradebook() {
         const pct = (n / a.max_score) * 100;
         weightedSum += pct * a.weight;
         weightTotal += a.weight;
+        graded += 1;
       }
-      out[s.id] = weightTotal > 0 ? weightedSum / weightTotal : null;
+      out[s.id] = { pct: weightTotal > 0 ? weightedSum / weightTotal : null, graded };
     }
     return out;
   }, [cells, data]);
@@ -216,7 +242,45 @@ export function SectionGradebook() {
         }
         rightSlot={
           <div className="flex flex-wrap items-end gap-2">
-            <div title="Shows assignments ASSIGNED between these dates (last 30 days by default)">
+            {/* Assessment-period picker (design 5a) — the raw date pair
+                becomes the picker used everywhere else; Custom keeps it. */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => pickPeriod("last30")}
+                className={
+                  "min-h-[32px] rounded-full px-3 py-1 text-xs font-semibold " +
+                  (periodKey === "last30" ? "bg-white text-slate-900" : "border border-white/30 bg-white/10 text-white hover:bg-white/20")
+                }
+              >
+                Last 30 days
+              </button>
+              {terms.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => pickPeriod(t.id)}
+                  className={
+                    "min-h-[32px] rounded-full px-3 py-1 text-xs font-semibold " +
+                    (periodKey === t.id ? "bg-white text-slate-900" : "border border-white/30 bg-white/10 text-white hover:bg-white/20")
+                  }
+                >
+                  {t.name}{t.isCurrent ? " ·" : ""}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => pickPeriod("custom")}
+                className={
+                  "min-h-[32px] rounded-full px-3 py-1 text-xs font-semibold " +
+                  (periodKey === "custom" ? "bg-white text-slate-900" : "border border-white/30 bg-white/10 text-white hover:bg-white/20")
+                }
+              >
+                Custom
+              </button>
+            </div>
+            {periodKey === "custom" && (
+            <div title="Shows assignments ASSIGNED between these dates">
               <Label className="text-[10px] uppercase tracking-wide text-indigo-200">From (assigned)</Label>
               <Input
                 type="date"
@@ -225,6 +289,8 @@ export function SectionGradebook() {
                 className="h-8 w-36 bg-white/10 border-white/20 text-white"
               />
             </div>
+            )}
+            {periodKey === "custom" && (
             <div>
               <Label className="text-[10px] uppercase tracking-wide text-indigo-200">To</Label>
               <Input
@@ -234,6 +300,7 @@ export function SectionGradebook() {
                 className="h-8 w-36 bg-white/10 border-white/20 text-white"
               />
             </div>
+            )}
             <Button size="sm" variant="outline" onClick={load} className="bg-white/10 border-white/20 text-white hover:bg-white/20">
               Apply
             </Button>
@@ -336,12 +403,14 @@ export function SectionGradebook() {
                   >
                     <Link
                       to={`/school/orgs/${orgId}/assignments/${a.id}${focusStudent ? `?studentId=${focusStudent.id}` : ""}`}
-                      className="block truncate max-w-[80px] hover:underline normal-case font-medium text-slate-700"
+                      className="block max-w-[140px] whitespace-normal hover:underline normal-case font-medium leading-tight text-slate-700"
                     >
                       {a.title}
                     </Link>
                     <div className="text-[10px] text-slate-500 normal-case font-normal tracking-normal">
                       {a.kind} · /{a.max_score}
+                      {(a as any).due_date ? ` · ${new Date(`${(a as any).due_date}T00:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : ""}
+                      {assignmentAverage[a.id] == null ? " · not graded yet" : ""}
                     </div>
                   </th>
                 ))}
@@ -371,7 +440,12 @@ export function SectionGradebook() {
                     else cls += pctColor(cellPct) + " ";
                     if (c.dirty) cls += "ring-1 ring-amber-400 ";
                     return (
-                      <td key={a.id} className="border-b border-r p-1" style={{ minWidth: 80 }}>
+                      <td
+                        key={a.id}
+                        className={"border-b border-r p-1 " + (activeCell?.studentId === s.id && activeCell?.assignmentId === a.id ? "ring-2 ring-inset ring-indigo-400" : "")}
+                        style={{ minWidth: 80 }}
+                        onClick={() => setActiveCell({ studentId: s.id, assignmentId: a.id })}
+                      >
                         <Input
                           type="number"
                           step="0.01"
@@ -397,16 +471,18 @@ export function SectionGradebook() {
                     );
                   })}
                   <td className="sticky right-0 z-10 bg-white px-3 py-1.5 border-b border-l border-slate-200 text-right">
-                    {studentAverage[s.id] != null ? (
-                      (() => {
-                        const pct = studentAverage[s.id]!;
-                        const status: "compliant" | "watch" | "flagged" =
-                          pct >= 80 ? "compliant" : pct >= 60 ? "watch" : "flagged";
-                        return <StatusPill status={status} label={`${pct.toFixed(0)}%`} />;
-                      })()
-                    ) : (
-                      <span className="text-xs text-slate-400">—</span>
-                    )}
+                    {(() => {
+                      const avg = studentAverage[s.id];
+                      if (!avg || avg.pct == null) return <span className="text-xs text-slate-400">—</span>;
+                      // Honest averages (design 5a): a percentage from one
+                      // or two marks reads as verdict, not signal — stay
+                      // neutral until 3+ assignments are graded.
+                      if (avg.graded < 3)
+                        return <span className="text-xs text-slate-400">{avg.graded} graded</span>;
+                      const status: "compliant" | "watch" | "flagged" =
+                        avg.pct >= 80 ? "compliant" : avg.pct >= 60 ? "watch" : "flagged";
+                      return <StatusPill status={status} label={`${avg.pct.toFixed(0)}%`} />;
+                    })()}
                   </td>
                 </tr>
               ))}
@@ -424,10 +500,74 @@ export function SectionGradebook() {
             </tbody>
           </table>
           <p className="text-[11px] text-muted-foreground p-2 border-t">
-            Tip: right-click a cell to cycle through statuses (graded → missing → excused → late).
+            Click a cell to grade it — score plus Graded / Missing / Excused /
+            Late buttons. Enter saves and moves down; Tab moves right.
           </p>
         </div>
       )}
+
+      {/* Click-to-grade panel (design 5a): statuses become visible
+          buttons — right-click cycling doesn't exist on touch. */}
+      {activeCell && data && (() => {
+        const st = data.students.find((x) => x.id === activeCell.studentId);
+        const asg = data.assignments.find((x) => x.id === activeCell.assignmentId);
+        const c = st && asg ? cells[st.id]?.[asg.id] : null;
+        if (!st || !asg || !c) return null;
+        const advance = () => {
+          const idx = data.students.findIndex((x) => x.id === st.id);
+          const next = data.students[idx + 1];
+          if (next) setActiveCell({ studentId: next.id, assignmentId: asg.id });
+          else setActiveCell(null);
+        };
+        return (
+          <div className="fixed bottom-20 right-4 z-40 w-72 rounded-xl border border-indigo-200 bg-white p-3.5 shadow-xl">
+            <div className="flex items-start justify-between gap-2">
+              <div className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
+                {st.full_name} · {asg.title}
+              </div>
+              <button type="button" onClick={() => setActiveCell(null)} aria-label="Close">
+                <X className="h-3.5 w-3.5 text-slate-400" />
+              </button>
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                max={asg.max_score}
+                value={c.score}
+                autoFocus
+                disabled={c.status !== "graded"}
+                onChange={(e) => setCell(st.id, asg.id, { score: e.target.value })}
+                onKeyDown={(e) => { if (e.key === "Enter") advance(); }}
+                className="h-9 w-24 text-base font-bold"
+              />
+              <span className="text-sm text-slate-500">/ {asg.max_score}</span>
+            </div>
+            <div className="mt-2.5 flex flex-wrap gap-1.5">
+              {([
+                { v: "graded", label: "Graded", on: "bg-slate-900 text-white", off: "border border-slate-200 text-slate-600" },
+                { v: "missing", label: "Missing", on: "bg-amber-500 text-white", off: "border border-amber-200 text-amber-800" },
+                { v: "excused", label: "Excused", on: "bg-sky-600 text-white", off: "border border-sky-200 text-sky-700" },
+                { v: "late", label: "Late", on: "bg-pink-600 text-white", off: "border border-pink-200 text-pink-700" },
+              ] as const).map((opt) => (
+                <button
+                  key={opt.v}
+                  type="button"
+                  onClick={() => setCell(st.id, asg.id, { status: opt.v })}
+                  className={
+                    "min-h-[32px] rounded-full px-3 py-1 text-[11.5px] font-semibold " +
+                    (c.status === opt.v ? opt.on : opt.off + " bg-white hover:bg-slate-50")
+                  }
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            <div className="mt-2 text-[10.5px] text-slate-400">Enter ↵ saves and moves down · Tab moves right</div>
+          </div>
+        );
+      })()}
 
       {dirtyCount > 0 && (
         <div className="fixed bottom-4 right-4 z-30 bg-background border shadow-lg rounded-lg p-3 flex items-center gap-3">

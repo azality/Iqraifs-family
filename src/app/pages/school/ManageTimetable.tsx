@@ -136,6 +136,10 @@ export function ManageTimetable() {
   const [conflicts, setConflicts] = useState<RoomConflictPair[]>([]);
   const [teacherConflicts, setTeacherConflicts] = useState<TeacherConflictPair[]>([]);
   const [conflictModalOpen, setConflictModalOpen] = useState(false);
+  // Design 4d: the calendar is the editor — the clicked block edits in
+  // a side panel; the day-by-day lists are a fallback toggle.
+  const [editSlotId, setEditSlotId] = useState<string | null>(null);
+  const [listEditor, setListEditor] = useState(false);
 
   const refreshConflicts = () => {
     if (!orgId) return;
@@ -498,33 +502,58 @@ export function ManageTimetable() {
           </Card>
         ) : (
           <>
-            {/* At-a-glance calendar view above the editing cards.
-                Click any block → scroll the matching row into view
-                and pulse it briefly so the admin sees the edit
-                affordance without losing the calendar context. */}
-            <SectionTimetableGrid
-              cells={cells}
-              onSlotClick={(slotId) => {
-                const el = document.getElementById(`slot-row-${slotId}`);
-                if (!el) return;
-                el.scrollIntoView({ behavior: "smooth", block: "center" });
-                el.classList.add("ring-2", "ring-indigo-400");
-                setTimeout(() => el.classList.remove("ring-2", "ring-indigo-400"), 1600);
-              }}
-            />
-
-            <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mt-4">
-              Edit
+            {/* Design 4d: the calendar IS the editor. Clicking a block
+                opens the side panel; conflicts surface inline there
+                with the existing Save-anyway flow. */}
+            <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
+              <SectionTimetableGrid
+                cells={cells}
+                onSlotClick={(slotId) => setEditSlotId(slotId)}
+              />
+              <div className="lg:sticky lg:top-20">
+                {(() => {
+                  const cell = cells.find((c) => c.slot.id === editSlotId) ?? null;
+                  if (!cell) {
+                    return (
+                      <div className="rounded-xl border border-dashed border-slate-300 bg-white p-4 text-center text-xs text-slate-500">
+                        Click any block on the calendar to edit its subject,
+                        teacher and room here.
+                      </div>
+                    );
+                  }
+                  return (
+                    <SlotEditorPanel
+                      key={cell.slot.id + (cell.entry?.id ?? "")}
+                      cell={cell}
+                      scopeKind={scopeKind}
+                      subjectOptions={subjectOptions}
+                      teachers={teachers}
+                      onSave={saveCell}
+                      onClear={clearCell}
+                      onClose={() => setEditSlotId(null)}
+                    />
+                  );
+                })()}
+              </div>
             </div>
 
-            <WeekGrid
-              cells={cells}
-              scopeKind={scopeKind}
-              subjectOptions={subjectOptions}
-              teachers={teachers}
-              onSave={saveCell}
-              onClear={clearCell}
-            />
+            <button
+              type="button"
+              onClick={() => setListEditor((v) => !v)}
+              className="mt-2 text-xs font-semibold text-slate-500 hover:text-slate-800"
+            >
+              {listEditor ? "Hide the day-by-day list editor" : "Prefer the old day-by-day list editor? Show it"}
+            </button>
+            {listEditor && (
+              <WeekGrid
+                cells={cells}
+                scopeKind={scopeKind}
+                subjectOptions={subjectOptions}
+                teachers={teachers}
+                onSave={saveCell}
+                onClear={clearCell}
+              />
+            )}
           </>
         )}
       </section>
@@ -598,6 +627,164 @@ export function ManageTimetable() {
 
       {/* Substitutions moved to /admin/timetable/substitutions. */}
         </>
+      )}
+    </div>
+  );
+}
+
+// ─── Slot editor side panel (design 4d) ──────────────────────────────
+// Vertical editor for ONE calendar block. Same save/conflict machinery
+// as CellRow: saves on change, 409s render inline with Save anyway.
+function SlotEditorPanel({
+  cell, scopeKind, subjectOptions, teachers, onSave, onClear, onClose,
+}: CellRowProps & { onClose: () => void }) {
+  const [draftSubject, setDraftSubject] = useState(cell.entry?.sectionSubjectId ?? "");
+  const [draftTeacher, setDraftTeacher] = useState(cell.entry?.teacherUserId ?? "");
+  const [draftRoom, setDraftRoom] = useState(cell.entry?.room ?? "");
+  const [conflict, setConflict] = useState<RoomConflictError | null>(null);
+  const [teacherConflict, setTeacherConflict] = useState<TeacherConflictError | null>(null);
+  const [lastPatch, setLastPatch] = useState<SavePatch | null>(null);
+
+  const trySave = async (patch: SavePatch) => {
+    setLastPatch(patch);
+    const r = await onSave(cell, patch);
+    if (!r.ok && r.conflict) setConflict(r.conflict); else setConflict(null);
+    if (!r.ok && r.teacherConflict) setTeacherConflict(r.teacherConflict); else setTeacherConflict(null);
+  };
+  const forceSave = async () => {
+    if (!lastPatch) return;
+    const r = await onSave(cell, lastPatch, { force: true });
+    if (r.ok) { setConflict(null); setTeacherConflict(null); }
+  };
+
+  const isInformational =
+    cell.slot.kind === "break" || cell.slot.kind === "prayer" || cell.slot.kind === "assembly";
+  const dayName = ["", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][cell.slot.dayOfWeek] ?? "";
+
+  return (
+    <div className="rounded-xl border border-indigo-200 bg-white p-3.5 shadow-lg shadow-indigo-100">
+      <div className="flex items-start justify-between gap-2">
+        <div className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
+          Edit period · {dayName} {cell.slot.startTime}–{cell.slot.endTime}
+        </div>
+        <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-700" aria-label="Close editor">
+          ×
+        </button>
+      </div>
+      {isInformational ? (
+        <p className="mt-2 text-xs italic text-slate-500">
+          {cell.slot.name} — a {cell.slot.kind} slot; nothing to assign.
+        </p>
+      ) : (
+        <div className="mt-2.5 space-y-2.5">
+          {scopeKind === "section" && (
+            <div>
+              <div className="mb-1 text-[11px] text-slate-500">Subject</div>
+              <Select
+                value={draftSubject || "__none__"}
+                onValueChange={(v) => {
+                  const next = v === "__none__" ? null : v;
+                  setDraftSubject(next ?? "");
+                  trySave({ sectionSubjectId: next });
+                }}
+              >
+                <SelectTrigger className="h-9 bg-white text-sm"><SelectValue placeholder="Subject" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">— No subject —</SelectItem>
+                  {subjectOptions.map((so) => (
+                    <SelectItem key={so.id} value={so.id}>{so.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          <div>
+            <div className="mb-1 text-[11px] text-slate-500">Teacher</div>
+            <Select
+              value={draftTeacher || "__none__"}
+              onValueChange={(v) => {
+                const next = v === "__none__" ? null : v;
+                setDraftTeacher(next ?? "");
+                trySave({ teacherUserId: next });
+              }}
+            >
+              <SelectTrigger className={"h-9 bg-white text-sm " + (teacherConflict ? "border-rose-300 bg-rose-50" : "")}>
+                <SelectValue placeholder="Teacher" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">— No teacher —</SelectItem>
+                {teachers.map((t) => (
+                  <SelectItem key={t.user_id} value={t.user_id}>{t.full_name || t.email}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {teacherConflict && (
+              <div className="mt-1 text-[11px] text-rose-700">
+                <strong>{teacherConflict.teacherName ?? "This teacher"}</strong> is already booked
+                {teacherConflict.conflicts.map((cf, i) => (
+                  <span key={cf.entryId}>
+                    {i === 0 ? " for " : ", "}
+                    <strong>{cf.subjectName ?? "another slot"}</strong> ({cf.scopeLabel})
+                  </span>
+                ))}{" "}
+                at this time.
+                <button type="button" onClick={forceSave} className="ml-1.5 font-bold underline">Save anyway</button>
+                <button
+                  type="button"
+                  className="ml-1.5 underline"
+                  onClick={() => { setTeacherConflict(null); setDraftTeacher(cell.entry?.teacherUserId ?? ""); }}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+          </div>
+          <div>
+            <div className="mb-1 text-[11px] text-slate-500">Room</div>
+            <Input
+              value={draftRoom}
+              onChange={(e) => setDraftRoom(e.target.value)}
+              onBlur={() => {
+                if ((cell.entry?.room ?? "") !== draftRoom) trySave({ room: draftRoom || null });
+              }}
+              placeholder="e.g. Room 6"
+              className={"h-9 bg-white text-sm " + (conflict ? "border-amber-300 bg-amber-50" : "")}
+            />
+            {conflict && (
+              <div className="mt-1 text-[11px] text-amber-800">
+                Room <strong>{draftRoom || conflict.conflicts[0]?.room}</strong> is already used by
+                {conflict.conflicts.map((cf, i) => (
+                  <span key={cf.entryId}>
+                    {i === 0 ? " " : ", "}
+                    <strong>{cf.subjectName ?? "another slot"}</strong> ({cf.scopeLabel})
+                  </span>
+                ))}{" "}
+                now.
+                <button type="button" onClick={forceSave} className="ml-1.5 font-bold underline">Save anyway</button>
+                <button
+                  type="button"
+                  className="ml-1.5 underline"
+                  onClick={() => { setConflict(null); setDraftRoom(cell.entry?.room ?? ""); }}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+          </div>
+          {cell.entry && (
+            <button
+              type="button"
+              onClick={() => onClear(cell)}
+              className="w-full rounded-lg border border-rose-200 bg-white py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50"
+            >
+              Clear this period
+            </button>
+          )}
+          <p className="text-[10.5px] leading-relaxed text-slate-400">
+            Changes save as you pick. Conflicts show here at pick time — Save
+            anyway overrides deliberately.
+          </p>
+        </div>
       )}
     </div>
   );
