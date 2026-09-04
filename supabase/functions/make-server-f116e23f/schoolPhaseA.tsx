@@ -36,7 +36,7 @@ import {
 import { logAuditWithLookup } from "./schoolAudit.ts";
 // PR K: migrate student-write routes from requireAdminOrPrincipal to
 // userCanInOrg("manage_students") so office_staff can manage students.
-import { userCanInOrg, hasAnyRoleInOrg, isPrincipalOf, isAdminOf, hasAdminOrPrincipal as requireAdminOrPrincipal } from "./schoolAuth.ts";
+import { userCanInOrg, hasAnyRoleInOrg, isPrincipalOf, isAdminOf, hasAdminOrPrincipal as requireAdminOrPrincipal, teacherSectionIds } from "./schoolAuth.ts";
 
 // ---------------------------------------------------------------------------
 // Shared row types — exported so the frontend can mirror the shape.
@@ -1233,6 +1233,23 @@ export function installPhaseA(school: Hono) {
     const classSectionId = c.req.query("classSectionId");
     const search = c.req.query("search");
     let q = serviceRoleClient.from("student").select("*").eq("org_id", orgId);
+    // Pilot security finding (Sep 2026): this list only required "any
+    // role in org", so any teacher could pull the whole school's roster
+    // with guardian contact data. Full roster stays behind the
+    // manage_students permission (admin/principal/office by default);
+    // everyone else is scoped to the sections they actually teach
+    // (class/hifz/subject assignments + incharge wing) so roll call,
+    // roster requests and assignment views keep working.
+    if (!(await userCanInOrg(userId, orgId, "manage_students"))) {
+      const allowed = await teacherSectionIds(userId, orgId);
+      if (allowed.length === 0) {
+        return c.json({ error: "You don't have access to the student roster.", code: "NO_ROSTER_ACCESS" }, 403);
+      }
+      if (classSectionId && !allowed.includes(classSectionId)) {
+        return c.json({ error: "You can only view students of sections you teach.", code: "SECTION_NOT_YOURS" }, 403);
+      }
+      if (!classSectionId) q = q.in("class_section_id", allowed);
+    }
     if (classSectionId) q = q.eq("class_section_id", classSectionId);
     if (search) {
       // Search across full_name AND gr_number — the input placeholder

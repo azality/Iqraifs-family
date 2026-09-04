@@ -1399,6 +1399,37 @@ await check("38. teacher alerts: stale gradebook surfaces on the (wing) dashboar
   }
 });
 
+await check("39. students list scoped: teacher sees own sections only, office keeps full roster", async () => {
+  // Pilot security finding (v1.0.90-students-scope): GET /students only
+  // required "any role in org" — any teacher could pull the whole
+  // school's roster with guardian contacts. Fresh token: check 34
+  // rotated qa-teacher's password.
+  const t2 = await ensureUser("qa-teacher@azality.com", "QA Teacher", "class_teacher");
+  const { data: sbSecs } = await admin.from("class_section").select("id").eq("class_id", sandboxClass.id);
+  const sbIds = new Set((sbSecs ?? []).map((x: any) => x.id));
+  // qa-teacher teaches only in Sandbox — every row returned must be there.
+  const r = await api(t2.token, `/school/orgs/${ORG}/students`);
+  assert(r.status === 200, `teacher list ${r.status}`);
+  const mine = ((await r.json()).students ?? []) as any[];
+  for (const s of mine) {
+    assert(sbIds.has(s.class_section_id), `roster leak: student in foreign section ${s.class_section_id}`);
+  }
+  // Asking for a foreign section outright is refused.
+  const { data: foreign } = await admin.from("class_section")
+    .select("id, class:class_id!inner(org_id)").eq("class.org_id", ORG).limit(30);
+  const other = (foreign ?? []).find((x: any) => !sbIds.has(x.id));
+  if (other) {
+    const rf = await api(t2.token, `/school/orgs/${ORG}/students?classSectionId=${(other as any).id}`);
+    assert(rf.status === 403, `foreign section expected 403, got ${rf.status}`);
+  }
+  // Office holds manage_students — full roster unchanged.
+  const ro = await api(office.token, `/school/orgs/${ORG}/students`);
+  assert(ro.status === 200, `office list ${ro.status}`);
+  const all = ((await ro.json()).students ?? []) as any[];
+  assert(all.some((s: any) => s.class_section_id && !sbIds.has(s.class_section_id)),
+    "office should still see the whole school");
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
