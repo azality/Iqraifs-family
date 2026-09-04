@@ -293,6 +293,37 @@ export async function loadSection(sectionId: string): Promise<
   };
 }
 
+/** Every section id this user teaches in the org — class-teacher rows,
+ *  hifz-teacher rows, active subject assignments, and (for incharges)
+ *  every section in their wing. Used to SCOPE list endpoints for
+ *  non-admin staff: a class teacher asking for "students" gets their
+ *  own sections' students, never the whole school (pilot finding:
+ *  GET /students returned all 394 records to any staff role). */
+export async function teacherSectionIds(userId: string, orgId: string): Promise<string[]> {
+  const out = new Set<string>();
+  const [own, hifz, subj, wingClasses] = await Promise.all([
+    serviceRoleClient.from("class_section")
+      .select("id, class:class_id!inner(org_id)")
+      .eq("class_teacher_user_id", userId).eq("class.org_id", orgId),
+    serviceRoleClient.from("class_section")
+      .select("id, class:class_id!inner(org_id)")
+      .eq("hifz_teacher_user_id", userId).eq("class.org_id", orgId),
+    serviceRoleClient.from("section_subject")
+      .select("class_section_id")
+      .eq("org_id", orgId).eq("teacher_user_id", userId).is("archived_at", null),
+    inchargeClassIds(userId, orgId),
+  ]);
+  for (const r of own.data ?? []) out.add((r as any).id);
+  for (const r of hifz.data ?? []) out.add((r as any).id);
+  for (const r of subj.data ?? []) out.add((r as any).class_section_id);
+  if (wingClasses.length > 0) {
+    const { data: wingSecs } = await serviceRoleClient
+      .from("class_section").select("id").in("class_id", wingClasses);
+    for (const r of wingSecs ?? []) out.add((r as any).id);
+  }
+  return [...out];
+}
+
 /** Subject teacher of this section — holds an active section_subject row
  *  (teacher_user_id) for it. The specialist model (one teacher, one
  *  subject, many sections) lives entirely in section_subject; a teacher
