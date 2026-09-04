@@ -1430,6 +1430,24 @@ await check("39. students list scoped: teacher sees own sections only, office ke
     "office should still see the whole school");
 });
 
+await check("40. weekly digest: principal gets sane week-over-week shape, office denied", async () => {
+  const r = await api(principal.token, `/school/orgs/${ORG}/weekly-digest`);
+  const j = await r.json();
+  assert(r.status === 200, `digest ${r.status}: ${JSON.stringify(j).slice(0, 120)}`);
+  assert(typeof j.week?.start === "string" && /^\d{4}-\d{2}-\d{2}$/.test(j.week.start), "week.start missing");
+  // Week starts on a Monday (org-local).
+  const dow = new Date(`${j.week.start}T00:00:00Z`).getUTCDay();
+  assert(dow === 1, `week.start should be a Monday, got dow ${dow}`);
+  assert(j.prevWeek?.start < j.week.start, "prevWeek should precede week");
+  assert(Array.isArray(j.teachers) && j.teachers.length > 0, "teachers[] empty");
+  const t = j.teachers[0];
+  assert(t.cur && typeof t.cur.rollCallDays === "number" && t.prev, "per-teacher cur/prev counters missing");
+  assert(j.week.rollCall && typeof j.week.rollCall.expected === "number", "org rollCall rollup missing");
+  // Office staff has no admin/incharge scope — denied.
+  const denied = await api(office.token, `/school/orgs/${ORG}/weekly-digest`);
+  assert(denied.status === 403, `office expected 403, got ${denied.status}`);
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

@@ -1900,6 +1900,54 @@ export interface AdminTeacher {
   last_sign_in_at?: string | null;
 }
 
+// ── Weekly digest (Teacher Track Record Phase 4) ──────────────────────
+// The principal's Monday-morning read: last completed week vs the week
+// before, org rollup + per-teacher counters. Data-only; the page
+// composes the insight copy.
+export interface DigestTeacherCount {
+  rollCallDays: number;
+  lessons: number;
+  hifzEntries: number;
+  grades: number;
+  notes: number;
+  assignments: number;
+}
+export interface DigestWeek {
+  start: string;
+  end: string;
+  schoolDays: number;
+  attendancePct: number | null;
+  attendanceMarked: number;
+  rollCall: { marked: number; expected: number };
+  totals: { lessons: number; hifzEntries: number; notes: number; assignments: number; grades: number };
+}
+export interface WeeklyDigestResponse {
+  week: DigestWeek;
+  prevWeek: DigestWeek;
+  wingScoped: boolean;
+  sectionCount: number;
+  teachers: Array<{
+    userId: string;
+    name: string;
+    ownsSection: boolean;
+    cur: DigestTeacherCount;
+    prev: DigestTeacherCount;
+  }>;
+}
+export const getWeeklyDigest = (orgId: string): Promise<WeeklyDigestResponse> =>
+  apiCall(`/school/orgs/${orgId}/weekly-digest`);
+
+/** Monday of the LAST completed week in org-local time (UTC+5) — the
+ *  week the digest reports on. Used by the dashboard's "digest ready"
+ *  row and the digest page's seen-marker so they agree. */
+export function digestWeekStart(): string {
+  const TZ = 5 * 3600e3;
+  const localNow = new Date(Date.now() + TZ);
+  const dow = (localNow.getUTCDay() + 6) % 7;
+  const thisMonday = Date.UTC(localNow.getUTCFullYear(), localNow.getUTCMonth(), localNow.getUTCDate() - dow);
+  return new Date(thisMonday - 7 * 86400e3).toISOString().slice(0, 10);
+}
+
 /** Teacher Track Record Phase 2 — one row per teacher, org-wide for
  *  principals/admins, wing-scoped for incharges. */
 export const getTeachingOverview = (
