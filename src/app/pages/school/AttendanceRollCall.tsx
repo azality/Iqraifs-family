@@ -11,8 +11,14 @@ import { toast } from "sonner";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
-import { ChevronLeft, CheckCircle, Clock, XCircle, AlertCircle, LogOut, Flag } from "lucide-react";
-import { HeroCard, KpiTile } from "../../components/school-ui";
+import { ChevronLeft, LogOut, Flag, MoreHorizontal } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../../components/ui/dropdown-menu";
+import { HeroCard } from "../../components/school-ui";
 import {
   getSectionAttendance,
   getSectionTimetable,
@@ -339,39 +345,30 @@ export function AttendanceRollCall() {
         </div>
       )}
 
-      <div className="grid gap-2 grid-cols-2 sm:grid-cols-4">
-        <KpiTile
-          variant="light"
-          label="Present"
-          icon={CheckCircle}
-          value={counts.present}
-          hint="Mark all present"
-          onClick={() => markAll("present")}
-        />
-        <KpiTile
-          variant="light"
-          label="Late"
-          icon={Clock}
-          value={counts.late}
-          hint="Mark all late"
-          onClick={() => markAll("late")}
-        />
-        <KpiTile
-          variant="light"
-          label="Absent"
-          icon={XCircle}
-          value={counts.absent}
-          hint="Mark all absent"
-          onClick={() => markAll("absent")}
-        />
-        <KpiTile
-          variant="light"
-          label="Excused"
-          icon={AlertCircle}
-          value={counts.excused}
-          hint="Mark all excused"
-          onClick={() => markAll("excused")}
-        />
+      {/* Compact counts + bulk menu (design 5c): the four mark-all
+          tiles were risky one-tap bulk actions living at the top of a
+          phone screen - the rare cases move behind a menu. */}
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
+        <span className="text-xs font-semibold text-emerald-700 tabular-nums">{counts.present} present</span>
+        {counts.absent > 0 && <span className="text-xs font-semibold text-rose-700 tabular-nums">· {counts.absent} absent</span>}
+        {counts.late > 0 && <span className="text-xs font-semibold text-amber-700 tabular-nums">· {counts.late} late</span>}
+        {counts.excused > 0 && <span className="text-xs text-slate-600 tabular-nums">· {counts.excused} excused</span>}
+        {counts.unmarked > 0 && <span className="text-xs text-slate-400 tabular-nums">· {counts.unmarked} unmarked</span>}
+        <span className="ml-auto">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="h-8 gap-1 text-xs">
+                Bulk <MoreHorizontal className="h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuItem onClick={() => markAll("present")}>Mark all present</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => markAll("late")}>Mark all late</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => markAll("excused")}>Mark all excused</DropdownMenuItem>
+              <DropdownMenuItem className="text-rose-600" onClick={() => markAll("absent")}>Mark all absent</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </span>
       </div>
 
       {/* Exception-first hint — only on a fresh (unsaved) roll call. */}
@@ -480,6 +477,23 @@ export function AttendanceRollCall() {
                         );
                       })}
                     </div>
+                    {/* Quick reason chips (design 5c): a fresh absence asks
+                        "reason?" with one-tap chips that fill the note. */}
+                    {row.status === "absent" && !row.notes && !openNotes.has(s.id) && (
+                      <span className="flex w-full items-center gap-1.5 sm:w-auto" onClick={(e) => e.stopPropagation()}>
+                        <span className="text-[11px] font-medium text-rose-700">reason?</span>
+                        {["Sick", "Family", "Travel"].map((rsn) => (
+                          <button
+                            key={rsn}
+                            type="button"
+                            onClick={() => setNote(s.id, rsn)}
+                            className="rounded-full border border-rose-200 bg-white px-2.5 py-0.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-50"
+                          >
+                            {rsn}
+                          </button>
+                        ))}
+                      </span>
+                    )}
                     {/* Notes are the exception's exception — disclosed on
                         demand, always visible once they hold text. */}
                     {openNotes.has(s.id) ? (

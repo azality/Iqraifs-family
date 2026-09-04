@@ -11,7 +11,7 @@ import { Link, useParams } from "react-router";
 import { ArrowUpDown, GraduationCap } from "lucide-react";
 import { getTeachingOverview } from "../../../utils/schoolApi";
 
-type SortKey = "pace" | "lessons" | "freshness" | "rollcall" | "heard" | "notes" | "name";
+type SortKey = "pace" | "lessons" | "freshness" | "rollcall" | "heard" | "notes" | "name" | "activity";
 
 export function TeachingOverview() {
   const { orgId = "" } = useParams();
@@ -20,6 +20,9 @@ export function TeachingOverview() {
   const [loading, setLoading] = useState(true);
   const [sortKey, setSortKey] = useState<SortKey>("pace");
   const [query, setQuery] = useState("");
+  // Early-term mode (design 4f): columns where EVERY row has no data
+  // collapse into a header note instead of five dash-columns.
+  const [showEmptyCols, setShowEmptyCols] = useState(false);
 
   useEffect(() => {
     if (!orgId) return;
@@ -47,9 +50,33 @@ export function TeachingOverview() {
         break;
       case "heard": list.sort((a, b) => num(a.heardRatePct, false) - num(b.heardRatePct, false)); break;
       case "notes": list.sort((a, b) => (a.notes.pos + a.notes.con) - (b.notes.pos + b.notes.con)); break;
+      case "activity":
+        list.sort((a, b) => num(b.lastActivityDays ?? b.freshnessDays, true) - num(a.lastActivityDays ?? a.freshnessDays, true));
+        break;
     }
     return list;
   }, [data, sortKey, query]);
+
+  // Which columns are empty across the board this term?
+  const emptyCols = useMemo(() => {
+    const all = data?.rows ?? [];
+    if (all.length === 0) return [] as string[];
+    const out: string[] = [];
+    if (all.every((r: any) => r.paceDeltaPp == null)) out.push("Pace");
+    if (all.every((r: any) => (r.lessons ?? 0) === 0)) out.push("Lessons/wk");
+    if (all.every((r: any) => r.freshnessDays == null && (r.ungradedPastDue ?? 0) === 0)) out.push("Grading lag");
+    if (all.every((r: any) => r.heardRatePct == null)) out.push("Hifz heard");
+    return out;
+  }, [data]);
+  const hideCol = (name: string) => !showEmptyCols && emptyCols.includes(name);
+  const lastActivity = (r: any): string => {
+    const d = r.freshnessDays; // days since last graded/logged activity
+    if (r.lessons > 0 && r.lessonsPerWeek > 0) return "this week";
+    if (d == null) return "—";
+    if (d <= 0) return "today";
+    if (d === 1) return "yesterday";
+    return `${d}d ago`;
+  };
 
   const Th = ({ k, children }: { k: SortKey; children: React.ReactNode }) => (
     <th
@@ -89,6 +116,18 @@ export function TeachingOverview() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {emptyCols.length > 0 && (
+            <span className="rounded-lg bg-slate-100 px-3 py-1.5 text-[11.5px] text-slate-600">
+              {emptyCols.join(", ")} hidden — no data yet this term ·{" "}
+              <button
+                type="button"
+                onClick={() => setShowEmptyCols((v) => !v)}
+                className="font-semibold text-indigo-600 hover:underline"
+              >
+                {showEmptyCols ? "hide again" : "show anyway"}
+              </button>
+            </span>
+          )}
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -119,15 +158,16 @@ export function TeachingOverview() {
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-          <table className="w-full min-w-[820px] text-sm">
+          <table className="w-full min-w-[720px] text-sm [&_td:first-child]:sticky [&_td:first-child]:left-0 [&_td:first-child]:bg-white [&_th:first-child]:sticky [&_th:first-child]:left-0 [&_th:first-child]:bg-white">
             <thead className="border-b border-slate-100">
               <tr>
                 <Th k="name">Teacher</Th>
-                <Th k="pace">Pace</Th>
-                <Th k="lessons">Lessons/wk</Th>
-                <Th k="freshness">Grading lag</Th>
+                {!hideCol("Pace") && <Th k="pace">Pace</Th>}
+                {!hideCol("Lessons/wk") && <Th k="lessons">Lessons/wk</Th>}
+                {!hideCol("Grading lag") && <Th k="freshness">Grading lag</Th>}
                 <Th k="rollcall">Roll call</Th>
-                <Th k="heard">Hifz heard</Th>
+                {!hideCol("Hifz heard") && <Th k="heard">Hifz heard</Th>}
+                <Th k="activity">Last activity</Th>
                 <Th k="notes">Notes +/−</Th>
               </tr>
             </thead>
@@ -145,34 +185,44 @@ export function TeachingOverview() {
                       {r.sectionCount} sec · {r.subjectCount} subj
                     </span>
                     {r.inRamp && (
-                      <span className="ml-2 rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700 ring-1 ring-sky-200">
+                      <span
+                        className="ml-2 cursor-help rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700 ring-1 ring-sky-200"
+                        title="New this term — metrics are muted for the first 6 weeks while they build a track record"
+                      >
                         ramp
                       </span>
                     )}
                   </td>
-                  <td className="px-3 py-2">{paceChip(r.paceDeltaPp)}</td>
-                  <td className="px-3 py-2 tabular-nums">
-                    {r.lessonsPerWeek}
-                    <span className="text-[11px] text-slate-400"> ({r.lessons})</span>
-                  </td>
-                  <td className="px-3 py-2 tabular-nums">
-                    {r.freshnessDays == null ? <span className="text-slate-300">—</span> : `${r.freshnessDays}d`}
-                    {r.ungradedPastDue > 0 && (
-                      <span className="ml-1.5 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
-                        {r.ungradedPastDue} ungraded
-                      </span>
-                    )}
-                  </td>
+                  {!hideCol("Pace") && <td className="px-3 py-2">{paceChip(r.paceDeltaPp)}</td>}
+                  {!hideCol("Lessons/wk") && (
+                    <td className="px-3 py-2 tabular-nums">
+                      {r.lessonsPerWeek}
+                      <span className="text-[11px] text-slate-400"> ({r.lessons})</span>
+                    </td>
+                  )}
+                  {!hideCol("Grading lag") && (
+                    <td className="px-3 py-2 tabular-nums">
+                      {r.freshnessDays == null ? <span className="text-slate-300">—</span> : `${r.freshnessDays}d`}
+                      {r.ungradedPastDue > 0 && (
+                        <span className="ml-1.5 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
+                          {r.ungradedPastDue} ungraded
+                        </span>
+                      )}
+                    </td>
+                  )}
                   <td className="px-3 py-2 tabular-nums">
                     {r.rollCall ? `${r.rollCall.marked}/${r.rollCall.schoolDays}` : <span className="text-slate-300">—</span>}
                   </td>
-                  <td className="px-3 py-2 tabular-nums">
-                    {r.heardRatePct == null ? <span className="text-slate-300">—</span> : (
-                      <span className={r.heardRatePct >= 80 ? "text-emerald-700 font-semibold" : r.heardRatePct >= 50 ? "text-amber-700" : "text-rose-700 font-semibold"}>
-                        {r.heardRatePct}%
-                      </span>
-                    )}
-                  </td>
+                  {!hideCol("Hifz heard") && (
+                    <td className="px-3 py-2 tabular-nums">
+                      {r.heardRatePct == null ? <span className="text-slate-300">—</span> : (
+                        <span className={r.heardRatePct >= 80 ? "text-emerald-700 font-semibold" : r.heardRatePct >= 50 ? "text-amber-700" : "text-rose-700 font-semibold"}>
+                          {r.heardRatePct}%
+                        </span>
+                      )}
+                    </td>
+                  )}
+                  <td className="px-3 py-2 text-xs text-slate-600">{lastActivity(r)}</td>
                   <td className="px-3 py-2 tabular-nums">
                     <span className="text-emerald-700">{r.notes.pos}+</span>
                     <span className="text-slate-300"> / </span>

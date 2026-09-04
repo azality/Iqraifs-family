@@ -1884,6 +1884,8 @@ export interface AdminTeacher {
   roles?: string[];
   /** Incharge wing, when the person holds the incharge role. */
   inchargeClasses?: Array<{ id: string; name: string }>;
+  /** Null = never signed in — drives the state column + Resend invite. */
+  last_sign_in_at?: string | null;
 }
 
 /** Teacher Track Record Phase 2 — one row per teacher, org-wide for

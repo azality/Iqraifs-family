@@ -4,7 +4,7 @@
 // optional class-teacher dropdown sourced from the org's teacher list.
 
 import { toast } from "sonner";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import { ClassSubjectsManager } from "./components/ClassSubjectsManager";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
@@ -60,6 +60,10 @@ import {
   updateSection,
   deleteSection,
   listAdminTeachers,
+  getSectionsLeaderboard,
+  getTimetableSectionProgress,
+  type LeaderboardRow,
+  type TimetableSectionProgress,
   type AdminClass,
   type AdminTeacher,
   type SchoolMeResponse,
@@ -100,12 +104,65 @@ export function ManageClasses() {
     listClasses(orgId).then(setClasses).catch((e) => setError(e?.message || "Failed to load classes"));
   };
 
+  // Design 4b: counts + timetable-completeness for the wing grid, and
+  // the structure editor behind a toggle. Hooks live above the early
+  // permission returns (hooks-order crash otherwise).
+  const [lbRows, setLbRows] = useState<LeaderboardRow[]>([]);
+  const [ttProgress, setTtProgress] = useState<TimetableSectionProgress | null>(null);
+  const [manageOpen, setManageOpen] = useState(false);
+
   useEffect(() => {
     if (!orgId) return;
     refresh();
     listAdminTeachers(orgId).then(setTeachers).catch(() => {});
+    getSectionsLeaderboard(orgId, "WTD").then((r) => setLbRows(r.sections)).catch(() => {});
+    getTimetableSectionProgress(orgId).then(setTtProgress).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId]);
+
+  // Wing grouping comes from the school's OWN incharge assignments
+  // (never from name matching): each incharge's wing is a group, hifz
+  // classes outside any wing group under "Hifz program", the rest under
+  // "Other classes".
+  const wingGroups = useMemo(() => {
+    const wingOfClass = new Map<string, string>();
+    for (const t of teachers) {
+      for (const c of t.inchargeClasses ?? []) {
+        if (!wingOfClass.has(c.id)) wingOfClass.set(c.id, `${t.full_name} — incharge`);
+      }
+    }
+    const lbBySection = new Map(lbRows.map((r) => [r.sectionId, r]));
+    const filledBySection = new Map(
+      (ttProgress?.sections ?? []).map((x) => [x.id, x.filledSlots]),
+    );
+    type Card = {
+      sectionId: string; label: string; teacher: string; count: number | null;
+      filled: number | null; isHifz: boolean;
+    };
+    const groups = new Map<string, Card[]>();
+    for (const cls of classes) {
+      const wing =
+        wingOfClass.get(cls.id) ?? (cls.kind === "hifz" ? "Hifz program" : "Other classes");
+      for (const sec of cls.sections ?? []) {
+        const lb = lbBySection.get(sec.id);
+        const t = teachers.find((x) => x.user_id === sec.class_teacher_user_id);
+        groups.set(wing, [
+          ...(groups.get(wing) ?? []),
+          {
+            sectionId: sec.id,
+            label: `${cls.name} · ${sec.name}`,
+            teacher: t?.full_name ?? (lb as any)?.classTeacherName ?? "no class teacher",
+            count: (lb as any)?.studentCount ?? null,
+            filled: filledBySection.get(sec.id) ?? null,
+            isHifz: cls.kind === "hifz",
+          },
+        ]);
+      }
+    }
+    return Array.from(groups.entries())
+      .map(([wing, cards]) => ({ wing, cards }))
+      .sort((a, b) => b.cards.length - a.cards.length);
+  }, [classes, teachers, lbRows, ttProgress]);
 
   if (meLoading) return null;
   if (!canManage && !perm.allowed) {
@@ -207,7 +264,60 @@ export function ManageClasses() {
 
       {error && <p className="text-sm text-rose-600">{error}</p>}
 
-      <div className="space-y-3">
+      {/* 4b wing grid — the whole school on one screen. Card click opens
+          the section dashboard; editing lives behind Manage structure. */}
+      {classes.length > 0 && (
+        <div className="space-y-4 rounded-xl border bg-white p-4" style={{ borderColor: "rgba(20,22,58,.08)" }}>
+          {wingGroups.map((g) => (
+            <div key={g.wing}>
+              <div className="mb-2 flex items-baseline gap-2">
+                <span className="text-xs font-extrabold uppercase tracking-wide text-slate-600">{g.wing}</span>
+                <span className="text-[11px] text-slate-400">{g.cards.length} section{g.cards.length === 1 ? "" : "s"}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-4">
+                {g.cards.map((card) => (
+                  <Link
+                    key={card.sectionId}
+                    to={`/school/orgs/${orgId}/sections/${card.sectionId}${card.isHifz ? "/hifz" : ""}`}
+                    className="rounded-lg border border-slate-200 px-3 py-2.5 transition-colors hover:border-indigo-200 hover:bg-indigo-50/30"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate text-[13px] font-bold text-slate-900">{card.label}</span>
+                      {card.filled !== null && (
+                        <span
+                          className="h-[7px] w-[7px] flex-none rounded-full"
+                          style={{ background: card.filled === 0 ? "#cbd5e1" : card.filled < 20 ? "#f59e0b" : "#10b981" }}
+                          title={`${card.filled} timetable period${card.filled === 1 ? "" : "s"} filled`}
+                        />
+                      )}
+                    </div>
+                    <div className="mt-0.5 truncate text-[11.5px] text-slate-500">{card.teacher}</div>
+                    <div className="mt-0.5 text-[11px] text-slate-400">
+                      {card.count !== null ? `${card.count} students` : ""}
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          ))}
+          <div className="flex items-center justify-between border-t border-slate-100 pt-3">
+            <span className="text-[11px] text-slate-400">
+              Dot = timetable completeness. Card opens the section dashboard.
+            </span>
+            {canManage && (
+              <button
+                type="button"
+                onClick={() => setManageOpen((v) => !v)}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                {manageOpen ? "Hide structure editor" : "Manage structure — sections, teachers, subjects"}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className={"space-y-3 " + (classes.length > 0 && !manageOpen ? "hidden" : "")}>
         {classes.length === 0 && (
           <div className={`${cardBase} ${cardElev} py-8 text-center text-sm text-slate-500`}>
             No classes yet. Click "Add Class" to create one.

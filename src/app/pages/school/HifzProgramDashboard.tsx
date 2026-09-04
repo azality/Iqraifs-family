@@ -38,7 +38,7 @@ function relDays(iso: string | null): string {
   return `${d}d ago`;
 }
 
-type Filter = "all" | "stalled" | "never" | "revision";
+type Filter = "all" | "active" | "stalled" | "never" | "revision";
 
 export function HifzProgramDashboard() {
   const { orgId = "" } = useParams();
@@ -54,7 +54,12 @@ export function HifzProgramDashboard() {
   useEffect(() => {
     if (!orgId) return;
     getHifzProgram(orgId)
-      .then(setData)
+      .then((d) => {
+        setData(d);
+        // Exception-first (design 4c): the reason to open this page is
+        // the never-logged backlog - start there when it exists.
+        if ((d.totals?.neverLogged ?? 0) > 0) setFilter("never");
+      })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, [orgId]);
 
@@ -62,9 +67,29 @@ export function HifzProgramDashboard() {
     const rows = data?.students ?? [];
     if (filter === "stalled") return rows.filter((r) => r.lastEntryAt && (r.stalledDays ?? 0) > 7);
     if (filter === "never") return rows.filter((r) => !r.lastEntryAt);
+    if (filter === "active") return rows.filter((r) => r.lastEntryAt && (r.stalledDays ?? 0) <= 7);
     if (filter === "revision") return rows.filter((r) => r.track === "revision");
     return rows;
   }, [data, filter]);
+
+  // Design 4c: roster grouped under section headers, never-logged first
+  // within each group. The old per-class cards become these headers.
+  const sectionGroups = useMemo(() => {
+    const bySection = new Map<string, typeof visible>();
+    for (const r of visible) {
+      const k = r.sectionLabel ?? "-";
+      bySection.set(k, [...(bySection.get(k) ?? []), r]);
+    }
+    const rank = (r: (typeof visible)[number]) =>
+      !r.lastEntryAt ? 0 : (r.stalledDays ?? 0) > 7 ? 1 : 2;
+    return Array.from(bySection.entries())
+      .map(([label, rows]) => ({
+        label,
+        rows: [...rows].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name)),
+        meta: (data?.classes ?? []).find((c) => c.label === label) ?? null,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [visible, data]);
 
   if (meLoading) return null;
   // Wing incharges are admitted too — the backend scopes the program to
@@ -101,45 +126,27 @@ export function HifzProgramDashboard() {
 
       {data && t && (
         <>
-          {/* Program KPIs */}
+          {/* Program KPIs - the stat cards ARE the filters (design 4c). */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Card><CardContent className="p-4">
-              <div className="text-[11px] uppercase tracking-wide text-slate-500">Students</div>
-              <div className="text-2xl font-bold tabular-nums">{t.students}</div>
-              <div className="text-[11px] text-slate-500">{t.hifzTrack} hifz · {t.revisionTrack} revision</div>
-            </CardContent></Card>
-            <Card><CardContent className="p-4">
-              <div className="text-[11px] uppercase tracking-wide text-slate-500">Active this week</div>
-              <div className={"text-2xl font-bold tabular-nums " + (t.activeThisWeek > 0 ? "text-emerald-700" : "text-slate-400")}>{t.activeThisWeek}</div>
-              <div className="text-[11px] text-slate-500">{t.entries7d} entries in 7 days</div>
-            </CardContent></Card>
-            <Card><CardContent className="p-4">
-              <div className="text-[11px] uppercase tracking-wide text-slate-500">Stalled (7d+)</div>
-              <div className={"text-2xl font-bold tabular-nums " + (t.stalled > 0 ? "text-amber-700" : "text-emerald-700")}>{t.stalled}</div>
-              <div className="text-[11px] text-slate-500">had entries, then went quiet</div>
-            </CardContent></Card>
-            <Card><CardContent className="p-4">
-              <div className="text-[11px] uppercase tracking-wide text-slate-500">Never logged</div>
-              <div className={"text-2xl font-bold tabular-nums " + (t.neverLogged > 0 ? "text-slate-700" : "text-emerald-700")}>{t.neverLogged}</div>
-              <div className="text-[11px] text-slate-500">no recitation recorded yet</div>
-            </CardContent></Card>
-          </div>
-
-          {/* Per-class rollup */}
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {data.classes.map((c) => (
-              <Link key={c.sectionId} to={`/school/orgs/${orgId}/sections/${c.sectionId}/hifz`}>
-                <Card className="h-full transition-colors hover:border-emerald-300">
-                  <CardHeader className="pb-1">
-                    <CardTitle className="text-sm">{c.label}</CardTitle>
-                    <CardDescription className="text-xs">{c.teacherName ?? "No hifz teacher"}</CardDescription>
-                  </CardHeader>
-                  <CardContent className="pt-0 text-xs text-slate-600">
-                    {c.studentCount} students · {c.activeThisWeek} active this week
-                    <div className="text-[11px] text-slate-400">last activity: {relDays(c.lastActivity)}</div>
-                  </CardContent>
-                </Card>
-              </Link>
+            {([
+              { f: "all" as Filter, label: "Students", value: t.students, sub: `${t.hifzTrack} hifz · ${t.revisionTrack} revision`, tone: "" },
+              { f: "active" as Filter, label: "Active this week", value: t.activeThisWeek, sub: `${t.entries7d} entries in 7 days`, tone: t.activeThisWeek > 0 ? "text-emerald-700" : "text-slate-400" },
+              { f: "stalled" as Filter, label: "Stalled (7d+)", value: t.stalled, sub: "had entries, then went quiet", tone: t.stalled > 0 ? "text-amber-700" : "text-emerald-700" },
+              { f: "never" as Filter, label: "Never logged", value: t.neverLogged, sub: "no recitation recorded yet", tone: t.neverLogged > 0 ? "text-amber-800" : "text-emerald-700" },
+            ]).map((k) => (
+              <button
+                key={k.f}
+                type="button"
+                onClick={() => setFilter(k.f)}
+                className={
+                  "rounded-xl border bg-white p-4 text-left transition-colors " +
+                  (filter === k.f ? "border-emerald-400 ring-1 ring-emerald-300" : "border-slate-200 hover:border-emerald-200")
+                }
+              >
+                <div className="text-[11px] uppercase tracking-wide text-slate-500">{k.label}</div>
+                <div className={"text-2xl font-bold tabular-nums " + k.tone}>{k.value}</div>
+                <div className="text-[11px] text-slate-500">{k.sub}</div>
+              </button>
             ))}
           </div>
 
@@ -173,8 +180,45 @@ export function HifzProgramDashboard() {
                     : "Nothing in this filter."}
                 </p>
               ) : (
+                sectionGroups.map((g) => (
+                <div key={g.label}>
+                  <div className="grid grid-cols-[1fr_auto] items-center gap-4 border-b border-slate-100 bg-slate-50 px-4 py-2.5 sm:grid-cols-[1fr_220px_90px]">
+                    <span className="flex min-w-0 items-baseline gap-2">
+                      <span className="truncate text-[13px] font-extrabold text-slate-900">{g.label}</span>
+                      <span className="hidden truncate text-[11.5px] text-slate-400 sm:inline">
+                        {g.meta?.teacherName ?? ""}{g.meta ? ` · ${g.meta.studentCount} students` : ""}
+                      </span>
+                    </span>
+                    {g.meta && (
+                      <span className="hidden flex-col gap-1 sm:flex">
+                        <span className="flex justify-between text-[11px] text-slate-500">
+                          <span>Logged this week</span>
+                          <span className={"font-bold " + (g.meta.activeThisWeek > 0 ? "text-emerald-700" : "text-amber-700")}>
+                            {g.meta.activeThisWeek}/{g.meta.studentCount}
+                          </span>
+                        </span>
+                        <span className="h-1.5 overflow-hidden rounded-full bg-slate-200/70">
+                          <span
+                            className="block h-full rounded-full"
+                            style={{
+                              width: `${g.meta.studentCount > 0 ? Math.round((g.meta.activeThisWeek / g.meta.studentCount) * 100) : 0}%`,
+                              background: g.meta.activeThisWeek > 0 ? "#10b981" : "#f59e0b",
+                            }}
+                          />
+                        </span>
+                      </span>
+                    )}
+                    {g.meta && (
+                      <Link
+                        to={`/school/orgs/${orgId}/sections/${g.meta.sectionId}/hifz`}
+                        className="text-right text-xs font-semibold text-emerald-700 hover:underline"
+                      >
+                        Open log →
+                      </Link>
+                    )}
+                  </div>
                 <ul className="divide-y divide-slate-100">
-                  {visible.map((s) => {
+                  {g.rows.map((s) => {
                     const stalled = s.lastEntryAt && (s.stalledDays ?? 0) > 7;
                     return (
                       <li key={s.studentId} className="flex items-center gap-3 px-4 py-2.5">
@@ -200,6 +244,8 @@ export function HifzProgramDashboard() {
                     );
                   })}
                 </ul>
+                </div>
+                ))
               )}
             </CardContent>
           </Card>

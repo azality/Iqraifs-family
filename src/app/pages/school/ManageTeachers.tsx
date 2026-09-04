@@ -22,7 +22,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../components/ui/select";
-import { Plus, Upload, Trash2, ShieldCheck, Mail, AlertTriangle, Star } from "lucide-react";
+import { Plus, Upload, Trash2, ShieldCheck, Mail, AlertTriangle, Star, MoreHorizontal, Eye } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "../../components/ui/dropdown-menu";
+import { useNavigate } from "react-router";
 import {
   HeroCard,
   DataTable,
@@ -59,6 +67,7 @@ import { CsvUploadDialog } from "./components/CsvUploadDialog";
 
 export function ManageTeachers() {
   const { orgId = "" } = useParams();
+  const navigate = useNavigate();
   const [me, setMe] = useState<SchoolMeResponse | null>(null);
   const [meLoading, setMeLoading] = useState(true);
   const [teachers, setTeachers] = useState<AdminTeacher[]>([]);
@@ -324,13 +333,59 @@ export function ManageTeachers() {
     return <Badge variant="outline" className={cls + " text-[10px] font-medium"}>{label}</Badge>;
   };
 
+  // Design 4a: admins join the SAME list (deduped by user; someone can
+  // be admin + teacher) — the separate Admins table becomes a chip.
+  const allStaff: AdminTeacher[] = (() => {
+    const byId = new Map<string, AdminTeacher>();
+    for (const t of teachers) byId.set(t.user_id, { ...t, roles: [...(t.roles ?? [t.role_template])] });
+    for (const a of admins) {
+      const existing = byId.get(a.user_id);
+      if (existing) {
+        if (!(existing.roles ?? []).includes("admin")) existing.roles = [...(existing.roles ?? []), "admin"];
+      } else {
+        byId.set(a.user_id, {
+          user_id: a.user_id,
+          email: a.email,
+          full_name: a.full_name,
+          role_template: "admin" as any,
+          roles: ["admin"],
+          last_sign_in_at: (a as any).last_sign_in_at ?? undefined,
+        } as AdminTeacher);
+      }
+    }
+    return Array.from(byId.values());
+  })();
+
+  const neverSignedIn = (t: AdminTeacher) =>
+    t.last_sign_in_at === null; // undefined = old backend, unknown → hide state
+  const staffState = (t: AdminTeacher): { label: string; cls: string } | null => {
+    if (t.last_sign_in_at === undefined) return null;
+    if (t.last_sign_in_at === null) return { label: "Never signed in", cls: "text-amber-700" };
+    const d = new Date(t.last_sign_in_at);
+    const today = new Date();
+    const sameDay = d.toDateString() === today.toDateString();
+    if (sameDay) return { label: "Active today", cls: "text-slate-500" };
+    const days = Math.round((today.getTime() - d.getTime()) / 86400000);
+    if (days <= 7)
+      return { label: `Last active ${d.toLocaleDateString(undefined, { weekday: "short" })}`, cls: "text-slate-500" };
+    return { label: `Last active ${d.toLocaleDateString(undefined, { day: "numeric", month: "short" })}`, cls: "text-slate-400" };
+  };
+
+  const countFor = (value: string) =>
+    value === "all"
+      ? allStaff.length
+      : value === "invite"
+        ? allStaff.filter(neverSignedIn).length
+        : allStaff.filter((t) => (t.roles ?? [t.role_template]).includes(value)).length;
   const ROLE_FILTERS: Array<{ value: string; label: string }> = [
-    { value: "all", label: "All" },
-    { value: "incharge", label: "Incharge" },
-    { value: "class_teacher", label: "Class Teacher" },
-    { value: "visiting_teacher", label: "Visiting Teacher" },
-    { value: "office_staff", label: "Office" },
-    { value: "financial_staff", label: "Finance" },
+    { value: "all", label: `All ${countFor("all")}` },
+    { value: "incharge", label: `Incharge ${countFor("incharge")}` },
+    { value: "class_teacher", label: `Class Teacher ${countFor("class_teacher")}` },
+    { value: "visiting_teacher", label: `Visiting ${countFor("visiting_teacher")}` },
+    { value: "office_staff", label: `Office ${countFor("office_staff")}` },
+    { value: "financial_staff", label: `Finance ${countFor("financial_staff")}` },
+    ...(principal ? [{ value: "admin", label: `Admins ${countFor("admin")}` }] : []),
+    ...(countFor("invite") > 0 ? [{ value: "invite", label: `Invite pending ${countFor("invite")}` }] : []),
   ];
 
   const teacherColumns: DataTableColumn<AdminTeacher>[] = [
@@ -341,15 +396,17 @@ export function ManageTeachers() {
         // Clickable name → detail page. Underline-on-hover signals the
         // affordance without making the whole row a button (admins still
         // need to right-click → open in new tab a lot).
-        <Link
-          to={`/school/orgs/${orgId}/admin/teachers/${t.user_id}`}
-          className="font-medium text-indigo-700 hover:underline"
-        >
-          {t.full_name || "(no name)"}
-        </Link>
+        <div className="min-w-0">
+          <Link
+            to={`/school/orgs/${orgId}/admin/teachers/${t.user_id}`}
+            className="font-medium text-indigo-700 hover:underline"
+          >
+            {t.full_name || "(no name)"}
+          </Link>
+          <div className="truncate text-[11.5px] text-slate-400">{t.email}</div>
+        </div>
       ),
     },
-    { key: "email", header: "Email", cell: (t) => <span className="text-xs">{t.email}</span> },
     {
       key: "role_template",
       header: "Role",
@@ -378,55 +435,84 @@ export function ManageTeachers() {
       },
     },
     {
+      key: "state",
+      header: "State",
+      cell: (t) => {
+        const st = staffState(t);
+        return st ? <span className={"text-xs " + st.cls}>{st.label}</span> : null;
+      },
+    },
+    {
       key: "actions",
       header: "",
       align: "right",
-      width: "w-44",
+      width: "w-56",
       cell: (t) => {
         const inPool = substitutePool.has(t.user_id);
+        const isAdminOnly = (t.roles ?? []).length === 1 && (t.roles ?? [])[0] === "admin";
         return (
-        <div className="flex justify-end gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => openWing(t)}
-            title="Incharge wing — which classes this person oversees"
-          >
-            <Crown className={"h-3.5 w-3.5 " + ((t.inchargeClasses ?? []).length > 0 ? "text-violet-600" : "text-slate-400")} />
-          </Button>
-          <Link
-            to={`/school/orgs/${orgId}/admin/teachers/${t.user_id}/schedule`}
-            onClick={(e) => e.stopPropagation()}
-            title="View weekly schedule"
-            className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
-          >
-            Schedule
-          </Link>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => toggleSubstitutePool(t.user_id)}
-            title={inPool ? "Remove from substitute pool" : "Add to substitute pool"}
-          >
-            <Star className={"h-3.5 w-3.5 " + (inPool ? "fill-amber-400 text-amber-500" : "text-slate-400")} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => handleResend(t.user_id, t.full_name || t.email)}
-            title="Resend invite email"
-          >
-            <Mail className="h-3.5 w-3.5 text-slate-600" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => handleDeleteTeacher(t)}
-            title="Remove from staff"
-          >
-            <Trash2 className="h-3.5 w-3.5 text-rose-600" />
-          </Button>
-        </div>
+          <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
+            {neverSignedIn(t) && (
+              <button
+                type="button"
+                onClick={() => handleResend(t.user_id, t.full_name || t.email)}
+                className="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-800 hover:bg-amber-100"
+              >
+                Resend invite
+              </button>
+            )}
+            {!isAdminOnly && (
+              <Link
+                to={`/school/orgs/${orgId}/admin/teachers/${t.user_id}/schedule`}
+                className="inline-flex items-center rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Schedule
+              </Link>
+            )}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-8 w-8 p-0" aria-label="Actions">
+                  <MoreHorizontal className="h-4 w-4 text-slate-400" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52">
+                <DropdownMenuItem onClick={() => navigate(`/school/orgs/${orgId}/admin/teachers/${t.user_id}`)}>
+                  <Eye className="mr-2 h-3.5 w-3.5" /> Open profile
+                </DropdownMenuItem>
+                {!isAdminOnly && (
+                  <DropdownMenuItem onClick={() => openWing(t)}>
+                    <Crown className={"mr-2 h-3.5 w-3.5 " + ((t.inchargeClasses ?? []).length > 0 ? "text-violet-600" : "")} />
+                    Incharge wing…
+                  </DropdownMenuItem>
+                )}
+                {!isAdminOnly && (
+                  <DropdownMenuItem onClick={() => toggleSubstitutePool(t.user_id)}>
+                    <Star className={"mr-2 h-3.5 w-3.5 " + (inPool ? "fill-amber-400 text-amber-500" : "")} />
+                    {inPool ? "Remove from substitute pool" : "Add to substitute pool"}
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem onClick={() => handleResend(t.user_id, t.full_name || t.email)}>
+                  <Mail className="mr-2 h-3.5 w-3.5" /> Resend invite email
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                {isAdminOnly ? (
+                  <DropdownMenuItem
+                    className="text-rose-600"
+                    onClick={() => {
+                      const a = admins.find((x) => x.user_id === t.user_id);
+                      if (a) handleRemoveAdmin(a);
+                    }}
+                  >
+                    <Trash2 className="mr-2 h-3.5 w-3.5" /> Remove admin
+                  </DropdownMenuItem>
+                ) : (
+                  <DropdownMenuItem className="text-rose-600" onClick={() => handleDeleteTeacher(t)}>
+                    <Trash2 className="mr-2 h-3.5 w-3.5" /> Remove from staff…
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         );
       },
     },
@@ -478,18 +564,6 @@ export function ManageTeachers() {
         }
       />
 
-      {/* Persistent help banner — invite emails sometimes silently fail
-          (Supabase rejects some addresses like ddd@gmail.com, or the email
-          lands in spam). The mail icon next to each row resends. */}
-      <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-        <AlertTriangle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
-        <span>
-          If a teacher or admin says they never got the invite email, click the
-          {" "}<Mail className="inline h-3 w-3 -mt-0.5" /> icon next to their row
-          to re-send. Check spam folders too.
-        </span>
-      </div>
-
       {error && <p className="text-sm text-rose-600">{error}</p>}
       {notice && (
         <div className="flex items-start justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
@@ -513,6 +587,11 @@ export function ManageTeachers() {
             placeholder="Search staff by name or email…"
             className="h-8 w-64 text-sm"
           />
+          {principal && (
+            <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => setAdminOpen(true)}>
+              <ShieldCheck className="mr-1 h-3.5 w-3.5" /> Add admin
+            </Button>
+          )}
           {ROLE_FILTERS.map((f) => (
             <button
               key={f.value}
@@ -530,41 +609,20 @@ export function ManageTeachers() {
         </div>
         <DataTable<AdminTeacher>
           columns={teacherColumns}
-          rows={teachers.filter((t) => {
+          rows={allStaff.filter((t) => {
             const q = staffQuery.trim().toLowerCase();
             if (q && !(`${t.full_name} ${t.email}`.toLowerCase().includes(q))) return false;
             if (roleFilter === "all") return true;
+            if (roleFilter === "invite") return neverSignedIn(t);
             const roles = (t.roles && t.roles.length > 0)
               ? t.roles
               : [t.role_template ?? (t as any).role_type ?? ""];
             return roles.includes(roleFilter);
           })}
           rowKey={(t) => t.user_id}
-          emptyMessage="No teachers yet."
+          emptyMessage="No staff yet — Add Teacher above, or import via Bulk CSV."
         />
       </div>
-
-      {principal && (
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <h2 className={sectionTitleClasses}>
-              <ShieldCheck className="inline h-3.5 w-3.5 mr-1 -mt-0.5" />
-              Admins
-            </h2>
-            <Button size="sm" onClick={() => setAdminOpen(true)}>
-              <Plus className="h-3.5 w-3.5 mr-1" /> Add admin
-            </Button>
-          </div>
-          <div className={cardBase}>
-            <DataTable<OrgAdmin>
-              columns={adminColumns}
-              rows={admins}
-              rowKey={(a) => a.user_id}
-              emptyMessage="No additional admins."
-            />
-          </div>
-        </div>
-      )}
 
       {/* Add teacher dialog */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>

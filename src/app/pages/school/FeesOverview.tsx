@@ -28,6 +28,8 @@ import {
   viewerRoleForOrg,
   listClasses,
   listOrgFees,
+  bulkGenerateFees,
+  type BulkFeeGenerateResult,
   updateFee,
   deleteFee,
   type AdminClass,
@@ -143,6 +145,11 @@ export function FeesOverview() {
   const [sectionFilter, setSectionFilter] = useState<string>("__all__");
   const [statusFilter, setStatusFilter] = useState<string>("__all__");
   const [fees, setFees] = useState<FeeStatus[]>([]);
+  // Design 4e: empty month becomes onboarding — a dry-run of the bulk
+  // generator previews what "Generate" would create.
+  const [dryInfo, setDryInfo] = useState<BulkFeeGenerateResult | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [feesLoaded, setFeesLoaded] = useState(false);
   const [classes, setClasses] = useState<AdminClass[]>([]);
   const [markPaid, setMarkPaid] = useState<MarkPaidState | null>(null);
 
@@ -157,7 +164,7 @@ export function FeesOverview() {
       status: statusFilter !== "__all__" ? (statusFilter as FeeStatusValue) : undefined,
       sectionId: sectionFilter !== "__all__" ? sectionFilter : undefined,
     })
-      .then((r) => setFees(r.fees))
+      .then((r) => { setFees(r.fees); setFeesLoaded(true); })
       .catch((e) => toast.error(e instanceof Error ? e.message : String(e)));
   };
 
@@ -167,6 +174,39 @@ export function FeesOverview() {
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId, period, sectionFilter, statusFilter]);
+
+  const monthEmpty =
+    feesLoaded && fees.length === 0 && statusFilter === "__all__" && sectionFilter === "__all__";
+  useEffect(() => {
+    if (!orgId || !monthEmpty) { setDryInfo(null); return; }
+    let cancelled = false;
+    bulkGenerateFees(orgId, { period, dryRun: true })
+      .then((r) => { if (!cancelled) setDryInfo(r); })
+      .catch(() => { if (!cancelled) setDryInfo(null); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgId, period, monthEmpty]);
+  const runGenerate = async () => {
+    setGenerating(true);
+    try {
+      const r = await bulkGenerateFees(orgId, { period });
+      toast.success(
+        `${r.created} voucher${r.created === 1 ? "" : "s"} created` +
+          (r.skipped > 0 ? ` · ${r.skipped} skipped (no fee plan)` : "") +
+          (r.waived > 0 ? ` · ${r.waived} waived` : ""),
+      );
+      refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not generate vouchers.");
+    } finally {
+      setGenerating(false);
+    }
+  };
+  const monthLabel = (() => {
+    try {
+      return new Date(`${period}-01T00:00:00`).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+    } catch { return period; }
+  })();
 
   const sectionOptions = useMemo(() => {
     const out: Array<{ id: string; label: string }> = [];
@@ -323,6 +363,32 @@ export function FeesOverview() {
         }
       />
 
+      {monthEmpty ? (
+        <div className="rounded-xl border bg-white px-6 py-9 text-center" style={{ borderColor: "rgba(20,22,58,.08)" }}>
+          <div className="text-[15px] font-extrabold text-slate-900">
+            No vouchers generated for {monthLabel} yet
+          </div>
+          <p className="mx-auto mt-1.5 max-w-md text-[13px] leading-relaxed text-slate-500">
+            {dryInfo
+              ? <>Generating creates vouchers for <strong className="text-slate-700">{dryInfo.total} student{dryInfo.total === 1 ? "" : "s"}</strong> from each class&apos;s fee plan{dryInfo.waived > 0 ? <>, honoring {dryInfo.waived} waiver{dryInfo.waived === 1 ? "" : "s"}</> : null}.</>
+              : "Vouchers are created from each class's monthly fee plan, honoring per-student overrides."}
+          </p>
+          <div className="mt-4 flex flex-wrap justify-center gap-2.5">
+            <Button className="bg-indigo-600 hover:bg-indigo-700" onClick={runGenerate} disabled={generating}>
+              {generating ? "Generating…" : `Generate ${monthLabel} vouchers`}
+            </Button>
+            <Link to={`/school/orgs/${orgId}/admin/fees/plans`}>
+              <Button variant="outline">Review fee plans first</Button>
+            </Link>
+          </div>
+          {dryInfo && dryInfo.skipped > 0 && (
+            <div className="mt-4 inline-block rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11.5px] text-amber-800">
+              {dryInfo.skipped} student{dryInfo.skipped === 1 ? "" : "s"} in classes with no fee plan will be skipped.
+            </div>
+          )}
+        </div>
+      ) : (
+      <>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <KpiTile variant="light" label="Students" value={fees.length} hint="this period" />
         <KpiTile variant="light" label="Paid" value={totals.paidCount} hint={`${totals.unpaidCount} unpaid`} />
@@ -353,6 +419,8 @@ export function FeesOverview() {
           navigate(`/school/orgs/${orgId}/students/${f.student_id}/fees`)
         }
       />
+      </>
+      )}
 
       <MarkPaidDialog state={markPaid} onClose={() => setMarkPaid(null)} onSaved={refresh} orgId={orgId} />
     </div>

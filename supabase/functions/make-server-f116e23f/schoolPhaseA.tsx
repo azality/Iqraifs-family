@@ -1943,16 +1943,21 @@ export function installPhaseA(school: Hono) {
       const primary = ROLE_PRIORITY.find((rt) => entry.roles.has(rt)) ?? roles[0];
       let full_name = "Unknown";
       let email = "";
+      let last_sign_in_at: string | null = null;
       try {
         const { data: lookup } = await serviceRoleClient.auth.admin.getUserById(uid);
         const u: any = lookup?.user;
         full_name = u?.user_metadata?.name || u?.email?.split("@")[0] || "Unknown";
         email = u?.email || "";
+        // Design 4a: the row's "state" column and the Resend-invite
+        // visibility both key off whether the person ever signed in.
+        last_sign_in_at = u?.last_sign_in_at ?? null;
       } catch { /* keep fallbacks */ }
       out.push({
         user_id: uid,
         full_name,
         email,
+        last_sign_in_at,
         role_type: primary,
         role_template: primary,
         roles,

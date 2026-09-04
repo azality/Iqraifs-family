@@ -340,8 +340,10 @@ export function SectionOverview() {
 
       {/* Two-column body: recent behavior on the left, drill-in cards on right */}
       <div className="grid gap-4 lg:grid-cols-3">
-        {/* Recent behavior + top categories */}
-        <div className={tileBase + " lg:col-span-2"}>
+        {/* Recent behavior + top categories. Empty panels shrink (design
+            review): a giant blank card was dominating the page and
+            pushing Subjects below the fold. */}
+        <div className={tileBase + (notes.length === 0 && topCategories.length === 0 ? "" : " lg:col-span-2")}>
           <div className="mb-2 flex items-center justify-between">
             <div>
               <h3 className="text-sm font-semibold text-slate-900">Recent behavior</h3>
@@ -372,7 +374,7 @@ export function SectionOverview() {
           )}
 
           {notes.length === 0 ? (
-            <p className="py-6 text-center text-xs text-slate-500">No behavior notes yet for this section.</p>
+            <p className="py-2 text-xs text-slate-400">No behavior notes yet.</p>
           ) : (
             <ul className="divide-y divide-slate-100">
               {notes.map((n) => (
