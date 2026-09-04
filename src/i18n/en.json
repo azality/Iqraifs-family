@@ -154,6 +154,20 @@
       "school": "School",
       "announcementCount": "{{count}} announcement(s)"
     },
+    "exam": {
+      "title": "{{term}} — written datesheet",
+      "papersLeft": "{{count}} paper(s) left",
+      "finished": "All papers done",
+      "allDone": "All papers are done for this assessment.",
+      "instructions": "School instructions",
+      "today": "today",
+      "tomorrow": "tomorrow",
+      "inDays": "in {{count}} days",
+      "showPast": "Show {{count}} completed paper(s) ▾",
+      "hidePast": "Hide completed papers ▴",
+      "next": "Next paper",
+      "seeDatesheet": "Datesheet →"
+    },
     "hifz": {
       "tonight": "Tonight at home",
       "next": "Next:",

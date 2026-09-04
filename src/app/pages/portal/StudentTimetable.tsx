@@ -20,6 +20,7 @@ import { useParams } from "react-router";
 import { useTranslation } from "react-i18next";
 import { Calendar } from "lucide-react";
 import { HeroCard } from "../../components/school-ui";
+import { ExamDatesheetCard } from "./ExamDatesheetCard";
 import { subjectColor } from "../../../utils/subjectColors";
 import {
   getMyStudentTimetable,
@@ -144,6 +145,10 @@ export function StudentTimetable() {
         title={t("portal.nav.timetable")}
         subtitle={t("portal.tt.subtitle")}
       />
+
+      {/* The published assessment datesheet leads while papers are on —
+          it's the schedule parents actually need this month. */}
+      <ExamDatesheetCard studentId={studentId} />
 
       {error && (
         <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>

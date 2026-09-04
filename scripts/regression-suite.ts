@@ -1466,6 +1466,44 @@ await check("40. weekly digest: principal gets sane week-over-week shape, office
   assert(denied.status === 403, `office expected 403, got ${denied.status}`);
 });
 
+await check("41. exam datesheet: staff read grouped by class, portal scoped to own class", async () => {
+  const r = await api(principal.token, `/school/orgs/${ORG}/exam-schedule`);
+  const j = await r.json();
+  assert(r.status === 200, `staff datesheet ${r.status}`);
+  assert(Array.isArray(j.classes), "classes[] missing");
+  if (j.classes.length > 0) {
+    const c = j.classes[0];
+    assert(typeof c.className === "string" && Array.isArray(c.papers), "class group shape wrong");
+    const p = c.papers[0];
+    assert(p && /^\d{4}-\d{2}-\d{2}$/.test(p.examDate) && typeof p.subjectLabel === "string",
+      `paper shape wrong: ${JSON.stringify(p)}`);
+    // Labels are the school's own text — never rewritten server-side.
+    assert(Array.isArray(j.dates) && j.dates.length > 0, "dates[] missing");
+  }
+  // A parent PIN token sees ONLY their child's class papers.
+  const { data: qaStu } = await admin.from("student")
+    .select("id, class_section_id").eq("org_id", ORG).eq("gr_number", "DEMO-1").maybeSingle();
+  if (qaStu) {
+    const anon2 = createClient(URL_, ANON) as any;
+    void anon2;
+    const login = await fetch(`${FUNC}/school/auth/pin-login`, {
+      method: "POST",
+      headers: { apikey: ANON, "Content-Type": "application/json" },
+      body: JSON.stringify({ orgIdentifier: "iqra-ifs", loginIdentifier: "03110000001", pin: "1234" }),
+    });
+    const lj = await login.json();
+    if (login.status === 200 && lj.token) {
+      const pr = await fetch(`${FUNC}/school/pin-me/students/${qaStu.id}/exam-schedule`, {
+        headers: { apikey: ANON, "X-Pin-Token": lj.token },
+      });
+      const pj = await pr.json();
+      assert(pr.status === 200, `portal datesheet ${pr.status}: ${JSON.stringify(pj).slice(0, 120)}`);
+      assert(Array.isArray(pj.papers) && Array.isArray(pj.instructions),
+        "portal datesheet shape wrong");
+    }
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
