@@ -28,7 +28,6 @@
     "src/app/pages/school/AttendanceRollCall.tsx|TS2322|Type '{ variant: string; eyebrow: string; title: string; subtitle: string; asOf: string; rightSlot: Element; }' is not assignable to type 'IntrinsicAttributes & HeroCardProps'.",
     "src/app/pages/school/ManageTimetable.tsx|TS2339|Property 'conflict' does not exist on type 'SaveResult'.",
     "src/app/pages/school/ManageTimetable.tsx|TS2339|Property 'teacherConflict' does not exist on type 'SaveResult'.",
-    "src/app/pages/school/StudentDetail.tsx|TS2322|Type 'Element' is not assignable to type 'string'.",
     "src/app/pages/school/TeacherCalendar.tsx|TS2367|This comparison appears to be unintentional because the types '\"week\"' and '\"day\"' have no overlap.",
     "src/app/pages/school/TimetableWeekTemplate.tsx|TS2578|Unused '@ts-expect-error' directive.",
     "src/app/pages/school/components/ReadmitDialog.tsx|TS2339|Property 'program' does not exist on type 'AdminStudent'.",

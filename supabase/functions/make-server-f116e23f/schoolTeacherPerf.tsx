@@ -342,6 +342,10 @@ export function installTeacherPerf(school: Hono) {
       ramp: { inRamp, rampUntil: rampUntil ? rampUntil.toISOString().slice(0, 10) : null },
       footprint: {
         ownedSections: ownedSections.map((s) => `${s.class?.name} ${s.name}`),
+        // Additive (7a): id+label refs so the profile can deep-link the
+        // roll-call stat to the section's attendance page.
+        ownedSectionRefs: ownedSections.map((s) => ({ id: s.id, label: `${s.class?.name} ${s.name}` })),
+        hifzSectionRefs: hifzSections.map((s) => ({ id: s.id, label: `${s.class?.name} ${s.name}` })),
         hifzSections: hifzSections.map((s) => `${s.class?.name} ${s.name}`),
         subjects: subjects.map((s) => `${s.section?.class?.name ?? ""} ${s.section?.name ?? ""} · ${s.name}`.trim()),
       },
