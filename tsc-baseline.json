@@ -49,8 +49,6 @@
     "src/app/utils/kidSessionGuard.ts|TS2358|The left-hand side of an 'instanceof' expression must be of type 'any', an object type or a type parameter.",
     "src/app/utils/pushNotifications.ts|TS2322|Type 'PermissionState' is not assignable to type '\"prompt\" | \"granted\" | \"denied\"'.",
     "src/tests/p0-test-runner.ts|TS2345|Argument of type '\"PASS\" | \"FAIL\" | \"SKIP\" | \"PENDING\"' is not assignable to parameter of type '\"PASS\" | \"FAIL\" | \"SKIP\"'.",
-    "src/utils/schoolApi.ts|TS2367|This comparison appears to be unintentional because the types 'RoleType' and '\"class_teacher\"' have no overlap.",
-    "src/utils/schoolApi.ts|TS2367|This comparison appears to be unintentional because the types 'RoleType' and '\"visiting_teacher\"' have no overlap.",
     "src/utils/schoolApi.ts|TS2558|Expected 0 type arguments, but got 1."
   ]
 }
