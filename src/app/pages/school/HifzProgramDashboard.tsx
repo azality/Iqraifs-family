@@ -67,7 +67,11 @@ export function HifzProgramDashboard() {
   }, [data, filter]);
 
   if (meLoading) return null;
-  if (!isOrgAdmin(me, orgId)) return <NoAccessRedirect />;
+  // Wing incharges are admitted too — the backend scopes the program to
+  // their wing's classes (empty for non-hifz wings). The toolbar already
+  // offers them the entry; only this gate was still admin-only.
+  const isIncharge = me?.roles.some((r) => r.role_type === "incharge") ?? false;
+  if (!isOrgAdmin(me, orgId) && !isIncharge) return <NoAccessRedirect />;
 
   const t = data?.totals;
 
