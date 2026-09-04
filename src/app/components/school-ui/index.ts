@@ -56,3 +56,5 @@ export type { NoAccessRedirectProps } from "./NoAccessRedirect";
 export { TermSwitchNudge } from "./TermSwitchNudge";
 export { resolveTermNudge } from "./termNudge";
 export type { TermNudge, TermLike } from "./termNudge";
+export { DashSection } from "./DashSection";
+export type { DashSectionProps } from "./DashSection";

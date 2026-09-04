@@ -3333,6 +3333,12 @@ export interface RosterRequest {
   reviewedAt: string | null;
   reviewerNotes: string | null;
   createdAt: string;
+  // Resolved names (v1.0.84) — null on older cached responses.
+  studentName?: string | null;
+  grNumber?: string | null;
+  sectionLabel?: string | null;
+  requestedByName?: string | null;
+  reviewedByName?: string | null;
 }
 
 export const postRosterRequest = (

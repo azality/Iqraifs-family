@@ -188,12 +188,14 @@ export function RosterReviewQueue() {
                       <span className="text-sm font-medium">
                         {r.newStudentPayload
                           ? `${r.newStudentPayload.fullName} (new — GR# ${r.newStudentPayload.grNumber})`
+                          : r.studentName
+                          ? `${r.studentName}${r.grNumber ? ` (GR# ${r.grNumber})` : ""}`
                           : r.studentId
                           ? `Student ${r.studentId.slice(0, 8)}…`
                           : "—"}
                       </span>
                       <span className="text-xs text-slate-500">
-                        section {r.sectionId.slice(0, 8)}…
+                        {r.sectionLabel ?? `section ${r.sectionId.slice(0, 8)}…`}
                       </span>
                     </div>
                     {r.reason && (
@@ -203,7 +205,8 @@ export function RosterReviewQueue() {
                     )}
                     <div className="mt-1 text-xs text-slate-500">
                       Submitted {relTime(r.createdAt)}
-                      {r.requestedBy && ` · by ${r.requestedBy.slice(0, 8)}`}
+                      {(r.requestedByName || r.requestedBy) &&
+                        ` · by ${r.requestedByName ?? r.requestedBy!.slice(0, 8)}`}
                     </div>
                     {r.status !== "pending" && r.reviewerNotes && (
                       <p className="mt-1 text-xs italic text-slate-600">
