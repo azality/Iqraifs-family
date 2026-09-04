@@ -1278,10 +1278,62 @@ export function installPhaseA(school: Hono) {
       .from("student_parent")
       .select("is_primary, parent:parent_id(*)")
       .eq("student_id", studentId);
-    return c.json({
-      student,
-      parents: (links ?? []).map((l: any) => ({ ...l.parent, isPrimary: l.is_primary })),
-    });
+    const parents = (links ?? []).map((l: any) => ({ ...l.parent, isPrimary: l.is_primary }));
+
+    // ── Family + quick facts (design 3a/5b, v1.0.88) — all additive and
+    // try/caught: the profile must render even if enrichment fails. ──
+    let siblings: unknown[] = [];
+    const quickFacts: Record<string, unknown> = {};
+    try {
+      const parentIds = parents.map((p: any) => p.id).filter(Boolean);
+      if (parentIds.length > 0) {
+        // Portal status per parent: does a PIN credential exist?
+        const { data: pins } = await serviceRoleClient
+          .from("pin_credential").select("subject_id")
+          .eq("org_id", orgId).eq("subject_type", "parent").in("subject_id", parentIds);
+        const withPin = new Set(((pins ?? []) as any[]).map((p) => p.subject_id));
+        for (const p of parents as any[]) p.hasPortal = withPin.has(p.id);
+        // Siblings: other students linked to any of the same parents.
+        const { data: sibLinks } = await serviceRoleClient
+          .from("student_parent").select("student_id").in("parent_id", parentIds);
+        const sibIds = [...new Set(((sibLinks ?? []) as any[]).map((l) => l.student_id))]
+          .filter((id) => id !== studentId);
+        if (sibIds.length > 0) {
+          const { data: sibs } = await serviceRoleClient
+            .from("student")
+            .select("id, full_name, gr_number, status, section:class_section_id(name, class:class_id(name))")
+            .in("id", sibIds);
+          siblings = ((sibs ?? []) as any[]).map((s2) => ({
+            id: s2.id,
+            fullName: s2.full_name,
+            grNumber: s2.gr_number,
+            status: s2.status,
+            sectionLabel: s2.section ? `${s2.section.class?.name ?? ""} · ${s2.section.name}` : null,
+          }));
+        }
+      }
+      // Attendance over the last 60 days (hero quick fact).
+      const since = new Date(Date.now() - 60 * 86400e3).toISOString().slice(0, 10);
+      const { data: att } = await serviceRoleClient
+        .from("school_attendance").select("status")
+        .eq("student_id", studentId).gte("attendance_date", since).limit(200);
+      const attRows = (att ?? []) as any[];
+      if (attRows.length > 0) {
+        const present = attRows.filter((a) => a.status === "present" || a.status === "late").length;
+        quickFacts.attendancePct = Math.round((present / attRows.length) * 100);
+        quickFacts.attendanceDays = attRows.length;
+      }
+      // Current-month fee status.
+      const period = new Date(Date.now() + 5 * 3600e3).toISOString().slice(0, 7);
+      const { data: fee } = await serviceRoleClient
+        .from("fee_status").select("status, amount_due")
+        .eq("student_id", studentId).eq("period", period).limit(1).maybeSingle();
+      if (fee) quickFacts.feeStatus = fee.status;
+    } catch {
+      // enrichment only
+    }
+
+    return c.json({ student, parents, siblings, quickFacts });
   });
 
   school.patch("/orgs/:orgId/students/:studentId", async (c) => {
