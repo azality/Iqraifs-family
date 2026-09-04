@@ -133,7 +133,21 @@ export async function uploadSchoolFile(orgId: string, rawFile: File): Promise<{ 
 
 // ─── /me ─────────────────────────────────────────────────────────────────
 
-export type RoleType = "principal" | "teacher" | "parent" | "student";
+// Mirrors the backend role_type enum's staff values (plus the family
+// roles). Stale-union gotcha: /me returns every role_type below — a
+// missing member makes honest comparisons "unintentional" to tsc.
+export type RoleType =
+  | "principal"
+  | "admin"
+  | "incharge"
+  | "teacher"
+  | "class_teacher"
+  | "visiting_teacher"
+  | "hifz_teacher"
+  | "office_staff"
+  | "financial_staff"
+  | "parent"
+  | "student";
 export type ScopeType = "organization" | "campus" | "class" | "family" | "child";
 
 export interface UserRoleRow {
