@@ -75,11 +75,11 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
   const { orgId = "" } = useParams<{ orgId: string }>();
   const [cells, setCells] = useState<MyTimetableCell[] | null>(cellsOverride ?? null);
   const [error, setError] = useState<string | null>(null);
-  // Phones default to the day agenda — the week canvas is unreadable at
-  // 375px (pilot feedback: "too congested, not pleasing on the eye").
-  const [view, setView] = useState<ViewMode>(() =>
-    typeof window !== "undefined" && window.innerWidth < 640 ? "day" : "week",
-  );
+  // Day-first on EVERY viewport (design 2b): the agenda answers "where
+  // am I due"; the week canvas is analysis and stays behind the Week
+  // toggle. (Desktop used to default to week - which read as "the old
+  // design still shipped" in the principal's review.)
+  const [view, setView] = useState<ViewMode>("day");
   const [showConflicts, setShowConflicts] = useState(false);
   // Tapped week-grid block → detail popover. Hover tooltips don't exist
   // on phones, so times were unreachable there (pilot feedback).
