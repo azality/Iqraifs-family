@@ -114,7 +114,13 @@
       "forms": "Forms",
       "fees": "Fees",
       "announcements": "Announcements",
-      "homework": "Homework"
+      "homework": "Homework",
+      "today": "Today",
+      "learning": "Learning",
+      "more": "More",
+      "messageSchool": "Message school",
+      "pickStudent": "Pick a student",
+      "notesThisWeek": "{{count}} this week"
     },
     "tiles": {
       "attendance": "Attendance",
