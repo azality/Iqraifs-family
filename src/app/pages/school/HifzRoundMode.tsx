@@ -29,6 +29,7 @@
 // list's Log button.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "../../components/ui/button";
 import {
@@ -101,12 +102,14 @@ function parseNextSabaq(text: string): { surahNumber: number; from: number; to: 
   return { surahNumber: surah.number, from: Number(m[2]), to: Number(m[3]) };
 }
 
-const EXTENT_LABEL: Record<string, string> = {
-  quarter: "¼",
-  half: "½",
-  three_quarters: "¾",
-  full: "full",
+// Extent → hifzTeach.extShort* key (full appends nothing).
+const EXTENT_KEY: Record<string, string> = {
+  quarter: "hifzTeach.extShortQuarter",
+  half: "hifzTeach.extShortHalf",
+  three_quarters: "hifzTeach.extShortThreeQuarters",
 };
+
+type TFn = (key: string, opts?: Record<string, unknown>) => string;
 
 interface PortionState {
   mode: "surah" | "para";
@@ -139,13 +142,15 @@ const emptyKind = (mode: "surah" | "para" = "surah"): KindState => ({
   editorOpen: false,
 });
 
-function portionLabel(p: PortionState): string {
+function portionLabel(p: PortionState, t: TFn): string {
   if (p.pretty) return p.pretty;
   if (p.mode === "para") {
-    const ext = p.extent === "to_surah"
-      ? `to ${getSurah(p.toSurah)?.nameTransliterated ?? p.toSurah}`
-      : EXTENT_LABEL[p.extent] ?? p.extent;
-    return `Juz ${p.juz}${ext === "full" ? "" : ` (${ext})`}`;
+    const juz = t("hifzTeach.juzN", { n: p.juz });
+    if (p.extent === "full") return juz;
+    if (p.extent === "to_surah") {
+      return `${juz} · ${t("hifzTeach.extShortToSurah", { name: getSurah(p.toSurah)?.nameTransliterated ?? p.toSurah })}`;
+    }
+    return `${juz} · ${t(EXTENT_KEY[p.extent] ?? "hifzTeach.extShortFull")}`;
   }
   const s = getSurah(p.surah);
   return `${s?.nameTransliterated ?? p.surah} ${p.from}–${p.to}`;
@@ -160,11 +165,11 @@ function fmtElapsed(sec: number): string {
   return `${Math.floor(sec / 60)}m ${sec % 60 ? `${sec % 60}s` : ""}`.trim();
 }
 
-const QUALITY_CHIPS: Array<{ key: KindState["quality"]; label: string }> = [
-  { key: "excellent", label: "Excellent" },
-  { key: "good", label: "Good" },
-  { key: "weak", label: "Weak" },
-  { key: "repeat", label: "Repeat" },
+const QUALITY_CHIPS: Array<{ key: KindState["quality"]; labelKey: string }> = [
+  { key: "excellent", labelKey: "hifzTeach.qExcellent" },
+  { key: "good", labelKey: "hifzTeach.qGood" },
+  { key: "weak", labelKey: "hifzTeach.qWeak" },
+  { key: "repeat", labelKey: "hifzRound.qRepeat" },
 ];
 const STORED_QUALITY: Record<string, HifzQuality> = {
   excellent: "excellent",
@@ -173,19 +178,10 @@ const STORED_QUALITY: Record<string, HifzQuality> = {
   repeat: "needs_practice",
 };
 
-const KIND_META: Array<{ key: KindKey; label: string; sub: string; note: string }> = [
-  {
-    key: "sabaq", label: "Sabaq", sub: "new lesson",
-    note: "Prefilled from the assigned next sabaq — saving assigns tomorrow's automatically.",
-  },
-  {
-    key: "sabqi", label: "Sabqi", sub: "current para",
-    note: "Prefilled from the start of the current para up to today's sabaq — trim if less was heard.",
-  },
-  {
-    key: "manzil", label: "Manzil", sub: "older juz cycle",
-    note: "Cycles one older juz per day, logged per juz — untouched means the rotation re-suggests it tomorrow.",
-  },
+const KIND_META: Array<{ key: KindKey; labelKey: string; subKey: string; noteKey: string }> = [
+  { key: "sabaq", labelKey: "hifzTeach.sabaq", subKey: "hifzRound.sabaqSub", noteKey: "hifzRound.sabaqNote" },
+  { key: "sabqi", labelKey: "hifzTeach.sabqi", subKey: "hifzRound.sabqiSub", noteKey: "hifzRound.sabqiNote" },
+  { key: "manzil", labelKey: "hifzTeach.manzil", subKey: "hifzRound.manzilSub", noteKey: "hifzRound.manzilRowNote" },
 ];
 
 const SCOPE_KINDS: Record<RoundScope, KindKey[]> = {
@@ -197,6 +193,7 @@ const SCOPE_KINDS: Record<RoundScope, KindKey[]> = {
 type HeardFlags = { sabaq: boolean; sabqi: boolean; manzil: boolean };
 
 export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: Props) {
+  const { t } = useTranslation();
   const [queue, setQueue] = useState<string[]>(() => roster.map((r) => r.studentId));
   // What each student has already been heard for today — seeded from the
   // summary's S/Sq/M flags, updated locally on save (so scope switches
@@ -304,7 +301,9 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
             ...next.sabaq.portion,
             surah: sabaqPos.surah, from: sabaqPos.from, to: sabaqPos.to,
             pretty: parsed
-              ? `${getSurah(sabaqPos.surah)?.nameTransliterated ?? sabaqPos.surah} ${sabaqPos.from}–${sabaqPos.to} (continues yesterday)`
+              ? t("hifzRound.prettySabaq", {
+                  portion: `${getSurah(sabaqPos.surah)?.nameTransliterated ?? sabaqPos.surah} ${sabaqPos.from}–${sabaqPos.to}`,
+                })
               : undefined,
           };
           // Sabqi: the current para from its start up to today's sabaq —
@@ -318,7 +317,7 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
             juz: j,
             extent: "to_surah",
             toSurah: sabaqPos.surah,
-            pretty: `Juz ${j} · start → today's sabaq`,
+            pretty: t("hifzRound.prettySabqi", { juz: j }),
           };
         }
         // Manzil: the daily cycle over older memorized juz — last
@@ -329,7 +328,7 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
         next.manzil.portion = {
           ...next.manzil.portion,
           juz: rotJuz,
-          pretty: lastJuz ? `Juz ${rotJuz} · full para (next in rotation)` : undefined,
+          pretty: lastJuz ? t("hifzRound.prettyManzil", { juz: rotJuz }) : undefined,
         };
         setKinds(next);
         // "Yesterday: sabaq Al-Fatiha 1–7 · good" header line.
@@ -341,35 +340,60 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
             (new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime() -
               new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime()) / 86400000,
           );
-          const when = dayDiff <= 0 ? "Today" : dayDiff === 1 ? "Yesterday" : day.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+          const when = dayDiff <= 0
+            ? t("hifzRound.today")
+            : dayDiff === 1
+            ? t("hifzRound.yesterday")
+            : day.toLocaleDateString(undefined, { month: "short", day: "numeric" });
           const s = getSurah(latest.surahNumber);
+          const kindWord = ["sabaq", "sabqi", "manzil"].includes(latest.kind)
+            ? t(`hifzTeach.${latest.kind}`)
+            : latest.kind;
+          const qualityWord = latest.quality
+            ? {
+                excellent: t("hifzTeach.qExcellent"), good: t("hifzTeach.qGood"),
+                weak: t("hifzTeach.qWeak"), needs_practice: t("hifzTeach.qNeedsPractice"),
+                not_learned: t("hifzTeach.qNotLearned"),
+              }[latest.quality] ?? latest.quality
+            : null;
           setLastLine(
-            `${when}: ${latest.kind} ${s?.nameTransliterated ?? latest.surahNumber} ${latest.ayahFrom}–${latest.ayahTo}` +
-            (latest.quality ? ` · ${latest.quality.replace("_", " ")}` : ""),
+            `${when}: ${kindWord} ${s?.nameTransliterated ?? latest.surahNumber} ${latest.ayahFrom}–${latest.ayahTo}` +
+            (qualityWord ? ` · ${qualityWord}` : ""),
           );
         }
       })
       .catch(() => {})
       .finally(() => { if (!cancelled) setPrefilling(false); });
     return () => { cancelled = true; };
-  }, [orgId, currentId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgId, currentId, t]);
 
   // ── Auto-written parent note (regenerates until the teacher edits). ──
   const composedNote = useMemo(() => {
+    const qualityWord: Record<string, string> = {
+      excellent: t("hifzTeach.qExcellent"),
+      good: t("hifzTeach.qGood"),
+      weak: t("hifzTeach.qWeak"),
+      repeat: t("hifzRound.noteNeedsRepeat"),
+    };
     const parts: string[] = [];
     for (const meta of KIND_META) {
       if (!SCOPE_KINDS[scope].includes(meta.key)) continue;
       const k = kinds[meta.key];
       if (!k.quality) continue;
       const label = meta.key === "sabqi" && k.portion.pretty
-        ? `Juz ${k.portion.juz} from the start to today's sabaq`
-        : portionLabel(k.portion);
-      const q = k.quality === "repeat" ? "needs repeat" : k.quality;
-      parts.push(`${meta.key} ${label} (${q}${k.mistakes > 0 ? `, ${k.mistakes} mistake${k.mistakes === 1 ? "" : "s"}` : ""})`);
+        ? t("hifzRound.noteSabqiPortion", { juz: k.portion.juz })
+        : portionLabel(k.portion, t);
+      const mistakes = k.mistakes === 1
+        ? t("hifzRound.noteMistake")
+        : k.mistakes > 1
+        ? t("hifzRound.noteMistakes", { count: k.mistakes })
+        : "";
+      parts.push(`${t(meta.labelKey)} ${label} (${qualityWord[k.quality]}${mistakes})`);
     }
     if (parts.length === 0) return "";
-    return `Heard ${parts.join(" and ")}.`;
-  }, [kinds, scope]);
+    return t("hifzRound.noteHeard", { parts: parts.join(t("hifzRound.noteAnd")) });
+  }, [kinds, scope, t]);
   useEffect(() => {
     if (!noteTouched) setParentNote(composedNote);
   }, [composedNote, noteTouched]);
@@ -402,13 +426,13 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
         kind: "sabaq",
         missed: true,
       });
-      toast.success(`${current.studentName} marked absent / missed`);
+      toast.success(t("hifzRound.absentToast", { name: current.studentName }));
       recordElapsed(currentId);
       setAbsentSet((s) => new Set(s).add(currentId));
       setCurrentOverride(null);
       onSaved();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to record miss");
+      toast.error(e instanceof Error ? e.message : t("hifzRound.absentFailed"));
     } finally {
       setSaving(false);
     }
@@ -419,7 +443,7 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
     const scoped = KIND_META.filter((m) => SCOPE_KINDS[scope].includes(m.key));
     const touched = scoped.filter((m) => kinds[m.key].quality !== "");
     if (touched.length === 0) {
-      toast.error("Tap a quality on at least one kind — or Skip for now.");
+      toast.error(t("hifzRound.tapQualityFirst"));
       return;
     }
     setSaving(true);
@@ -468,7 +492,11 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
         }
         await postHifzEntry(orgId, input);
       }
-      toast.success(`${current.studentName} saved${nextName ? ` — next: ${nextName}` : ""}`);
+      toast.success(
+        nextName
+          ? t("hifzRound.savedToastNext", { name: current.studentName, next: nextName })
+          : t("hifzRound.savedToast", { name: current.studentName }),
+      );
       recordElapsed(currentId);
       setHeardToday((m) => ({
         ...m,
@@ -481,7 +509,7 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
       setCurrentOverride(null);
       onSaved();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Save failed");
+      toast.error(e instanceof Error ? e.message : t("hifzRound.saveFailed"));
     } finally {
       setSaving(false);
     }
@@ -504,11 +532,11 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
       value={scope}
       onChange={(e) => { setScope(e.target.value as RoundScope); setCurrentOverride(null); }}
       className="rounded-lg border border-slate-600 bg-transparent px-2 py-1.5 text-xs font-semibold text-slate-200 [&>option]:text-slate-900"
-      aria-label="Which kinds this round hears"
+      aria-label={t("hifzRound.scopeAria")}
     >
-      <option value="all">Hearing: all kinds</option>
-      <option value="sabaq">Hearing: sabaq only</option>
-      <option value="revision">Hearing: sabqi + manzil</option>
+      <option value="all">{t("hifzRound.scopeAll")}</option>
+      <option value="sabaq">{t("hifzRound.scopeSabaq")}</option>
+      <option value="revision">{t("hifzRound.scopeRevision")}</option>
     </select>
   );
 
@@ -518,10 +546,14 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
     return (
       <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-8 text-center">
         <div className="text-2xl font-extrabold text-emerald-900">
-          {scope === "sabaq" ? "Sabaq round complete" : scope === "revision" ? "Sabqi & manzil round complete" : "Round complete"}
+          {scope === "sabaq"
+            ? t("hifzRound.completeSabaq")
+            : scope === "revision"
+            ? t("hifzRound.completeRevision")
+            : t("hifzRound.completeAll")}
         </div>
         <p className="mt-2 text-sm text-emerald-800">
-          {heardCount - absent} heard · {absent} absent / missed
+          {t("hifzRound.completeStats", { heard: heardCount - absent, absent })}
         </p>
         <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
           {scope !== "all" && (
@@ -530,11 +562,11 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
               className="border-emerald-300 text-emerald-900"
               onClick={() => setScope(scope === "sabaq" ? "revision" : "sabaq")}
             >
-              {scope === "sabaq" ? "Hear sabqi + manzil →" : "Hear sabaq →"}
+              {scope === "sabaq" ? t("hifzRound.hearRevision") : t("hifzRound.hearSabaq")}
             </Button>
           )}
           <Button className="bg-emerald-700 hover:bg-emerald-800" onClick={onExit}>
-            Back to the class list
+            {t("hifzRound.backToList")}
           </Button>
         </div>
       </div>
@@ -547,14 +579,14 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
       <div className="bg-slate-900 px-4 py-3 sm:px-5">
         <div className="flex items-center gap-3">
           <span className="text-sm font-extrabold text-white">
-            <span className="hidden sm:inline">Today's round · {sectionLabel}</span>
-            <span className="sm:hidden">Round · {heardCount}/{queue.length}</span>
+            <span className="hidden sm:inline">{t("hifzRound.title", { label: sectionLabel })}</span>
+            <span className="sm:hidden">{t("hifzRound.roundShort", { done: heardCount, total: queue.length })}</span>
           </span>
           <div className="hidden min-w-0 flex-1 overflow-hidden rounded-full bg-white/15 sm:block" style={{ height: 6 }}>
             <div className="h-full rounded-full bg-emerald-400" style={{ width: `${pct}%` }} />
           </div>
           <span className="hidden whitespace-nowrap text-xs text-slate-400 sm:inline">
-            {heardCount} of {queue.length} heard · started {startedLabel}
+            {t("hifzRound.heardOf", { done: heardCount, total: queue.length, time: startedLabel })}
           </span>
           <span className="hidden sm:block">{scopeSelect}</span>
           <span className="ml-auto text-[11px] text-slate-400 sm:hidden">{sectionLabel}</span>
@@ -563,7 +595,7 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
             onClick={onExit}
             className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-white/10 sm:ml-0"
           >
-            Pause round
+            {t("hifzRound.pause")}
           </button>
         </div>
         <div className="mt-2 flex items-center gap-3 sm:hidden">
@@ -577,7 +609,7 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
       <div className="grid lg:grid-cols-[230px_minmax(0,1fr)]">
         {/* Queue rail — desktop only. */}
         <div className="hidden border-r border-slate-100 p-3 lg:flex lg:flex-col lg:gap-0.5">
-          <div className="px-2 pb-2 text-[11px] font-bold uppercase tracking-widest text-slate-400">Queue</div>
+          <div className="px-2 pb-2 text-[11px] font-bold uppercase tracking-widest text-slate-400">{t("hifzRound.queue")}</div>
           <div className="max-h-[540px] space-y-0.5 overflow-y-auto">
             {queue.map((id) => {
               const r = rosterById.get(id);
@@ -625,13 +657,13 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
                   </span>
                   <span className="text-[10.5px] text-slate-400">
                     {isAbsent
-                      ? "absent"
+                      ? t("hifzRound.absentTag")
                       : done
-                      ? elapsed[id] != null ? fmtElapsed(elapsed[id]) : "done"
+                      ? elapsed[id] != null ? fmtElapsed(elapsed[id]) : t("hifzRound.done")
                       : isNow
-                      ? "now"
+                      ? t("hifzRound.now")
                       : id === nextId
-                      ? "next"
+                      ? t("hifzRound.next")
                       : ""}
                   </span>
                 </div>
@@ -639,7 +671,7 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
             })}
           </div>
           <div className="mt-auto px-2 pt-2 text-[11px] leading-relaxed text-slate-400">
-            Drag to reorder · "Skip for now" drops a student to the end.
+            {t("hifzRound.queueHint")}
           </div>
         </div>
 
@@ -652,7 +684,7 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
             <span className="min-w-0 flex-1">
               <span className="block truncate text-base font-extrabold text-slate-900">{current.studentName}</span>
               <span className="block truncate text-xs text-slate-500">
-                {prefilling ? "Loading last entries…" : lastLine ?? "No previous entries"}
+                {prefilling ? t("hifzRound.loadingLast") : lastLine ?? t("hifzRound.noPrevious")}
               </span>
             </span>
             <button
@@ -661,8 +693,8 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
               disabled={saving}
               className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-50"
             >
-              <span className="hidden sm:inline">Absent / missed today</span>
-              <span className="sm:hidden">Absent?</span>
+              <span className="hidden sm:inline">{t("hifzRound.absentBtn")}</span>
+              <span className="sm:hidden">{t("hifzRound.absentShort")}</span>
             </button>
           </div>
 
@@ -682,16 +714,16 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
                 >
                   <div className="flex flex-wrap items-center gap-2.5">
                     <span className="w-20 flex-none">
-                      <span className="block text-[12.5px] font-extrabold text-slate-900">{meta.label}</span>
-                      <span className="text-[10px] text-slate-400">{meta.sub}</span>
+                      <span className="block text-[12.5px] font-extrabold text-slate-900">{t(meta.labelKey)}</span>
+                      <span className="text-[10px] text-slate-400">{t(meta.subKey)}</span>
                     </span>
                     <button
                       type="button"
                       onClick={() => setKind(meta.key, { editorOpen: !k.editorOpen })}
                       className="min-w-0 flex-1 truncate rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-[13px] font-semibold text-slate-900 hover:border-indigo-300"
-                      title="Tap to change the portion"
+                      title={t("hifzRound.tapPortion")}
                     >
-                      {portionLabel(k.portion)} <span className="text-slate-400">▾</span>
+                      {portionLabel(k.portion, t)} <span className="text-slate-400">▾</span>
                     </button>
                     <span className="flex w-full gap-1.5 sm:w-auto">
                       {QUALITY_CHIPS.map((q) => (
@@ -706,12 +738,12 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
                               : "border-slate-200 bg-white text-slate-500 hover:border-slate-300")
                           }
                         >
-                          {q.label}
+                          {t(q.labelKey)}
                         </button>
                       ))}
                     </span>
                     <span className="flex items-center gap-1.5 text-[11px] text-slate-500">
-                      mistakes
+                      {t("hifzRound.mistakes")}
                       <button
                         type="button"
                         onClick={() => setKind(meta.key, { mistakes: Math.max(0, k.mistakes - 1) })}
@@ -730,14 +762,14 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
                     </span>
                   </div>
                   <div className="mt-1.5 hidden text-[11px] text-slate-400 sm:block">
-                    {alreadyHeard ? `Already logged today — a new save adds another ${meta.key} entry.` : meta.note}
+                    {alreadyHeard ? t("hifzRound.alreadyLogged") : t(meta.noteKey)}
                   </div>
 
                   {/* Portion editor — by surah or by para. */}
                   {k.editorOpen && (
                     <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50/60 p-3">
                       <div className="flex items-center gap-2">
-                        <span className="text-xs text-slate-500">Position</span>
+                        <span className="text-xs text-slate-500">{t("hifzTeach.sabqiHow")}</span>
                         <div className="inline-flex overflow-hidden rounded-md border border-slate-200">
                           {(["surah", "para"] as const).map((m) => (
                             <button
@@ -749,7 +781,7 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
                                 (k.portion.mode === m ? "bg-indigo-600 text-white" : "bg-white text-slate-600")
                               }
                             >
-                              {m === "surah" ? "By surah" : "By para"}
+                              {m === "surah" ? t("hifzTeach.bySurah") : t("hifzTeach.byPara")}
                             </button>
                           ))}
                         </div>
@@ -787,7 +819,7 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
                             min={1}
                             max={getSurah(k.portion.surah)?.ayahCount ?? 1}
                             onChange={(e) => setPortion(meta.key, { from: Math.max(1, Number(e.target.value) || 1) })}
-                            aria-label="Ayah from"
+                            aria-label={t("hifzTeach.ayahFrom")}
                           />
                           <Input
                             type="number"
@@ -804,7 +836,7 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
                                 to: Math.min(Math.max(k.portion.from, k.portion.to), max),
                               });
                             }}
-                            aria-label="Ayah to"
+                            aria-label={t("hifzTeach.ayahTo")}
                           />
                         </div>
                       ) : (
@@ -816,7 +848,7 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
                             <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
                             <SelectContent className="max-h-64">
                               {Array.from({ length: 30 }, (_, i) => i + 1).map((j) => (
-                                <SelectItem key={j} value={String(j)}>Juz {j}</SelectItem>
+                                <SelectItem key={j} value={String(j)}>{t("hifzTeach.juzN", { n: j })}</SelectItem>
                               ))}
                             </SelectContent>
                           </Select>
@@ -826,11 +858,11 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
                           >
                             <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="full">Full para</SelectItem>
-                              <SelectItem value="quarter">Quarter</SelectItem>
-                              <SelectItem value="half">Half</SelectItem>
-                              <SelectItem value="three_quarters">Three quarters</SelectItem>
-                              <SelectItem value="to_surah">Up to a surah…</SelectItem>
+                              <SelectItem value="full">{t("hifzTeach.extFull")}</SelectItem>
+                              <SelectItem value="quarter">{t("hifzTeach.extQuarter")}</SelectItem>
+                              <SelectItem value="half">{t("hifzTeach.extHalf")}</SelectItem>
+                              <SelectItem value="three_quarters">{t("hifzTeach.extThreeQuarters")}</SelectItem>
+                              <SelectItem value="to_surah">{t("hifzTeach.extToSurah")}</SelectItem>
                             </SelectContent>
                           </Select>
                           {k.portion.extent === "to_surah" && (
@@ -858,7 +890,7 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
                           onClick={() => setKind(meta.key, { editorOpen: false })}
                           className="text-xs font-semibold text-indigo-700 hover:underline"
                         >
-                          Done
+                          {t("hifzRound.editorDone")}
                         </button>
                       </div>
                     </div>
@@ -869,24 +901,22 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
           </div>
 
           <p className="mt-2 text-[11px] text-slate-400">
-            Leaving a kind untouched logs nothing for it. Saving the sabaq
-            auto-assigns the next lesson (advance on excellent/good, repeat
-            on weak/repeat).
+            {t("hifzRound.untouchedHint")}
           </p>
 
           {/* Auto-written parent note */}
           <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-[11px] font-bold uppercase tracking-wide text-emerald-700">Parent note</span>
+              <span className="text-[11px] font-bold uppercase tracking-wide text-emerald-700">{t("hifzRound.parentNote")}</span>
               {!noteTouched && parentNote && (
-                <span className="text-[10.5px] text-emerald-600/70">auto-written · edit freely</span>
+                <span className="text-[10.5px] text-emerald-600/70">{t("hifzRound.autoWritten")}</span>
               )}
             </div>
             <Textarea
               value={parentNote}
               onChange={(e) => { setNoteTouched(true); setParentNote(e.target.value); }}
               rows={2}
-              placeholder="Tap a quality above and the note writes itself — or type your own."
+              placeholder={t("hifzRound.notePh")}
               className="mt-1.5 border-emerald-200 bg-white text-[13px]"
             />
           </div>
@@ -897,24 +927,24 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
             onClick={() => setAdvancedOpen((v) => !v)}
             className="mt-3 text-xs font-semibold text-indigo-700 hover:underline"
           >
-            {advancedOpen ? "− hide advanced fields" : "+ tajweed / fluency / target / internal note"}
+            {advancedOpen ? t("hifzRound.advancedHide") : t("hifzRound.advancedShow")}
           </button>
           {advancedOpen && (
             <div className="mt-2 grid gap-2 rounded-xl border border-slate-200 bg-slate-50/50 p-3 sm:grid-cols-2">
               <div className="space-y-1">
-                <Label className="text-xs">Tajweed note</Label>
+                <Label className="text-xs">{t("hifzTeach.tajweedNote")}</Label>
                 <Input value={adv.tajweed} onChange={(e) => setAdv({ ...adv, tajweed: e.target.value })} className="bg-white" />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Fluency note</Label>
+                <Label className="text-xs">{t("hifzTeach.fluencyNote")}</Label>
                 <Input value={adv.fluency} onChange={(e) => setAdv({ ...adv, fluency: e.target.value })} className="bg-white" />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Today's target</Label>
+                <Label className="text-xs">{t("hifzTeach.todaysTarget")}</Label>
                 <Input value={adv.target} onChange={(e) => setAdv({ ...adv, target: e.target.value })} className="bg-white" />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Mushaf page</Label>
+                <Label className="text-xs">{t("hifzTeach.mushafPage")}</Label>
                 <Input
                   type="number"
                   inputMode="numeric"
@@ -925,7 +955,7 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
                 />
               </div>
               <div className="space-y-1 sm:col-span-2">
-                <Label className="text-xs">Internal note (staff only)</Label>
+                <Label className="text-xs">{t("hifzTeach.internalNote")}</Label>
                 <Textarea value={adv.internal} onChange={(e) => setAdv({ ...adv, internal: e.target.value })} rows={2} className="bg-white" />
               </div>
             </div>
@@ -934,7 +964,7 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
           {/* Actions — inline on desktop, sticky footer on phones. */}
           <div className="fixed inset-x-0 bottom-0 z-20 flex gap-2 border-t border-slate-200 bg-white p-3 lg:static lg:mt-4 lg:justify-end lg:border-0 lg:p-0">
             <Button variant="outline" onClick={skipForNow} disabled={saving} className="flex-none">
-              Skip for now
+              {t("hifzRound.skip")}
             </Button>
             <Button
               onClick={saveAndNext}
@@ -943,10 +973,10 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
             >
               <span className="truncate">
                 {saving
-                  ? "Saving…"
+                  ? t("hifzTeach.saving")
                   : nextName
-                  ? `Save · next: ${nextName} →`
-                  : "Save · finish round"}
+                  ? t("hifzRound.saveNext", { name: nextName })
+                  : t("hifzRound.saveFinish")}
               </span>
             </Button>
           </div>

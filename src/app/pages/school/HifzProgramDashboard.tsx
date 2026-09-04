@@ -8,6 +8,7 @@
 // is the PROGRAM view on top. Admin/principal only.
 
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, useParams } from "react-router";
 import { BookOpen, Loader2 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
@@ -20,27 +21,36 @@ import {
 } from "../../../utils/schoolApi";
 import { NoAccessRedirect } from "../../components/school-ui";
 
-function positionLabel(s: { lastKind: string | null; lastSurah: number | null; lastAyah: number | null; lastJuz: number | null }): string {
+type TFn = (key: string, opts?: Record<string, unknown>) => string;
+
+function positionLabel(
+  s: { lastKind: string | null; lastSurah: number | null; lastAyah: number | null; lastJuz: number | null },
+  t: TFn,
+): string {
   if (!s.lastKind) return "—";
   const parts: string[] = [];
-  if (s.lastSurah) parts.push(`Surah ${s.lastSurah}`);
-  if (s.lastAyah) parts.push(`Ayah ${s.lastAyah}`);
-  if (s.lastJuz) parts.push(`Juz ${s.lastJuz}`);
+  if (s.lastSurah) parts.push(t("hifzProg.posSurah", { n: s.lastSurah }));
+  if (s.lastAyah) parts.push(t("hifzProg.posAyah", { n: s.lastAyah }));
+  if (s.lastJuz) parts.push(t("hifzProg.posJuz", { n: s.lastJuz }));
   const pos = parts.join(" · ") || "—";
-  return `${pos} (${s.lastKind})`;
+  const kind = ["sabaq", "sabqi", "manzil"].includes(s.lastKind)
+    ? t(`hifzTeach.${s.lastKind}`)
+    : s.lastKind;
+  return `${pos} (${kind})`;
 }
 
-function relDays(iso: string | null): string {
-  if (!iso) return "never";
+function relDays(iso: string | null, t: TFn): string {
+  if (!iso) return t("hifzProg.never");
   const d = Math.floor((Date.now() - Date.parse(iso)) / 86400000);
-  if (d <= 0) return "today";
-  if (d === 1) return "yesterday";
-  return `${d}d ago`;
+  if (d <= 0) return t("hifzProg.today");
+  if (d === 1) return t("hifzProg.yesterday");
+  return t("hifzProg.daysAgo", { d });
 }
 
 type Filter = "all" | "active" | "stalled" | "never" | "revision";
 
 export function HifzProgramDashboard() {
+  const { t: tr } = useTranslation();
   const { orgId = "" } = useParams();
   const [me, setMe] = useState<SchoolMeResponse | null>(null);
   const [meLoading, setMeLoading] = useState(true);
@@ -105,12 +115,10 @@ export function HifzProgramDashboard() {
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
-            <BookOpen className="h-6 w-6 text-emerald-600" /> Hifz Program
+            <BookOpen className="h-6 w-6 text-emerald-600" /> {tr("hifzProg.title")}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground max-w-2xl">
-            Every hifz student across the school — how far each has
-            recited, how recently, and who needs attention. Teachers log
-            from their class → Quran/Hifz progress.
+            {tr("hifzProg.subtitle")}
           </p>
         </div>
       </div>
@@ -120,7 +128,7 @@ export function HifzProgramDashboard() {
       )}
       {!data && !error && (
         <div className="flex items-center gap-2 justify-center py-10 text-sm text-slate-500">
-          <Loader2 className="h-4 w-4 animate-spin" /> Loading program…
+          <Loader2 className="h-4 w-4 animate-spin" /> {tr("hifzProg.loading")}
         </div>
       )}
 
@@ -129,10 +137,10 @@ export function HifzProgramDashboard() {
           {/* Program KPIs - the stat cards ARE the filters (design 4c). */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {([
-              { f: "all" as Filter, label: "Students", value: t.students, sub: `${t.hifzTrack} hifz · ${t.revisionTrack} revision`, tone: "" },
-              { f: "active" as Filter, label: "Active this week", value: t.activeThisWeek, sub: `${t.entries7d} entries in 7 days`, tone: t.activeThisWeek > 0 ? "text-emerald-700" : "text-slate-400" },
-              { f: "stalled" as Filter, label: "Stalled (7d+)", value: t.stalled, sub: "had entries, then went quiet", tone: t.stalled > 0 ? "text-amber-700" : "text-emerald-700" },
-              { f: "never" as Filter, label: "Never logged", value: t.neverLogged, sub: "no recitation recorded yet", tone: t.neverLogged > 0 ? "text-amber-800" : "text-emerald-700" },
+              { f: "all" as Filter, label: tr("hifzProg.kpiStudents"), value: t.students, sub: tr("hifzProg.kpiStudentsSub", { hifz: t.hifzTrack, revision: t.revisionTrack }), tone: "" },
+              { f: "active" as Filter, label: tr("hifzProg.kpiActive"), value: t.activeThisWeek, sub: tr("hifzProg.kpiActiveSub", { n: t.entries7d }), tone: t.activeThisWeek > 0 ? "text-emerald-700" : "text-slate-400" },
+              { f: "stalled" as Filter, label: tr("hifzProg.kpiStalled"), value: t.stalled, sub: tr("hifzProg.kpiStalledSub"), tone: t.stalled > 0 ? "text-amber-700" : "text-emerald-700" },
+              { f: "never" as Filter, label: tr("hifzProg.kpiNever"), value: t.neverLogged, sub: tr("hifzProg.kpiNeverSub"), tone: t.neverLogged > 0 ? "text-amber-800" : "text-emerald-700" },
             ]).map((k) => (
               <button
                 key={k.f}
@@ -154,9 +162,9 @@ export function HifzProgramDashboard() {
           <Card>
             <CardHeader className="pb-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <CardTitle className="text-sm">Students — last recitation</CardTitle>
+                <CardTitle className="text-sm">{tr("hifzProg.rosterTitle")}</CardTitle>
                 <div className="flex flex-wrap gap-1">
-                  {([["all", `All (${data.students.length})`], ["stalled", `Stalled (${t.stalled})`], ["never", `Never logged (${t.neverLogged})`], ["revision", `Revision (${t.revisionTrack})`]] as Array<[Filter, string]>).map(([k, label]) => (
+                  {([["all", tr("hifzProg.fAll", { n: data.students.length })], ["stalled", tr("hifzProg.fStalled", { n: t.stalled })], ["never", tr("hifzProg.fNever", { n: t.neverLogged })], ["revision", tr("hifzProg.fRevision", { n: t.revisionTrack })]] as Array<[Filter, string]>).map(([k, label]) => (
                     <button
                       key={k}
                       type="button"
@@ -176,8 +184,8 @@ export function HifzProgramDashboard() {
               {visible.length === 0 ? (
                 <p className="px-4 py-8 text-center text-sm text-slate-500">
                   {data.students.length === 0
-                    ? "No hifz students found. Students in Hifz classes appear here automatically once enrolled."
-                    : "Nothing in this filter."}
+                    ? tr("hifzProg.emptyNone")
+                    : tr("hifzProg.emptyFilter")}
                 </p>
               ) : (
                 sectionGroups.map((g) => (
@@ -186,13 +194,13 @@ export function HifzProgramDashboard() {
                     <span className="flex min-w-0 items-baseline gap-2">
                       <span className="truncate text-[13px] font-extrabold text-slate-900">{g.label}</span>
                       <span className="hidden truncate text-[11.5px] text-slate-400 sm:inline">
-                        {g.meta?.teacherName ?? ""}{g.meta ? ` · ${g.meta.studentCount} students` : ""}
+                        {g.meta?.teacherName ?? ""}{g.meta ? ` · ${tr("hifzProg.studentsCount", { n: g.meta.studentCount })}` : ""}
                       </span>
                     </span>
                     {g.meta && (
                       <span className="hidden flex-col gap-1 sm:flex">
                         <span className="flex justify-between text-[11px] text-slate-500">
-                          <span>Logged this week</span>
+                          <span>{tr("hifzProg.loggedThisWeek")}</span>
                           <span className={"font-bold " + (g.meta.activeThisWeek > 0 ? "text-emerald-700" : "text-amber-700")}>
                             {g.meta.activeThisWeek}/{g.meta.studentCount}
                           </span>
@@ -213,7 +221,7 @@ export function HifzProgramDashboard() {
                         to={`/school/orgs/${orgId}/sections/${g.meta.sectionId}/hifz`}
                         className="text-right text-xs font-semibold text-emerald-700 hover:underline"
                       >
-                        Open log →
+                        {tr("hifzProg.openLog")}
                       </Link>
                     )}
                   </div>
@@ -227,18 +235,18 @@ export function HifzProgramDashboard() {
                             <span className="truncate text-sm font-medium text-slate-900">{s.name}</span>
                             {s.grNumber && <span className="text-[10px] text-slate-400">GR {s.grNumber}</span>}
                             {s.track === "revision" && (
-                              <span className="rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 ring-1 ring-indigo-200">Hafiz · revision</span>
+                              <span className="rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 ring-1 ring-indigo-200">{tr("hifzProg.hafizRevision")}</span>
                             )}
                           </div>
                           <div className="text-[11px] text-slate-500">
-                            {s.sectionLabel} · {positionLabel(s)}
+                            {s.sectionLabel} · {positionLabel(s, tr)}
                           </div>
                         </div>
                         <div className="text-right flex-shrink-0">
                           <div className={"text-xs font-medium " + (stalled ? "text-amber-700" : s.lastEntryAt ? "text-slate-700" : "text-slate-400")}>
-                            {relDays(s.lastEntryAt)}
+                            {relDays(s.lastEntryAt, tr)}
                           </div>
-                          <div className="text-[10px] text-slate-400 tabular-nums">{s.entries30d} in 30d</div>
+                          <div className="text-[10px] text-slate-400 tabular-nums">{tr("hifzProg.inLast30", { n: s.entries30d })}</div>
                         </div>
                       </li>
                     );
