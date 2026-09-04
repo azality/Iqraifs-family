@@ -106,8 +106,10 @@ await ensureRole(finId, "financial_staff", "organization", ORG);
 let { data: secB } = await admin.from("class_section").select("id, class_teacher_user_id")
   .eq("class_id", SANDBOX_CLASS).eq("name", "B").maybeSingle();
 if (!secB) {
+  // schedule_key 'sandbox' keeps this section out of every dashboard
+  // rollup (withoutSandbox filters on it, NOT on the class name).
   const { data: ins, error } = await admin.from("class_section")
-    .insert({ class_id: SANDBOX_CLASS, name: "B", class_teacher_user_id: ctId })
+    .insert({ class_id: SANDBOX_CLASS, name: "B", class_teacher_user_id: ctId, schedule_key: "sandbox" })
     .select("id, class_teacher_user_id").single();
   if (error) { console.error("section B:", error.message); Deno.exit(1); }
   secB = ins;

@@ -175,6 +175,9 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
 
   // Today (1..7).
   const todayDow = ((new Date().getDay() + 6) % 7) + 1;
+  // Day-first agenda (design 2b): the day view can show ANY day — the
+  // week chips below the agenda switch it; today is just the default.
+  const [dayNum, setDayNum] = useState<number>(todayDow <= 6 ? todayDow : 1);
 
   // ─── Insights ────────────────────────────────────────────────────
   const insights = useMemo(() => {
@@ -239,6 +242,30 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
   const nowFrac = (nowMin - minMin) / Math.max(1, maxMin - minMin);
   const showNow = nowFrac >= 0 && nowFrac <= 1;
 
+  // "Where am I due?" — the current and next period today (design 2b).
+  const nowNext = useMemo(() => {
+    const today = (byDay[todayDow] ?? [])
+      .slice()
+      .sort((a, b) => toMin(a.slot.startTime) - toMin(b.slot.startTime));
+    const current = today.find(
+      (c) => toMin(c.slot.startTime) <= nowMin && nowMin < toMin(c.slot.endTime),
+    );
+    const next = today.find((c) => toMin(c.slot.startTime) > nowMin);
+    return { current, next };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [byDay, todayDow, nowMin]);
+
+  // Per-day teaching hours for the week chips.
+  const dayHours = useMemo(() => {
+    const out: Record<number, number> = {};
+    for (const d of DAYS) {
+      out[d.num] = (byDay[d.num] ?? []).reduce(
+        (a, c) => a + (toMin(c.slot.endTime) - toMin(c.slot.startTime)), 0,
+      ) / 60;
+    }
+    return out;
+  }, [byDay]);
+
   // Hour ticks on the y-axis.
   const startHour = Math.floor(minMin / 60);
   const endHour = Math.ceil(maxMin / 60);
@@ -261,7 +288,7 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
         )}
         <div className="flex items-center gap-2">
           {/* Today / Week toggle */}
-          <div className="inline-flex items-center rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
+          <div className="hidden items-center rounded-lg border border-slate-200 bg-white p-1 shadow-sm sm:inline-flex">
             {([
               { v: "day" as ViewMode, label: "Today" },
               { v: "week" as ViewMode, label: "Week" },
@@ -286,8 +313,8 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
         </div>
       </div>
 
-      {/* Insights strip */}
-      {insights && (
+      {/* Insights strip — week view only; the day header carries the summary. */}
+      {insights && view === "week" && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <InsightTile label="This week" value={`${insights.weekHours.toFixed(1)}h`}
                        sub={`${insights.sectionCount} section${insights.sectionCount === 1 ? "" : "s"}`} />
@@ -342,17 +369,53 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
         // Day agenda — one card per period. On a phone this reads far
         // better than the absolute-positioned canvas (blocks collided at
         // 48px/hour). Gaps ≥ 10 min render as quiet prep dividers.
-        <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
-          <div className="bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-800">
-            {DAYS.find((d) => d.num === todayDow)?.short ?? "Today"} · today
+        <div className="space-y-3">
+          {/* Now / Next hero (design 2b): answers "where am I due?" */}
+          {dayNum === todayDow && (nowNext.current || nowNext.next) && (
+            <div className="rounded-xl px-4 py-3.5 text-white" style={{ background: "#312e81" }}>
+              <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider" style={{ color: "#a5b4fc" }}>
+                <span className="h-[7px] w-[7px] rounded-full" style={{ background: "#34d399" }} />
+                {nowNext.current
+                  ? `Now · ends in ${toMin(nowNext.current.slot.endTime) - nowMin} min`
+                  : `Next · starts ${nowNext.next!.slot.startTime.slice(0, 5)}`}
+              </div>
+              {(() => {
+                const hero = nowNext.current ?? nowNext.next!;
+                const after = nowNext.current ? nowNext.next : null;
+                return (
+                  <>
+                    <div className="mt-1 text-lg font-extrabold">
+                      {hero.entry.subjectName ?? "Period"} — {hero.scopeLabel}
+                    </div>
+                    <div className="mt-0.5 text-xs" style={{ color: "#c7d2fe" }}>
+                      {hero.slot.startTime.slice(0, 5)}–{hero.slot.endTime.slice(0, 5)}
+                      {hero.entry.room ? ` · ${hero.entry.room}` : ""}
+                      {after &&
+                        ` · then: ${after.entry.subjectName ?? "Period"} — ${after.scopeLabel} at ${after.slot.startTime.slice(0, 5)}${after.entry.room ? ` (${after.entry.room})` : ""}`}
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          )}
+
+          <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+          <div className="flex items-baseline justify-between bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-800">
+            <span>
+              {DAYS.find((d) => d.num === dayNum)?.long ?? "Today"}
+              {dayNum === todayDow && <span className="ml-1 text-[11px] font-medium text-indigo-500">· today</span>}
+            </span>
+            <span className="text-[11px] font-medium text-indigo-500">
+              {(byDay[dayNum] ?? []).length} period{(byDay[dayNum] ?? []).length === 1 ? "" : "s"} · {(dayHours[dayNum] ?? 0).toFixed(1)}h teaching
+            </span>
           </div>
-          {(byDay[todayDow] ?? []).length === 0 ? (
+          {(byDay[dayNum] ?? []).length === 0 ? (
             <div className="p-8 text-center text-sm text-slate-500">
-              No periods today.
+              No periods {dayNum === todayDow ? "today" : `on ${DAYS.find((d) => d.num === dayNum)?.long}`}.
             </div>
           ) : (
             <div className="divide-y divide-slate-100">
-              {(byDay[todayDow] ?? [])
+              {(byDay[dayNum] ?? [])
                 .slice()
                 .sort((a, b) => toMin(a.slot.startTime) - toMin(b.slot.startTime))
                 .map((c, i, arr) => {
@@ -372,7 +435,7 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
                         const gapEnd = toMin(c.slot.startTime);
                         const named = bellSlots.find(
                           (s) =>
-                            s.dayOfWeek === todayDow &&
+                            s.dayOfWeek === dayNum &&
                             s.kind !== "academic" &&
                             toMin(s.startTime) >= gapStart &&
                             toMin(s.endTime) <= gapEnd,
@@ -385,12 +448,20 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
                           </div>
                         );
                       })()}
-                      <div className={"flex items-center gap-3 px-4 py-3 " + (conflict ? "bg-rose-50" : "")}>
+                      {(() => {
+                        const isNow =
+                          dayNum === todayDow &&
+                          toMin(c.slot.startTime) <= nowMin && nowMin < toMin(c.slot.endTime);
+                        const isNext =
+                          dayNum === todayDow && !isNow &&
+                          nowNext.next?.entry.id === c.entry.id;
+                        return (
+                      <div className={"flex items-center gap-3 px-4 py-3 " + (conflict ? "bg-rose-50" : isNow ? "bg-indigo-50/70" : "")}>
                         <div
                           className="w-1.5 self-stretch rounded-full shrink-0"
                           style={{ background: `hsl(${hue} 55% 45%)` }}
                         />
-                        <div className="w-[74px] shrink-0 text-xs tabular-nums text-slate-500 leading-5">
+                        <div className="w-[64px] shrink-0 text-xs tabular-nums text-slate-500 leading-5">
                           <div className="font-semibold text-slate-800">{c.slot.startTime.slice(0, 5)}</div>
                           <div>{c.slot.endTime.slice(0, 5)}</div>
                         </div>
@@ -398,18 +469,55 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
                           <div className="truncate text-sm font-semibold text-slate-900">
                             {c.entry.subjectName ?? "Period"}
                           </div>
-                          <div className="truncate text-xs text-slate-500">
-                            {c.scopeLabel}
-                            {c.entry.room ? ` · ${c.entry.room}` : ""}
-                          </div>
+                          <div className="truncate text-xs text-slate-500">{c.scopeLabel}</div>
                         </div>
+                        {c.entry.room && (
+                          <span className="shrink-0 rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                            {c.entry.room}
+                          </span>
+                        )}
+                        {(isNow || isNext) && (
+                          <span className={"w-9 shrink-0 text-right text-[11px] font-bold " + (isNow ? "text-emerald-700" : "text-indigo-600")}>
+                            {isNow ? "Now" : "Next"}
+                          </span>
+                        )}
                         {conflict && <AlertTriangle className="h-4 w-4 shrink-0 text-rose-500" />}
                       </div>
+                        );
+                      })()}
                     </div>
                   );
                 })}
             </div>
           )}
+          </div>
+
+          {/* Week at a glance — tap a day to swap the agenda (2b). */}
+          <div className="flex gap-1.5">
+            {DAYS.map((d) => {
+              const active = d.num === dayNum;
+              return (
+                <button
+                  key={d.num}
+                  type="button"
+                  onClick={() => setDayNum(d.num)}
+                  className={
+                    "min-h-[44px] flex-1 rounded-xl border px-1 py-1.5 text-center transition-colors " +
+                    (active
+                      ? "border-indigo-200 bg-indigo-50"
+                      : "border-slate-200 bg-white hover:bg-slate-50")
+                  }
+                >
+                  <span className={"block text-[11px] font-bold " + (active ? "text-indigo-800" : "text-slate-700")}>
+                    {d.short}
+                  </span>
+                  <span className="mt-0.5 block text-[11px] text-slate-400">
+                    {(dayHours[d.num] ?? 0) > 0 ? `${(dayHours[d.num] ?? 0).toFixed(1)}h` : "—"}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       ) : (
         <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">

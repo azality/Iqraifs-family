@@ -5419,6 +5419,11 @@ export interface AcademicsDayResponse {
     subjectName: string | null; className: string | null;
   }>;
   hifz: Array<{ sectionId: string; label: string; heard: number; total: number }>;
+  /** Every in-scope section, active or silent (v1.0.85 — design 2a). */
+  roster?: Array<{
+    sectionId: string; className: string; sectionName: string;
+    isHifz: boolean; teacherName: string | null;
+  }>;
   totals: { lessons: number; homework: number; quizzes: number; tests: number; otherAssignments: number };
 }
 
