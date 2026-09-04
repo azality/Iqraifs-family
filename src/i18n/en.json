@@ -154,6 +154,30 @@
       "school": "School",
       "announcementCount": "{{count}} announcement(s)"
     },
+    "hifz": {
+      "tonight": "Tonight at home",
+      "next": "Next:",
+      "legend": "green heard · red missed · grey no class"
+    },
+    "att": {
+      "subtitle": "{{count}} school days recorded this term",
+      "present": "Present",
+      "empty": "No attendance records yet.",
+      "allPresent": "Present every recorded day, mashaAllah.",
+      "exceptions": "Days that need a look ({{count}})",
+      "showAll": "Show all {{count}} days ▾",
+      "hideAll": "Hide the full log ▴"
+    },
+    "tt": {
+      "subtitle": "Subject colors match everywhere — Maths is always the same blue.",
+      "empty": "No timetable published yet for your class.",
+      "noClasses": "No classes this day.",
+      "substitute": "Substitute",
+      "room": "Room",
+      "time": "Time",
+      "today": "today",
+      "overlap": "{{a}} overlaps {{b}} — flagged to the school, not hidden."
+    },
     "grades": {
       "subtitle": "{{count}} graded · by subject",
       "overall": "Overall",

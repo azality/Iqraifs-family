@@ -138,72 +138,6 @@ function MonthGrid({ days }: { days: MyStudentHifzDayCell[] }) {
   );
 }
 
-/** 14-day trend strip. Each cell:
- *    green   = logged + quality excellent/good
- *    amber   = logged + quality needs_practice
- *    rose    = logged + quality weak
- *    indigo  = logged but no quality recorded
- *    red ❌  = explicitly marked "missed sabaq"
- *    slate ◌ = no entry at all (likely weekend / off-day)
- *
- *  We also compute a mini "mistakes" sparkline (text-based, no SVG
- *  library) so the parent gets the trend in the same row of cells. */
-function TrendStrip({ days }: { days: MyStudentHifzDayCell[] }) {
-  const fmt = (d: string) => {
-    const dt = new Date(d);
-    return dt.toLocaleDateString(undefined, { day: "numeric" });
-  };
-  // Mistakes summary — just totals over the window, no chart lib.
-  const totalMistakes = days.reduce(
-    (n, d) => n + (typeof d.mistakesCount === "number" ? d.mistakesCount : 0),
-    0,
-  );
-  const loggedDays = days.filter((d) => d.logged).length;
-  const missedDays = days.filter((d) => d.missed).length;
-
-  return (
-    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4">
-      <div className="flex items-baseline justify-between mb-3">
-        <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
-          Last 14 days
-        </div>
-        <div className="text-[11px] text-slate-500 flex gap-3">
-          <span><span className="font-semibold text-slate-700">{loggedDays}</span> logged</span>
-          {missedDays > 0 && (
-            <span className="text-rose-700">
-              <span className="font-semibold">{missedDays}</span> missed
-            </span>
-          )}
-          {totalMistakes > 0 && (
-            <span><span className="font-semibold text-slate-700">{totalMistakes}</span> mistakes</span>
-          )}
-        </div>
-      </div>
-      <div className="grid grid-cols-7 sm:grid-cols-14 gap-1.5">
-        {days.map((c) => (
-          <div
-            key={c.date}
-            title={cellTitle(c)}
-            className={
-              "h-9 rounded-md flex flex-col items-center justify-center text-[10px] font-medium " +
-              cellClass(c)
-            }
-          >
-            <span>{fmt(c.date)}</span>
-          </div>
-        ))}
-      </div>
-      <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-500">
-        <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-emerald-500" /> Excellent / Good</span>
-        <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-amber-400" /> Needs practice</span>
-        <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-rose-400" /> Weak</span>
-        <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-rose-500" /> Missed</span>
-        <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-slate-200" /> No entry</span>
-      </div>
-    </div>
-  );
-}
-
 /** "Today" panel — the headline parent card.
  *  Renders only the fields the backend filled in; nothing else is
  *  spec'd to appear, so we don't leak empty rows. */
@@ -265,14 +199,8 @@ function TodayCard({ today }: { today: MyStudentHifzToday }) {
           </div>
         )}
 
-        {today.parentAction && (
-          <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3">
-            <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
-              What to do tonight
-            </div>
-            <div className="mt-1 text-sm text-emerald-900">{today.parentAction}</div>
-          </div>
-        )}
+        {/* "Tonight at home" is hoisted ABOVE this card (design 10g) —
+            the one thing a parent can act on leads the page. */}
 
         {(today.nextTarget || today.mistakesCount != null) && (
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600 pt-2 border-t border-slate-100">
@@ -344,6 +272,21 @@ export function StudentHifz() {
         }
       />
 
+      {/* 10g: "Tonight at home" LEADS — the one actionable thing. */}
+      {data.today?.parentAction && (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+          <div className="text-[10.5px] font-extrabold uppercase tracking-wide text-emerald-700">
+            {t("portal.hifz.tonight")}
+          </div>
+          <div className="mt-1 text-sm font-bold text-emerald-900">{data.today.parentAction}</div>
+          {data.today.nextTarget && (
+            <div className="mt-0.5 text-[11.5px] text-emerald-700">
+              {t("portal.hifz.next")} {data.today.nextTarget}
+            </div>
+          )}
+        </div>
+      )}
+
       {data.today ? (
         <TodayCard today={data.today} />
       ) : (
@@ -352,13 +295,8 @@ export function StudentHifz() {
         </div>
       )}
 
-      {/* Week / Month progress views. Stacked rather than tabbed so the
-          parent sees the week glance + month context together without
-          another tap. Both share the same color matrix + cell tooltip
-          so reading one teaches the other. */}
-      {data.last14Days && data.last14Days.length > 0 && (
-        <TrendStrip days={data.last14Days} />
-      )}
+      {/* ONE 30-day calendar (10g) — the 14-day strip duplicated it and
+          is gone; its week stats live in this header now. */}
       {data.last30Days && data.last30Days.length > 0 && (
         <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4">
           <div className="flex items-baseline justify-between mb-3">
@@ -367,10 +305,20 @@ export function StudentHifz() {
             </div>
             <div className="text-[11px] text-slate-500">
               {data.last30Days.filter((d) => d.logged).length} logged ·{" "}
-              {data.last30Days.filter((d) => d.missed).length} missed
+              <span className={data.last30Days.some((d) => d.missed) ? "font-semibold text-rose-600" : ""}>
+                {data.last30Days.filter((d) => d.missed).length} missed
+              </span>
+              {(() => {
+                const wk = (data.last14Days ?? []).slice(-7);
+                const mistakes = wk.reduce((s, d) => s + ((d as any).mistakes ?? 0), 0);
+                return mistakes > 0 ? <> · {mistakes} mistakes this week</> : null;
+              })()}
             </div>
           </div>
           <MonthGrid days={data.last30Days} />
+          <div className="mt-2 text-[10px] text-slate-400">
+            {t("portal.hifz.legend")}
+          </div>
         </div>
       )}
 
