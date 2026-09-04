@@ -26,7 +26,6 @@
     "src/app/pages/school/AdminDashboard.tsx|TS2820|Type '\"unpaid\"' is not assignable to type 'FeeStatusValue'. Did you mean '\"paid\"'?",
     "src/app/pages/school/AnnouncementsList.tsx|TS2739|Type '{ whole_school: string; class_section: string; parents_only: string; students_only: string; specific_students: string; }' is missing the following properties from type 'Record<AnnouncementAudienceKind, string>': class, teachers, staff, program, subject",
     "src/app/pages/school/AttendanceRollCall.tsx|TS2322|Type '{ variant: string; eyebrow: string; title: string; subtitle: string; asOf: string; rightSlot: Element; }' is not assignable to type 'IntrinsicAttributes & HeroCardProps'.",
-    "src/app/pages/school/ManageStudents.tsx|TS2353|Object literal may only specify known properties, and 'className' does not exist in type 'DataTableColumn<AdminStudent>'.",
     "src/app/pages/school/ManageTimetable.tsx|TS2339|Property 'conflict' does not exist on type 'SaveResult'.",
     "src/app/pages/school/ManageTimetable.tsx|TS2339|Property 'teacherConflict' does not exist on type 'SaveResult'.",
     "src/app/pages/school/StudentDetail.tsx|TS2322|Type 'Element' is not assignable to type 'string'.",

@@ -24,7 +24,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../components/ui/select";
-import { Plus, Upload, Search, Trash2, Pencil, Eye, MessageSquare, UserMinus, UserPlus } from "lucide-react";
+import { Plus, Upload, Search, Trash2, Pencil, Eye, MessageSquare, UserMinus, UserPlus, MoreHorizontal, Users } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "../../components/ui/dropdown-menu";
+import { Checkbox } from "../../components/ui/checkbox";
 import { BehaviorLogEntry } from "./BehaviorLogEntry";
 import { DataTable, sectionTitleClasses, type DataTableColumn, NoAccessRedirect } from "../../components/school-ui";
 import {
@@ -62,7 +70,7 @@ import {
 import { useOrgPermissionState } from "./useOrgPermission";
 import { CsvUploadDialog } from "./components/CsvUploadDialog";
 
-type SectionOption = { id: string; label: string; className: string; sectionName: string; classId: string };
+type SectionOption = { id: string; label: string; className: string; sectionName: string; classId: string; classKind?: string };
 
 const emptyForm: CreateStudentBody = {
   grNumber: "",
@@ -119,7 +127,16 @@ export function ManageStudents() {
   const [sectionFilter, setSectionFilter] = useState<string>(
     () => searchParams.get("classSectionId") || "__all__",
   );
-  const [statusFilter, setStatusFilter] = useState<"active" | "left" | "all">("active");
+  // Rollup chips (design 1b) replace the old Active/Left/All select.
+  const [chipFilter, setChipFilter] = useState<"all" | "pending" | "unassigned" | "left" | "hifz">("all");
+  // Bulk-select bar state + kebab-menu dialog targets.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [deleteTarget, setDeleteTarget] = useState<AdminStudent | null>(null);
+  const [deleteText, setDeleteText] = useState("");
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [moveSectionId, setMoveSectionId] = useState("");
+  const [moveBusy, setMoveBusy] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<AdminStudent | null>(null);
   const [form, setForm] = useState<CreateStudentBody>(emptyForm);
@@ -180,7 +197,7 @@ export function ManageStudents() {
   const sectionOptions: SectionOption[] = useMemo(() => {
     const out: SectionOption[] = [];
     for (const c of classes) for (const s of c.sections || []) {
-      out.push({ id: s.id, label: `${c.name} - ${s.name}`, className: c.name, sectionName: s.name, classId: c.id });
+      out.push({ id: s.id, label: `${c.name} - ${s.name}`, className: c.name, sectionName: s.name, classId: c.id, classKind: c.kind });
     }
     return out;
   }, [classes]);
@@ -256,6 +273,67 @@ export function ManageStudents() {
   const [leftReason, setLeftReason] = useState("");
   const [markLeftBusy, setMarkLeftBusy] = useState(false);
   const [readmitTarget, setReadmitTarget] = useState<AdminStudent | null>(null);
+
+  // ── Roster derivations (design 1b) ────────────────────────────────
+  const isPending = (st: AdminStudent) => {
+    const c = (st as any).completeness_status as string | undefined;
+    return !!c && c !== "complete";
+  };
+  const hifzSectionIds = useMemo(
+    () => new Set(sectionOptions.filter((o) => o.classKind === "hifz").map((o) => o.id)),
+    [sectionOptions],
+  );
+  const activeStudents = useMemo(() => students.filter((st) => st.status !== "withdrawn"), [students]);
+  const chipCounts = useMemo(
+    () => ({
+      all: activeStudents.length,
+      pending: activeStudents.filter(isPending).length,
+      unassigned: activeStudents.filter((st) => !st.class_section_id).length,
+      left: students.length - activeStudents.length,
+      hifz: activeStudents.filter((st) => st.class_section_id && hifzSectionIds.has(st.class_section_id)).length,
+    }),
+    [students, activeStudents, hifzSectionIds],
+  );
+  const visibleStudents = useMemo(() => {
+    switch (chipFilter) {
+      case "pending": return activeStudents.filter(isPending);
+      case "unassigned": return activeStudents.filter((st) => !st.class_section_id);
+      case "left": return students.filter((st) => st.status === "withdrawn");
+      case "hifz": return activeStudents.filter((st) => st.class_section_id && hifzSectionIds.has(st.class_section_id));
+      default: return activeStudents;
+    }
+  }, [chipFilter, students, activeStudents, hifzSectionIds]);
+  // Groups follow the sort: by section normally, A–Z letter groups while
+  // searching, one flat group for the Left chip.
+  const rosterGroups = useMemo(() => {
+    const groups: Array<{ key: string; label: string; meta: string; rows: AdminStudent[] }> = [];
+    if (search.trim()) {
+      const byLetter = new Map<string, AdminStudent[]>();
+      for (const st of [...visibleStudents].sort((a, b) => a.full_name.localeCompare(b.full_name))) {
+        const L = (st.full_name[0] || "#").toUpperCase();
+        byLetter.set(L, [...(byLetter.get(L) ?? []), st]);
+      }
+      for (const [L, rows] of byLetter) groups.push({ key: L, label: L, meta: `${rows.length}`, rows });
+      return groups;
+    }
+    if (chipFilter === "left") {
+      if (visibleStudents.length > 0)
+        groups.push({ key: "left", label: "Left", meta: `${visibleStudents.length} students`, rows: visibleStudents });
+      return groups;
+    }
+    const bySection = new Map<string, AdminStudent[]>();
+    for (const st of visibleStudents) {
+      const k = st.class_section_id || "__none__";
+      bySection.set(k, [...(bySection.get(k) ?? []), st]);
+    }
+    for (const o of sectionOptions) {
+      const rows = bySection.get(o.id);
+      if (rows) groups.push({ key: o.id, label: o.label, meta: `${rows.length} students`, rows });
+    }
+    const none = bySection.get("__none__");
+    if (none) groups.push({ key: "__none__", label: "No section assigned", meta: `${none.length} students`, rows: none });
+    return groups;
+  }, [visibleStudents, sectionOptions, search, chipFilter]);
 
   const viewerRole = me ? viewerRoleForOrg(me, orgId) : null;
   const perm = useOrgPermissionState(orgId, viewerRole, "manage_students");
@@ -403,13 +481,21 @@ export function ManageStudents() {
   // note) — a returnee from a past year must not silently land back in
   // their old class. State lives with the other dialog state above.
 
-  const handleDelete = async (s: AdminStudent) => {
-    if (!confirm(`Delete student "${s.full_name}" (GR# ${s.gr_number})?`)) return;
+  // Typed-confirmation delete (design 1b): the dialog requires typing
+  // the student's name — a browser confirm() was one mis-click away
+  // from destroying a record and its history.
+  const performDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleteBusy(true);
     try {
-      await deleteStudent(orgId, s.id);
-      toast.success(`Deleted ${s.full_name}`);
+      await deleteStudent(orgId, deleteTarget.id);
+      toast.success(`Deleted ${deleteTarget.full_name}`);
+      setDeleteTarget(null);
+      setDeleteText("");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not delete the student.");
+    } finally {
+      setDeleteBusy(false);
     }
     refresh();
   };
@@ -432,116 +518,70 @@ export function ManageStudents() {
     return res;
   };
 
-  const columns: DataTableColumn<AdminStudent>[] = [
-    {
-      key: "name",
-      header: "Name",
-      cell: (s) => {
-        // Surface the admission-completeness flag right on the list so
-        // the office can spot pending records without drilling into
-        // each one. Anything other than 'complete' renders a pill in
-        // amber. Records created the legacy way come back from the
-        // backend with the column missing → treat as complete.
-        const status = (s as any).completeness_status as string | undefined;
-        const pending = status && status !== "complete";
-        return (
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="font-medium text-slate-900">{s.full_name}</span>
-              {s.status === "withdrawn" && (
-                <span
-                  className="inline-flex items-center rounded-full bg-slate-200 text-slate-600 text-[10px] font-medium px-1.5 py-0.5"
-                  title={s.left_reason || undefined}
-                >
-                  Left{s.left_at ? ` ${new Date(s.left_at).toLocaleDateString()}` : ""}
-                  {(() => {
-                    // Tenure: admission date (fall back to record creation) → left date.
-                    const from = s.admission_date || s.created_at;
-                    if (!from || !s.left_at) return null;
-                    const months = Math.max(
-                      0,
-                      Math.round((new Date(s.left_at).getTime() - new Date(from).getTime()) / (30.44 * 86400000)),
-                    );
-                    return ` · ${months >= 12 ? `${Math.floor(months / 12)}y ${months % 12}m` : `${months}m`}`;
-                  })()}
-                </span>
-              )}
-              {pending && (
-                <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-800 text-[10px] font-medium px-1.5 py-0.5">
-                  {status === "guardians_pending"
-                    ? "Guardians pending"
-                    : status === "documents_pending"
-                    ? "Documents pending"
-                    : status === "fees_pending"
-                    ? "Fees pending"
-                    : "Pending"}
-                </span>
-              )}
-            </div>
-            <div className="text-xs text-slate-500">
-              {s.guardian_phone || s.guardian_email || "—"}
-            </div>
-          </div>
-        );
-      },
-    },
-    {
-      key: "gr",
-      header: "GR#",
-      className: "font-mono text-xs text-slate-600 tabular-nums",
-      cell: (s) => s.gr_number,
-    },
-    {
-      key: "section",
-      header: "Section",
-      className: "text-xs text-slate-600",
-      cell: (s) =>
-        s.status === "withdrawn" ? (
-          <span className="text-slate-400">
-            was {sectionOptions.find((o) => o.id === s.left_from_section_id)?.label || "—"}
-          </span>
-        ) : (
-          sectionOptions.find((o) => o.id === s.class_section_id)?.label || "—"
-        ),
-    },
-    {
-      key: "actions",
-      header: "",
-      className: "text-right",
-      headerClassName: "text-right",
-      cell: (s) => (
-        <div className="inline-flex gap-0.5" onClick={(e) => e.stopPropagation()}>
-          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => navigate(`/school/orgs/${orgId}/admin/students/${s.id}`)}>
-            <Eye className="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0"
-            title="Log behavior"
-            onClick={() => setBehaviorTarget(s)}
-          >
-            <MessageSquare className="h-3.5 w-3.5 text-indigo-600" />
-          </Button>
-          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => startEdit(s)}>
-            <Pencil className="h-3.5 w-3.5" />
-          </Button>
-          {s.status === "withdrawn" ? (
-            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Re-admit" onClick={() => setReadmitTarget(s)}>
-              <UserPlus className="h-3.5 w-3.5 text-emerald-600" />
-            </Button>
-          ) : (
-            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Mark as left" onClick={() => { setLeftReason(""); setMarkLeftTarget(s); }}>
-              <UserMinus className="h-3.5 w-3.5 text-amber-600" />
-            </Button>
-          )}
-          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Delete permanently" onClick={() => handleDelete(s)}>
-            <Trash2 className="h-3.5 w-3.5 text-rose-600" />
-          </Button>
-        </div>
+
+  const AV_COLORS = ["#6366f1", "#0ea5e9", "#8b5cf6", "#14b8a6", "#f43f5e", "#f59e0b", "#64748b"];
+  const avColor = (name: string) =>
+    AV_COLORS[Array.from(name).reduce((a, c) => a + c.charCodeAt(0), 0) % AV_COLORS.length];
+  const initialsOf = (name: string) =>
+    name.split(/\s+/).map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
+
+  const toggleSelect = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+
+  // ── Bulk actions (bar appears on select) ──────────────────────────
+  const selectedRows = students.filter((st) => selected.has(st.id));
+  const bulkMove = async () => {
+    if (!moveSectionId) return;
+    setMoveBusy(true);
+    let ok = 0, failed = 0;
+    for (const st of selectedRows) {
+      try {
+        await updateStudent(orgId, st.id, { classSectionId: moveSectionId } as any);
+        ok++;
+      } catch { failed++; }
+    }
+    setMoveBusy(false);
+    setMoveOpen(false);
+    setSelected(new Set());
+    toast[failed > 0 ? "error" : "success"](
+      `Moved ${ok} student${ok === 1 ? "" : "s"}${failed > 0 ? ` · ${failed} failed` : ""}.`,
+    );
+    refresh();
+  };
+  const bulkCopyGuardians = async () => {
+    const lines = selectedRows
+      .map((st) => `${st.full_name}: ${st.guardian_phone || "no phone on file"}`)
+      .join(String.fromCharCode(10));
+    try {
+      await navigator.clipboard.writeText(lines);
+      toast.success(`${selectedRows.length} guardian contact${selectedRows.length === 1 ? "" : "s"} copied — paste into WhatsApp.`);
+    } catch {
+      toast.error("Could not copy to the clipboard.");
+    }
+  };
+  const bulkExportCsv = () => {
+    const esc = (v: string) => `"${(v || "").replace(/"/g, '""')}"`;
+    const rows = [
+      ["Name", "GR#", "Section", "Guardian phone", "Status"].join(","),
+      ...selectedRows.map((st) =>
+        [
+          esc(st.full_name), esc(st.gr_number),
+          esc(sectionOptions.find((o) => o.id === st.class_section_id)?.label || ""),
+          esc(st.guardian_phone || ""), esc(st.status || "active"),
+        ].join(","),
       ),
-    },
-  ];
+    ].join(String.fromCharCode(10));
+    const url = URL.createObjectURL(new Blob([rows], { type: "text/csv" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "students.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div className="space-y-4">
@@ -549,14 +589,12 @@ export function ManageStudents() {
         <div>
           <div className={sectionTitleClasses}>Students</div>
           <p className="mt-1 text-sm text-slate-500">
-            Manage roster · <span className="tabular-nums text-slate-700">{students.filter((s) => s.status !== "withdrawn").length}</span> active
-            {students.some((s) => s.status === "withdrawn") && (
-              <span className="text-slate-400"> · {students.filter((s) => s.status === "withdrawn").length} left</span>
-            )}
+            <span className="font-semibold tabular-nums text-slate-700">{chipCounts.all}</span> active
+            {chipCounts.pending > 0 && <span className="font-medium text-amber-700"> · {chipCounts.pending} pending</span>}
+            {chipCounts.left > 0 && <span className="text-slate-400"> · {chipCounts.left} left</span>}
           </p>
         </div>
         <div className="flex gap-2">
-          <Link to={`/school/orgs/${orgId}/admin`}><Button variant="outline" size="sm">← Admin</Button></Link>
           <Button variant="outline" size="sm" onClick={() => setCsvOpen(true)}>
             <Upload className="h-4 w-4 mr-1" /> Bulk CSV
           </Button>
@@ -585,14 +623,31 @@ export function ManageStudents() {
             ))}
           </SelectContent>
         </Select>
-        <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
-          <SelectTrigger className="h-9 w-32"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="active">Active</SelectItem>
-            <SelectItem value="left">Left</SelectItem>
-            <SelectItem value="all">All</SelectItem>
-          </SelectContent>
-        </Select>
+      </div>
+
+      {/* Rollup chips (design 1b): the roster's exceptions are filters. */}
+      <div className="flex flex-wrap items-center gap-2">
+        {(
+          [
+            { key: "all", label: `All ${chipCounts.all}`, active: "bg-slate-900 text-white", idle: "border border-slate-200 bg-white text-slate-600" },
+            { key: "pending", label: `Guardians pending ${chipCounts.pending}`, active: "bg-amber-500 text-white", idle: "border border-amber-200 bg-white text-amber-800" },
+            { key: "unassigned", label: `Unassigned ${chipCounts.unassigned}`, active: "bg-slate-900 text-white", idle: "border border-slate-200 bg-white text-slate-600" },
+            { key: "left", label: `Left ${chipCounts.left}`, active: "bg-slate-900 text-white", idle: "border border-slate-200 bg-white text-slate-600" },
+            { key: "hifz", label: `Hifz ${chipCounts.hifz}`, active: "bg-slate-900 text-white", idle: "border border-slate-200 bg-white text-slate-600" },
+          ] as const
+        ).map((c) => (
+          <button
+            key={c.key}
+            type="button"
+            onClick={() => setChipFilter(c.key)}
+            className={
+              "min-h-[32px] rounded-full px-3 py-1 text-xs font-semibold transition-colors " +
+              (chipFilter === c.key ? c.active : c.idle + " hover:bg-slate-50")
+            }
+          >
+            {c.label}
+          </button>
+        ))}
       </div>
 
       {/* Page-level errors only when no dialog is open — a submit error
@@ -600,15 +655,189 @@ export function ManageStudents() {
           (pilot bug: the GR-conflict message appeared behind it). */}
       {error && !formOpen && <p className="text-sm text-rose-600">{error}</p>}
 
-      <DataTable
-        columns={columns}
-        rows={students.filter((s) =>
-          statusFilter === "all" ? true : statusFilter === "left" ? s.status === "withdrawn" : s.status !== "withdrawn",
+      {selected.size > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2">
+          <span className="text-xs font-bold text-indigo-900">{selected.size} selected</span>
+          <Button variant="outline" size="sm" className="h-8 border-indigo-200 bg-white text-xs text-indigo-800" onClick={() => { setMoveSectionId(""); setMoveOpen(true); }}>
+            Move to section
+          </Button>
+          <Button variant="outline" size="sm" className="h-8 border-indigo-200 bg-white text-xs text-indigo-800" onClick={bulkCopyGuardians}>
+            Message guardians
+          </Button>
+          <Button variant="outline" size="sm" className="h-8 border-indigo-200 bg-white text-xs text-indigo-800" onClick={bulkExportCsv}>
+            Export CSV
+          </Button>
+          <button type="button" className="ml-auto text-xs text-indigo-500 hover:text-indigo-800" onClick={() => setSelected(new Set())}>
+            Clear
+          </button>
+        </div>
+      )}
+
+      <div className="overflow-hidden rounded-xl border bg-white" style={{ borderColor: "rgba(20,22,58,.08)" }}>
+        {rosterGroups.length === 0 ? (
+          <div className="px-4 py-10 text-center">
+            <Users className="mx-auto h-8 w-8 text-slate-300" />
+            <p className="mt-2 text-sm font-medium text-slate-700">No students here yet</p>
+            <p className="mt-1 text-xs text-slate-500">Add your first student, or import the whole roster from a spreadsheet.</p>
+            <div className="mt-3 flex justify-center gap-2">
+              <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" onClick={startCreate}>
+                <Plus className="mr-1 h-4 w-4" /> Add Student
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setCsvOpen(true)}>
+                <Upload className="mr-1 h-4 w-4" /> Bulk CSV
+              </Button>
+            </div>
+          </div>
+        ) : (
+          rosterGroups.map((g) => (
+            <div key={g.key}>
+              <div className="flex items-baseline gap-2 border-b border-slate-100 bg-slate-50 px-4 py-2">
+                <span className="text-xs font-extrabold uppercase tracking-wide text-slate-600">{g.label}</span>
+                <span className="text-[11px] text-slate-400">{g.meta}</span>
+              </div>
+              {g.rows.map((st) => {
+                const pending = isPending(st);
+                const pill =
+                  st.status === "withdrawn"
+                    ? { cls: "bg-slate-200 text-slate-600", label: "Left" }
+                    : pending
+                      ? { cls: "bg-amber-100 text-amber-800", label: ((st as any).completeness_status === "documents_pending" ? "Documents pending" : (st as any).completeness_status === "fees_pending" ? "Fees pending" : "Guardians pending") }
+                      : { cls: "bg-emerald-50 text-emerald-700", label: "Complete" };
+                return (
+                  <div
+                    key={st.id}
+                    onClick={() => navigate(`/school/orgs/${orgId}/admin/students/${st.id}`)}
+                    className="grid min-h-[48px] cursor-pointer grid-cols-[24px_minmax(0,1fr)_auto_36px] items-center gap-3 border-b border-slate-50 px-4 py-1.5 transition-colors hover:bg-slate-50 sm:grid-cols-[24px_minmax(0,1fr)_80px_150px_130px_36px]"
+                  >
+                    <span onClick={(e) => e.stopPropagation()} className="flex items-center">
+                      <Checkbox checked={selected.has(st.id)} onCheckedChange={() => toggleSelect(st.id)} aria-label={`Select ${st.full_name}`} />
+                    </span>
+                    <span className="flex min-w-0 items-center gap-2.5">
+                      <span
+                        className="flex h-[30px] w-[30px] flex-none items-center justify-center rounded-full text-[11px] font-bold text-white"
+                        style={{ background: avColor(st.full_name) }}
+                      >
+                        {initialsOf(st.full_name)}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-semibold text-slate-900">{st.full_name}</span>
+                        <span className="block truncate text-[11.5px] text-slate-400">
+                          {st.status === "withdrawn" && st.left_reason ? st.left_reason : st.guardian_phone || st.guardian_email || "no guardian contact"}
+                        </span>
+                      </span>
+                    </span>
+                    <span className="hidden font-mono text-xs text-slate-600 tabular-nums sm:block">{st.gr_number}</span>
+                    <span className="hidden truncate text-xs text-slate-500 sm:block">
+                      {search.trim() || chipFilter === "left"
+                        ? sectionOptions.find((o) => o.id === (st.class_section_id || st.left_from_section_id))?.label || "—"
+                        : st.guardian_phone || "—"}
+                    </span>
+                    <span className="justify-self-start">
+                      <span className={"inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold " + pill.cls}>{pill.label}</span>
+                    </span>
+                    <span onClick={(e) => e.stopPropagation()} className="flex justify-end">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0" aria-label="Actions">
+                            <MoreHorizontal className="h-4 w-4 text-slate-400" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-48">
+                          <DropdownMenuItem onClick={() => navigate(`/school/orgs/${orgId}/admin/students/${st.id}`)}>
+                            <Eye className="mr-2 h-3.5 w-3.5" /> Open
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => startEdit(st)}>
+                            <Pencil className="mr-2 h-3.5 w-3.5" /> Edit details
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => setBehaviorTarget(st)}>
+                            <MessageSquare className="mr-2 h-3.5 w-3.5" /> Log behavior
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          {st.status === "withdrawn" ? (
+                            <DropdownMenuItem onClick={() => setReadmitTarget(st)}>
+                              <UserPlus className="mr-2 h-3.5 w-3.5 text-emerald-600" /> Re-admit
+                            </DropdownMenuItem>
+                          ) : (
+                            <DropdownMenuItem className="text-amber-700" onClick={() => { setLeftReason(""); setMarkLeftTarget(st); }}>
+                              <UserMinus className="mr-2 h-3.5 w-3.5" /> Mark as left…
+                            </DropdownMenuItem>
+                          )}
+                          <DropdownMenuItem className="text-rose-600" onClick={() => { setDeleteText(""); setDeleteTarget(st); }}>
+                            <Trash2 className="mr-2 h-3.5 w-3.5" /> Delete permanently…
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          ))
         )}
-        rowKey={(s) => s.id}
-        onRowClick={(s) => navigate(`/school/orgs/${orgId}/admin/students/${s.id}`)}
-        emptyMessage="No students yet."
-      />
+      </div>
+
+      {/* Typed-confirmation delete */}
+      <Dialog open={!!deleteTarget} onOpenChange={(o) => { if (!o) { setDeleteTarget(null); setDeleteText(""); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete permanently</DialogTitle>
+          </DialogHeader>
+          {deleteTarget && (
+            <div className="space-y-3 pt-1">
+              <p className="text-sm text-slate-600">
+                This permanently deletes <strong>{deleteTarget.full_name}</strong> (GR# {deleteTarget.gr_number}) and cannot be undone.
+                If the student left the school, use <em>Mark as left</em> instead — that keeps their history.
+              </p>
+              <div>
+                <Label className="text-xs text-slate-500">Type the student&apos;s name to confirm</Label>
+                <Input
+                  className="mt-1 h-9"
+                  value={deleteText}
+                  onChange={(e) => setDeleteText(e.target.value)}
+                  placeholder={deleteTarget.full_name}
+                />
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => { setDeleteTarget(null); setDeleteText(""); }} disabled={deleteBusy}>
+                  Cancel
+                </Button>
+                <Button
+                  className="bg-rose-600 hover:bg-rose-700"
+                  disabled={deleteBusy || deleteText.trim().toLowerCase() !== deleteTarget.full_name.trim().toLowerCase()}
+                  onClick={performDelete}
+                >
+                  {deleteBusy ? "Deleting…" : "Delete permanently"}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk move-to-section */}
+      <Dialog open={moveOpen} onOpenChange={(o) => { if (!o) setMoveOpen(false); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Move {selected.size} student{selected.size === 1 ? "" : "s"} to a section</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 pt-1">
+            <Select value={moveSectionId} onValueChange={setMoveSectionId}>
+              <SelectTrigger className="h-9"><SelectValue placeholder="Choose a section…" /></SelectTrigger>
+              <SelectContent>
+                {sectionOptions.map((o) => (
+                  <SelectItem key={o.id} value={o.id}>{o.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setMoveOpen(false)} disabled={moveBusy}>Cancel</Button>
+              <Button className="bg-indigo-600 hover:bg-indigo-700" onClick={bulkMove} disabled={moveBusy || !moveSectionId}>
+                {moveBusy ? "Moving…" : "Move"}
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {readmitTarget && (
         <ReadmitDialog
