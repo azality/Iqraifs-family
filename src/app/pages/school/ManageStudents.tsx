@@ -128,7 +128,7 @@ export function ManageStudents() {
     () => searchParams.get("classSectionId") || "__all__",
   );
   // Rollup chips (design 1b) replace the old Active/Left/All select.
-  const [chipFilter, setChipFilter] = useState<"all" | "pending" | "unassigned" | "left" | "hifz">("all");
+  const [chipFilter, setChipFilter] = useState<"all" | "pending" | "noparent" | "unassigned" | "left" | "hifz">("all");
   // Bulk-select bar state + kebab-menu dialog targets.
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [deleteTarget, setDeleteTarget] = useState<AdminStudent | null>(null);
@@ -180,8 +180,10 @@ export function ManageStudents() {
 
   const refresh = () => {
     if (!orgId) return;
+    // Whole roster in one call (500-cap covers the pilot's 394): the 1a
+    // class rail needs per-section counts whatever is selected, so the
+    // section filter is applied client-side.
     listStudents(orgId, {
-      classSectionId: sectionFilter !== "__all__" ? sectionFilter : undefined,
       search: search || undefined,
     }).then(setStudents).catch((e) => setError(e?.message || "Failed to load students"));
   };
@@ -192,7 +194,7 @@ export function ManageStudents() {
     listHifzGroups(orgId).then(setHifzGroups).catch(() => {});
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orgId, sectionFilter, search]);
+  }, [orgId, search]);
 
   const sectionOptions: SectionOption[] = useMemo(() => {
     const out: SectionOption[] = [];
@@ -288,6 +290,14 @@ export function ManageStudents() {
     () => ({
       all: activeStudents.length,
       pending: activeStudents.filter(isPending).length,
+      // "No guardian info" = no linked parent record AND no contact text
+      // on the card — the office literally cannot reach anyone.
+      noparent: activeStudents.filter(
+        (st) =>
+          (st.linked_parent_count ?? 0) === 0 &&
+          !(st.guardian_phone || "").trim() &&
+          !(st.guardian_email || "").trim(),
+      ).length,
       unassigned: activeStudents.filter((st) => !st.class_section_id).length,
       left: students.length - activeStudents.length,
       hifz: activeStudents.filter((st) => st.class_section_id && hifzSectionIds.has(st.class_section_id)).length,
@@ -297,6 +307,13 @@ export function ManageStudents() {
   const visibleStudents = useMemo(() => {
     switch (chipFilter) {
       case "pending": return activeStudents.filter(isPending);
+      case "noparent":
+        return activeStudents.filter(
+          (st) =>
+            (st.linked_parent_count ?? 0) === 0 &&
+            !(st.guardian_phone || "").trim() &&
+            !(st.guardian_email || "").trim(),
+        );
       case "unassigned": return activeStudents.filter((st) => !st.class_section_id);
       case "left": return students.filter((st) => st.status === "withdrawn");
       case "hifz": return activeStudents.filter((st) => st.class_section_id && hifzSectionIds.has(st.class_section_id));
@@ -305,11 +322,21 @@ export function ManageStudents() {
   }, [chipFilter, students, activeStudents, hifzSectionIds]);
   // Groups follow the sort: by section normally, A–Z letter groups while
   // searching, one flat group for the Left chip.
+  // Section filter applies client-side (1a rail keeps live counts).
+  const sectionScoped = useMemo(
+    () =>
+      sectionFilter === "__all__"
+        ? visibleStudents
+        : visibleStudents.filter(
+            (st) => (st.class_section_id ?? st.left_from_section_id) === sectionFilter,
+          ),
+    [visibleStudents, sectionFilter],
+  );
   const rosterGroups = useMemo(() => {
     const groups: Array<{ key: string; label: string; meta: string; rows: AdminStudent[] }> = [];
     if (search.trim()) {
       const byLetter = new Map<string, AdminStudent[]>();
-      for (const st of [...visibleStudents].sort((a, b) => a.full_name.localeCompare(b.full_name))) {
+      for (const st of [...sectionScoped].sort((a, b) => a.full_name.localeCompare(b.full_name))) {
         const L = (st.full_name[0] || "#").toUpperCase();
         byLetter.set(L, [...(byLetter.get(L) ?? []), st]);
       }
@@ -317,12 +344,12 @@ export function ManageStudents() {
       return groups;
     }
     if (chipFilter === "left") {
-      if (visibleStudents.length > 0)
-        groups.push({ key: "left", label: "Left", meta: `${visibleStudents.length} students`, rows: visibleStudents });
+      if (sectionScoped.length > 0)
+        groups.push({ key: "left", label: "Left", meta: `${sectionScoped.length} students`, rows: sectionScoped });
       return groups;
     }
     const bySection = new Map<string, AdminStudent[]>();
-    for (const st of visibleStudents) {
+    for (const st of sectionScoped) {
       const k = st.class_section_id || "__none__";
       bySection.set(k, [...(bySection.get(k) ?? []), st]);
     }
@@ -333,7 +360,24 @@ export function ManageStudents() {
     const none = bySection.get("__none__");
     if (none) groups.push({ key: "__none__", label: "No section assigned", meta: `${none.length} students`, rows: none });
     return groups;
-  }, [visibleStudents, sectionOptions, search, chipFilter]);
+  }, [sectionScoped, sectionOptions, search, chipFilter]);
+
+  // 1a rail: per-section counts that track the active chip filter, plus
+  // an amber dot on sections holding pending admissions.
+  const railRows = useMemo(
+    () =>
+      sectionOptions.map((o) => {
+        const inSec = visibleStudents.filter(
+          (st) => (st.class_section_id ?? st.left_from_section_id) === o.id,
+        );
+        return {
+          ...o,
+          count: inSec.length,
+          hasPending: inSec.some(isPending),
+        };
+      }),
+    [sectionOptions, visibleStudents],
+  );
 
   const viewerRole = me ? viewerRoleForOrg(me, orgId) : null;
   const perm = useOrgPermissionState(orgId, viewerRole, "manage_students");
@@ -615,7 +659,7 @@ export function ManageStudents() {
           />
         </div>
         <Select value={sectionFilter} onValueChange={setSectionFilter}>
-          <SelectTrigger className="h-9 w-56"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="h-9 w-56 lg:hidden"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="__all__">All sections</SelectItem>
             {sectionOptions.map((o) => (
@@ -631,6 +675,7 @@ export function ManageStudents() {
           [
             { key: "all", label: `All ${chipCounts.all}`, active: "bg-slate-900 text-white", idle: "border border-slate-200 bg-white text-slate-600" },
             { key: "pending", label: `Guardians pending ${chipCounts.pending}`, active: "bg-amber-500 text-white", idle: "border border-amber-200 bg-white text-amber-800" },
+            { key: "noparent", label: `No guardian info ${chipCounts.noparent}`, active: "bg-rose-600 text-white", idle: "border border-rose-200 bg-white text-rose-700" },
             { key: "unassigned", label: `Unassigned ${chipCounts.unassigned}`, active: "bg-slate-900 text-white", idle: "border border-slate-200 bg-white text-slate-600" },
             { key: "left", label: `Left ${chipCounts.left}`, active: "bg-slate-900 text-white", idle: "border border-slate-200 bg-white text-slate-600" },
             { key: "hifz", label: `Hifz ${chipCounts.hifz}`, active: "bg-slate-900 text-white", idle: "border border-slate-200 bg-white text-slate-600" },
@@ -673,7 +718,45 @@ export function ManageStudents() {
         </div>
       )}
 
-      <div className="overflow-hidden rounded-xl border bg-white" style={{ borderColor: "rgba(20,22,58,.08)" }}>
+      <div className="grid items-start gap-0 overflow-hidden rounded-xl border bg-white lg:grid-cols-[240px_minmax(0,1fr)]" style={{ borderColor: "rgba(20,22,58,.08)" }}>
+        {/* 1a class rail — pick a class, see one roster at a time. */}
+        <div className="hidden max-h-[70vh] flex-col gap-0.5 overflow-y-auto border-r border-slate-100 p-2.5 lg:flex">
+          <div className="px-2.5 pb-1.5 pt-1 text-[11px] font-bold uppercase tracking-wide text-slate-400">Classes</div>
+          <button
+            type="button"
+            onClick={() => setSectionFilter("__all__")}
+            className={
+              "flex items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-[13px] " +
+              (sectionFilter === "__all__" ? "bg-indigo-50 font-bold text-indigo-900" : "text-slate-700 hover:bg-slate-50")
+            }
+          >
+            <span>All students</span>
+            <span className="text-xs text-slate-400 tabular-nums">{visibleStudents.length}</span>
+          </button>
+          {railRows.map((r) => (
+            <button
+              key={r.id}
+              type="button"
+              onClick={() => setSectionFilter(r.id)}
+              className={
+                "flex items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-[13px] " +
+                (sectionFilter === r.id ? "bg-indigo-50 font-bold text-indigo-900" : "text-slate-700 hover:bg-slate-50")
+              }
+            >
+              <span className="truncate">{r.label}</span>
+              <span className="flex flex-none items-center gap-1.5">
+                {r.hasPending && (
+                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500" title="pending admissions" />
+                )}
+                <span className="text-xs text-slate-400 tabular-nums">{r.count}</span>
+              </span>
+            </button>
+          ))}
+          <div className="mt-2 border-t border-slate-100 px-2.5 pt-2 text-[11px] leading-relaxed text-slate-400">
+            Amber dot = pending admissions. Counts follow the active filter chip.
+          </div>
+        </div>
+        <div className="min-w-0">
         {rosterGroups.length === 0 ? (
           <div className="px-4 py-10 text-center">
             <Users className="mx-auto h-8 w-8 text-slate-300" />
@@ -694,6 +777,14 @@ export function ManageStudents() {
               <div className="flex items-baseline gap-2 border-b border-slate-100 bg-slate-50 px-4 py-2">
                 <span className="text-xs font-extrabold uppercase tracking-wide text-slate-600">{g.label}</span>
                 <span className="text-[11px] text-slate-400">{g.meta}</span>
+                {sectionOptions.some((o) => o.id === g.key) && (
+                  <Link
+                    to={`/school/orgs/${orgId}/sections/${g.key}`}
+                    className="ml-auto text-[11px] font-semibold text-indigo-600 hover:underline"
+                  >
+                    Section dashboard →
+                  </Link>
+                )}
               </div>
               {g.rows.map((st) => {
                 const pending = isPending(st);
@@ -774,6 +865,7 @@ export function ManageStudents() {
             </div>
           ))
         )}
+        </div>
       </div>
 
       {/* Typed-confirmation delete */}
