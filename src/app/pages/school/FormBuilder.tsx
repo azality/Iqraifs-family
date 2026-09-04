@@ -105,6 +105,12 @@ export function FormBuilder() {
   const [fieldOpen, setFieldOpen] = useState(false);
   const [editingField, setEditingField] = useState<FormField | null>(null);
   const [fieldForm, setFieldForm] = useState<FieldForm>(emptyField);
+  // Design 5d: questions live IN the composer. A new form keeps them
+  // locally (the field API needs a formId) and creates form + fields —
+  // and optionally publishes — in one go. No more empty-shell step.
+  const [pendingFields, setPendingFields] = useState<FieldForm[]>([]);
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
@@ -184,11 +190,18 @@ export function FormBuilder() {
   }
   if (loading) return <p className="text-sm text-slate-500">Loading…</p>;
 
-  const handleCreate = async () => {
+  // Creates the form, posts the composer's questions, and (optionally)
+  // publishes — one flow, per the 5d mock's "Save draft" / "Publish →".
+  const handleCreate = async (publish: boolean) => {
     if (!title.trim()) {
       toast.error("Title is required");
       return;
     }
+    if (publish && pendingFields.length === 0) {
+      toast.error("Add at least one question before publishing");
+      return;
+    }
+    setCreating(true);
     try {
       const created = await createForm(orgId, {
         title: title.trim(),
@@ -199,10 +212,46 @@ export function FormBuilder() {
         allowMultiple,
         deadline: deadline || undefined,
       });
-      toast.success("Form created");
+      for (const f of pendingFields) {
+        const needsOptions = f.kind === "single_select" || f.kind === "multi_select";
+        await addFormField(orgId, created.id, {
+          kind: f.kind,
+          label: f.label.trim(),
+          required: f.required,
+          helpText: f.helpText.trim() || undefined,
+          options: needsOptions ? f.options.filter((o) => o.trim()) : undefined,
+        });
+      }
+      if (publish) {
+        await publishForm(orgId, created.id);
+        toast.success("Published");
+        // Announce push (pilot feedback): nothing TELLS parents a form
+        // exists — offer the matching announcement here too.
+        if (confirm("Also post an announcement so parents know about this form?")) {
+          try {
+            await postAnnouncement(orgId, {
+              title: `Please fill: ${title.trim()}`,
+              body:
+                `A new form "${title.trim()}" is waiting for you in the portal's Forms tab.` +
+                (deadline ? ` Please respond by ${new Date(deadline).toLocaleDateString()}.` : "") +
+                (description.trim() ? `\n\n${description.trim()}` : ""),
+              audienceKind: audienceKind as "whole_school" | "class_section" | "specific_students",
+              audienceSectionId: audienceKind === "class_section" ? audienceSectionId || undefined : undefined,
+              audienceStudentIds: audienceKind === "specific_students" && audienceStudentIds.length ? audienceStudentIds : undefined,
+            });
+            toast.success("Announcement posted to the form's audience.");
+          } catch {
+            toast.error("Form published, but the announcement failed — post it from Communications → Announcements.");
+          }
+        }
+      } else {
+        toast.success(pendingFields.length > 0 ? "Draft saved with its questions" : "Draft saved");
+      }
       navigate(`/school/orgs/${orgId}/admin/forms/${created.id}`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -266,12 +315,14 @@ export function FormBuilder() {
 
   const openFieldCreate = () => {
     setEditingField(null);
+    setEditingIndex(null);
     setFieldForm(emptyField);
     setFieldOpen(true);
   };
 
   const openFieldEdit = (f: FormField) => {
     setEditingField(f);
+    setEditingIndex(null);
     setFieldForm({
       kind: f.kind,
       label: f.label,
@@ -282,8 +333,27 @@ export function FormBuilder() {
     setFieldOpen(true);
   };
 
+  // Pending-question editing (new-form composer, before the form exists).
+  const openPendingEdit = (idx: number) => {
+    setEditingField(null);
+    setEditingIndex(idx);
+    setFieldForm(pendingFields[idx]);
+    setFieldOpen(true);
+  };
+
   const submitField = async () => {
-    if (!form || !fieldForm.label.trim()) return;
+    if (!fieldForm.label.trim()) return;
+    if (isNew) {
+      const cleaned = { ...fieldForm, label: fieldForm.label.trim() };
+      setPendingFields((arr) =>
+        editingIndex == null
+          ? [...arr, cleaned]
+          : arr.map((f, i) => (i === editingIndex ? cleaned : f)),
+      );
+      setFieldOpen(false);
+      return;
+    }
+    if (!form) return;
     const needsOptions = fieldForm.kind === "single_select" || fieldForm.kind === "multi_select";
     const body = {
       kind: fieldForm.kind,
@@ -409,6 +479,56 @@ export function FormBuilder() {
         )}
       </div>
 
+      {/* Design 5d: questions live in the composer from the start. */}
+      {isNew && (
+        <div className={`${cardBase} ${cardElev} p-4 space-y-2`}>
+          <div className="flex items-center justify-between">
+            <div className={sectionTitleClasses}>Questions</div>
+            <Button size="sm" variant="outline" onClick={openFieldCreate}>
+              <Plus className="h-3.5 w-3.5 mr-1" /> Add question
+            </Button>
+          </div>
+          {pendingFields.length === 0 ? (
+            <p className="text-sm text-slate-500">
+              No questions yet — a form can&apos;t be published until it has at
+              least one.
+            </p>
+          ) : (
+            <ul className="divide-y divide-slate-100">
+              {pendingFields.map((f, idx) => (
+                <li key={idx} className="flex items-start gap-2 py-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-sm text-slate-900">
+                      {f.label}{f.required && <span className="text-rose-600"> *</span>}
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      {KIND_LABELS[f.kind]}
+                      {f.options.length > 0 ? ` · ${f.options.filter((o) => o.trim()).length} options` : ""}
+                      {f.required ? " · required" : " · optional"}
+                    </div>
+                  </div>
+                  <div className="inline-flex gap-0.5">
+                    <Button
+                      variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={idx === 0}
+                      onClick={() => setPendingFields((arr) => { const n = arr.slice(); [n[idx - 1], n[idx]] = [n[idx], n[idx - 1]]; return n; })}
+                    ><ArrowUp className="h-3.5 w-3.5" /></Button>
+                    <Button
+                      variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={idx === pendingFields.length - 1}
+                      onClick={() => setPendingFields((arr) => { const n = arr.slice(); [n[idx], n[idx + 1]] = [n[idx + 1], n[idx]]; return n; })}
+                    ><ArrowDown className="h-3.5 w-3.5" /></Button>
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openPendingEdit(idx)}><Pencil className="h-3.5 w-3.5" /></Button>
+                    <Button
+                      variant="ghost" size="sm" className="h-7 w-7 p-0"
+                      onClick={() => setPendingFields((arr) => arr.filter((_, i) => i !== idx))}
+                    ><Trash2 className="h-3.5 w-3.5 text-rose-600" /></Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
       {!isNew && form && (
         <div className={`${cardBase} ${cardElev} p-4 space-y-2`}>
           <div className="flex items-center justify-between">
@@ -444,15 +564,23 @@ export function FormBuilder() {
 
       <div className="flex justify-end gap-2">
         {isNew ? (
-          <div className="space-y-1.5">
-            <Button onClick={handleCreate} className="bg-indigo-600 hover:bg-indigo-700">
-              Save &amp; add questions
+          <>
+            <Button variant="outline" disabled={creating} onClick={() => void handleCreate(false)}>
+              Save draft
             </Button>
-            <p className="text-[11px] text-slate-500">
-              Questions come next — a form can&apos;t be published until it has at
-              least one.
-            </p>
-          </div>
+            <Button
+              className="bg-indigo-600 hover:bg-indigo-700"
+              disabled={creating}
+              onClick={() => void handleCreate(true)}
+              title={pendingFields.length === 0 ? "Add at least one question first" : undefined}
+            >
+              {creating
+                ? "Saving…"
+                : reachLabel
+                ? `Publish → ${reachLabel}`
+                : "Publish"}
+            </Button>
+          </>
         ) : (
           <Button onClick={handleSave} className="bg-indigo-600 hover:bg-indigo-700">Save changes</Button>
         )}
@@ -460,7 +588,7 @@ export function FormBuilder() {
 
       <Dialog open={fieldOpen} onOpenChange={setFieldOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>{editingField ? "Edit field" : "Add field"}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editingField || editingIndex != null ? "Edit question" : "Add question"}</DialogTitle></DialogHeader>
           <div className="space-y-2">
             <div>
               <Label>Kind</Label>
