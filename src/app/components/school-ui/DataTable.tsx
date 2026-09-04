@@ -34,6 +34,9 @@ export interface DataTableProps<T> {
   rankColumn?: boolean;
   caption?: string;
   className?: string;
+  /** Below `sm`, render rows as stacked label/value cards instead of a
+   *  sideways-scrolling table (design standard rule 6). Default on. */
+  mobileCards?: boolean;
 }
 
 function alignCls(a?: "left" | "right" | "center"): string {
@@ -61,11 +64,60 @@ export function DataTable<T>({
   rankColumn,
   caption,
   className,
+  mobileCards = true,
 }: DataTableProps<T>) {
   const clickable = Boolean(onRowClick);
   const totalCols = columns.length + (rankColumn ? 1 : 0) + (clickable ? 1 : 0);
 
-  return (
+  // Phone layout: a multi-column table on a 390px screen shows ~2 columns
+  // and hides the actions behind a horizontal scroll nobody discovers.
+  // Stack each row into a card instead: first column is the title, the
+  // rest become label/value lines (empty values skipped).
+  const cardList = mobileCards ? (
+    <div className="sm:hidden">
+      {rows.length === 0 ? (
+        <p className="px-4 py-8 text-center text-sm text-slate-500">{emptyMessage}</p>
+      ) : (
+        rows.map((row, idx) => (
+          <div
+            key={rowKey(row)}
+            onClick={onRowClick ? () => onRowClick(row) : undefined}
+            className={
+              "space-y-1.5 border-b border-slate-100 px-4 py-3 " +
+              (clickable ? "cursor-pointer active:bg-indigo-50/40" : "")
+            }
+          >
+            {columns.map((c, i) => {
+              const content = c.cell
+                ? c.cell(row)
+                : (row as Record<string, ReactNode>)[String(c.key)];
+              if (content === null || content === undefined || content === "") return null;
+              if (i === 0) {
+                return (
+                  <div key={String(c.key) + ":" + i} className="text-sm font-medium text-slate-900">
+                    {rankColumn && (
+                      <span className="mr-2 text-xs text-slate-400 tabular-nums">{idx + 1}</span>
+                    )}
+                    {content}
+                  </div>
+                );
+              }
+              return (
+                <div key={String(c.key) + ":" + i} className="flex items-start justify-between gap-3 text-sm">
+                  <span className="pt-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                    {c.header}
+                  </span>
+                  <div className="min-w-0 text-right text-slate-700">{content}</div>
+                </div>
+              );
+            })}
+          </div>
+        ))
+      )}
+    </div>
+  ) : null;
+
+  const table = (
     <Table className={className}>
       {caption && <TableCaption>{caption}</TableCaption>}
       <TableHeader
@@ -154,5 +206,13 @@ export function DataTable<T>({
         )}
       </TableBody>
     </Table>
+  );
+
+  if (!mobileCards) return table;
+  return (
+    <>
+      {cardList}
+      <div className="hidden sm:block">{table}</div>
+    </>
   );
 }

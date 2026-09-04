@@ -74,7 +74,7 @@ import {
   type SchoolMeResponse,
   type SchoolGroupSummary,
 } from "../../../utils/schoolApi";
-import { SetupChecklist, setupChecklistDismissed, PendingTimeOffWidget, TermSwitchNudge } from "../../components/school-ui";
+import { SetupChecklist, setupChecklistDismissed, PendingTimeOffWidget, TermSwitchNudge, DashSection } from "../../components/school-ui";
 import { AttendanceDayNotes } from "./AttendanceDayNotes";
 import { RightNowPanel } from "./RightNowPanel";
 import { useOrgPermission } from "./useOrgPermission";
@@ -1053,57 +1053,6 @@ function NeedsAttention({ alerts, orgId }: { alerts: DashboardAlert[]; orgId: st
           </div>
         ))}
       </div>
-    </div>
-  );
-}
-
-// ─── Mobile accordion wrapper (1d) ───────────────────────────────────────
-// On phones every dashboard module sits behind a 44px collapsible header
-// so the page is one screen deep; on lg+ the wrapper vanishes
-// (display:contents) and children render as normal cards.
-
-function DashSection({
-  title,
-  right,
-  tone = "default",
-  defaultOpen = false,
-  children,
-}: {
-  title: string;
-  right?: React.ReactNode;
-  tone?: "default" | "alert";
-  defaultOpen?: boolean;
-  children: React.ReactNode;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-  const alertTone = tone === "alert";
-  return (
-    <div className="lg:contents">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className={
-          "flex min-h-[44px] w-full items-center gap-2 rounded-xl border px-4 py-3 text-left lg:hidden " +
-          (alertTone ? "border-rose-200 bg-rose-50" : "bg-white")
-        }
-        style={alertTone ? undefined : { borderColor: "rgba(20,22,58,.08)" }}
-      >
-        <span className={"text-[12.5px] font-bold " + (alertTone ? "text-rose-800" : "")} style={alertTone ? undefined : { color: "#14163a" }}>
-          {title}
-        </span>
-        {right}
-        <ChevronDown
-          className={
-            "ml-auto h-4 w-4 transition-transform " +
-            (alertTone ? "text-rose-400 " : "text-slate-400 ") +
-            (open ? "rotate-180" : "")
-          }
-        />
-      </button>
-      {/* max-lg:hidden (not `hidden`) so the closed state can never fight
-          lg:contents in the cascade — both are display utilities. */}
-      <div className={(open ? "space-y-4 " : "max-lg:hidden ") + "lg:contents"}>{children}</div>
     </div>
   );
 }

@@ -48,7 +48,7 @@ import {
   type SchoolMeResponse,
   createMyTimeOff,
 } from "../../../utils/schoolApi";
-import { TimeOffModal, TeacherTimeOffWidget } from "../../components/school-ui";
+import { TimeOffModal, TeacherTimeOffWidget, DashSection } from "../../components/school-ui";
 
 function todayDow(): number {
   // ISO day: Mon=1 ... Sun=7. JS getDay(): Sun=0.
@@ -330,7 +330,7 @@ export function TeacherHome({ orgId, me }: Props) {
   }, [sections]);
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className="flex flex-col gap-6 pb-12">
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
@@ -374,6 +374,29 @@ export function TeacherHome({ orgId, me }: Props) {
           {t("teacherHome.loadError", { msg: error })}
         </div>
       )}
+
+      {/* Hifz daily round — the day's actual work for a hifz teacher,
+          so it renders FIRST — before Up next (P0, Sep 2026 review). */}
+      {!loading && hifzToday.map((h) => (
+        <div key={h.sectionId} className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="font-medium">
+                {t("hifzTeach.banner", { label: h.label, heard: h.heard, total: h.total })}
+              </div>
+              <div className="text-xs text-emerald-700">
+                {t("hifzTeach.bannerHint")}
+              </div>
+            </div>
+            <Link
+              to={`/school/orgs/${orgId}/sections/${h.sectionId}/hifz?round=1`}
+              className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+            >
+              {t("hifzTeach.startRound")}
+            </Link>
+          </div>
+        </div>
+      ))}
 
       {/* Smart "Up next" — driven by the lesson-prep endpoint. Replaces
           the old full-day listing. A fixed-height skeleton holds the slot
@@ -490,29 +513,6 @@ export function TeacherHome({ orgId, me }: Props) {
           </div>
         </section>
       )}
-
-      {/* Hifz daily round — the day's actual work for a hifz teacher,
-          so it sits at the very top like the attendance nudge. */}
-      {!loading && hifzToday.map((h) => (
-        <div key={h.sectionId} className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <div className="font-medium">
-                {t("hifzTeach.banner", { label: h.label, heard: h.heard, total: h.total })}
-              </div>
-              <div className="text-xs text-emerald-700">
-                {t("hifzTeach.bannerHint")}
-              </div>
-            </div>
-            <Link
-              to={`/school/orgs/${orgId}/sections/${h.sectionId}/hifz?round=1`}
-              className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
-            >
-              {t("hifzTeach.startRound")}
-            </Link>
-          </div>
-        </div>
-      ))}
 
       {/* Roll-call nudge */}
       {!loading && needRollCall.length > 0 && (
@@ -790,6 +790,7 @@ export function TeacherHome({ orgId, me }: Props) {
           same subject across sections) see the academic-content view of
           their workload rather than only the homeroom view above. */}
       {mySubjects.length > 0 && (
+        <DashSection title="My subjects &amp; curriculum">
         <section id="my-subjects" className="space-y-3 scroll-mt-20">
           <div className="flex items-end justify-between">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
@@ -882,6 +883,7 @@ export function TeacherHome({ orgId, me }: Props) {
             })}
           </div>
         </section>
+        </DashSection>
       )}
 
       {/* Phase 6b: focused-work widgets — topics due soon, assignments
@@ -893,6 +895,7 @@ export function TeacherHome({ orgId, me }: Props) {
           snapshot.assignmentsToGrade.length > 0 ||
           snapshot.untaggedLessonsCount > 0 ||
           snapshot.recentGradesGiven.length > 0) && (
+          <DashSection title="Marking &amp; prep">
           <section className="space-y-3">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
               {t("teacherHome.focusWeek")}
@@ -1081,10 +1084,12 @@ export function TeacherHome({ orgId, me }: Props) {
               )}
             </div>
           </section>
+          </DashSection>
         )}
 
       {/* Recent behavior notes */}
       {notes.length > 0 && (
+        <DashSection title="Recent behavior notes">
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
             {t("teacherHome.recentBehavior")}
@@ -1126,6 +1131,7 @@ export function TeacherHome({ orgId, me }: Props) {
             </ul>
           </div>
         </section>
+        </DashSection>
       )}
     </div>
   );

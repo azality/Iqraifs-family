@@ -978,7 +978,7 @@ export function installPhaseB(school: Hono): void {
     const { data, error } = await q;
     if (error) return c.json({ error: error.message }, 500);
 
-    return c.json({ requests: (data ?? []).map(insReqToJson) });
+    return c.json({ requests: await enrichRosterRequests(data ?? []) });
   });
 
   // ---------------------------------------------------------------------------
@@ -1005,7 +1005,7 @@ export function installPhaseB(school: Hono): void {
       .order("created_at", { ascending: false });
     if (error) return c.json({ error: error.message }, 500);
 
-    return c.json({ requests: (data ?? []).map(insReqToJson) });
+    return c.json({ requests: await enrichRosterRequests(data ?? []) });
   });
 
   // ---------------------------------------------------------------------------
@@ -1132,4 +1132,63 @@ function insReqToJson(r: any) {
     reviewerNotes: r.reviewer_notes,
     createdAt: r.created_at,
   };
+}
+
+// Resolve the human names a reviewer needs — the queue used to render raw
+// UUID prefixes ("Student 3f9a12bc…"), which made approving a move
+// impossible without a database lookup. Batch: one student query, one
+// section query, and a per-user auth lookup for requesters/reviewers.
+async function enrichRosterRequests(rows: any[]): Promise<any[]> {
+  if (rows.length === 0) return rows;
+  const base = rows.map(insReqToJson);
+  try {
+    const studentIds = [...new Set(base.map((r) => r.studentId).filter(Boolean))];
+    const sectionIds = [...new Set(base.map((r) => r.sectionId).filter(Boolean))];
+    const userIds = [...new Set(base.flatMap((r) => [r.requestedBy, r.reviewedBy]).filter(Boolean))];
+
+    const [studentsRes, sectionsRes] = await Promise.all([
+      studentIds.length > 0
+        ? serviceRoleClient.from("student").select("id, full_name, gr_number").in("id", studentIds)
+        : Promise.resolve({ data: [] }),
+      sectionIds.length > 0
+        ? serviceRoleClient
+            .from("class_section")
+            .select("id, name, class:class_id(name)")
+            .in("id", sectionIds)
+        : Promise.resolve({ data: [] }),
+    ]);
+    const studentBy = new Map(
+      ((studentsRes.data ?? []) as any[]).map((s) => [s.id, s]),
+    );
+    const sectionBy = new Map(
+      ((sectionsRes.data ?? []) as any[]).map((s) => [
+        s.id,
+        `${s.class?.name ?? "?"} · ${s.name}`,
+      ]),
+    );
+    const nameBy = new Map<string, string>();
+    for (const uid of userIds) {
+      try {
+        const { data: u } = await serviceRoleClient.auth.admin.getUserById(uid);
+        nameBy.set(uid, u?.user?.user_metadata?.name || u?.user?.email || "");
+      } catch {
+        // leave unresolved — frontend falls back to the id prefix
+      }
+    }
+    return base.map((r) => ({
+      ...r,
+      studentName:
+        studentBy.get(r.studentId)?.full_name ??
+        r.newStudentPayload?.full_name ??
+        r.newStudentPayload?.fullName ??
+        null,
+      grNumber: studentBy.get(r.studentId)?.gr_number ?? null,
+      sectionLabel: sectionBy.get(r.sectionId) ?? null,
+      requestedByName: nameBy.get(r.requestedBy) || null,
+      reviewedByName: r.reviewedBy ? nameBy.get(r.reviewedBy) || null : null,
+    }));
+  } catch {
+    // Enrichment must never break the queue — serve the bare rows.
+    return base;
+  }
 }
