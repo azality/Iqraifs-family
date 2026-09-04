@@ -509,6 +509,7 @@ export function ManageTimetable() {
               <SectionTimetableGrid
                 cells={cells}
                 onSlotClick={(slotId) => setEditSlotId(slotId)}
+                selectedSlotId={editSlotId}
               />
               <div className="lg:sticky lg:top-20">
                 {(() => {
@@ -665,7 +666,7 @@ function SlotEditorPanel({
     <div className="rounded-xl border border-indigo-200 bg-white p-3.5 shadow-lg shadow-indigo-100">
       <div className="flex items-start justify-between gap-2">
         <div className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
-          Edit period · {dayName} {cell.slot.startTime}–{cell.slot.endTime}
+          Edit period · {dayName} {(cell.slot.startTime ?? "").slice(0, 5)}–{(cell.slot.endTime ?? "").slice(0, 5)}
         </div>
         <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-700" aria-label="Close editor">
           ×

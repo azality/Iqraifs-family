@@ -644,12 +644,16 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
                         onClick={() => setSelectedCell(c)}
                         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setSelectedCell(c); }}
                         className={
-                          "absolute left-1 right-1 rounded-md px-2 py-1.5 text-[11px] text-white overflow-hidden cursor-pointer " +
+                          "absolute left-1 right-1 rounded-md px-2 py-1.5 text-[11px] overflow-hidden cursor-pointer " +
                           (conflict ? "ring-2 ring-rose-500 z-10" : "ring-1 ring-black/5")
                         }
                         style={{
                           top: `${top}px`, height: `${height}px`,
-                          background: `linear-gradient(135deg, hsl(${hue} 55% 45%), hsl(${hue} 60% 35%))`,
+                          // 4d family look: pastel subject chip with a hued
+                          // left edge (was a saturated gradient block).
+                          background: `hsl(${hue} 60% 95%)`,
+                          color: `hsl(${hue} 45% 28%)`,
+                          borderLeft: `3px solid hsl(${hue} 55% 45%)`,
                         }}
                         title={`${c.entry.subjectName ?? "Slot"} · ${c.scopeLabel} · ${c.slot.startTime}–${c.slot.endTime}${c.entry.room ? ` · ${c.entry.room}` : ""}${conflict ? " · CONFLICT" : ""}`}
                       >
@@ -658,7 +662,7 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
                         <div className="opacity-80 text-[10px]">{c.slot.startTime}–{c.slot.endTime}</div>
                         {conflict && (
                           <div className="absolute right-1 top-1">
-                            <AlertTriangle className="h-3 w-3 text-white" />
+                            <AlertTriangle className="h-3 w-3 text-rose-600" />
                           </div>
                         )}
                       </div>
