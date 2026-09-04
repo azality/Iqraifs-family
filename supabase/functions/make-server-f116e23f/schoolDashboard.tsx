@@ -2324,9 +2324,32 @@ export function installDashboard(school: Hono): void {
         .sort((a: any, b: any) => a.label.localeCompare(b.label));
     }
 
+    // Roster of EVERY in-scope section (design 2a: silence is signal —
+    // a section that logged nothing must still get a row saying so).
+    // Sandbox excluded like every rollup.
+    const { data: rosterRows } = await serviceRoleClient
+      .from("class_section")
+      .select("id, name, class_teacher_user_id, class:class_id!inner(id, name, kind, org_id)")
+      .eq("class.org_id", orgId);
+    const roster: unknown[] = [];
+    for (const r of (rosterRows ?? []) as any[]) {
+      if (r.class?.name === "Sandbox") continue;
+      if (!inWing(r.class?.id)) continue;
+      roster.push({
+        sectionId: r.id,
+        className: r.class?.name ?? "Class",
+        sectionName: r.name ?? "",
+        isHifz: r.class?.kind === "hifz",
+        teacherName: await nameOf(r.class_teacher_user_id),
+      });
+    }
+    (roster as any[]).sort((x, y) =>
+      (x.className + x.sectionName).localeCompare(y.className + y.sectionName));
+
     const kindCount = (k: string) => assignRows.filter((a) => a.kind === k).length;
     return c.json({
       date,
+      roster,
       sections,
       plannedTopics: plannedRows.map((tp) => ({
         name: tp.name, targetDate: tp.target_date, completed: !!tp.completed,

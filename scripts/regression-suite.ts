@@ -1078,12 +1078,17 @@ await check("31. incharge role: wing-scoped access, no org powers", async () => 
   }
   try {
     // Wing digest: 200, and every row belongs to the Sandbox class.
+    // The wing has TWO sections since the demo-roles seeding (A for the
+    // qa-* accounts, B for the demo accounts) — both are legitimate.
+    const { data: wingSecs } = await admin
+      .from("class_section").select("id").eq("class_id", sandboxClass.id);
+    const wingSecIds = new Set((wingSecs ?? []).map((x: any) => x.id));
     const day = new Date().toISOString().slice(0, 10);
     const dig = await api(inch.token, `/school/orgs/${ORG}/academics-day?date=${day}`);
     const digJ = await dig.json();
     assert(dig.status === 200, `digest ${dig.status}`);
     for (const sec of digJ.sections ?? []) {
-      assert(sec.sectionId === sandboxSec.id, `non-wing section leaked: ${sec.className} ${sec.sectionName}`);
+      assert(wingSecIds.has(sec.sectionId), `non-wing section leaked: ${sec.className} ${sec.sectionName}`);
     }
     assert((digJ.hifz ?? []).length === 0, "hifz sections leaked into non-hifz wing");
     // Section-scoped read inside the wing (lessons list) works.
@@ -1095,7 +1100,7 @@ await check("31. incharge role: wing-scoped access, no org powers", async () => 
       const lbJ = await lb.json();
       const rows = lbJ.rows ?? lbJ.sections ?? [];
       for (const r of rows) {
-        assert(r.sectionId === sandboxSec.id, `leaderboard leaked non-wing section`);
+        assert(wingSecIds.has(r.sectionId), `leaderboard leaked non-wing section`);
       }
     }
     // NO org powers: day-note write forbidden; hifz-program allowed but

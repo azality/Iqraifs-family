@@ -7,6 +7,7 @@
 // Admin/principal only (backend-gated); linked from the Academics menu.
 
 import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { Link, useParams } from "react-router";
 import {
   BookOpen, BookMarked, ChevronLeft, ChevronRight, ClipboardList,
@@ -57,13 +58,47 @@ export function AdminAcademicsDay() {
   }, [orgId, date]);
 
   const isToday = date === pktToday();
-  const quietDay = useMemo(
-    () =>
-      !!data &&
-      data.sections.length === 0 &&
-      data.hifz.every((h) => h.heard === 0),
-    [data],
+
+  // ── Roll-call rows (design 2a): merge the roster with the day's
+  // activity so a section that logged nothing still answers. ──────────
+  const rollCall = useMemo(() => {
+    if (!data) return [];
+    const bySection = new Map(data.sections.map((sec) => [sec.sectionId, sec]));
+    const hifzBySection = new Map(data.hifz.map((h) => [h.sectionId, h]));
+    return (data.roster ?? []).map((r) => {
+      const act = bySection.get(r.sectionId);
+      const hz = hifzBySection.get(r.sectionId);
+      const heard = hz?.heard ?? 0;
+      const total = hz?.total ?? 0;
+      const silent =
+        (!act || (act.lessons.length === 0 && act.assignments.length === 0)) &&
+        (!r.isHifz || heard === 0);
+      const planned = data.plannedTopics.find(
+        (tp) => tp.targetDate === data.date && tp.className === r.className && !tp.completed,
+      );
+      return { ...r, act, heard, total, silent, planned };
+    });
+  }, [data]);
+  const silentRows = rollCall.filter((r) => r.silent);
+  const heardTotals = rollCall.reduce(
+    (a, r) => (r.isHifz ? { heard: a.heard + r.heard, total: a.total + r.total } : a),
+    { heard: 0, total: 0 },
   );
+
+  // One-tap nudge: the pilot's real channel is WhatsApp — copy a ready
+  // Roman-Urdu message instead of inventing an in-app notification.
+  const nudgeText = (r: { teacherName: string | null; className: string; sectionName: string; planned?: { name: string } | null }) =>
+    `Assalamualaikum ${r.teacherName ?? "ustaad"} sb — aaj ${r.className} ${r.sectionName} ki koi entry system mein nahi hui (lesson/sabaq).` +
+    (r.planned ? ` Aaj ka planned topic: ${r.planned.name}.` : "") +
+    ` Meherbani karke aaj ki entry update kar dein. JazakAllah.`;
+  const copyNudge = async (text: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(`${label} — paste into WhatsApp.`);
+    } catch {
+      toast.error("Could not copy to the clipboard.");
+    }
+  };
 
   return (
     <div className="space-y-6 pb-12">
@@ -145,10 +180,141 @@ export function AdminAcademicsDay() {
                 {data.totals.tests} test{data.totals.tests === 1 ? "" : "s"}
               </span>
             )}
+            {heardTotals.total > 0 && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1.5 font-medium text-emerald-700 ring-1 ring-emerald-200">
+                <BookMarked className="h-3.5 w-3.5" />
+                {heardTotals.heard}/{heardTotals.total} students heard
+              </span>
+            )}
           </div>
 
-          {/* Hifz round strip */}
-          {data.hifz.length > 0 && (
+          {/* Roll-call banner (design 2a): silence is signal. */}
+          {rollCall.length > 0 && silentRows.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5">
+              <span className="text-sm font-bold text-amber-900">
+                {rollCall.length - silentRows.length} of {rollCall.length} sections {rollCall.length - silentRows.length === 1 ? "has" : "have"} activity {isToday ? "today" : "this day"}.
+              </span>
+              <span className="text-xs text-amber-800">
+                {silentRows.length} logged nothing — no lesson, no students heard.
+              </span>
+              {isToday && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    copyNudge(
+                      silentRows.map((r) => nudgeText(r)).join(String.fromCharCode(10) + String.fromCharCode(10)),
+                      `${silentRows.length} nudge message${silentRows.length === 1 ? "" : "s"} copied`,
+                    )
+                  }
+                  className="ml-auto min-h-[32px] rounded-lg border border-amber-300 bg-white px-3 py-1 text-xs font-bold text-amber-900 hover:bg-amber-100"
+                >
+                  Nudge all {silentRows.length} teacher{silentRows.length === 1 ? "" : "s"}
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Roll-call rows: every assigned section answers. */}
+          {rollCall.length > 0 && (
+            <div className="overflow-hidden rounded-xl border bg-white" style={{ borderColor: "rgba(20,22,58,.08)" }}>
+              {rollCall.map((r) => (
+                <div
+                  key={r.sectionId}
+                  className={
+                    "flex flex-wrap items-start gap-3 border-b border-slate-100 px-4 py-3 sm:grid sm:grid-cols-[180px_minmax(0,1fr)_220px_110px] sm:items-center " +
+                    (r.silent ? "bg-amber-50/40" : "")
+                  }
+                >
+                  <span className="flex min-w-0 items-start gap-2">
+                    <span
+                      className="mt-1.5 h-2 w-2 flex-none rounded-full"
+                      style={{ background: r.silent ? "#f59e0b" : "#10b981" }}
+                    />
+                    <span className="min-w-0">
+                      <Link
+                        to={`/school/orgs/${orgId}/sections/${r.sectionId}${r.isHifz ? "/hifz" : ""}`}
+                        className="block truncate text-sm font-bold text-slate-900 hover:text-indigo-700"
+                      >
+                        {r.className} · {r.sectionName}
+                      </Link>
+                      <span className="block truncate text-[11.5px] text-slate-400">
+                        {r.teacherName ?? "no class teacher"}
+                      </span>
+                    </span>
+                  </span>
+                  <span className={"min-w-0 flex-1 text-xs leading-relaxed sm:flex-none " + (r.silent ? "text-amber-800" : "text-slate-600")}>
+                    {r.silent ? (
+                      <>
+                        Nothing logged — no lesson{r.isHifz ? `, 0 of ${r.total} heard` : ""}.
+                        {r.planned && <> Planned: {r.planned.name}.</>}
+                      </>
+                    ) : (
+                      <>
+                        {(r.act?.lessons ?? []).slice(0, 2).map((l, i) => (
+                          <span key={l.id}>
+                            {i > 0 && " · "}
+                            {l.subjectName ? `${l.subjectName}: ` : ""}
+                            {l.topicName ?? l.title}
+                          </span>
+                        ))}
+                        {(r.act?.assignments ?? []).slice(0, 2).map((a, i) => (
+                          <span key={a.id}>
+                            {((r.act?.lessons.length ?? 0) > 0 || i > 0) && " · "}
+                            <span className="capitalize">{a.kind.replace("_", " ")}</span>: {a.title}
+                          </span>
+                        ))}
+                        {r.isHifz && (r.act?.lessons.length ?? 0) === 0 && (r.act?.assignments.length ?? 0) === 0 && (
+                          <>Round in progress.</>
+                        )}
+                      </>
+                    )}
+                  </span>
+                  {r.isHifz ? (
+                    <span className="flex w-full flex-col gap-1 sm:w-auto">
+                      <span className="flex justify-between text-[11px] text-slate-500">
+                        <span>Hifz heard</span>
+                        <span className={"font-bold " + (r.heard > 0 ? "text-emerald-700" : "text-amber-700")}>
+                          {r.heard}/{r.total}
+                        </span>
+                      </span>
+                      <span className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+                        <span
+                          className="block h-full rounded-full"
+                          style={{
+                            width: `${r.total > 0 ? Math.round((r.heard / r.total) * 100) : 0}%`,
+                            background: r.heard > 0 ? "#10b981" : "#f59e0b",
+                          }}
+                        />
+                      </span>
+                    </span>
+                  ) : (
+                    <span className="hidden sm:block" />
+                  )}
+                  <span className="sm:text-right">
+                    {r.silent && isToday ? (
+                      <button
+                        type="button"
+                        onClick={() => copyNudge(nudgeText(r), "Nudge copied")}
+                        className="min-h-[32px] rounded-lg border border-amber-300 bg-white px-3 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-100"
+                      >
+                        Nudge
+                      </button>
+                    ) : (
+                      <Link
+                        to={`/school/orgs/${orgId}/sections/${r.sectionId}${r.isHifz ? "/hifz" : ""}`}
+                        className="inline-flex min-h-[32px] items-center rounded-lg border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                      >
+                        Open section
+                      </Link>
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Fallback for a backend without the roster field. */}
+          {(data.roster ?? []).length === 0 && data.hifz.length > 0 && (
             <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
               <div className="mb-2 inline-flex items-center gap-2 text-sm font-semibold text-emerald-900">
                 <BookMarked className="h-4 w-4 text-emerald-600" />
@@ -176,8 +342,8 @@ export function AdminAcademicsDay() {
             </div>
           )}
 
-          {/* Per-section day activity */}
-          {quietDay ? (
+          {/* Per-section day activity (roster-less fallback). */}
+          {(data.roster ?? []).length > 0 ? null : data.sections.length === 0 && data.hifz.every((h) => h.heard === 0) ? (
             <div className="rounded-xl border border-slate-200 bg-white p-8 text-center">
               <GraduationCap className="mx-auto h-8 w-8 text-slate-300" />
               <p className="mt-3 text-sm text-slate-500">
