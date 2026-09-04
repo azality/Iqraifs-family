@@ -168,14 +168,22 @@ if (assignmentId) {
 }
 
 await check("5. subject-teacher change propagates to timetable entries (#346)", async () => {
-  const r1 = await api(teacher.token, `/school/section-subjects/${qaSs.id}`, {
+  // Org policy (Sep 4 2026, user-approved): define_curriculum is OFF for
+  // class_teacher — schema-level subject edits are an admin job now, so
+  // the teacher attempt must 403 and the propagation is exercised as
+  // principal.
+  const denied = await api(teacher.token, `/school/section-subjects/${qaSs.id}`, {
+    method: "PATCH", body: JSON.stringify({ teacherUserId: office.id }),
+  });
+  assert(denied.status === 403, `teacher PATCH expected 403 (define_curriculum off), got ${denied.status}`);
+  const r1 = await api(principal.token, `/school/section-subjects/${qaSs.id}`, {
     method: "PATCH", body: JSON.stringify({ teacherUserId: office.id }),
   });
   assert(r1.status === 200, `PATCH teacher ${r1.status}`);
   const { data: e1 } = await admin.from("timetable_entry").select("teacher_user_id").eq("id", qaEntry.id).single();
   assert(e1.teacher_user_id === office.id, "entry teacher did not follow subject teacher");
   // revert
-  await api(teacher.token, `/school/section-subjects/${qaSs.id}`, { method: "PATCH", body: JSON.stringify({ teacherUserId: teacher.id }) });
+  await api(principal.token, `/school/section-subjects/${qaSs.id}`, { method: "PATCH", body: JSON.stringify({ teacherUserId: teacher.id }) });
   const { data: e2 } = await admin.from("timetable_entry").select("teacher_user_id").eq("id", qaEntry.id).single();
   assert(e2.teacher_user_id === teacher.id, "revert did not propagate");
 });
@@ -387,8 +395,18 @@ await check("14. topic-term tagging: create/patch with term, invalid term reject
   assert(termsR.status === 200 && Array.isArray(termsJ.terms), `terms ${termsR.status}`);
   const current = termsJ.terms.find((t: any) => t.isCurrent);
   assert(current, "no current term configured");
+  // Org policy (Sep 4 2026): define_curriculum is OFF for class_teacher —
+  // topic creation is an admin job (the tick-only carve-out keeps
+  // own-subject completion toggles working; check 39's persona probe
+  // covers that side). Teacher create must 403; the tagging feature is
+  // exercised as principal.
+  const teacherDenied = await api(teacher.token, `/school/class-curriculum/${qaCur.id}/topics`, {
+    method: "POST",
+    body: JSON.stringify({ name: "QA policy probe", academicTermId: current.id }),
+  });
+  assert(teacherDenied.status === 403, `teacher create expected 403 (define_curriculum off), got ${teacherDenied.status}`);
   // Create tagged to the current term.
-  const mk = await api(teacher.token, `/school/class-curriculum/${qaCur.id}/topics`, {
+  const mk = await api(principal.token, `/school/class-curriculum/${qaCur.id}/topics`, {
     method: "POST",
     body: JSON.stringify({ name: `QA term topic ${Date.now()}`, academicTermId: current.id }),
   });
@@ -396,20 +414,20 @@ await check("14. topic-term tagging: create/patch with term, invalid term reject
   assert(mk.status === 201 && mkj.topic?.academicTermId === current.id,
     `create tagged: ${mk.status} termId=${mkj.topic?.academicTermId}`);
   // Foreign/garbage term id must be rejected.
-  const bad = await api(teacher.token, `/school/class-curriculum/${qaCur.id}/topics`, {
+  const bad = await api(principal.token, `/school/class-curriculum/${qaCur.id}/topics`, {
     method: "POST",
     body: JSON.stringify({ name: "QA bad term", academicTermId: crypto.randomUUID() }),
   });
   assert(bad.status === 400, `bad term expected 400, got ${bad.status}`);
   // PATCH to whole-year clears the tag.
-  const up = await api(teacher.token, `/school/curriculum-topics/${mkj.topic.id}`, {
+  const up = await api(principal.token, `/school/curriculum-topics/${mkj.topic.id}`, {
     method: "PATCH",
     body: JSON.stringify({ academicTermId: null }),
   });
   const upj = await up.json();
   assert(up.status === 200 && upj.topic?.academicTermId === null,
     `clear tag: ${up.status} termId=${upj.topic?.academicTermId}`);
-  await api(teacher.token, `/school/curriculum-topics/${mkj.topic.id}`, { method: "DELETE" });
+  await api(principal.token, `/school/curriculum-topics/${mkj.topic.id}`, { method: "DELETE" });
 });
 
 await check("15. chronic absentees: term window, shape, scope-aware", async () => {
