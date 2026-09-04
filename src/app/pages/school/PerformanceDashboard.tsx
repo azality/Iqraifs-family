@@ -61,6 +61,9 @@ import {
   listAnnouncements,
   listMySchoolGroups,
   isOrgPrincipal,
+  getRosterRequests,
+  getInboxUnreadCount,
+  listForms,
   type DashboardAlert,
   type DashboardPeriod,
   type DashboardResponse,
@@ -1022,6 +1025,10 @@ export function PerformanceDashboard() {
 
   const [atRisk, setAtRisk] = useState<AtRiskAttendanceResponse | null>(null);
   const [todayOps, setTodayOps] = useState<TodayOpsResponse | null>(null);
+  // Pending-work rows folded in from the old Admin home tile badges
+  // (roster requests / parent inbox / draft forms) — the one thing that
+  // page surfaced which the dashboard didn't. Best-effort per role.
+  const [pendingOps, setPendingOps] = useState<DashboardAlert[]>([]);
   const [atRiskPeriod, setAtRiskPeriod] = useState<string>("TERM");
   // Snapshot-first: the card shows the worst few; "Show all" expands.
   const [atRiskExpanded, setAtRiskExpanded] = useState(false);
@@ -1041,6 +1048,54 @@ export function PerformanceDashboard() {
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null));
   }, []);
+
+  // Pending work-queue counts (ex Admin home badges). Each fetch is
+  // permission-gated server-side — a role without access just
+  // contributes nothing.
+  useEffect(() => {
+    if (!orgId) return;
+    const rows: Record<string, DashboardAlert> = {};
+    const apply = () => setPendingOps(Object.values(rows));
+    getRosterRequests(orgId, { status: "pending" })
+      .then((r) => {
+        if (r.requests.length > 0) {
+          rows.roster = {
+            id: "pending_roster_requests", severity: "warning", kind: "pending",
+            title: `${r.requests.length} roster request${r.requests.length === 1 ? "" : "s"} pending`,
+            body: "teachers are waiting on an approval",
+            actionLabel: "Review", actionPath: `/school/orgs/${orgId}/admin/roster-requests`,
+          };
+          apply();
+        }
+      })
+      .catch(() => {});
+    getInboxUnreadCount(orgId)
+      .then((r) => {
+        if (r.unreadCount > 0) {
+          rows.inbox = {
+            id: "pending_inbox", severity: "warning", kind: "pending",
+            title: `${r.unreadCount} unread parent message${r.unreadCount === 1 ? "" : "s"}`,
+            body: "in the school inbox",
+            actionLabel: "Open inbox", actionPath: `/school/orgs/${orgId}/admin/inbox`,
+          };
+          apply();
+        }
+      })
+      .catch(() => {});
+    listForms(orgId, { status: "draft" })
+      .then((r) => {
+        if (r.forms.length > 0) {
+          rows.forms = {
+            id: "pending_draft_forms", severity: "info", kind: "pending",
+            title: `${r.forms.length} draft form${r.forms.length === 1 ? "" : "s"} unpublished`,
+            body: "parents can't see a draft",
+            actionLabel: "Open forms", actionPath: `/school/orgs/${orgId}/admin/forms`,
+          };
+          apply();
+        }
+      })
+      .catch(() => {});
+  }, [orgId]);
 
   // Admin-who-also-teaches (e.g. Amna: admin + Catch Up class teacher).
   // Admins land here, not on TeacherHome, so their own class's attendance
@@ -1468,15 +1523,19 @@ export function PerformanceDashboard() {
       {/* Right now — which period is running per in-scope section, who
           is teaching, and who needs cover (wing-scoped for incharges). */}
       <RightNowPanel orgId={orgId} />          </DashSection>
-          {dashboard && (
+          {dashboard && (() => {
+            // Pending work rows (ex Admin home badges) lead — they're
+            // actionable now; computed alerts follow.
+            const mergedAlerts = [...pendingOps, ...dashboard.alerts];
+            return (
             <DashSection
               title="Needs attention"
               tone="alert"
-              defaultOpen={dashboard.alerts.some((a) => a.severity === "critical")}
+              defaultOpen={mergedAlerts.some((a) => a.severity === "critical")}
               right={
-                dashboard.alerts.length > 0 ? (
+                mergedAlerts.length > 0 ? (
                   <span className="rounded-full bg-rose-600 px-2 py-0.5 text-[10.5px] font-bold text-white">
-                    {dashboard.alerts.length}
+                    {mergedAlerts.length}
                   </span>
                 ) : undefined
               }
@@ -1487,10 +1546,11 @@ export function PerformanceDashboard() {
         todayPct={dashboard?.tiles.attendanceToday.value ?? null}
         periodPct={dashboard?.tiles.attendancePeriod.value ?? null}
       />              <div data-tour="alerts-row">
-                <NeedsAttention alerts={dashboard.alerts} orgId={orgId} />
+                <NeedsAttention alerts={mergedAlerts} orgId={orgId} />
               </div>
             </DashSection>
-          )}
+            );
+          })()}
           {leaderboard && (
             <DashSection
               title="Sections leaderboard"

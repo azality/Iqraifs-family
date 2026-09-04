@@ -232,18 +232,19 @@ function groupsForAdmin(
     },
   ];
 
-  // Admin group. "Admin home" (the tile-grid console) leads the group for
-  // everyone — the "← Admin" back-buttons on every admin sub-page land
-  // there, so it must be discoverable from the toolbar too. Permissions +
-  // Settings + Year rollover stay principal-only; behavior categories are
-  // admin-wide.
+  // Admin group. "All admin pages" (the tile-grid directory, demoted from
+  // "Admin home" — pilot review: it competed with the Dashboard as a
+  // landing) leads the group — the "← Admin" back-buttons on every admin
+  // sub-page land there, so it must be discoverable from the toolbar too.
+  // Permissions + Settings + Year rollover stay principal-only; behavior
+  // categories are admin-wide.
   if (role === "principal") {
     groups.push({
       key: "admin",
       label: "Admin",
       Icon: Wrench,
       items: [
-        I("admin-home", "Admin home", `/school/orgs/${orgId}/admin`, LayoutGrid),
+        I("admin-home", "All admin pages", `/school/orgs/${orgId}/admin`, LayoutGrid),
         I("permissions", t("toolbar.permissions"), `/school/orgs/${orgId}/admin/permissions`, ShieldCheck),
         I("settings", t("toolbar.settings"), `/school/orgs/${orgId}/admin/settings`, SettingsIcon),
         I("behavior-catalog", "Behavior categories", `/school/orgs/${orgId}/behavior-catalog`, ListChecks),
@@ -259,7 +260,7 @@ function groupsForAdmin(
       label: "Admin",
       Icon: Wrench,
       items: [
-        I("admin-home", "Admin home", `/school/orgs/${orgId}/admin`, LayoutGrid),
+        I("admin-home", "All admin pages", `/school/orgs/${orgId}/admin`, LayoutGrid),
         I("behavior-catalog", "Behavior categories", `/school/orgs/${orgId}/behavior-catalog`, ListChecks),
         I("import", "Import", `/school/orgs/${orgId}/admin/import`, UploadCloud),
         I("audit", "Audit log", `/school/orgs/${orgId}/admin/audit`, ScrollText),

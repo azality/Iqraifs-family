@@ -140,10 +140,24 @@ export function AdminDashboard() {
 
   return (
     <div className="space-y-5">
+      {/* Demoted from "Admin Console" to a plain directory (pilot review:
+          three surfaces competed as "the dashboard"). Monitoring lives on
+          the Performance Dashboard — its Needs-attention panel now carries
+          the pending badges this page used to be opened for. */}
       <HeroCard
         eyebrow="Admin"
-        title="Admin Console"
-        subtitle="Manage classes, students, parents, and teachers."
+        title="All admin pages"
+        subtitle="A directory of every management page. Day-to-day monitoring lives on the Dashboard."
+        rightSlot={
+          <Button
+            variant="outline"
+            size="sm"
+            className="bg-white/10 border-white/20 text-white hover:bg-white/20"
+            onClick={() => navigate(`/school/orgs/${orgId}`)}
+          >
+            ← Dashboard
+          </Button>
+        }
       />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
