@@ -154,6 +154,35 @@
       "school": "School",
       "announcementCount": "{{count}} announcement(s)"
     },
+    "grades": {
+      "subtitle": "{{count}} graded · by subject",
+      "overall": "Overall",
+      "general": "General",
+      "empty": "No grades yet.",
+      "assessments": "{{count}} assessment(s)",
+      "missing": "missing",
+      "excused": "excused",
+      "late": "late",
+      "reportCardHint": "The printable term summary lives under Learning → Report card."
+    },
+    "hw": {
+      "subtitle": "Submit photos or PDFs of completed work",
+      "empty": "No homework assigned yet.",
+      "toSubmit": "To submit ({{count}})",
+      "waiting": "Submitted — waiting for teacher ({{count}})",
+      "returned": "Returned ({{count}})",
+      "submitted": "Submitted",
+      "overdue": "Overdue",
+      "due": "Due {{date}}",
+      "dueTomorrow": "Due tomorrow",
+      "snapSubmit": "Snap & submit",
+      "addMoreFiles": "Add more files",
+      "choosePhoto": "Choose photo / PDF",
+      "notePh": "Note for your teacher (optional)",
+      "uploading": "Uploading…",
+      "sendToTeacher": "Send to teacher",
+      "marked": "Marked:"
+    },
     "child": {
       "reportAbsence": "Report absence / vacation",
       "dueCount": "{{count}} due",

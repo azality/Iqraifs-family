@@ -2152,7 +2152,7 @@ export function installPortal(school: Hono): void {
       for (const s of (subs ?? []) as any[]) subByAssign.set(s.assignment_id, s);
       const { data: grades } = await serviceRoleClient
         .from("grade")
-        .select("assignment_id, score, status")
+        .select("assignment_id, score, status, feedback")
         .eq("student_id", studentId)
         .in("assignment_id", ids);
       for (const gr of (grades ?? []) as any[]) gradeByAssign.set(gr.assignment_id, gr);
@@ -2188,7 +2188,9 @@ export function installPortal(school: Hono): void {
               }
             : null,
           grade: gr
-            ? { score: gr.score === null ? null : Number(gr.score), status: gr.status }
+            // feedback additive (design 10c): "Returned" rows show the
+            // teacher's remark inline next to the score.
+            ? { score: gr.score === null ? null : Number(gr.score), status: gr.status, feedback: gr.feedback ?? null }
             : null,
           quiz: (quizCountByAssign.get(a.id) ?? 0) > 0
             ? {

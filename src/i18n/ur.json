@@ -154,6 +154,35 @@
       "school": "اسکول",
       "announcementCount": "{{count}} اعلان"
     },
+    "grades": {
+      "subtitle": "{{count}} نمبر شدہ · بلحاظ مضمون",
+      "overall": "مجموعی",
+      "general": "عمومی",
+      "empty": "ابھی کوئی نمبر نہیں۔",
+      "assessments": "{{count}} جائزے",
+      "missing": "جمع نہیں ہوا",
+      "excused": "رخصت",
+      "late": "تاخیر",
+      "reportCardHint": "پرنٹ کے قابل رپورٹ کارڈ تعلیم ← رپورٹ کارڈ میں ہے۔"
+    },
+    "hw": {
+      "subtitle": "مکمل کام کی تصویر یا PDF جمع کرائیں",
+      "empty": "ابھی کوئی ہوم ورک نہیں دیا گیا۔",
+      "toSubmit": "جمع کرانا ہے ({{count}})",
+      "waiting": "جمع شدہ — استاد کے انتظار میں ({{count}})",
+      "returned": "واپس ملا ({{count}})",
+      "submitted": "جمع شدہ",
+      "overdue": "تاخیر شدہ",
+      "due": "آخری تاریخ {{date}}",
+      "dueTomorrow": "کل تک",
+      "snapSubmit": "تصویر لیں اور جمع کریں",
+      "addMoreFiles": "مزید فائلیں",
+      "choosePhoto": "تصویر / PDF منتخب کریں",
+      "notePh": "استاد کے لیے نوٹ (اختیاری)",
+      "uploading": "اپ لوڈ ہو رہا ہے…",
+      "sendToTeacher": "استاد کو بھیجیں",
+      "marked": "نمبر ملے:"
+    },
     "child": {
       "reportAbsence": "غیر حاضری / چھٹی کی اطلاع",
       "dueCount": "{{count}} باقی",

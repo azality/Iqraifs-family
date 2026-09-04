@@ -7,6 +7,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { HeroCard } from "../../components/school-ui";
 import { Button } from "../../components/ui/button";
@@ -48,6 +49,7 @@ function AssignmentCard({
   a: PortalAssignmentRow;
   onChanged: () => void;
 }) {
+  const { t } = useTranslation();
   const [files, setFiles] = useState<File[]>([]);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -55,7 +57,15 @@ function AssignmentCard({
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const submitted = a.quiz ? a.quiz.taken : !!a.submission;
-  const overdue = !submitted && isOverdue(a.dueDate);
+  // 10c: marked work is DONE — never show a submit button on it.
+  const graded = (a.quiz ? a.quiz.taken : false) || (a.grade != null && a.grade.score !== null);
+  const overdue = !submitted && !graded && isOverdue(a.dueDate);
+  const dueTomorrow = (() => {
+    if (!a.dueDate) return false;
+    const d = new Date(); d.setDate(d.getDate() + 1);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return a.dueDate === `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  })();
 
   const doSubmit = async () => {
     if (files.length === 0 && !note.trim()) {
@@ -107,12 +117,16 @@ function AssignmentCard({
         >
           {submitted ? (
             <>
-              <CheckCircle2 className="h-3 w-3" /> Submitted
+              <CheckCircle2 className="h-3 w-3" /> {t("portal.hw.submitted")}
             </>
           ) : (
             <>
-              <Clock className="h-3 w-3" /> Due {fmtDate(a.dueDate)}
-              {overdue ? " · overdue" : ""}
+              <Clock className="h-3 w-3" />{" "}
+              {overdue
+                ? t("portal.hw.overdue")
+                : dueTomorrow
+                ? t("portal.hw.dueTomorrow")
+                : t("portal.hw.due", { date: fmtDate(a.dueDate) })}
             </>
           )}
         </span>
@@ -124,7 +138,7 @@ function AssignmentCard({
 
       {a.grade && a.grade.score !== null && (
         <p className="text-sm font-medium text-indigo-700">
-          Marked: {a.grade.score}
+          {t("portal.hw.marked")} {a.grade.score}
           {a.maxScore ? ` / ${a.maxScore}` : ""}
         </p>
       )}
@@ -159,14 +173,14 @@ function AssignmentCard({
 
       {a.quiz && a.quiz.questionCount > 0 ? (
         <QuizBlock studentId={studentId} a={a} onChanged={onChanged} />
-      ) : !formOpen ? (
+      ) : graded ? null : !formOpen ? (
         <Button
           variant={submitted ? "outline" : "default"}
           size="sm"
           onClick={() => setFormOpen(true)}
         >
           <Camera className="h-3.5 w-3.5 mr-1.5" />
-          {submitted ? "Add more files" : "Submit my work"}
+          {submitted ? t("portal.hw.addMoreFiles") : t("portal.hw.snapSubmit")}
         </Button>
       ) : (
         <div className="space-y-2 rounded-lg border border-indigo-100 bg-indigo-50/40 p-3">
@@ -183,7 +197,7 @@ function AssignmentCard({
             }}
           />
           <Button variant="outline" size="sm" onClick={() => inputRef.current?.click()}>
-            <Paperclip className="h-3.5 w-3.5 mr-1.5" /> Choose photo / PDF
+            <Paperclip className="h-3.5 w-3.5 mr-1.5" /> {t("portal.hw.choosePhoto")}
           </Button>
           {files.length > 0 && (
             <ul className="space-y-1">
@@ -205,21 +219,21 @@ function AssignmentCard({
             value={note}
             onChange={(e) => setNote(e.target.value)}
             rows={2}
-            placeholder="Note for your teacher (optional)"
+            placeholder={t("portal.hw.notePh")}
             className="bg-white"
           />
           <div className="flex gap-2">
             <Button size="sm" onClick={() => void doSubmit()} disabled={busy}>
               {busy ? (
                 <>
-                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Uploading…
+                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> {t("portal.hw.uploading")}
                 </>
               ) : (
-                "Send to teacher"
+                t("portal.hw.sendToTeacher")
               )}
             </Button>
             <Button variant="ghost" size="sm" onClick={() => setFormOpen(false)} disabled={busy}>
-              Cancel
+              {t("common.cancel")}
             </Button>
           </div>
         </div>
@@ -229,6 +243,7 @@ function AssignmentCard({
 }
 
 export function StudentHomework() {
+  const { t } = useTranslation();
   const { studentId = "" } = useParams();
   const [rows, setRows] = useState<PortalAssignmentRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -247,46 +262,102 @@ export function StudentHomework() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [studentId]);
 
-  const isDone = (r: PortalAssignmentRow) => (r.quiz ? r.quiz.taken : !!r.submission);
-  const pending = useMemo(() => rows.filter((r) => !isDone(r)), [rows]);
-  const done = useMemo(() => rows.filter(isDone), [rows]);
+  // 10c honest split: only genuinely submittable items get a Submit
+  // button. Marked work is RETURNED (score + feedback) — never
+  // submittable again; submitted-but-unmarked waits in its own group.
+  const isGraded = (r: PortalAssignmentRow) =>
+    (r.quiz ? r.quiz.taken : false) || (r.grade != null && r.grade.score !== null);
+  const isSubmitted = (r: PortalAssignmentRow) => (r.quiz ? r.quiz.taken : !!r.submission);
+  const pending = useMemo(
+    () =>
+      rows
+        .filter((r) => !isSubmitted(r) && !isGraded(r))
+        // Overdue pinned first, then soonest due.
+        .sort((a, b) => {
+          const ao = isOverdue(a.dueDate) ? 0 : 1;
+          const bo = isOverdue(b.dueDate) ? 0 : 1;
+          return ao - bo || String(a.dueDate ?? "9999").localeCompare(String(b.dueDate ?? "9999"));
+        }),
+    [rows],
+  );
+  const waiting = useMemo(() => rows.filter((r) => isSubmitted(r) && !isGraded(r)), [rows]);
+  const returned = useMemo(() => rows.filter(isGraded), [rows]);
+
+  const pct = (r: PortalAssignmentRow) =>
+    r.maxScore && r.grade?.score != null ? (r.grade.score / r.maxScore) * 100 : null;
 
   return (
     <div className="space-y-4">
       <HeroCard
-        eyebrow="Homework"
-        title="Homework"
-        subtitle="Submit photos or PDFs of completed work"
+        eyebrow={t("portal.nav.homework")}
+        title={t("portal.nav.homework")}
+        subtitle={t("portal.hw.subtitle")}
       />
 
       {error && <p className="text-sm text-rose-600">{error}</p>}
       {loading ? (
-        <p className="text-sm text-slate-500">Loading…</p>
+        <p className="text-sm text-slate-500">{t("common.loading")}</p>
       ) : rows.length === 0 ? (
         <div className="rounded-xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">
           <BookOpen className="mx-auto mb-2 h-6 w-6 text-slate-300" />
-          No homework assigned yet.
+          {t("portal.hw.empty")}
         </div>
       ) : (
         <>
           {pending.length > 0 && (
             <section className="space-y-2">
-              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                To submit ({pending.length})
+              <h2 className="text-xs font-bold uppercase tracking-wider text-amber-700">
+                {t("portal.hw.toSubmit", { count: pending.length })}
               </h2>
               {pending.map((a) => (
                 <AssignmentCard key={a.id} studentId={studentId} a={a} onChanged={refresh} />
               ))}
             </section>
           )}
-          {done.length > 0 && (
+          {waiting.length > 0 && (
             <section className="space-y-2">
               <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                Submitted ({done.length})
+                {t("portal.hw.waiting", { count: waiting.length })}
               </h2>
-              {done.map((a) => (
+              {waiting.map((a) => (
                 <AssignmentCard key={a.id} studentId={studentId} a={a} onChanged={refresh} />
               ))}
+            </section>
+          )}
+          {returned.length > 0 && (
+            <section className="space-y-2">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                {t("portal.hw.returned", { count: returned.length })}
+              </h2>
+              <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                {returned.map((a, i) => {
+                  const p = pct(a);
+                  return (
+                    <div
+                      key={a.id}
+                      className={"flex items-center gap-3 px-3.5 py-2.5 " + (i > 0 ? "border-t border-slate-100" : "")}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[13px] font-bold text-slate-900">{a.title}</div>
+                        <div className="truncate text-[11px] text-slate-500">
+                          {[a.subjectName, a.kind, a.grade?.feedback ? `“${a.grade.feedback}”` : null]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </div>
+                      </div>
+                      <span
+                        className={
+                          "flex-none text-sm font-extrabold tabular-nums " +
+                          (p == null ? "text-slate-600" : p >= 80 ? "text-emerald-700" : p >= 50 ? "text-amber-700" : "text-rose-700")
+                        }
+                      >
+                        {a.grade?.score ?? (a.quiz?.score ?? "—")}
+                        {a.maxScore ? `/${a.maxScore}` : ""}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             </section>
           )}
         </>

@@ -712,7 +712,7 @@ export interface PortalAssignmentRow {
     updatedAt: string;
     reviewedAt: string | null;
   } | null;
-  grade: { score: number | null; status: string } | null;
+  grade: { score: number | null; status: string; feedback?: string | null } | null;
   quiz: { questionCount: number; taken: boolean; score: number | null } | null;
 }
 
