@@ -407,8 +407,36 @@ export function TeacherHome({ orgId, me }: Props) {
         <UpNextCard items={upcoming} audience="teacher" orgId={orgId} />
       )}
 
-      {/* My upcoming time off — pending + approved future-dated. */}
-      <TeacherTimeOffWidget orgId={orgId} />
+      {/* Roll-call nudge */}
+      {!loading && needRollCall.length > 0 && (
+        <div
+          className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"
+        >
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
+            <div className="flex-1">
+              <div className="font-medium">
+                {needRollCall.length === 1
+                  ? t("teacherHome.attendanceNotRecordedOne")
+                  : t("teacherHome.attendanceNotRecordedMany", { count: needRollCall.length })}
+              </div>
+              <div className="mt-1 flex flex-wrap gap-2">
+                {needRollCall.map((s) => (
+                  <Link
+                    key={s.sectionId}
+                    to={`/school/orgs/${orgId}/sections/${s.sectionId}/attendance`}
+                    className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-1 text-xs font-medium text-amber-800 ring-1 ring-amber-200 hover:bg-amber-100"
+                  >
+                    {s.className} · {s.sectionName}
+                    <ChevronRight className="h-3 w-3" />
+                  </Link>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
 
       {/* Sections needing attention — surfaced near the top so a teacher
           sees what's slipping before scrolling past today's plan. */}
@@ -514,35 +542,8 @@ export function TeacherHome({ orgId, me }: Props) {
         </section>
       )}
 
-      {/* Roll-call nudge */}
-      {!loading && needRollCall.length > 0 && (
-        <div
-          className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"
-        >
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
-            <div className="flex-1">
-              <div className="font-medium">
-                {needRollCall.length === 1
-                  ? t("teacherHome.attendanceNotRecordedOne")
-                  : t("teacherHome.attendanceNotRecordedMany", { count: needRollCall.length })}
-              </div>
-              <div className="mt-1 flex flex-wrap gap-2">
-                {needRollCall.map((s) => (
-                  <Link
-                    key={s.sectionId}
-                    to={`/school/orgs/${orgId}/sections/${s.sectionId}/attendance`}
-                    className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-1 text-xs font-medium text-amber-800 ring-1 ring-amber-200 hover:bg-amber-100"
-                  >
-                    {s.className} · {s.sectionName}
-                    <ChevronRight className="h-3 w-3" />
-                  </Link>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* My upcoming time off — pending + approved future-dated. */}
+      <TeacherTimeOffWidget orgId={orgId} />
 
       {/* My sections grid.
           If the teacher has subjects assigned but no sections, they're
@@ -790,7 +791,7 @@ export function TeacherHome({ orgId, me }: Props) {
           same subject across sections) see the academic-content view of
           their workload rather than only the homeroom view above. */}
       {mySubjects.length > 0 && (
-        <DashSection title="My subjects &amp; curriculum">
+        <DashSection title="My subjects &amp; curriculum" desktopCollapsible>
         <section id="my-subjects" className="space-y-3 scroll-mt-20">
           <div className="flex items-end justify-between">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
@@ -895,7 +896,7 @@ export function TeacherHome({ orgId, me }: Props) {
           snapshot.assignmentsToGrade.length > 0 ||
           snapshot.untaggedLessonsCount > 0 ||
           snapshot.recentGradesGiven.length > 0) && (
-          <DashSection title="Marking &amp; prep">
+          <DashSection title="Marking &amp; prep" desktopCollapsible defaultOpen>
           <section className="space-y-3">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
               {t("teacherHome.focusWeek")}
@@ -1089,7 +1090,7 @@ export function TeacherHome({ orgId, me }: Props) {
 
       {/* Recent behavior notes */}
       {notes.length > 0 && (
-        <DashSection title="Recent behavior notes">
+        <DashSection title="Recent behavior notes" desktopCollapsible>
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
             {t("teacherHome.recentBehavior")}

@@ -13,6 +13,9 @@ export interface DashSectionProps {
   right?: ReactNode;
   tone?: "default" | "alert";
   defaultOpen?: boolean;
+  /** Collapse on EVERY viewport (TeacherHome declutter) - the default
+   *  collapses on phones only and renders transparently on lg+. */
+  desktopCollapsible?: boolean;
   children: ReactNode;
 }
 
@@ -21,18 +24,20 @@ export function DashSection({
   right,
   tone = "default",
   defaultOpen = false,
+  desktopCollapsible = false,
   children,
 }: DashSectionProps) {
   const [open, setOpen] = useState(defaultOpen);
   const alertTone = tone === "alert";
   return (
-    <div className="lg:contents">
+    <div className={desktopCollapsible ? "" : "lg:contents"}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         className={
-          "flex min-h-[44px] w-full items-center gap-2 rounded-xl border px-4 py-3 text-left lg:hidden " +
+          "flex min-h-[44px] w-full items-center gap-2 rounded-xl border px-4 py-3 text-left " +
+          (desktopCollapsible ? "" : "lg:hidden ") +
           (alertTone ? "border-rose-200 bg-rose-50" : "bg-white")
         }
         style={alertTone ? undefined : { borderColor: "rgba(20,22,58,.08)" }}
@@ -54,7 +59,15 @@ export function DashSection({
       </button>
       {/* max-lg:hidden (not `hidden`) so the closed state can never fight
           lg:contents in the cascade — both are display utilities. */}
-      <div className={(open ? "space-y-4 " : "max-lg:hidden ") + "lg:contents"}>{children}</div>
+      <div
+        className={
+          desktopCollapsible
+            ? open ? "mt-3 space-y-4" : "hidden"
+            : (open ? "space-y-4 " : "max-lg:hidden ") + "lg:contents"
+        }
+      >
+        {children}
+      </div>
     </div>
   );
 }
