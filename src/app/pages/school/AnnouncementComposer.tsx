@@ -118,6 +118,33 @@ export function AnnouncementComposer() {
   const [existing, setExisting] = useState<Announcement | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
+  // Design 5e: "Narrower…" reveals the six narrow scopes; the common
+  // four live on one chip row. Reach preview needs a students count.
+  const [narrowOpen, setNarrowOpen] = useState(false);
+  const [reachStudents, setReachStudents] = useState<AdminStudent[] | null>(null);
+  useEffect(() => {
+    if (!orgId) return;
+    listStudents(orgId).then(setReachStudents).catch(() => setReachStudents(null));
+  }, [orgId]);
+  const reachLabel = useMemo(() => {
+    if (!reachStudents) return null;
+    const active = reachStudents.filter((st) => st.status !== "withdrawn");
+    switch (form.audienceKind) {
+      case "whole_school": return `~${active.length} students + families + staff`;
+      case "parents_only":
+      case "students_only": return `~${active.length} students' families`;
+      case "class_section": {
+        if (!form.audienceSectionId) return null;
+        const n = active.filter((st) => st.class_section_id === form.audienceSectionId).length;
+        return `~${n} students' families`;
+      }
+      case "specific_students":
+        return form.audienceStudentIds.length > 0
+          ? `${form.audienceStudentIds.length} student${form.audienceStudentIds.length === 1 ? "" : "s"} + parents`
+          : null;
+      default: return null;
+    }
+  }, [reachStudents, form.audienceKind, form.audienceSectionId, form.audienceStudentIds]);
   // Subjects are loaded lazily once the admin picks a class for the
   // subject audience — saves us from pulling every class_subject in the
   // org just to populate a select that's only used some of the time.
@@ -388,34 +415,59 @@ export function AnnouncementComposer() {
 
         <div className="space-y-2">
           <Label>Audience</Label>
-          <div className="grid sm:grid-cols-2 gap-2">
-            {AUDIENCE_KINDS.map((k) => (
-              <label
+          {/* One chip row for the 90% case; "Narrower…" reveals the six
+              narrow scopes (design 5e). */}
+          <div className="flex flex-wrap gap-1.5">
+            {(["whole_school", "staff", "parents_only", "students_only"] as AnnouncementAudienceKind[]).map((k) => (
+              <button
                 key={k}
+                type="button"
+                onClick={() => setForm({ ...form, audienceKind: k })}
+                title={AUDIENCE_HINT[k]}
                 className={
-                  "flex items-start gap-2 rounded-md border px-3 py-2 cursor-pointer text-sm " +
+                  "min-h-[36px] rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors " +
                   (form.audienceKind === k
-                    ? "border-indigo-500 bg-indigo-50 text-indigo-900"
-                    : "border-slate-200 hover:bg-slate-50")
+                    ? "bg-slate-900 text-white"
+                    : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50")
                 }
               >
-                <input
-                  type="radio"
-                  name="audienceKind"
-                  value={k}
-                  checked={form.audienceKind === k}
-                  onChange={() => setForm({ ...form, audienceKind: k })}
-                  className="mt-1"
-                />
-                <div className="min-w-0">
-                  <div className="font-medium">{AUDIENCE_LABEL[k]}</div>
-                  <div className="text-[11px] text-slate-500 leading-tight">
-                    {AUDIENCE_HINT[k]}
-                  </div>
-                </div>
-              </label>
+                {AUDIENCE_LABEL[k]}
+              </button>
             ))}
+            <button
+              type="button"
+              onClick={() => setNarrowOpen((v) => !v)}
+              className={
+                "min-h-[36px] rounded-full px-3.5 py-1.5 text-xs font-semibold " +
+                (narrowOpen || !["whole_school", "staff", "parents_only", "students_only"].includes(form.audienceKind)
+                  ? "border border-indigo-200 bg-indigo-50 text-indigo-800"
+                  : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50")
+              }
+            >
+              Narrower… {narrowOpen ? "▴" : "▾"}
+            </button>
           </div>
+          {(narrowOpen || !["whole_school", "staff", "parents_only", "students_only"].includes(form.audienceKind)) && (
+            <div className="flex flex-wrap gap-1.5 rounded-lg border border-slate-100 bg-slate-50/60 p-2">
+              {(["teachers", "class", "class_section", "subject", "program", "specific_students"] as AnnouncementAudienceKind[]).map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setForm({ ...form, audienceKind: k })}
+                  title={AUDIENCE_HINT[k]}
+                  className={
+                    "min-h-[32px] rounded-full px-3 py-1 text-xs font-medium " +
+                    (form.audienceKind === k
+                      ? "bg-indigo-600 text-white"
+                      : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50")
+                  }
+                >
+                  {AUDIENCE_LABEL[k]}
+                </button>
+              ))}
+            </div>
+          )}
+          <p className="text-[11px] text-slate-500">{AUDIENCE_HINT[form.audienceKind]}</p>
         </div>
 
         {form.audienceKind === "class_section" && (
@@ -557,13 +609,40 @@ export function AnnouncementComposer() {
         )}
 
         <div className="space-y-1.5">
-          <Label htmlFor="expiresAt">Expires at (optional)</Label>
-          <Input
-            id="expiresAt"
-            type="datetime-local"
-            value={form.expiresAt}
-            onChange={(e) => setForm({ ...form, expiresAt: e.target.value })}
-          />
+          <Label htmlFor="expiresAt">Expires (optional)</Label>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {[
+              { label: "3 days", days: 3 },
+              { label: "1 week", days: 7 },
+              { label: "2 weeks", days: 14 },
+            ].map((pr) => {
+              const target = new Date(Date.now() + pr.days * 86400e3);
+              const val = `${target.toISOString().slice(0, 10)}T17:00`;
+              const active = form.expiresAt === val;
+              return (
+                <button
+                  key={pr.label}
+                  type="button"
+                  onClick={() => setForm({ ...form, expiresAt: active ? "" : val })}
+                  className={
+                    "min-h-[32px] rounded-full px-3 py-1 text-xs font-semibold " +
+                    (active
+                      ? "border border-indigo-200 bg-indigo-50 text-indigo-800"
+                      : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50")
+                  }
+                >
+                  {pr.label}
+                </button>
+              );
+            })}
+            <Input
+              id="expiresAt"
+              type="datetime-local"
+              value={form.expiresAt}
+              onChange={(e) => setForm({ ...form, expiresAt: e.target.value })}
+              className="h-9 w-56"
+            />
+          </div>
         </div>
 
         {/* Public-site visibility (Phase 2 of the public school site). */}
@@ -628,7 +707,7 @@ export function AnnouncementComposer() {
             Cancel
           </Button>
           <Button type="submit" disabled={submitting} className="bg-indigo-600 hover:bg-indigo-700">
-            {submitting ? "Publishing…" : "Publish"}
+            {submitting ? "Publishing…" : reachLabel ? `Publish → ${reachLabel}` : "Publish"}
           </Button>
         </div>
       </form>

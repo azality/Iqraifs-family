@@ -150,6 +150,20 @@ export function FormBuilder() {
       .slice(0, 20);
   }, [students, studentSearch]);
 
+  // Design 5d: Publish states who it reaches.
+  const reachLabel = useMemo(() => {
+    const active = students.filter((st) => st.status !== "withdrawn");
+    if (audienceKind === "whole_school") return `${active.length} students' parents`;
+    if (audienceKind === "class_section" && audienceSectionId) {
+      const n = active.filter((st) => st.class_section_id === audienceSectionId).length;
+      return `${n} students' parents`;
+    }
+    if (audienceKind === "specific_students" && audienceStudentIds.length > 0) {
+      return `${audienceStudentIds.length} students' parents`;
+    }
+    return null;
+  }, [students, audienceKind, audienceSectionId, audienceStudentIds]);
+
   const fields = useMemo<FormField[]>(
     () => (form?.fields ?? []).slice().sort((a, b) => a.displayOrder - b.displayOrder),
     [form],
@@ -328,8 +342,13 @@ export function FormBuilder() {
               <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">← Forms</Button>
             </Link>
             {form && status === "draft" && (
-              <Button size="sm" className="bg-white text-indigo-700 hover:bg-indigo-50" onClick={handlePublish}>
-                Publish
+              <Button
+                size="sm"
+                className="bg-white text-indigo-700 hover:bg-indigo-50"
+                onClick={handlePublish}
+                title={fields.length === 0 ? "Add at least one question first" : undefined}
+              >
+                {reachLabel ? `Publish → ${reachLabel}` : "Publish"}
               </Button>
             )}
             {form && status === "published" && (
@@ -425,7 +444,15 @@ export function FormBuilder() {
 
       <div className="flex justify-end gap-2">
         {isNew ? (
-          <Button onClick={handleCreate} className="bg-indigo-600 hover:bg-indigo-700">Create form</Button>
+          <div className="space-y-1.5">
+            <Button onClick={handleCreate} className="bg-indigo-600 hover:bg-indigo-700">
+              Save &amp; add questions
+            </Button>
+            <p className="text-[11px] text-slate-500">
+              Questions come next — a form can&apos;t be published until it has at
+              least one.
+            </p>
+          </div>
         ) : (
           <Button onClick={handleSave} className="bg-indigo-600 hover:bg-indigo-700">Save changes</Button>
         )}
