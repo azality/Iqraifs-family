@@ -35,6 +35,22 @@ const SLOT_KINDS = new Set([
   "academic", "break", "prayer", "hifz", "assembly", "other",
 ]);
 
+// A bell schedule is identified by a short key ('default', 'junior',
+// 'senior', 'hifz', …). Sections follow exactly one via
+// class_section.schedule_key, and slots belong to exactly one.
+const SCHEDULE_KEY_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
+const SCHEDULE_KEY_ERROR =
+  "scheduleKey must be lowercase letters, digits, - or _ (max 32 characters)";
+
+/** Returns the normalized key, or null when the value is unusable.
+ *  Missing / empty means the school's main schedule. */
+function normalizeScheduleKey(v: unknown): string | null {
+  if (v === undefined || v === null || v === "") return "default";
+  if (typeof v !== "string") return null;
+  const k = v.trim().toLowerCase();
+  return SCHEDULE_KEY_RE.test(k) ? k : null;
+}
+
 function slotToJson(r: any) {
   return {
     id: r.id,
@@ -160,15 +176,62 @@ export function installTimetable(school: Hono): void {
     if (!(await hasAnyOrgRole(userId, orgId))) {
       return c.json({ error: "forbidden" }, 403);
     }
-    const { data, error } = await serviceRoleClient
+    // ?scheduleKey=junior narrows to one bell schedule. Omitted returns
+    // every slot, which is what the editor wants so it can group them.
+    const wantKey = c.req.query("scheduleKey");
+    let q = serviceRoleClient
       .from("timetable_slot")
       .select("*")
       .eq("org_id", orgId)
-      .is("archived_at", null)
+      .is("archived_at", null);
+    if (wantKey) q = q.eq("schedule_key", wantKey);
+    const { data, error } = await q
       .order("day_of_week", { ascending: true })
       .order("start_time", { ascending: true });
     if (error) return c.json({ error: error.message }, 500);
     return c.json({ slots: (data ?? []).map(slotToJson) });
+  });
+
+  // ---------------------------------------------------------------------------
+  // GET /orgs/:orgId/bell-schedules
+  //
+  // A school rarely runs one bell. The junior wing starts and ends at
+  // different times from the senior wing, hifz runs its own rhythm, and
+  // each section follows exactly one of them via class_section.
+  // schedule_key. This lists what the org actually has, with enough
+  // counts for the editor to show which are in use.
+  // ---------------------------------------------------------------------------
+  school.get("/orgs/:orgId/bell-schedules", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await hasAnyOrgRole(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const { data: slotRows } = await serviceRoleClient
+      .from("timetable_slot")
+      .select("schedule_key")
+      .eq("org_id", orgId)
+      .is("archived_at", null);
+    const { data: secRows } = await serviceRoleClient
+      .from("class_section")
+      .select("schedule_key, class:class_id!inner(org_id)")
+      .eq("class.org_id", orgId);
+
+    const counts = new Map<string, { slots: number; sections: number }>();
+    const bump = (k: string, field: "slots" | "sections") => {
+      const key = k || "default";
+      const cur = counts.get(key) ?? { slots: 0, sections: 0 };
+      cur[field] += 1;
+      counts.set(key, cur);
+    };
+    for (const r of (slotRows ?? []) as any[]) bump(r.schedule_key ?? "default", "slots");
+    for (const r of (secRows ?? []) as any[]) bump(r.schedule_key ?? "default", "sections");
+    if (!counts.has("default")) counts.set("default", { slots: 0, sections: 0 });
+
+    return c.json({
+      schedules: Array.from(counts, ([key, v]) => ({ key, ...v }))
+        .sort((a, b) => (a.key === "default" ? -1 : b.key === "default" ? 1 : a.key.localeCompare(b.key))),
+    });
   });
 
   school.post("/orgs/:orgId/timetable-slots", async (c) => {
@@ -195,6 +258,10 @@ export function installTimetable(school: Hono): void {
     if (!SLOT_KINDS.has(kind)) {
       return c.json({ error: `kind must be one of ${Array.from(SLOT_KINDS).join("/")}` }, 400);
     }
+    const scheduleKey = normalizeScheduleKey(body?.scheduleKey);
+    if (scheduleKey === null) {
+      return c.json({ error: SCHEDULE_KEY_ERROR }, 400);
+    }
     const { data, error } = await serviceRoleClient
       .from("timetable_slot")
       .insert({
@@ -204,6 +271,10 @@ export function installTimetable(school: Hono): void {
         start_time: start,
         end_time: end,
         kind,
+        // Which bell this period belongs to. Omitted = the school's main
+        // one; without this every slot landed on 'default' and a school
+        // with different wing timings could not express them at all.
+        schedule_key: scheduleKey,
         display_order: typeof body?.displayOrder === "number" ? body.displayOrder : 0,
       })
       .select()
@@ -235,6 +306,11 @@ export function installTimetable(school: Hono): void {
     if (typeof body?.endTime === "string") patch.end_time = body.endTime;
     if (typeof body?.kind === "string" && SLOT_KINDS.has(body.kind)) patch.kind = body.kind;
     if (typeof body?.displayOrder === "number") patch.display_order = body.displayOrder;
+    if ("scheduleKey" in body) {
+      const k = normalizeScheduleKey(body.scheduleKey);
+      if (k === null) return c.json({ error: SCHEDULE_KEY_ERROR }, 400);
+      patch.schedule_key = k;
+    }
     if (Object.keys(patch).length === 0) return c.json({ error: "nothing to update" }, 400);
     const { data, error } = await serviceRoleClient
       .from("timetable_slot").update(patch).eq("id", slotId).select().single();

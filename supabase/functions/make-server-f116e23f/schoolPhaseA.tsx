@@ -761,6 +761,22 @@ export function installPhaseA(school: Hono) {
     if (typeof body.name === "string") patch.name = body.name.trim();
     if ("classTeacherUserId" in body) patch.class_teacher_user_id = body.classTeacherUserId ?? null;
     if ("hifzTeacherUserId" in body) patch.hifz_teacher_user_id = body.hifzTeacherUserId ?? null;
+    // Which bell schedule this section follows. A school whose junior
+    // wing runs different period times from its senior wing could not
+    // express that from the UI at all before this — schedule_key was
+    // set by SQL only.
+    if ("scheduleKey" in body) {
+      const raw = body.scheduleKey;
+      const k = raw === undefined || raw === null || raw === ""
+        ? "default"
+        : String(raw).trim().toLowerCase();
+      if (!/^[a-z0-9][a-z0-9_-]{0,31}$/.test(k)) {
+        return c.json({
+          error: "scheduleKey must be lowercase letters, digits, - or _ (max 32 characters)",
+        }, 400);
+      }
+      patch.schedule_key = k;
+    }
     if (Object.keys(patch).length === 0) return c.json({ error: "no fields to update" }, 400);
 
     const { data, error } = await serviceRoleClient

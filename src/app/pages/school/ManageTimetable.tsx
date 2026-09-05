@@ -41,7 +41,9 @@ import {
   listClassSubjects,
   listAdminTeachers,
   listTimetableSlots,
+  listBellSchedules,
   createTimetableSlot,
+  updateTimetableSlot,
   deleteTimetableSlot,
   getSectionTimetable,
   getHifzGroupTimetable,
@@ -61,6 +63,7 @@ import {
   type ClassSubject,
   type HifzGroup,
   type SchoolMeResponse,
+  type BellSchedule,
   type TimetableSlot,
   type TimetableSlotKind,
   type TimetableWeekCell,
@@ -96,6 +99,9 @@ interface SlotFormState {
   startTime: string;
   endTime: string;
   kind: TimetableSlotKind;
+  /** Which bell this period belongs to. A school whose junior wing runs
+   *  different times from its senior wing needs more than one. */
+  scheduleKey: string;
 }
 const emptySlotForm: SlotFormState = {
   name: "P1",
@@ -103,6 +109,7 @@ const emptySlotForm: SlotFormState = {
   startTime: "08:00",
   endTime: "08:45",
   kind: "academic",
+  scheduleKey: "default",
 };
 
 export function ManageTimetable() {
@@ -112,6 +119,7 @@ export function ManageTimetable() {
   const [meLoading, setMeLoading] = useState(true);
 
   const [slots, setSlots] = useState<TimetableSlot[]>([]);
+  const [bellSchedules, setBellSchedules] = useState<BellSchedule[]>([]);
   const [classes, setClasses] = useState<AdminClass[]>([]);
   const [groups, setGroups] = useState<HifzGroup[]>([]);
   const [teachers, setTeachers] = useState<AdminTeacher[]>([]);
@@ -132,6 +140,10 @@ export function ManageTimetable() {
   };
 
   const [slotDialogOpen, setSlotDialogOpen] = useState(false);
+  // Null = adding. Set = editing that period.
+  const [editingSlotId, setEditingSlotId] = useState<string | null>(null);
+  // Which bell schedule the periods panel is showing.
+  const [panelKey, setPanelKey] = useState<string>("default");
   const [slotForm, setSlotForm] = useState<SlotFormState>(emptySlotForm);
   const [conflicts, setConflicts] = useState<RoomConflictPair[]>([]);
   const [teacherConflicts, setTeacherConflicts] = useState<TeacherConflictPair[]>([]);
@@ -159,7 +171,50 @@ export function ManageTimetable() {
   const refreshSlots = () => {
     if (!orgId) return;
     listTimetableSlots(orgId).then(setSlots).catch(() => {});
+    listBellSchedules(orgId).then(setBellSchedules).catch(() => {});
   };
+
+  // Which bell the section on screen actually follows. Editing Junior's
+  // grid should show Junior's periods, not the whole school's.
+  const activeScheduleKey = useMemo(() => {
+    if (scopeKind !== "section" || !scopeId) return "default";
+    for (const c of classes) {
+      const sec = (c.sections ?? []).find((x) => x.id === scopeId);
+      if (sec) return (sec as any).schedule_key || "default";
+    }
+    return "default";
+  }, [classes, scopeKind, scopeId]);
+
+  // Follow the section on screen, until the admin picks another bell.
+  useEffect(() => { setPanelKey(activeScheduleKey); }, [activeScheduleKey]);
+
+  const scheduleKeys = useMemo(() => {
+    const keys = new Set<string>(bellSchedules.map((b) => b.key));
+    for (const sl of slots) keys.add((sl as any).scheduleKey || "default");
+    keys.add("default");
+    return Array.from(keys).sort((a, b) =>
+      a === "default" ? -1 : b === "default" ? 1 : a.localeCompare(b));
+  }, [bellSchedules, slots]);
+
+  const panelSlots = useMemo(
+    () => slots
+      .filter((sl) => ((sl as any).scheduleKey || "default") === panelKey)
+      .sort((a, b) => a.dayOfWeek - b.dayOfWeek || String(a.startTime).localeCompare(String(b.startTime))),
+    [slots, panelKey],
+  );
+
+  // Sections on this bell, so "who does this affect?" is answerable
+  // without leaving the page.
+  const panelSections = useMemo(() => {
+    const out: string[] = [];
+    for (const c of classes) {
+      for (const sec of c.sections ?? []) {
+        if (((sec as any).schedule_key || "default") === panelKey) out.push(`${c.name} ${sec.name}`);
+      }
+    }
+    return out;
+  }, [classes, panelKey]);
+
 
   useEffect(() => {
     if (!orgId) return;
@@ -217,10 +272,36 @@ export function ManageTimetable() {
           .filter((o) => o.id)
       : [];
 
+  const openAddSlot = (key: string) => {
+    setEditingSlotId(null);
+    setSlotForm({ ...emptySlotForm, scheduleKey: key || "default" });
+    setError(null);
+    setSlotDialogOpen(true);
+  };
+
+  const openEditSlot = (sl: TimetableSlot) => {
+    setEditingSlotId(sl.id);
+    setSlotForm({
+      name: sl.name,
+      dayOfWeek: sl.dayOfWeek,
+      startTime: String(sl.startTime).slice(0, 5),
+      endTime: String(sl.endTime).slice(0, 5),
+      kind: sl.kind,
+      scheduleKey: (sl as any).scheduleKey || "default",
+    });
+    setError(null);
+    setSlotDialogOpen(true);
+  };
+
   const handleAddSlot = async () => {
     try {
-      await createTimetableSlot(orgId, slotForm);
+      if (editingSlotId) {
+        await updateTimetableSlot(orgId, editingSlotId, slotForm);
+      } else {
+        await createTimetableSlot(orgId, slotForm);
+      }
       setSlotDialogOpen(false);
+      setEditingSlotId(null);
       refreshSlots();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -451,6 +532,114 @@ export function ManageTimetable() {
           early-close etc.) belong in a future per-day override feature
           on the template, not a fallback. */}
 
+      {/* ─── Periods & bell schedules ───
+          Restored: the 4d redesign dropped the per-day slot list AND the
+          only button that opened the "New time slot" dialog, so periods
+          could not be created, edited or removed from the UI at all —
+          every one of IFS's came from a seed script. This panel is also
+          where a school declares that its junior wing runs different
+          times from its senior wing (class_section.schedule_key), which
+          previously could only be set by SQL. */}
+      <section className="space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700">
+            Periods
+          </h2>
+          <Button size="sm" variant="outline" onClick={() => openAddSlot(panelKey)}>
+            <Plus className="mr-1 h-3.5 w-3.5" /> Add period
+          </Button>
+        </div>
+
+        {/* One rhythm for the whole school is the common case, so this
+            row stays quiet until a second schedule exists. */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          {scheduleKeys.map((k) => {
+            const meta = bellSchedules.find((b) => b.key === k);
+            return (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setPanelKey(k)}
+                className={
+                  "rounded-full border px-2.5 py-1 text-[11.5px] font-medium " +
+                  (panelKey === k
+                    ? "border-indigo-300 bg-indigo-100 text-indigo-800"
+                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50")
+                }
+              >
+                {k}
+                {meta && (
+                  <span className="ml-1 text-[10px] text-slate-400">
+                    {meta.slots}p · {meta.sections}s
+                  </span>
+                )}
+              </button>
+            );
+          })}
+          <span className="text-[11px] text-slate-400">
+            {scheduleKeys.length > 1
+              ? "Each section follows one bell schedule."
+              : "Add a period with a new schedule name to run different timings per wing."}
+          </span>
+        </div>
+
+        <Card>
+          <CardContent className="p-0">
+            {panelSlots.length === 0 ? (
+              <p className="p-4 text-sm text-slate-500">
+                No periods on “{panelKey}” yet. Add one to start this schedule.
+              </p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-100 text-left text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                    <th className="px-3 py-2">Day</th>
+                    <th className="px-3 py-2">Period</th>
+                    <th className="px-3 py-2">Time</th>
+                    <th className="px-3 py-2">Kind</th>
+                    <th className="px-3 py-2" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {panelSlots.map((sl) => (
+                    <tr key={sl.id} className="border-t border-slate-50">
+                      <td className="whitespace-nowrap px-3 py-1.5 text-slate-600">{DAYS[sl.dayOfWeek - 1]}</td>
+                      <td className="px-3 py-1.5 font-medium text-slate-800">{sl.name}</td>
+                      <td className="whitespace-nowrap px-3 py-1.5 tabular-nums text-slate-600">
+                        {String(sl.startTime).slice(0, 5)}–{String(sl.endTime).slice(0, 5)}
+                      </td>
+                      <td className="px-3 py-1.5">
+                        <span className={`rounded border px-1.5 py-0.5 text-[10.5px] ${KIND_TONE[sl.kind]}`}>
+                          {KIND_LABEL[sl.kind]}
+                        </span>
+                      </td>
+                      <td className="px-3 py-1.5 text-right">
+                        <Button size="sm" variant="ghost" onClick={() => openEditSlot(sl)}>Edit</Button>
+                        <Button
+                          size="sm" variant="ghost"
+                          className="text-rose-700 hover:bg-rose-50"
+                          onClick={() => handleDeleteSlot(sl)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </CardContent>
+        </Card>
+
+        {panelSections.length > 0 && (
+          <p className="text-[11px] text-slate-500">
+            Following “{panelKey}”: {panelSections.slice(0, 8).join(", ")}
+            {panelSections.length > 8 ? ` +${panelSections.length - 8} more` : ""}
+            {" — change a section's schedule under Classes."}
+          </p>
+        )}
+      </section>
+
       {/* ─── Scope picker + weekly grid ─── */}
       <section className="space-y-2">
         <div className="flex items-center justify-between flex-wrap gap-3">
@@ -562,7 +751,7 @@ export function ManageTimetable() {
       {/* Slot dialog */}
       <Dialog open={slotDialogOpen} onOpenChange={setSlotDialogOpen}>
         <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>New time slot</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editingSlotId ? "Edit period" : "New period"}</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -618,10 +807,34 @@ export function ManageTimetable() {
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Which bell this period belongs to. Schools that run one
+                rhythm never touch this; a school whose junior wing
+                starts and ends at different times from its senior wing
+                needs it, and could not express that at all before. */}
+            <div>
+              <Label>Bell schedule</Label>
+              <Input
+                value={slotForm.scheduleKey}
+                onChange={(e) =>
+                  setSlotForm({ ...slotForm, scheduleKey: e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, "") })
+                }
+                placeholder="default"
+                list="bell-schedule-keys"
+              />
+              <datalist id="bell-schedule-keys">
+                {bellSchedules.map((b) => <option key={b.key} value={b.key} />)}
+              </datalist>
+              <p className="mt-1 text-[11px] text-slate-500">
+                {bellSchedules.length > 1
+                  ? `In use: ${bellSchedules.map((b) => `${b.key} (${b.slots} periods, ${b.sections} sections)`).join(" · ")}`
+                  : "One schedule for the whole school. Type a new name (e.g. junior) to start a second one."}
+              </p>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setSlotDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleAddSlot}>Add</Button>
+            <Button onClick={handleAddSlot}>{editingSlotId ? "Save" : "Add"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
