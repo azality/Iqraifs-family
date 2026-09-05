@@ -174,7 +174,13 @@ export function SectionOverview() {
   // subjects, subjects without a curriculum.
   const needsLook = useMemo(() => {
     const out: Array<{ tone: "rose" | "amber"; strong: string; rest: string }> = [];
-    const withCur = subjects.filter((s) => s.curriculum && s.curriculum.topicTotal > 0);
+    // Quran / Nazra / Qaidah are tracked per child (each student sits at
+    // their own position in the Quran), not as a shared topic list — so
+    // "no curriculum set up" is not a gap for them, it is the design.
+    // Nagging about it sent teachers to an admin who had nothing to add.
+    const trackedPerChild = (name: string) => /quran|nazra|nazira|qaidah|qaida|hifz/i.test(name);
+    const gradedSubjects = subjects.filter((s) => !trackedPerChild(s.name));
+    const withCur = gradedSubjects.filter((s) => s.curriculum && s.curriculum.topicTotal > 0);
     const zeros = withCur.filter((s) => s.curriculum!.topicCompleted === 0);
     const behind = withCur
       .filter((s) => s.curriculum!.topicCompleted > 0 && s.curriculum!.progressPct < 50)
@@ -193,7 +199,7 @@ export function SectionOverview() {
         rest: "— no topics logged yet",
       });
     }
-    const noCur = subjects.filter((s) => !s.curriculum || s.curriculum.topicTotal === 0);
+    const noCur = gradedSubjects.filter((s) => !s.curriculum || s.curriculum.topicTotal === 0);
     if (noCur.length > 0) {
       out.push({
         tone: "amber",

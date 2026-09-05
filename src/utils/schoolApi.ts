@@ -3667,7 +3667,13 @@ export type HifzKind =
   | "tested"
   | "sabaq"
   | "sabqi"
-  | "manzil";
+  | "manzil"
+  // Nazra is reading, not memorizing: no sabaq/sabqi/manzil trio, just a
+  // position that moves forward as the child is heard. `nazra_revision`
+  // is the same act for a hafiz child sitting in a nazra group (IV+),
+  // who is revising the Quran rather than advancing through it.
+  | "nazra"
+  | "nazra_revision";
 
 export type HifzQuality = "excellent" | "good" | "needs_practice" | "weak" | "not_learned";
 
@@ -3779,14 +3785,29 @@ export const getStudentHifzSummary = (
 ): Promise<StudentHifzSummary> =>
   apiCall(`/school/orgs/${orgId}/students/${studentId}/hifz-progress/summary`);
 
+/** Where a nazra child has read up to. Null until they've been heard
+ *  once — the round screen then starts them wherever the teacher says. */
+export interface NazraPosition {
+  juzNumber: number | null;
+  surahNumber: number | null;
+  ayahFrom: number | null;
+  ayahTo: number | null;
+  quality: HifzQuality | null;
+  isRevision: boolean;
+  recordedAt: string;
+}
+
 export interface SectionHifzSummaryRow {
   studentId: string;
   studentName: string;
   grNumber?: string | null;
   ayahsMemorized: number;
   lastEntry: string | null;
-  /** Which of the daily trio has been logged today (org-local day). */
-  today?: { sabaq: boolean; sabqi: boolean; manzil: boolean };
+  /** Which of the daily trio has been logged today (org-local day).
+   *  `nazra` is the reading equivalent — one hearing, not three. */
+  today?: { sabaq: boolean; sabqi: boolean; manzil: boolean; nazra?: boolean };
+  /** Reading position. Meaningful for nazra groups; null for hifz. */
+  nazraPosition?: NazraPosition | null;
 }
 
 export const getSectionHifzSummary = (
