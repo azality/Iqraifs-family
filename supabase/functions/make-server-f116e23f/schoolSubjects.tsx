@@ -120,6 +120,28 @@ async function hydrateTeacherNames(ids: string[]): Promise<Map<string, string>> 
 // Used by TeacherHome's "My Subjects" widget so a section teacher sees
 // the per-subject view of their workload: "Math · 3-A: 8/14 topics covered".
 // -----------------------------------------------------------------------------
+/** Current term for an org, or null. Topic counts are term-scoped: a
+ *  topic tagged to ANOTHER term (e.g. next assessment's syllabus,
+ *  loaded ahead of time) must not dilute this term's pace, while
+ *  untagged topics (whole-year curricula like Reception/Junior) always
+ *  count. schoolAcademics + schoolTeacherPerf already do this; these
+ *  two counters didn't, so loading a future term's syllabus silently
+ *  halved every section's pace bar. */
+async function currentTermId(orgId: string): Promise<string | null> {
+  const { data } = await serviceRoleClient
+    .from("academic_term")
+    .select("id")
+    .eq("org_id", orgId)
+    .eq("is_current", true)
+    .is("archived_at", null)
+    .maybeSingle();
+  return (data as any)?.id ?? null;
+}
+/** True when a topic belongs to the term we're measuring. */
+function topicInTerm(t: { academic_term_id?: string | null }, termId: string | null): boolean {
+  return !t.academic_term_id || !termId || t.academic_term_id === termId;
+}
+
 async function loadMySectionSubjects(userId: string): Promise<any[]> {
   // 1. Section subjects assigned to me.
   const { data: rows } = await serviceRoleClient
@@ -164,12 +186,14 @@ async function loadMySectionSubjects(userId: string): Promise<any[]> {
     // Bulk-fetch topic counts for those curricula in one query.
     const curIds = Array.from(latestPerSubject.values()).map((v) => v.id);
     if (curIds.length > 0) {
+      const termId = await currentTermId((rows as any[])[0]?.org_id ?? "");
       const { data: topics } = await serviceRoleClient
         .from("curriculum_topic")
-        .select("curriculum_id, completed")
+        .select("curriculum_id, completed, academic_term_id")
         .in("curriculum_id", curIds);
       const byCurr = new Map<string, { total: number; completed: number }>();
       for (const t of (topics ?? []) as any[]) {
+        if (!topicInTerm(t, termId)) continue;
         const acc = byCurr.get(t.curriculum_id) ?? { total: 0, completed: 0 };
         acc.total += 1;
         if (t.completed) acc.completed += 1;
@@ -515,11 +539,13 @@ export function installSubjects(school: Hono) {
     const curIds = Array.from(latestPerSubject.values()).map((v) => v.id);
     const countsByCurr = new Map<string, { total: number; completed: number }>();
     if (curIds.length > 0) {
+      const termId = await currentTermId(orgId);
       const { data: topics } = await serviceRoleClient
         .from("curriculum_topic")
-        .select("curriculum_id, completed")
+        .select("curriculum_id, completed, academic_term_id")
         .in("curriculum_id", curIds);
       for (const t of (topics ?? []) as any[]) {
+        if (!topicInTerm(t, termId)) continue;
         const acc = countsByCurr.get(t.curriculum_id) ?? { total: 0, completed: 0 };
         acc.total += 1;
         if (t.completed) acc.completed += 1;
