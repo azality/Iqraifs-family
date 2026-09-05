@@ -1504,6 +1504,38 @@ await check("41. exam datesheet: staff read grouped by class, portal scoped to o
   }
 });
 
+await check("42. curriculum pace is term-scoped: a future term's topics don't dilute it", async () => {
+  // Loading NEXT term's syllabus early must not move THIS term's pace.
+  // Regression guard for v1.0.95: /sections/:id/curriculum-progress and
+  // the teacher "my subjects" counter used to count every topic.
+  const before = await api(principal.token, `/school/sections/${sandboxSec.id}/curriculum-progress`);
+  const bj = await before.json();
+  assert(before.status === 200, `progress ${before.status}`);
+  const totalBefore = (bj.subjects ?? []).reduce(
+    (s: number, x: any) => s + (x.curriculum?.topicTotal ?? 0), 0);
+
+  const { data: terms } = await admin.from("academic_term")
+    .select("id, is_current").eq("org_id", ORG).is("archived_at", null);
+  const other = ((terms ?? []) as any[]).find((t) => !t.is_current);
+  assert(other, "need a non-current term to test with");
+
+  const { data: topic, error } = await admin.from("curriculum_topic")
+    .insert({ curriculum_id: qaCur.id, name: `QA future-term topic ${Date.now()}`,
+              display_order: 999, completed: false, academic_term_id: other.id })
+    .select().single();
+  assert(!error, `insert future topic: ${error?.message}`);
+  try {
+    const after = await api(principal.token, `/school/sections/${sandboxSec.id}/curriculum-progress`);
+    const aj = await after.json();
+    const totalAfter = (aj.subjects ?? []).reduce(
+      (s: number, x: any) => s + (x.curriculum?.topicTotal ?? 0), 0);
+    assert(totalAfter === totalBefore,
+      `future-term topic leaked into current pace: ${totalBefore} -> ${totalAfter}`);
+  } finally {
+    await admin.from("curriculum_topic").delete().eq("id", topic.id);
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
