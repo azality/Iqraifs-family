@@ -150,15 +150,31 @@ export async function pinLogin(body: PinLoginBody): Promise<PinLoginResponse> {
   return res.json();
 }
 
+export function getPinSubject(): PinSubjectInfo | null {
+  try {
+    const raw = localStorage.getItem(PIN_SUBJECT_KEY);
+    return raw ? (JSON.parse(raw) as PinSubjectInfo) : null;
+  } catch {
+    return null;
+  }
+}
+
 export interface PinChangeBody {
   currentPin?: string;
   newPin: string;
 }
 
 export async function pinChange(body: PinChangeBody): Promise<{ ok: true }> {
+  // The backend authorizes off the signed PIN token; we echo the subject
+  // so a token/session mismatch is caught rather than silently applied.
+  const subject = getPinSubject();
   return pinApiCall("/school/auth/pin-change", {
     method: "POST",
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      ...body,
+      subjectType: subject?.subjectType,
+      subjectId: subject?.subjectId,
+    }),
   });
 }
 

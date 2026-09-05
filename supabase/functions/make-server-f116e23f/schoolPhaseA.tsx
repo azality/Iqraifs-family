@@ -3149,12 +3149,18 @@ export function installPhaseA(school: Hono) {
 
     let body: any;
     try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
-    const { subjectType, subjectId, currentPin, newPin } = body || {};
-    if (subjectType !== payload.subjectType || subjectId !== payload.subjectId) {
+    // The subject is whoever the signed PIN token says it is — never the
+    // request body. Older clients don't send subjectType/subjectId at all,
+    // which used to fail this route outright; a body that DOES send them
+    // still has to agree with the token.
+    const { subjectType: bodyType, subjectId: bodyId, currentPin, newPin } = body || {};
+    const subjectType = payload.subjectType;
+    const subjectId = payload.subjectId;
+    if ((bodyType && bodyType !== subjectType) || (bodyId && bodyId !== subjectId)) {
       return c.json({ error: "token does not match subject" }, 403);
     }
-    if (!isFourDigitPin(currentPin) || !isFourDigitPin(newPin)) {
-      return c.json({ error: "currentPin and newPin must be 4 digits" }, 400);
+    if (!isFourDigitPin(newPin)) {
+      return c.json({ error: "newPin must be 4 digits" }, 400);
     }
 
     const { data: cred } = await serviceRoleClient
@@ -3166,8 +3172,20 @@ export function installPhaseA(school: Hono) {
       .maybeSingle();
     if (!cred) return c.json({ error: "credential not found" }, 404);
 
-    const ok = await verifyPin(currentPin, cred.pin_hash);
-    if (!ok) return c.json({ error: "current pin is incorrect" }, 401);
+    // On a forced first change the admin-issued PIN was already proven at
+    // pin-login (that's what minted this token), so asking for it a second
+    // time only blocks the flow. Any voluntary change still requires it.
+    if (cred.must_change) {
+      if (await verifyPin(newPin, cred.pin_hash)) {
+        return c.json({ error: "choose a PIN different from the one you were given" }, 400);
+      }
+    } else {
+      if (!isFourDigitPin(currentPin)) {
+        return c.json({ error: "currentPin must be 4 digits" }, 400);
+      }
+      const ok = await verifyPin(currentPin, cred.pin_hash);
+      if (!ok) return c.json({ error: "current pin is incorrect" }, 401);
+    }
 
     const pin_hash = await hashPin(newPin);
     await serviceRoleClient

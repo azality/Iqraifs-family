@@ -29,7 +29,18 @@ export function PortalLogin() {
   const { login } = usePinAuth();
   const { t } = useTranslation();
 
-  const defaultOrg = useMemo(() => params.get("org") || "iqra-academy", [params]);
+  // School code: the ?org= in the link the school sends, else the code this
+  // device signed in with last time. Never a hardcoded slug — prefilling one
+  // school's code for another school's parent guarantees "Sign-in failed".
+  const defaultOrg = useMemo(() => {
+    const fromLink = params.get("org");
+    if (fromLink) return fromLink;
+    try {
+      return localStorage.getItem("fgs_portal_slug") || "";
+    } catch {
+      return "";
+    }
+  }, [params]);
   const [subjectType, setSubjectType] = useState<PinSubjectType>("student");
   const [orgIdentifier, setOrgIdentifier] = useState<string>(defaultOrg);
   const [loginIdentifier, setLoginIdentifier] = useState<string>("");
