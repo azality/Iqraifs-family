@@ -1,22 +1,23 @@
-// Shared school manage toolbar — role-aware.
+// Shared school staff nav — role-aware (design 11b).
 //
-// Renders the row of navigation buttons that appears at the top of every
-// school page. The items shown depend on the caller's role:
+// One shell, per-role tab sets: this renders the SAME six underline tabs
+// + More ▾ + right-slot action as the parent portal's PortalLayout, so a
+// principal, a hifz teacher and a parent all navigate the same shape.
 //
-//   principal / admin / org-scoped teacher
-//     → grouped dropdown menus (Today / People / Academics / Money /
-//       Communications / Admin). The flat row of 17 pills was hard on
-//       the eyes at scale; grouping collapses it to ~6 visible buttons
-//       and keeps the rest one click away.
-//   class_teacher / visiting_teacher / hifz_teacher
-//     → flat minimal toolbar (My schedule + Announcements) — short
-//       enough to not need grouping.
-//   office_staff / financial_staff
-//     → flat focused toolbar, same reasoning.
+// Before 11b this was a wrapping row of pills inside an overflow-x-auto
+// container — on a laptop the browser drew a grey scrollbar under the
+// menu and pushed the last items off-screen, which is exactly the
+// complaint 11a fixed on the parent side.
 //
-// Active state is computed from the current pathname. For the grouped
-// view, the group whose child is active gets the accent treatment so
-// the user sees which area they're in without opening anything.
+// The per-role source lists keep their existing shapes:
+//   principal / admin  → topical groups (Today / People / Academics /
+//                        Money / Communications / Admin)
+//   everyone else      → a flat list of that role's destinations
+// Both are normalized into one NavTab[] before rendering; anything past
+// the sixth tab folds into More ▾ rather than overflowing.
+//
+// Active state is computed from the current pathname — a grouped tab
+// lights up when any of its children is the current page.
 
 import { Link, useLocation } from "react-router";
 import { useTranslation } from "react-i18next";
@@ -48,7 +49,6 @@ import {
   LayoutGrid,
 } from "lucide-react";
 import type { SchoolViewerRole } from "../../../utils/schoolApi";
-import { accentBg, accentBorder, accentText } from "./tokens";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -312,105 +312,194 @@ export function schoolNavGroupsForRole(
   return [{ key: "menu", label: "Menu", Icon: Home, items: flat }];
 }
 
+// The role's #1 daily action — the right-hand slot of the nav row (11b).
+// Every target is a route that already exists; this slot promotes the
+// thing the role opens most, it doesn't invent a new feature.
+function primaryActionForRole(
+  orgId: string,
+  role: SchoolViewerRole,
+  t: (k: string) => string,
+): { label: string; to: string } | null {
+  const at = (p: string) => `/school/orgs/${orgId}${p}`;
+  switch (role) {
+    case "principal":
+    case "admin":
+    case "incharge":
+      return { label: t("toolbar.actions.dailyAcademics"), to: at("/admin/academics-day") };
+    case "hifz_teacher":
+      return { label: t("toolbar.actions.todaysRound"), to: at("#my-hifz-groups") };
+    case "class_teacher":
+    case "visiting_teacher":
+      return { label: t("toolbar.mySchedule"), to: at("/my-schedule") };
+    case "office_staff":
+      return { label: t("toolbar.actions.parentInbox"), to: at("/admin/inbox") };
+    case "financial_staff":
+      return { label: t("toolbar.actions.fees"), to: at("/admin/fees") };
+    default:
+      return null;
+  }
+}
+
+// Tab order for principal/admin. Dashboard leads; Money (a single Fees
+// page) is the one that folds into More so the row stays at six.
+const ADMIN_TAB_ORDER = ["today", "people", "academics", "communications", "admin", "money"];
+
+/** A nav row should never grow a scrollbar (11b). Both shapes — the
+ *  admin's groups and a teacher's flat list — become the same six
+ *  underline tabs + More ▾, matching the parent portal shell exactly. */
+const MAX_PRIMARY_TABS = 6;
+
+interface NavTab {
+  key: string;
+  label: string;
+  Icon: typeof Users;
+  /** Direct destination, for a leaf tab. */
+  to?: string;
+  /** Child destinations, for a grouped tab. */
+  items?: ToolbarItem[];
+}
+
+const tabCls = (active: boolean) =>
+  "inline-flex items-center gap-1.5 px-3 py-2.5 text-sm border-b-2 -mb-px whitespace-nowrap " +
+  (active
+    ? "border-indigo-600 text-indigo-700 font-semibold"
+    : "border-transparent font-medium text-slate-600 hover:text-slate-900");
+
 export function ManageToolbar({ orgId, viewerRole }: ManageToolbarProps) {
   const { pathname } = useLocation();
   const { t } = useTranslation();
 
-  // Principals and admins get the grouped dropdown layout. Everyone
-  // else keeps the original flat row — their lists are short enough.
-  if (viewerRole === "principal" || viewerRole === "admin") {
+  const isAdminish = viewerRole === "principal" || viewerRole === "admin";
+
+  // Normalize both role shapes into one tab list, so the row below is
+  // literally the same component for a principal and a hifz teacher.
+  let tabs: NavTab[];
+  if (isAdminish) {
     const groups = groupsForAdmin(orgId, viewerRole, t);
-    // Standalone Dashboard pill ahead of the dropdowns — principals and
-    // admins had no toolbar route back to the org homepage (teachers /
-    // office / finance rows all have one). isActive treats the org root
-    // as exact-match, so it only lights up on the dashboard itself.
-    const dashTo = `/school/orgs/${orgId}`;
-    const dashActive = isActive(pathname, dashTo);
-    return (
-      <div className="flex flex-wrap items-center gap-2" data-tour="manage-toolbar">
-        <Link
-          to={dashTo}
-          className={
-            "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium shadow-sm transition-colors " +
-            (dashActive
-              ? `${accentBg} ${accentBorder} ${accentText} border`
-              : "bg-white border border-slate-200 text-slate-700 hover:bg-slate-50")
-          }
-        >
-          <Home className="h-3.5 w-3.5" />
-          Dashboard
-        </Link>
-        {groups.map((g) => {
-          const activeChild = g.items.find((it) => isActive(pathname, it.to));
-          const groupActive = !!activeChild;
-          const activeClasses = `${accentBg} ${accentBorder} ${accentText} border`;
-          const inactiveClasses = "bg-white border border-slate-200 text-slate-700 hover:bg-slate-50";
-          return (
-            <DropdownMenu key={g.key}>
-              <DropdownMenuTrigger
-                className={
-                  "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium shadow-sm transition-colors " +
-                  (groupActive ? activeClasses : inactiveClasses)
-                }
-                aria-label={`${g.label} menu${activeChild ? ` — on ${activeChild.label}` : ""}`}
-              >
-                <g.Icon className="h-3.5 w-3.5" />
-                {g.label}
-                <ChevronDown className="h-3 w-3 opacity-60" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="min-w-[200px]">
-                <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-slate-500">
-                  {g.label}
-                </DropdownMenuLabel>
-                {g.items.map((it) => {
-                  const itemActive = isActive(pathname, it.to);
-                  return (
+    const ordered = [...groups].sort(
+      (a, b) => ADMIN_TAB_ORDER.indexOf(a.key) - ADMIN_TAB_ORDER.indexOf(b.key),
+    );
+    tabs = [
+      { key: "dashboard", label: t("toolbar.dashboard"), Icon: Home, to: `/school/orgs/${orgId}` },
+      ...ordered.map((g) => ({ key: g.key, label: g.label, Icon: g.Icon, items: g.items })),
+    ];
+  } else {
+    const flat = flatItemsForRole(orgId, viewerRole, t);
+    if (flat.length === 0) return null;
+    tabs = flat.map((it) => ({ key: it.key, label: it.label, Icon: it.Icon, to: it.to }));
+  }
+
+  const action = primaryActionForRole(orgId, viewerRole, t);
+  // The #1 action is lifted OUT of the tab row into the right slot —
+  // the same move 11a made with the parent's "Contact school". Leaving
+  // it in both places just spends a tab on a button that's already there.
+  const navTabs = action ? tabs.filter((tab) => tab.to !== action.to) : tabs;
+
+  const primary = navTabs.slice(0, MAX_PRIMARY_TABS);
+  const overflow = navTabs.slice(MAX_PRIMARY_TABS);
+
+  const tabActive = (tab: NavTab) =>
+    tab.to ? isActive(pathname, tab.to) : (tab.items ?? []).some((it) => isActive(pathname, it.to));
+  const overflowActive = overflow.some(tabActive);
+
+  return (
+    <nav className="flex items-center" data-tour="manage-toolbar">
+      {primary.map((tab) =>
+        tab.to ? (
+          <Link key={tab.key} to={tab.to} className={tabCls(tabActive(tab))}>
+            <tab.Icon className="h-3.5 w-3.5" />
+            {tab.label}
+          </Link>
+        ) : (
+          <DropdownMenu key={tab.key}>
+            <DropdownMenuTrigger
+              className={tabCls(tabActive(tab))}
+              aria-label={`${tab.label} menu`}
+            >
+              <tab.Icon className="h-3.5 w-3.5" />
+              {tab.label}
+              <ChevronDown className="h-3 w-3 opacity-60" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="min-w-[200px]">
+              <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-slate-500">
+                {tab.label}
+              </DropdownMenuLabel>
+              {(tab.items ?? []).map((it) => (
+                <DropdownMenuItem key={it.key} asChild>
+                  <Link
+                    to={it.to}
+                    className={
+                      "flex items-center gap-2 text-sm " +
+                      (isActive(pathname, it.to) ? "font-semibold text-indigo-700" : "text-slate-700")
+                    }
+                  >
+                    <it.Icon className="h-3.5 w-3.5 shrink-0" />
+                    {it.label}
+                  </Link>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ),
+      )}
+
+      {/* Deferred is not hidden: everything past six lives here, still
+          one click away and still showing which section you're in. */}
+      {overflow.length > 0 && (
+        <DropdownMenu>
+          <DropdownMenuTrigger className={tabCls(overflowActive)} aria-label="More menu">
+            {t("portal.nav.more")}
+            <ChevronDown className="h-3 w-3 opacity-60" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="min-w-[200px]">
+            {overflow.map((tab) =>
+              tab.to ? (
+                <DropdownMenuItem key={tab.key} asChild>
+                  <Link
+                    to={tab.to}
+                    className={
+                      "flex items-center gap-2 text-sm " +
+                      (tabActive(tab) ? "font-semibold text-indigo-700" : "text-slate-700")
+                    }
+                  >
+                    <tab.Icon className="h-3.5 w-3.5 shrink-0" />
+                    {tab.label}
+                  </Link>
+                </DropdownMenuItem>
+              ) : (
+                <div key={tab.key}>
+                  <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-slate-500">
+                    {tab.label}
+                  </DropdownMenuLabel>
+                  {(tab.items ?? []).map((it) => (
                     <DropdownMenuItem key={it.key} asChild>
                       <Link
                         to={it.to}
                         className={
                           "flex items-center gap-2 text-sm " +
-                          (itemActive ? "font-semibold text-indigo-700" : "text-slate-700")
+                          (isActive(pathname, it.to) ? "font-semibold text-indigo-700" : "text-slate-700")
                         }
                       >
                         <it.Icon className="h-3.5 w-3.5 shrink-0" />
                         {it.label}
                       </Link>
                     </DropdownMenuItem>
-                  );
-                })}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          );
-        })}
-      </div>
-    );
-  }
+                  ))}
+                </div>
+              ),
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
 
-  // Flat row for teachers / office / financial.
-  const items = flatItemsForRole(orgId, viewerRole, t);
-  if (items.length === 0) return null;
-
-  return (
-    <div className="flex flex-wrap items-center gap-2" data-tour="manage-toolbar">
-      {items.map(({ key, label, to, Icon }) => {
-        const active = isActive(pathname, to);
-        const activeClasses = `${accentBg} ${accentBorder} ${accentText} border`;
-        const inactiveClasses = "bg-white border border-slate-200 text-slate-700 hover:bg-slate-50";
-        return (
-          <Link
-            key={key}
-            to={to}
-            className={
-              "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium shadow-sm transition-colors " +
-              (active ? activeClasses : inactiveClasses)
-            }
-          >
-            <Icon className="h-3.5 w-3.5" />
-            {label}
-          </Link>
-        );
-      })}
-    </div>
+      {action && (
+        <Link
+          to={action.to}
+          className="ml-auto hidden rounded-lg border border-indigo-200 px-3 py-1.5 text-xs font-bold text-indigo-700 hover:bg-indigo-50 md:inline-flex"
+        >
+          {action.label}
+        </Link>
+      )}
+    </nav>
   );
 }

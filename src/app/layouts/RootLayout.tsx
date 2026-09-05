@@ -169,6 +169,21 @@ export function RootLayout() {
     ? viewerRoleForOrg(schoolMe, schoolOrgId)
     : "other" as const;
 
+  // Which hat the viewer is wearing, shown under the school name (11b).
+  // Falls back to the old "School workspace" line for an unmapped role.
+  const schoolRoleLabel = isSchoolWorkspace
+    ? ({
+        principal: "toolbar.roles.principal",
+        admin: "toolbar.roles.admin",
+        incharge: "toolbar.roles.incharge",
+        class_teacher: "toolbar.roles.teacher",
+        visiting_teacher: "toolbar.roles.teacher",
+        hifz_teacher: "toolbar.roles.hifzTeacher",
+        office_staff: "toolbar.roles.office",
+        financial_staff: "toolbar.roles.finance",
+      } as Record<string, string>)[schoolViewerRole]
+    : undefined;
+
   // Visible groups — workspace selects the base set; kid mode (family
   // workspace only) further filters items to childAccess.
   const visibleGroups: NavGroup[] = useMemo(() => {
@@ -355,6 +370,8 @@ export function RootLayout() {
           {/* Row 1 — brand / mode switcher / user */}
           <div className="flex items-center justify-between h-14 sm:h-16 gap-3">
             {/* Brand */}
+            {/* Role badge sits with the brand (11b): which school AND
+                which hat you're wearing, before any nav decision. */}
             <Link
               to={
                 isSchoolWorkspace
@@ -389,7 +406,7 @@ export function RootLayout() {
                       {workspace.orgName ?? 'School'}
                     </h1>
                     <p className="text-[10px] sm:text-xs text-indigo-600/80 leading-tight truncate">
-                      School workspace
+                      {schoolRoleLabel ? t(schoolRoleLabel) : 'School workspace'}
                     </p>
                   </div>
                 </>
@@ -539,7 +556,9 @@ export function RootLayout() {
         >
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             {isSchoolWorkspace && schoolOrgId ? (
-              <div className="py-2 overflow-x-auto">
+              <div>
+                {/* No overflow-x-auto: the nav folds into More ▾ instead
+                    of growing a scrollbar (11b). */}
                 <ManageToolbar orgId={schoolOrgId} viewerRole={schoolViewerRole} />
               </div>
             ) : (
