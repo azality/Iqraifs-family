@@ -216,7 +216,10 @@ export function installAssessment(school: Hono): void {
     const { data, error } = await q;
     if (error) return c.json({ error: error.message }, 500);
 
-    const rows = (data ?? []) as any[];
+    // Sandbox carries a demo datesheet for the demo family; it never
+    // belongs in the school's own view (same convention as every other
+    // rollup).
+    const rows = ((data ?? []) as any[]).filter((r) => r.class?.name !== "Sandbox");
     const term = rows[0]?.term ?? null;
     const byClass = new Map<string, { classId: string; className: string; papers: any[] }>();
     const dates = new Set<string>();
@@ -236,12 +239,26 @@ export function installAssessment(school: Hono): void {
       });
       byClass.set(key, g);
     }
+    // School order, not alphabetical: "Class IX" must not sort before
+    // "Class V" on a sheet the office compares against their printout.
+    const ROMAN: Record<string, number> = {
+      I: 1, II: 2, III: 3, IV: 4, V: 5, VI: 6, VII: 7, VIII: 8, IX: 9, X: 10,
+    };
+    const rank = (name: string): number => {
+      const m = /^Class\s+([IVX]+)$/i.exec(name.trim());
+      if (m) return ROMAN[m[1].toUpperCase()] ?? 90;
+      // Named classes (Reception, Junior, Senior, Catch Up) follow the
+      // numbered ones, alphabetically among themselves.
+      return 100;
+    };
     return c.json({
       termId: term?.id ?? null,
       termName: term?.name ?? null,
       instructions: (term?.exam_instructions ?? []) as string[],
       dates: Array.from(dates).sort(),
-      classes: Array.from(byClass.values()).sort((a, b) => a.className.localeCompare(b.className)),
+      classes: Array.from(byClass.values()).sort(
+        (a, b) => rank(a.className) - rank(b.className) || a.className.localeCompare(b.className),
+      ),
     });
   });
 
