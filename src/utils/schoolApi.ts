@@ -1560,6 +1560,12 @@ export interface AdminStudent {
   /** Backend returns select("*") — present when the student is in a hifz
    *  group (PR feat/hifz-groups). Used by TeacherHome's group rosters. */
   hifz_group_id?: string | null;
+  /** Explicit Quran track; null means infer (hifz section → hifz, hafiz
+   *  → revision, otherwise nazra). See QuranTrack. */
+  quran_track?: QuranTrack | null;
+  /** When this child completed the Quran — set by the office for someone
+   *  who arrived hafiz, or stamped automatically at 6236 ayahs. */
+  hafiz_since?: string | null;
   /** 'active' | 'withdrawn' | 'graduated' | 'transferred'. Withdrawn ("left")
    *  students keep their record + history but are
    *  cleared from their section, so rosters and billing skip them. */
@@ -1712,6 +1718,12 @@ export interface CreateStudentBody {
   /** 'hifz' | 'conventional' — gates program-targeted announcements and
    *  surfaces in the section dashboards. */
   program?: "hifz" | "conventional" | "";
+  /** Which Quran screen this child gets. "" (or omitted) means automatic:
+   *  hifz section → hifz, hafiz → revision, otherwise nazra. */
+  quranTrack?: QuranTrack | "";
+  /** ISO timestamp; set for a child who arrived already hafiz. "" clears
+   *  it. Written automatically when one of our own completes the Quran. */
+  hafizSince?: string | "";
   // IFS admission-form fields (PR feat/student-parent-onboarding-redesign).
   registrationNo?: string;
   applyingForGrade?: string;
@@ -3808,7 +3820,19 @@ export interface SectionHifzSummaryRow {
   today?: { sabaq: boolean; sabqi: boolean; manzil: boolean; nazra?: boolean };
   /** Reading position. Meaningful for nazra groups; null for hifz. */
   nazraPosition?: NazraPosition | null;
+  /** Which screen THIS child gets — one Quran period can hold both a
+   *  room of nazra readers and a hafiz revising alongside them. */
+  quranTrack?: QuranTrack;
+  /** True when the track was inferred rather than chosen by the office. */
+  quranTrackInferred?: boolean;
+  /** When this child completed the Quran. Auto-stamped at 6236 ayahs. */
+  hafizSince?: string | null;
 }
+
+/** 'nazra' reads · 'hifz' memorizes · 'revision' has finished and is
+ *  revising. Revision keeps the full sabaq/sabqi/manzil trio — the
+ *  school's call, confirmed Sep 2026. */
+export type QuranTrack = "nazra" | "hifz" | "revision";
 
 export const getSectionHifzSummary = (
   orgId: string,

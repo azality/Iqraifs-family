@@ -57,6 +57,9 @@ const HIFZ_KINDS = new Set([
   "nazra_revision",
 ]);
 const NAZRA_KINDS = new Set(["nazra", "nazra_revision"]);
+
+// Hafs count. Reaching it means the child has memorized the Quran.
+const QURAN_AYAH_TOTAL = 6236;
 const HIFZ_QUALITIES = new Set([
   "excellent",
   "good",
@@ -629,7 +632,7 @@ export function installPhaseC(school: Hono): void {
 
     const { data: stu, error: stuErr } = await serviceRoleClient
       .from("student")
-      .select("id, org_id, class_section_id, hifz_group_id")
+      .select("id, org_id, class_section_id, hifz_group_id, hafiz_since, quran_track")
       .eq("id", body.studentId)
       .maybeSingle();
     if (stuErr) return c.json({ error: stuErr.message }, 500);
@@ -722,7 +725,30 @@ export function installPhaseC(school: Hono): void {
       .single();
     if (insErr) return c.json({ error: insErr.message }, 500);
 
-    return c.json({ entry: hifzToJson(ins) }, 201);
+    // "The student who finishes hifz with us — so we will know."
+    // The moment a child's memorized coverage reaches the whole Quran,
+    // stamp them hafiz. Nobody has to remember to tick a box, and from
+    // then on their daily screen is the revision trio rather than a new
+    // sabaq. Only ever set once, and never cleared here — an office
+    // correction stays authoritative.
+    let becameHafiz = false;
+    if (!stu.hafiz_since && (body.kind === "sabaq" || body.kind === "memorized")) {
+      const { data: allRows } = await serviceRoleClient
+        .from("hifz_progress")
+        .select("surah_number, ayah_from, ayah_to, kind, missed")
+        .eq("student_id", stu.id);
+      const { ayahsMemorized } = computeMemorizedTotals((allRows ?? []) as any[]);
+      if (ayahsMemorized >= QURAN_AYAH_TOTAL) {
+        const { error: hErr } = await serviceRoleClient
+          .from("student")
+          .update({ hafiz_since: new Date().toISOString() })
+          .eq("id", stu.id)
+          .is("hafiz_since", null);
+        becameHafiz = !hErr;
+      }
+    }
+
+    return c.json({ entry: hifzToJson(ins), becameHafiz }, 201);
   });
 
   // ---------------------------------------------------------------------------
@@ -858,15 +884,27 @@ export function installPhaseC(school: Hono): void {
 
     const { data: students, error: stuErr } = await serviceRoleClient
       .from("student")
-      .select("id, full_name, gr_number")
+      .select("id, full_name, gr_number, quran_track, hafiz_since")
       .eq("org_id", orgId)
       .eq("class_section_id", sectionId);
     if (stuErr) return c.json({ error: stuErr.message }, 500);
+
+    // Is this a hifz section? Drives the default track for children with
+    // nothing set explicitly.
+    const { data: secRow } = await serviceRoleClient
+      .from("class_section")
+      .select("schedule_key, class:class_id(kind)")
+      .eq("id", sectionId)
+      .maybeSingle();
+    const sectionIsHifz =
+      (secRow as any)?.schedule_key === "hifz" || (secRow as any)?.class?.kind === "hifz";
 
     const studentList = (students ?? []) as Array<{
       id: string;
       full_name: string | null;
       gr_number: string | null;
+      quran_track: string | null;
+      hafiz_since: string | null;
     }>;
     if (studentList.length === 0) {
       return c.json({ sectionId, students: [] });
@@ -923,6 +961,13 @@ export function installPhaseC(school: Hono): void {
           else if (NAZRA_KINDS.has(r.kind)) today.nazra = true;
         }
       }
+      // Which screen this CHILD gets today. One Quran period can hold
+      // both: mostly nazra readers, plus a hafiz revising alongside them.
+      // Explicit setting wins; otherwise a hifz section means hifz, a
+      // hafiz child means revision, and everyone else reads.
+      const effectiveTrack =
+        s.quran_track ?? (sectionIsHifz ? "hifz" : s.hafiz_since ? "revision" : "nazra");
+
       return {
         studentId: s.id,
         studentName: s.full_name,
@@ -930,6 +975,11 @@ export function installPhaseC(school: Hono): void {
         ayahsMemorized,
         lastEntry,
         today,
+        quranTrack: effectiveTrack,
+        /** True when the track was inferred rather than chosen, so the UI
+         *  can show it as a default the office may override. */
+        quranTrackInferred: s.quran_track == null,
+        hafizSince: s.hafiz_since ?? null,
         // Null until the child has been heard once; the round screen then
         // starts them wherever the teacher chooses.
         nazraPosition: lastNazra

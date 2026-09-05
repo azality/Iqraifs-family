@@ -1,4 +1,4 @@
-// NazraRoundMode — the daily hearing round for a NAZRA (reading) group.
+// QuranRoundMode — the daily hearing round for a NAZRA (reading) group.
 //
 // Nazra is not hifz. A nazra child reads the Quran rather than
 // memorizing it, so there is no sabaq / sabqi / manzil trio and
@@ -15,9 +15,20 @@
 //   • Heard → advance, or Repeat → they read the same portion again
 //   • next child
 //
-// Class IV+ nazra groups can also contain a hafiz child who is revising
-// rather than progressing. The Revision toggle logs `nazra_revision`
-// for that child without disturbing anyone else's position.
+// One Quran period is not one activity. From Class IV a group is mostly
+// nazra readers plus the occasional hafiz — a child who finished
+// memorizing (here or elsewhere) and now sits in the same period
+// revising. So the SCREEN IS CHOSEN PER CHILD, not per class:
+//
+//   nazra              read a portion → heard → advance
+//   hifz / revision    the full sabaq / sabqi / manzil trio
+//
+// The track comes from the roster (student.quran_track, or inferred:
+// hifz section → hifz, hafiz → revision, else nazra), so the teacher
+// walks one round and each child's card is already right.
+//
+// Hifz-only sections keep the dedicated HifzRoundMode — this screen is
+// for the mixed Quran/Nazra groups.
 //
 // Reported by Uroosa Basit (Nazra, Class II A + Junior/Senior), Sep 2026.
 
@@ -29,7 +40,12 @@ import { Label } from "../../components/ui/label";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "../../components/ui/select";
-import { postHifzEntry, type HifzQuality, type SectionHifzSummaryRow } from "../../../utils/schoolApi";
+import {
+  postHifzEntry,
+  type HifzQuality,
+  type QuranTrack,
+  type SectionHifzSummaryRow,
+} from "../../../utils/schoolApi";
 import { SURAHS, getSurah } from "../../../utils/quranSurahs";
 
 type Unit = "para" | "surah";
@@ -45,7 +61,7 @@ const QUALITIES: Array<{ v: HifzQuality; label: string; tone: string }> = [
   { v: "weak", label: "Weak", tone: "bg-rose-100 text-rose-800 border-rose-200" },
 ];
 
-export interface NazraRoundModeProps {
+export interface QuranRoundModeProps {
   orgId: string;
   groupLabel: string;
   roster: SectionHifzSummaryRow[];
@@ -54,7 +70,7 @@ export interface NazraRoundModeProps {
   onSaved: () => void;
 }
 
-export function NazraRoundMode({ orgId, groupLabel, roster, onClose, onSaved }: NazraRoundModeProps) {
+export function QuranRoundMode({ orgId, groupLabel, roster, onClose, onSaved }: QuranRoundModeProps) {
   // The roster is snapshotted by the caller so re-sorting mid-round
   // doesn't shuffle the queue under the teacher's hand.
   const [idx, setIdx] = useState(0);
@@ -74,6 +90,14 @@ export function NazraRoundMode({ orgId, groupLabel, roster, onClose, onSaved }: 
   const [to, setTo] = useState<string>("");
   const [quality, setQuality] = useState<HifzQuality | null>(null);
   const [revision, setRevision] = useState(false);
+  // Which of the trio is being heard, for a child on the hifz/revision
+  // track. Ignored entirely for nazra readers.
+  const [trioKind, setTrioKind] = useState<"sabaq" | "sabqi" | "manzil">("sabaq");
+
+  // The track decides the whole card. Explicit setting wins; the roster
+  // already resolved the inference server-side.
+  const track: QuranTrack = student?.quranTrack ?? "nazra";
+  const isTrio = track === "hifz" || track === "revision";
 
   // Pre-fill from where this child left off. Continuing is the common
   // case, so the form opens on "the next bit" rather than blank — but
@@ -106,6 +130,9 @@ export function NazraRoundMode({ orgId, groupLabel, roster, onClose, onSaved }: 
   const maxAyah = unit === "surah" ? surahInfo?.ayahCount ?? 286 : 286;
 
   const positionLabel = (row: SectionHifzSummaryRow): string => {
+    const rowTrack = row.quranTrack ?? "nazra";
+    if (rowTrack === "revision") return "Hafiz · revising";
+    if (rowTrack === "hifz") return "Hifz · sabaq / sabqi / manzil";
     const p = row.nazraPosition;
     if (!p) return "Not started";
     const where = p.juzNumber
@@ -123,6 +150,29 @@ export function NazraRoundMode({ orgId, groupLabel, roster, onClose, onSaved }: 
 
   const save = async (mode: "heard" | "repeat") => {
     if (!student) return;
+    // Manzil is heard by juz — there is no ayah range to type, which is
+    // the whole point of logging a revision round quickly.
+    if (isTrio && trioKind === "manzil") {
+      setBusy(true); setErr(null);
+      try {
+        await postHifzEntry(orgId, {
+          studentId: student.studentId,
+          kind: "manzil",
+          surahNumber: student.nazraPosition?.surahNumber ?? 1,
+          ayahFrom: 1,
+          ayahTo: 1,
+          juzNumber: para,
+          quality: quality ?? undefined,
+        } as any);
+        setHeardIds((prev) => new Set(prev).add(student.studentId));
+        onSaved();
+        if (idx < roster.length - 1) goNext();
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : "Could not save.");
+      } finally { setBusy(false); }
+      return;
+    }
+
     const f = Number(from);
     const t = Number(to);
     if (!Number.isFinite(f) || f < 1) { setErr("Enter the ayah they started from."); return; }
@@ -131,7 +181,7 @@ export function NazraRoundMode({ orgId, groupLabel, roster, onClose, onSaved }: 
     try {
       await postHifzEntry(orgId, {
         studentId: student.studentId,
-        kind: revision ? "nazra_revision" : "nazra",
+        kind: isTrio ? trioKind : revision ? "nazra_revision" : "nazra",
         // Both units are stored: the surah keeps the entry readable in
         // the child's history, the juz is what the teacher navigates by.
         surahNumber: unit === "surah" ? surah : (student.nazraPosition?.surahNumber ?? 1),
@@ -192,15 +242,46 @@ export function NazraRoundMode({ orgId, groupLabel, roster, onClose, onSaved }: 
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-4">
+        {/* A hafiz in this group gets the trio, not a reading portion.
+            The track came from the roster, so nobody has to remember. */}
+        {isTrio && (
+          <div className="flex flex-wrap items-center gap-2">
+            <Label className="text-xs text-slate-500">Hearing</Label>
+            <div className="inline-flex overflow-hidden rounded-lg border border-slate-200">
+              {([
+                { k: "sabaq", label: "Sabaq" },
+                { k: "sabqi", label: "Sabqi" },
+                { k: "manzil", label: "Manzil" },
+              ] as const).map(({ k, label }) => (
+                <button
+                  key={k} type="button" onClick={() => setTrioKind(k)}
+                  className={
+                    "px-3 py-1.5 text-xs font-semibold " +
+                    (trioKind === k ? "bg-indigo-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50")
+                  }
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <span className="ml-auto rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">
+              {track === "revision" ? "Hafiz · revising" : "Hifz"}
+            </span>
+          </div>
+        )}
+
         {/* Unit — teachers think in paras; some think in surahs. */}
         <div className="flex flex-wrap items-center gap-2">
-          <Label className="text-xs text-slate-500">Track by</Label>
+          <Label className="text-xs text-slate-500">
+            {isTrio && trioKind === "manzil" ? "Revising" : "Track by"}
+          </Label>
           <div className="inline-flex overflow-hidden rounded-lg border border-slate-200">
             {(["para", "surah"] as Unit[]).map((u) => (
               <button
                 key={u} type="button" onClick={() => setUnit(u)}
+                disabled={isTrio && trioKind === "manzil" && u === "surah"}
                 className={
-                  "px-3 py-1.5 text-xs font-semibold capitalize " +
+                  "px-3 py-1.5 text-xs font-semibold capitalize disabled:opacity-40 " +
                   (unit === u ? "bg-emerald-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50")
                 }
               >
@@ -208,14 +289,16 @@ export function NazraRoundMode({ orgId, groupLabel, roster, onClose, onSaved }: 
               </button>
             ))}
           </div>
-          <label className="ml-auto inline-flex items-center gap-1.5 text-xs text-slate-600">
-            <input
-              type="checkbox" checked={revision}
-              onChange={(e) => setRevision(e.target.checked)}
-              className="h-3.5 w-3.5 rounded border-slate-300"
-            />
-            Revision (hafiz child)
-          </label>
+          {!isTrio && (
+            <label className="ml-auto inline-flex items-center gap-1.5 text-xs text-slate-600">
+              <input
+                type="checkbox" checked={revision}
+                onChange={(e) => setRevision(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-slate-300"
+              />
+              Revision (hafiz child)
+            </label>
+          )}
         </div>
 
         {/* Where */}
@@ -242,18 +325,24 @@ export function NazraRoundMode({ orgId, groupLabel, roster, onClose, onSaved }: 
               </Select>
             )}
           </div>
-          <div className="space-y-1">
-            <Label className="text-xs">From ayah</Label>
-            <Input inputMode="numeric" value={from}
-              onChange={(e) => setFrom(e.target.value.replace(/\D/g, ""))} />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">
-              To ayah{unit === "surah" && surahInfo ? <span className="font-normal text-slate-400"> (max {maxAyah})</span> : null}
-            </Label>
-            <Input inputMode="numeric" value={to} placeholder="…"
-              onChange={(e) => setTo(e.target.value.replace(/\D/g, ""))} />
-          </div>
+          {/* Manzil is a whole juz — no ayah typing, which is what makes
+              a revision round fast. */}
+          {!(isTrio && trioKind === "manzil") && (
+            <>
+              <div className="space-y-1">
+                <Label className="text-xs">From ayah</Label>
+                <Input inputMode="numeric" value={from}
+                  onChange={(e) => setFrom(e.target.value.replace(/\D/g, ""))} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">
+                  To ayah{unit === "surah" && surahInfo ? <span className="font-normal text-slate-400"> (max {maxAyah})</span> : null}
+                </Label>
+                <Input inputMode="numeric" value={to} placeholder="…"
+                  onChange={(e) => setTo(e.target.value.replace(/\D/g, ""))} />
+              </div>
+            </>
+          )}
         </div>
 
         {/* How it went — optional, but it drives tomorrow's prefill. */}
@@ -289,9 +378,11 @@ export function NazraRoundMode({ orgId, groupLabel, roster, onClose, onSaved }: 
             <Check className="mr-1.5 h-4 w-4" />
             {busy ? "Saving…" : "Heard · next child"}
           </Button>
-          <Button variant="outline" onClick={() => save("repeat")} disabled={busy}>
-            <RotateCcw className="mr-1.5 h-4 w-4" /> Heard · repeat tomorrow
-          </Button>
+          {!(isTrio && trioKind === "manzil") && (
+            <Button variant="outline" onClick={() => save("repeat")} disabled={busy}>
+              <RotateCcw className="mr-1.5 h-4 w-4" /> Heard · repeat tomorrow
+            </Button>
+          )}
           <Button variant="ghost" onClick={goNext} disabled={busy || idx >= roster.length - 1}
             className="ml-auto text-slate-600">
             Skip <ChevronRight className="ml-1 h-4 w-4" />
@@ -328,4 +419,4 @@ export function NazraRoundMode({ orgId, groupLabel, roster, onClose, onSaved }: 
   );
 }
 
-export default NazraRoundMode;
+export default QuranRoundMode;

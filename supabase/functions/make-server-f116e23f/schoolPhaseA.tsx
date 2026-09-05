@@ -1397,6 +1397,12 @@ export function installPhaseA(school: Hono) {
       admissionDate: "admission_date",
       completenessStatus: "completeness_status",
       hifzGroupId: "hifz_group_id",
+      // Which Quran screen this child gets: 'nazra' (reading) | 'hifz' |
+      // 'revision'. Null means infer from the section + hafiz status.
+      quranTrack: "quran_track",
+      // Set for a child who arrived already hafiz; written automatically
+      // when one of our own completes the Quran.
+      hafizSince: "hafiz_since",
     };
     // Postgres date/uuid columns reject "" — the edit form sends empty
     // strings for untouched optional fields (pilot bug: saving a guardian
@@ -1405,11 +1411,22 @@ export function installPhaseA(school: Hono) {
     // typed columns; text columns keep "" semantics.
     const EMPTY_IS_NULL = new Set([
       "date_of_birth", "admission_date", "class_section_id", "hifz_group_id",
+      // student_quran_track_check rejects '' — the picker's "Automatic"
+      // option means "no explicit track", which is NULL.
+      "quran_track", "hafiz_since",
       // student_program_check rejects '' — the edit form's "—" program
       // option sends an empty string (pilot bug: every save failed with
       // "violates check constraint student_program_check").
       "program", "gender",
     ]);
+    // Reject a bad track here rather than letting the DB check constraint
+    // surface as a 500 the office can't act on.
+    if ("quranTrack" in body) {
+      const v = body.quranTrack;
+      if (v !== "" && v != null && !["nazra", "hifz", "revision"].includes(v)) {
+        return c.json({ error: "quranTrack must be nazra, hifz or revision" }, 400);
+      }
+    }
     const patch: Record<string, unknown> = {};
     for (const [k, col] of Object.entries(map)) {
       if (!(k in body)) continue;
