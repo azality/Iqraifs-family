@@ -632,7 +632,7 @@ export function installPhaseC(school: Hono): void {
 
     const { data: stu, error: stuErr } = await serviceRoleClient
       .from("student")
-      .select("id, org_id, class_section_id, hifz_group_id, hafiz_since, quran_track")
+      .select("id, org_id, class_section_id, hifz_group_id, hafiz_since, quran_track, hifz_coverage_complete_at")
       .eq("id", body.studentId)
       .maybeSingle();
     if (stuErr) return c.json({ error: stuErr.message }, 500);
@@ -726,13 +726,19 @@ export function installPhaseC(school: Hono): void {
     if (insErr) return c.json({ error: insErr.message }, 500);
 
     // "The student who finishes hifz with us — so we will know."
-    // The moment a child's memorized coverage reaches the whole Quran,
-    // stamp them hafiz. Nobody has to remember to tick a box, and from
-    // then on their daily screen is the revision trio rather than a new
-    // sabaq. Only ever set once, and never cleared here — an office
-    // correction stays authoritative.
-    let becameHafiz = false;
-    if (!stu.hafiz_since && (body.kind === "sabaq" || body.kind === "memorized")) {
+    //
+    // The moment logged coverage reaches the whole Quran we record that
+    // fact, but we do NOT declare the child hafiz. This is a coverage
+    // tripwire: it ignores quality (a 'weak' sabaq counts the same as a
+    // strong one) and it only knows what was logged here. A hafiz is
+    // declared by a teacher after a full recitation test. So the system
+    // raises its hand and a human confirms — see the confirm action on
+    // the roster and the student's Quran track card.
+    let coverageJustCompleted = false;
+    if (
+      !stu.hifz_coverage_complete_at && !stu.hafiz_since &&
+      (body.kind === "sabaq" || body.kind === "memorized")
+    ) {
       const { data: allRows } = await serviceRoleClient
         .from("hifz_progress")
         .select("surah_number, ayah_from, ayah_to, kind, missed")
@@ -741,14 +747,19 @@ export function installPhaseC(school: Hono): void {
       if (ayahsMemorized >= QURAN_AYAH_TOTAL) {
         const { error: hErr } = await serviceRoleClient
           .from("student")
-          .update({ hafiz_since: new Date().toISOString() })
+          .update({ hifz_coverage_complete_at: new Date().toISOString() })
           .eq("id", stu.id)
-          .is("hafiz_since", null);
-        becameHafiz = !hErr;
+          .is("hifz_coverage_complete_at", null);
+        coverageJustCompleted = !hErr;
       }
     }
 
-    return c.json({ entry: hifzToJson(ins), becameHafiz }, 201);
+    return c.json({
+      entry: hifzToJson(ins),
+      // True on the entry that completed the Quran — the caller should
+      // put the confirmation in front of the teacher there and then.
+      hifzCoverageComplete: coverageJustCompleted,
+    }, 201);
   });
 
   // ---------------------------------------------------------------------------
@@ -884,7 +895,7 @@ export function installPhaseC(school: Hono): void {
 
     const { data: students, error: stuErr } = await serviceRoleClient
       .from("student")
-      .select("id, full_name, gr_number, quran_track, hafiz_since")
+      .select("id, full_name, gr_number, quran_track, hafiz_since, hifz_coverage_complete_at")
       .eq("org_id", orgId)
       .eq("class_section_id", sectionId);
     if (stuErr) return c.json({ error: stuErr.message }, 500);
@@ -905,6 +916,7 @@ export function installPhaseC(school: Hono): void {
       gr_number: string | null;
       quran_track: string | null;
       hafiz_since: string | null;
+      hifz_coverage_complete_at: string | null;
     }>;
     if (studentList.length === 0) {
       return c.json({ sectionId, students: [] });
@@ -980,6 +992,12 @@ export function installPhaseC(school: Hono): void {
          *  can show it as a default the office may override. */
         quranTrackInferred: s.quran_track == null,
         hafizSince: s.hafiz_since ?? null,
+        /** Set when logged coverage reached all 6236 ayahs. With
+         *  hafizSince still null, the roster should offer the teacher
+         *  the confirmation rather than assume it. */
+        hifzCoverageCompleteAt: s.hifz_coverage_complete_at ?? null,
+        needsHafizConfirmation:
+          !!s.hifz_coverage_complete_at && !s.hafiz_since,
         // Null until the child has been heard once; the round screen then
         // starts them wherever the teacher chooses.
         nazraPosition: lastNazra

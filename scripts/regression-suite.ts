@@ -1731,7 +1731,7 @@ await check("45. nazra is not hifz: reading kinds accepted, position surfaces on
   }
 });
 
-await check("46. quran track: per-student, inferred by default, hafiz auto-stamped at 6236", async () => {
+await check("46. quran track: per-student inference, and hafiz is CONFIRMED by a person not by arithmetic", async () => {
   const tt = (await ensureUser("qa-teacher@azality.com", "QA Teacher", "class_teacher")).token;
   const summary = () =>
     api(tt, `/school/orgs/${ORG}/sections/${sandboxSec.id}/hifz-progress/summary`).then((r) => r.json());
@@ -1776,7 +1776,7 @@ await check("46. quran track: per-student, inferred by default, hafiz auto-stamp
 
     // Finishing hifz with us stamps hafiz automatically. One row covering
     // the whole Quran is enough — the totals dedupe by ayah.
-    await admin.from("student").update({ hafiz_since: null, quran_track: null }).eq("id", pStu2);
+    await admin.from("student").update({ hafiz_since: null, quran_track: null, hifz_coverage_complete_at: null, hafiz_confirmed_by: null }).eq("id", pStu2);
     // Seed 113 surahs straight through the service role (fast), then let
     // the LAST one go through the API so the auto-stamp is exercised
     // exactly where it lives: the hifz POST handler.
@@ -1799,16 +1799,36 @@ await check("46. quran track: per-student, inferred by default, hafiz auto-stamp
       });
       const lj = await last.json();
       assert(last.status === 201, `final surah ${last.status}`);
-      assert(lj.becameHafiz === true, "the completing entry should report becameHafiz");
+      assert(lj.hifzCoverageComplete === true, "the completing entry should report hifzCoverageComplete");
 
-      const { data: after } = await admin.from("student")
-        .select("hafiz_since").eq("id", pStu2).maybeSingle();
-      assert(after?.hafiz_since, "completing the Quran should stamp hafiz_since automatically");
+      // Detection only. The child is NOT hafiz until a person says so —
+      // quality isn't counted and prior memorization elsewhere is unknown.
+      const { data: detected } = await admin.from("student")
+        .select("hifz_coverage_complete_at, hafiz_since").eq("id", pStu2).maybeSingle();
+      assert(detected?.hifz_coverage_complete_at, "coverage completion should be recorded");
+      assert(!detected?.hafiz_since, "coverage alone must NOT declare the child hafiz");
+
+      const pending = await rowFor(pStu2);
+      assert(pending?.needsHafizConfirmation === true, "roster should ask for confirmation");
+      assert(pending?.quranTrack === "nazra",
+        `unconfirmed coverage must not flip the track, got ${pending?.quranTrack}`);
+
+      // A human confirms — that is the milestone, and it is attributed.
+      const conf = await api(principal.token, `/school/orgs/${ORG}/students/${pStu2}`, {
+        method: "PATCH", body: JSON.stringify({ hafizSince: new Date().toISOString() }),
+      });
+      assert(conf.status === 200, `confirm ${conf.status}`);
+      const { data: confirmed } = await admin.from("student")
+        .select("hafiz_since, hafiz_confirmed_by").eq("id", pStu2).maybeSingle();
+      assert(confirmed?.hafiz_since, "confirmation should set hafiz_since");
+      assert(confirmed?.hafiz_confirmed_by, "confirmation should record who did it");
+
       const r2 = await rowFor(pStu2);
-      assert(r2?.quranTrack === "revision", `auto-hafiz should now infer revision, got ${r2?.quranTrack}`);
+      assert(r2?.quranTrack === "revision", `confirmed hafiz should infer revision, got ${r2?.quranTrack}`);
+      assert(r2?.needsHafizConfirmation === false, "confirmed student should stop being asked");
     } finally {
       await admin.from("hifz_progress").delete().eq("student_id", pStu2).eq("kind", "sabaq");
-      await admin.from("student").update({ hafiz_since: null, quran_track: null }).eq("id", pStu2);
+      await admin.from("student").update({ hafiz_since: null, quran_track: null, hifz_coverage_complete_at: null, hafiz_confirmed_by: null }).eq("id", pStu2);
     }
   } finally {
     await admin.from("student").update({ quran_track: null, hafiz_since: null }).eq("id", pStu1);

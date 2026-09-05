@@ -4,6 +4,7 @@
 // a row to open the HifzLogEntry modal pre-filled for that student.
 
 import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { Link, Navigate, useParams, useSearchParams } from "react-router";
 import { Button } from "../../components/ui/button";
@@ -17,6 +18,7 @@ import {
 import {
   getSchoolMe,
   getSectionHifzSummary,
+  updateStudent,
   isOrgAdmin,
   listClasses,
   type SchoolMeResponse,
@@ -94,6 +96,23 @@ export function SectionHifzOverview() {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
   }, []);
 
+  // A teacher confirming "yes, this child is hafiz" is the milestone —
+  // the system only detected the coverage. Recording it also flips the
+  // child onto the revision track, so tomorrow's card is the trio.
+  const [dismissedHafiz, setDismissedHafiz] = useState<Set<string>>(new Set());
+
+  const confirmHafiz = async (row: SectionHifzSummaryRow) => {
+    try {
+      await updateStudent(orgId, row.studentId, { hafizSince: new Date().toISOString() } as any);
+      toast.success(`${row.studentName} confirmed hafiz — mashaAllah.`, {
+        description: "Their daily card is now the revision trio. Consider telling the parents.",
+      });
+      setReloadKey((k) => k + 1);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not record the milestone.");
+    }
+  };
+
   const refresh = () => {
     if (!orgId || !sectionId) return;
     setLoading(true);
@@ -155,9 +174,13 @@ export function SectionHifzOverview() {
       <QuranRoundMode
         orgId={orgId}
         groupLabel={sectionLabel || "Nazra"}
-        roster={sorted}
+        roster={sorted.map((r) =>
+          dismissedHafiz.has(r.studentId) ? { ...r, needsHafizConfirmation: false } : r,
+        )}
         onClose={() => setRoundActive(false)}
         onSaved={() => setReloadKey((k) => k + 1)}
+        onConfirmHafiz={confirmHafiz}
+        onDismissHafiz={(row) => setDismissedHafiz((p) => new Set(p).add(row.studentId))}
       />
     ) : (
       <HifzRoundMode
@@ -212,6 +235,16 @@ export function SectionHifzOverview() {
       cell: (s) => (
         <span className="text-[12.5px] text-slate-700">
           {positionText(s)}
+          {s.needsHafizConfirmation && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); confirmHafiz(s); }}
+              className="ml-1.5 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 ring-1 ring-emerald-300 hover:bg-emerald-200"
+              title="Covered all 30 juz — confirm the milestone"
+            >
+              confirm hafiz
+            </button>
+          )}
           {(s.quranTrack === "revision" || s.quranTrack === "hifz") && (
             <span className="ml-1.5 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">
               {s.hafizSince ? "hafiz" : "hifz"}

@@ -892,6 +892,7 @@ function QuranTrackCard({
 
   const track = (student as any).quran_track as QuranTrack | null | undefined;
   const hafizSince = (student as any).hafiz_since as string | null | undefined;
+  const coverageComplete = (student as any).hifz_coverage_complete_at as string | null | undefined;
 
   const save = async (patch: Record<string, unknown>) => {
     setBusy(true); setErr(null);
@@ -945,6 +946,28 @@ function QuranTrackCard({
           })}
         </div>
 
+        {/* The system detected full coverage but nobody has confirmed.
+            It cannot judge a hafiz — quality is not counted and it only
+            knows what was logged here — so it asks. */}
+        {coverageComplete && !hafizSince && (
+          <div className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2">
+            <p className="text-[12px] font-semibold text-emerald-900">
+              Covered all 30 juz on {new Date(coverageComplete).toLocaleDateString()}
+            </p>
+            <p className="mt-0.5 text-[11px] text-emerald-800">
+              From the sabaq logged here. Confirm once the full recitation
+              has been heard.
+            </p>
+            <Button
+              size="sm" disabled={!canEdit || busy}
+              className="mt-2 bg-emerald-700 hover:bg-emerald-800"
+              onClick={() => save({ hafizSince: new Date().toISOString() })}
+            >
+              Confirm as hafiz
+            </Button>
+          </div>
+        )}
+
         <label className="flex items-center gap-2 text-xs text-slate-600">
           <input
             type="checkbox"
@@ -956,7 +979,9 @@ function QuranTrackCard({
           This student is a hafiz (has completed the Quran)
         </label>
         <p className="text-[11px] text-slate-400">
-          Ticked automatically when a student completes all 6236 ayahs with
+          The system flags a child once the sabaq logged here covers all
+          6236 ayahs, but a teacher confirms the milestone — quality is not
+          counted and prior memorization from another school is unknown to
           us. Tick it yourself for a child who arrived already hafiz.
         </p>
 
