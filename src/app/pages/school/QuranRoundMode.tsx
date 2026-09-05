@@ -68,9 +68,13 @@ export interface QuranRoundModeProps {
   onClose: () => void;
   /** Called after each successful save so the roster behind refreshes. */
   onSaved: () => void;
+  /** The teacher confirms the system's "covered all 30 juz" suggestion. */
+  onConfirmHafiz?: (row: SectionHifzSummaryRow) => void;
+  /** Not yet — keep hearing them, ask again later. */
+  onDismissHafiz?: (row: SectionHifzSummaryRow) => void;
 }
 
-export function QuranRoundMode({ orgId, groupLabel, roster, onClose, onSaved }: QuranRoundModeProps) {
+export function QuranRoundMode({ orgId, groupLabel, roster, onClose, onSaved, onConfirmHafiz, onDismissHafiz }: QuranRoundModeProps) {
   // The roster is snapshotted by the caller so re-sorting mid-round
   // doesn't shuffle the queue under the teacher's hand.
   const [idx, setIdx] = useState(0);
@@ -240,6 +244,36 @@ export function QuranRoundMode({ orgId, groupLabel, roster, onClose, onSaved }: 
           </div>
         </div>
       </div>
+
+      {/* The system can see that a child has now covered all 30 juz. It
+          cannot judge whether they are hafiz — quality isn't counted and
+          it only knows what was logged here. So it says so, and the
+          teacher decides. */}
+      {student.needsHafizConfirmation && (
+        <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-4">
+          <p className="text-sm font-semibold text-emerald-900">
+            {student.studentName} has now covered all 30 juz.
+          </p>
+          <p className="mt-0.5 text-[12px] text-emerald-800">
+            Based on the sabaq logged here. Confirm once you have heard the
+            full recitation — it records the milestone and switches them to
+            revision.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button
+              size="sm" disabled={busy}
+              className="bg-emerald-700 hover:bg-emerald-800"
+              onClick={() => onConfirmHafiz?.(student)}
+            >
+              Confirm as hafiz
+            </Button>
+            <Button size="sm" variant="outline" disabled={busy}
+              onClick={() => onDismissHafiz?.(student)}>
+              Not yet
+            </Button>
+          </div>
+        </div>
+      )}
 
       <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-4">
         {/* A hafiz in this group gets the trio, not a reading portion.

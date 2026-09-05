@@ -1566,9 +1566,11 @@ export interface AdminStudent {
   /** Explicit Quran track; null means infer (hifz section → hifz, hafiz
    *  → revision, otherwise nazra). See QuranTrack. */
   quran_track?: QuranTrack | null;
-  /** When this child completed the Quran — set by the office for someone
-   *  who arrived hafiz, or stamped automatically at 6236 ayahs. */
+  /** The hafiz milestone. Set when a teacher confirms the system's
+   *  suggestion, or by the office for a child who arrived already hafiz. */
   hafiz_since?: string | null;
+  /** System-detected coverage of all 6236 ayahs. A prompt to confirm. */
+  hifz_coverage_complete_at?: string | null;
   /** 'active' | 'withdrawn' | 'graduated' | 'transferred'. Withdrawn ("left")
    *  students keep their record + history but are
    *  cleared from their section, so rosters and billing skip them. */
@@ -3845,8 +3847,14 @@ export interface SectionHifzSummaryRow {
   quranTrack?: QuranTrack;
   /** True when the track was inferred rather than chosen by the office. */
   quranTrackInferred?: boolean;
-  /** When this child completed the Quran. Auto-stamped at 6236 ayahs. */
+  /** The milestone itself — set only when a person confirms it. */
   hafizSince?: string | null;
+  /** System-detected: logged sabaq/memorized covered all 6236 ayahs.
+   *  A suggestion, not the milestone — quality isn't considered and it
+   *  only knows what was logged here. */
+  hifzCoverageCompleteAt?: string | null;
+  /** Coverage is complete but nobody has confirmed yet — show the ask. */
+  needsHafizConfirmation?: boolean;
 }
 
 /** 'nazra' reads · 'hifz' memorizes · 'revision' has finished and is

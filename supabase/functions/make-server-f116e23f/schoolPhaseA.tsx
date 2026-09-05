@@ -1451,6 +1451,11 @@ export function installPhaseA(school: Hono) {
       patch[col] = v;
     }
     if (Object.keys(patch).length === 0) return c.json({ error: "no fields to update" }, 400);
+    // Declaring a child hafiz is a human act — record who did it. Clearing
+    // it (a correction) drops the attribution with it.
+    if ("hafiz_since" in patch) {
+      patch.hafiz_confirmed_by = patch.hafiz_since ? userId : null;
+    }
     const { data, error } = await serviceRoleClient
       .from("student").update(patch).eq("id", studentId).eq("org_id", orgId)
       .select().single();
