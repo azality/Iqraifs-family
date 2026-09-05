@@ -40,7 +40,9 @@ import {
   listClasses,
   getStudentBehaviorNotes,
   transferStudent,
+  updateStudent,
   type AdminClass,
+  type QuranTrack,
   type StudentWithParents,
   type AdminParent,
   type SchoolMeResponse,
@@ -510,6 +512,18 @@ export function StudentDetail() {
               <BookMarked className="h-3.5 w-3.5 mr-1" /> Log Hifz
             </Button>
           </div>
+
+          {/* Which Quran screen this child gets in a mixed Quran/Nazra
+              period. Automatic covers almost everyone; the override is
+              for the hafiz who joined from another school and the child
+              a teacher wants moved deliberately. */}
+          <QuranTrackCard
+            orgId={orgId}
+            studentId={studentId}
+            student={student}
+            canEdit={isOrgAdmin(me, orgId)}
+            onSaved={(s) => setStudent(s)}
+          />
           <HifzProgressFeed
             orgId={orgId}
             studentId={studentId}
@@ -848,5 +862,108 @@ export function StudentDetail() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/** Quran track for one child.
+ *
+ *  A Quran/Nazra period from Class IV up is usually mostly nazra readers
+ *  plus the occasional hafiz revising alongside them. The round screen
+ *  picks each child's form from this, so the teacher never has to
+ *  remember who is who.
+ *
+ *  "Automatic" is right for nearly everyone: a hifz section means hifz,
+ *  a child marked hafiz means revision, everyone else reads. The
+ *  override exists for the child who arrived already hafiz from another
+ *  school, and for anyone a teacher wants moved deliberately.
+ */
+function QuranTrackCard({
+  orgId, studentId, student, canEdit, onSaved,
+}: {
+  orgId: string;
+  studentId: string;
+  student: StudentWithParents | null;
+  canEdit: boolean;
+  onSaved: (s: any) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  if (!student) return null;
+
+  const track = (student as any).quran_track as QuranTrack | null | undefined;
+  const hafizSince = (student as any).hafiz_since as string | null | undefined;
+
+  const save = async (patch: Record<string, unknown>) => {
+    setBusy(true); setErr(null);
+    try {
+      const updated = await updateStudent(orgId, studentId, patch as any);
+      onSaved({ ...(student as any), ...(updated as any) });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not save.");
+    } finally { setBusy(false); }
+  };
+
+  const OPTIONS: Array<{ v: "" | QuranTrack; label: string; hint: string }> = [
+    { v: "", label: "Automatic", hint: "Decide from the section and hafiz status" },
+    { v: "nazra", label: "Nazra", hint: "Reads — position and ayah range" },
+    { v: "hifz", label: "Hifz", hint: "Memorizing — sabaq / sabqi / manzil" },
+    { v: "revision", label: "Revision", hint: "Finished — revising with the full trio" },
+  ];
+
+  return (
+    <Card>
+      <CardContent className="space-y-3 p-4">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Quran track</div>
+          {hafizSince && (
+            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+              Hafiz since {new Date(hafizSince).toLocaleDateString()}
+            </span>
+          )}
+        </div>
+
+        <div className="flex flex-wrap gap-1.5">
+          {OPTIONS.map((o) => {
+            const active = (track ?? "") === o.v;
+            return (
+              <button
+                key={o.v || "auto"}
+                type="button"
+                disabled={!canEdit || busy}
+                title={o.hint}
+                onClick={() => save({ quranTrack: o.v })}
+                className={
+                  "rounded-full border px-2.5 py-1 text-[11.5px] font-medium disabled:opacity-60 " +
+                  (active
+                    ? "border-indigo-300 bg-indigo-100 text-indigo-800"
+                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50")
+                }
+              >
+                {o.label}
+              </button>
+            );
+          })}
+        </div>
+
+        <label className="flex items-center gap-2 text-xs text-slate-600">
+          <input
+            type="checkbox"
+            disabled={!canEdit || busy}
+            checked={!!hafizSince}
+            onChange={(e) => save({ hafizSince: e.target.checked ? new Date().toISOString() : "" })}
+            className="h-3.5 w-3.5 rounded border-slate-300"
+          />
+          This student is a hafiz (has completed the Quran)
+        </label>
+        <p className="text-[11px] text-slate-400">
+          Ticked automatically when a student completes all 6236 ayahs with
+          us. Tick it yourself for a child who arrived already hafiz.
+        </p>
+
+        {err && (
+          <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{err}</div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

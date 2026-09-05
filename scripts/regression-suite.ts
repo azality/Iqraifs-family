@@ -14,6 +14,9 @@
 // SUPABASE_ANON_KEY.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
+// Shared canonical surah table — reused so the suite never carries its
+// own copy of the ayah counts.
+import { SURAHS } from "../src/utils/quranSurahs.ts";
 
 const URL_ = Deno.env.get("SUPABASE_URL")!;
 const ANON = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -1725,6 +1728,90 @@ await check("45. nazra is not hifz: reading kinds accepted, position surfaces on
     for (const id of [nazraId, revId]) {
       if (id) await api(tt, `/school/orgs/${ORG}/hifz-progress/${id}`, { method: "DELETE" });
     }
+  }
+});
+
+await check("46. quran track: per-student, inferred by default, hafiz auto-stamped at 6236", async () => {
+  const tt = (await ensureUser("qa-teacher@azality.com", "QA Teacher", "class_teacher")).token;
+  const summary = () =>
+    api(tt, `/school/orgs/${ORG}/sections/${sandboxSec.id}/hifz-progress/summary`).then((r) => r.json());
+  const rowFor = async (id: string) =>
+    ((await summary()).students ?? []).find((s: any) => s.studentId === id);
+
+  // Default: an academic section with no hafiz flag reads as nazra, and
+  // the roster says the value was inferred rather than chosen.
+  await admin.from("student").update({ quran_track: null, hafiz_since: null }).eq("id", pStu1);
+  let row = await rowFor(pStu1);
+  assert(row?.quranTrack === "nazra", `default track should be nazra, got ${row?.quranTrack}`);
+  assert(row?.quranTrackInferred === true, "default should be flagged as inferred");
+
+  try {
+    // A child marked hafiz revises — and revision keeps the full trio.
+    await api(principal.token, `/school/orgs/${ORG}/students/${pStu1}`, {
+      method: "PATCH", body: JSON.stringify({ hafizSince: new Date().toISOString() }),
+    });
+    row = await rowFor(pStu1);
+    assert(row?.quranTrack === "revision", `hafiz should infer revision, got ${row?.quranTrack}`);
+    assert(row?.hafizSince, "hafizSince should surface on the roster");
+
+    // An explicit setting beats the inference.
+    await api(principal.token, `/school/orgs/${ORG}/students/${pStu1}`, {
+      method: "PATCH", body: JSON.stringify({ quranTrack: "nazra" }),
+    });
+    row = await rowFor(pStu1);
+    assert(row?.quranTrack === "nazra", `explicit track should win, got ${row?.quranTrack}`);
+    assert(row?.quranTrackInferred === false, "explicit track should not read as inferred");
+
+    // "" means back to automatic.
+    await api(principal.token, `/school/orgs/${ORG}/students/${pStu1}`, {
+      method: "PATCH", body: JSON.stringify({ quranTrack: "" }),
+    });
+    row = await rowFor(pStu1);
+    assert(row?.quranTrack === "revision", `clearing should fall back to inference, got ${row?.quranTrack}`);
+
+    const bad = await api(principal.token, `/school/orgs/${ORG}/students/${pStu1}`, {
+      method: "PATCH", body: JSON.stringify({ quranTrack: "nonsense" }),
+    });
+    assert(bad.status === 400, `invalid track should be a clean 400, got ${bad.status}`);
+
+    // Finishing hifz with us stamps hafiz automatically. One row covering
+    // the whole Quran is enough — the totals dedupe by ayah.
+    await admin.from("student").update({ hafiz_since: null, quran_track: null }).eq("id", pStu2);
+    // Seed 113 surahs straight through the service role (fast), then let
+    // the LAST one go through the API so the auto-stamp is exercised
+    // exactly where it lives: the hifz POST handler.
+    const rest = SURAHS.filter((s) => s.number !== 1).map((s) => ({
+      org_id: ORG, student_id: pStu2, surah_number: s.number,
+      ayah_from: 1, ayah_to: s.ayahCount, kind: "sabaq",
+    }));
+    const { error: seedErr } = await admin.from("hifz_progress").insert(rest);
+    assert(!seedErr, `seed 113 surahs: ${seedErr?.message}`);
+    try {
+      const { data: mid } = await admin.from("student")
+        .select("hafiz_since").eq("id", pStu2).maybeSingle();
+      assert(!mid?.hafiz_since, "should not be hafiz before the last surah");
+
+      const last = await api(tt, `/school/orgs/${ORG}/hifz-progress`, {
+        method: "POST",
+        body: JSON.stringify({
+          studentId: pStu2, surahNumber: 1, ayahFrom: 1, ayahTo: 7, kind: "sabaq",
+        }),
+      });
+      const lj = await last.json();
+      assert(last.status === 201, `final surah ${last.status}`);
+      assert(lj.becameHafiz === true, "the completing entry should report becameHafiz");
+
+      const { data: after } = await admin.from("student")
+        .select("hafiz_since").eq("id", pStu2).maybeSingle();
+      assert(after?.hafiz_since, "completing the Quran should stamp hafiz_since automatically");
+      const r2 = await rowFor(pStu2);
+      assert(r2?.quranTrack === "revision", `auto-hafiz should now infer revision, got ${r2?.quranTrack}`);
+    } finally {
+      await admin.from("hifz_progress").delete().eq("student_id", pStu2).eq("kind", "sabaq");
+      await admin.from("student").update({ hafiz_since: null, quran_track: null }).eq("id", pStu2);
+    }
+  } finally {
+    await admin.from("student").update({ quran_track: null, hafiz_since: null }).eq("id", pStu1);
   }
 });
 

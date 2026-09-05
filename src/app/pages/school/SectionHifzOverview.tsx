@@ -24,7 +24,7 @@ import {
 } from "../../../utils/schoolApi";
 import { HifzLogEntry } from "./HifzLogEntry";
 import { HifzRoundMode } from "./HifzRoundMode";
-import { NazraRoundMode } from "./NazraRoundMode";
+import { QuranRoundMode } from "./QuranRoundMode";
 import { getSurah } from "../../../utils/quranSurahs";
 import { HifzProgressFeed } from "./HifzProgressFeed";
 import {
@@ -152,7 +152,7 @@ export function SectionHifzOverview() {
     // A nazra group reads; it does not memorize. Same round loop, but
     // the screen is position-and-advance rather than sabaq/sabqi/manzil.
     return isNazraGroup ? (
-      <NazraRoundMode
+      <QuranRoundMode
         orgId={orgId}
         groupLabel={sectionLabel || "Nazra"}
         roster={sorted}
@@ -182,6 +182,9 @@ export function SectionHifzOverview() {
   const maxAyahs = Math.max(1, ...sorted.map((s) => s.ayahsMemorized));
 
   const positionText = (s: SectionHifzSummaryRow): string => {
+    const tr = s.quranTrack ?? "nazra";
+    if (tr === "revision") return "Hafiz · revising (sabaq / sabqi / manzil)";
+    if (tr === "hifz") return "Hifz · sabaq / sabqi / manzil";
     const p = s.nazraPosition;
     if (!p) return "Not started";
     const where = p.juzNumber
@@ -209,9 +212,9 @@ export function SectionHifzOverview() {
       cell: (s) => (
         <span className="text-[12.5px] text-slate-700">
           {positionText(s)}
-          {s.nazraPosition?.isRevision && (
+          {(s.quranTrack === "revision" || s.quranTrack === "hifz") && (
             <span className="ml-1.5 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">
-              revision
+              {s.hafizSince ? "hafiz" : "hifz"}
             </span>
           )}
         </span>
