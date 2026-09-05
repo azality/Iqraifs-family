@@ -1536,6 +1536,55 @@ await check("42. curriculum pace is term-scoped: a future term's topics don't di
   }
 });
 
+await check("43. forced PIN change: first-login set works, voluntary change still needs current PIN", async () => {
+  const pinPost = (token: string, body: unknown) =>
+    fetch(`${FUNC}/school/auth/pin-change`, {
+      method: "POST",
+      headers: { apikey: ANON, "Content-Type": "application/json", "X-Pin-Token": token },
+      body: JSON.stringify(body),
+    });
+
+  // /pin/set on a parent flags must_change, so this is the exact state a
+  // real parent is in the moment the office issues their PIN.
+  const login = await pinLogin(PARENT_PHONE, "3456");
+  const lj = await login.json();
+  assert(login.status === 200 && lj.token, `parent login ${login.status}`);
+  assert(lj.mustChange === true, "parent should be flagged mustChange after admin pin/set");
+
+  // The client sends no subjectType/subjectId here — this is what used to
+  // 403 with "token does not match subject" and lock every parent out.
+  const reuse = await pinPost(lj.token, { newPin: "3456" });
+  assert(reuse.status === 400, `reusing the issued PIN should be refused, got ${reuse.status}`);
+
+  const set = await pinPost(lj.token, { newPin: "7788" });
+  const sj = await set.json().catch(() => ({}));
+  assert(set.status === 200, `forced change ${set.status}: ${JSON.stringify(sj).slice(0, 120)}`);
+
+  const relogin = await pinLogin(PARENT_PHONE, "7788");
+  const rj = await relogin.json();
+  assert(relogin.status === 200, `login with new PIN ${relogin.status}`);
+  assert(rj.mustChange === false, "mustChange should clear after the forced change");
+
+  // Now that the flag is cleared, the current PIN is mandatory again.
+  const noCurrent = await pinPost(rj.token, { newPin: "8899" });
+  assert(noCurrent.status === 400, `voluntary change without currentPin should 400, got ${noCurrent.status}`);
+  const wrongCurrent = await pinPost(rj.token, { currentPin: "0000", newPin: "8899" });
+  assert(wrongCurrent.status === 401, `wrong currentPin should 401, got ${wrongCurrent.status}`);
+
+  // A body naming someone else must never override the signed token.
+  const spoof = await pinPost(rj.token, { subjectType: "student", subjectId: pStu1, currentPin: "7788", newPin: "8899" });
+  assert(spoof.status === 403, `subject spoof should 403, got ${spoof.status}`);
+
+  const good = await pinPost(rj.token, { currentPin: "7788", newPin: "8899" });
+  assert(good.status === 200, `voluntary change ${good.status}`);
+
+  // Restore the fixture PIN (and the must_change flag) for the next run.
+  const restore = await api(office.token, `/school/orgs/${ORG}/pin/set`, {
+    method: "POST", body: JSON.stringify({ subjectType: "parent", subjectId: pParent.id, pin: "3456" }),
+  });
+  assert(restore.ok, `restore parent pin ${restore.status}`);
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

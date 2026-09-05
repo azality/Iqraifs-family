@@ -14,7 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../../components/ui/dialog";
-import { Plus, Upload, Search, Trash2, Pencil, Mail, Phone, GraduationCap, Link2, X, KeyRound } from "lucide-react";
+import { Plus, Upload, Search, Trash2, Pencil, Mail, Phone, GraduationCap, Link2, X, KeyRound, Copy, Check, MessageCircle } from "lucide-react";
 import {
   HeroCard,
   cardBase,
@@ -64,6 +64,7 @@ export function ManageParents() {
   const [pinValue, setPinValue] = useState("");
   const [pinBusy, setPinBusy] = useState(false);
   const [generatedPin, setGeneratedPin] = useState<string | null>(null);
+  const [pinCopied, setPinCopied] = useState(false);
   const [form, setForm] = useState<CreateParentBody>(empty);
   const [csvOpen, setCsvOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -264,6 +265,42 @@ export function ManageParents() {
     setPinFor(p);
     setPinValue("");
     setGeneratedPin(null);
+    setPinCopied(false);
+  };
+
+  // Sign-in link carries the school code, so the parent never has to type
+  // it (and never gets another school's code prefilled).
+  const orgSlug = (me?.organizations ?? []).find((o) => o.id === orgId)?.slug ?? "";
+  const loginUrl = `${window.location.origin}/school-login${orgSlug ? `?org=${encodeURIComponent(orgSlug)}` : ""}`;
+  const shareMessage = (pin: string) =>
+    `Assalam-o-Alaikum${pinFor?.full_name ? ` ${pinFor.full_name}` : ""},\n\n` +
+    `You can now see your child's attendance, homework, grades and Hifz progress online.\n\n` +
+    `Open: ${loginUrl}\n` +
+    `Sign in as: Parent\n` +
+    `Phone: ${pinFor?.phone ?? ""}\n` +
+    `Temporary PIN: ${pin}\n\n` +
+    `You will be asked to choose your own 4-digit PIN right after signing in. ` +
+    `Please do not share this PIN with anyone.\n\n` +
+    `والدین کے لیے: اوپر دیے گئے لنک پر جائیں، اپنا فون نمبر اور یہ عارضی پن درج کریں، ` +
+    `پھر اپنا نیا پن خود منتخب کریں۔`;
+
+  const copyShareMessage = async () => {
+    if (!generatedPin) return;
+    try {
+      await navigator.clipboard.writeText(shareMessage(generatedPin));
+      setPinCopied(true);
+      toast.success("Message copied — paste it to the parent");
+      setTimeout(() => setPinCopied(false), 2500);
+    } catch {
+      toast.error("Could not copy — select the text and copy manually");
+    }
+  };
+
+  const waHref = (pin: string) => {
+    const digits = (pinFor?.phone ?? "").replace(/\D/g, "");
+    // Pakistani mobiles are stored as 03xxxxxxxxx; WhatsApp wants 923xxxxxxxxx.
+    const intl = digits.startsWith("0") ? `92${digits.slice(1)}` : digits;
+    return `https://wa.me/${intl}?text=${encodeURIComponent(shareMessage(pin))}`;
   };
 
   const handleSetPin = async () => {
@@ -734,11 +771,38 @@ export function ManageParents() {
                 same first-login rule applies.
               </p>
               {generatedPin && (
-                <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-center">
-                  <div className="text-[11px] uppercase tracking-wide text-emerald-700">Temporary PIN — share with the parent</div>
-                  <div className="mt-1 text-3xl font-bold tracking-[0.4em] text-emerald-900">{generatedPin}</div>
+                <div className="space-y-2">
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-center">
+                    <div className="text-[11px] uppercase tracking-wide text-emerald-700">Temporary PIN — share with the parent</div>
+                    <div className="mt-1 text-3xl font-bold tracking-[0.4em] text-emerald-900">{generatedPin}</div>
+                    <div className="mt-1 text-[11px] text-emerald-800">
+                      Visible only until you close this window.
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button variant="outline" size="sm" onClick={copyShareMessage}>
+                      {pinCopied
+                        ? <><Check className="h-3.5 w-3.5 mr-1.5" /> Copied</>
+                        : <><Copy className="h-3.5 w-3.5 mr-1.5" /> Copy message</>}
+                    </Button>
+                    <Button variant="outline" size="sm" asChild>
+                      <a href={waHref(generatedPin)} target="_blank" rel="noopener noreferrer">
+                        <MessageCircle className="h-3.5 w-3.5 mr-1.5" /> WhatsApp
+                      </a>
+                    </Button>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    The message includes the sign-in link with the school code
+                    filled in, so the parent only enters their phone and this PIN.
+                  </p>
                 </div>
               )}
+              <p className="rounded-md bg-slate-50 border border-slate-200 px-3 py-2 text-[11px] text-slate-600">
+                <span className="font-medium text-slate-700">If a parent forgets their PIN:</span>{" "}
+                PINs are stored encrypted, so no one — including you — can look an
+                existing PIN up again. Generate a new one below; it takes one tap
+                and immediately replaces the old PIN.
+              </p>
               <div className="flex items-end gap-2">
                 <div className="flex-1 space-y-1">
                   <Label className="text-xs">Choose a 4-digit PIN</Label>
