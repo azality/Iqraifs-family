@@ -1534,6 +1534,9 @@ export const updateSection = (
     name: string;
     classTeacherUserId: string | null;
     hifzTeacherUserId: string | null;
+    /** Which bell schedule this section follows ('default', 'junior',
+     *  'senior', 'hifz', …). "" resets it to the school's main one. */
+    scheduleKey: string;
   }>,
 ): Promise<AdminSection> =>
   apiCall(`/school/orgs/${orgId}/sections/${sectionId}`, {
@@ -2484,6 +2487,20 @@ export const listTimetableSlots = async (orgId: string): Promise<TimetableSlot[]
   return r?.slots ?? [];
 };
 
+/** The bell schedules an org actually runs, with how many periods and
+ *  sections use each. A school with one rhythm sees just 'default'. */
+export interface BellSchedule {
+  key: string;
+  slots: number;
+  sections: number;
+}
+export const listBellSchedules = async (orgId: string): Promise<BellSchedule[]> => {
+  const r = await apiCall<{ schedules: BellSchedule[] }>(
+    `/school/orgs/${orgId}/bell-schedules`,
+  );
+  return r?.schedules ?? [];
+};
+
 export const createTimetableSlot = (
   orgId: string,
   body: {
@@ -2493,6 +2510,8 @@ export const createTimetableSlot = (
     endTime: string;
     kind?: TimetableSlotKind;
     displayOrder?: number;
+    /** Bell schedule this period belongs to. Omitted = 'default'. */
+    scheduleKey?: string;
   },
 ): Promise<TimetableSlot> =>
   apiCall(`/school/orgs/${orgId}/timetable-slots`, {
@@ -2510,6 +2529,7 @@ export const updateTimetableSlot = (
     endTime: string;
     kind: TimetableSlotKind;
     displayOrder: number;
+    scheduleKey: string;
   }>,
 ): Promise<TimetableSlot> =>
   apiCall(`/school/orgs/${orgId}/timetable-slots/${slotId}`, {

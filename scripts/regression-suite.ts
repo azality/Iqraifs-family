@@ -1815,6 +1815,81 @@ await check("46. quran track: per-student, inferred by default, hafiz auto-stamp
   }
 });
 
+await check("47. bell schedules: per-wing periods and section assignment, no SQL needed", async () => {
+  // A school whose junior wing runs different period times from its
+  // senior wing could not express that from the UI at all — slots always
+  // landed on 'default' and class_section.schedule_key was SQL-only.
+  const key = `qa${Date.now().toString().slice(-6)}`;
+
+  const mk = await api(principal.token, `/school/orgs/${ORG}/timetable-slots`, {
+    method: "POST",
+    body: JSON.stringify({
+      name: "QA P1", dayOfWeek: 1, startTime: "07:30", endTime: "08:10",
+      kind: "academic", scheduleKey: key,
+    }),
+  });
+  const mj = await mk.json();
+  assert(mk.status === 201, `create slot ${mk.status}: ${JSON.stringify(mj).slice(0, 120)}`);
+  assert(mj.scheduleKey === key, `slot should keep its schedule, got ${mj.scheduleKey}`);
+  const slotId = mj.id;
+
+  const { data: origSec } = await admin.from("class_section")
+    .select("schedule_key").eq("id", sandboxSec.id).maybeSingle();
+  const originalKey = origSec?.schedule_key ?? null;
+
+  try {
+    const bad = await api(principal.token, `/school/orgs/${ORG}/timetable-slots`, {
+      method: "POST",
+      body: JSON.stringify({
+        name: "QA bad", dayOfWeek: 1, startTime: "07:30", endTime: "08:10",
+        kind: "academic", scheduleKey: "Not A Key!",
+      }),
+    });
+    assert(bad.status === 400, `bad scheduleKey should 400, got ${bad.status}`);
+
+    // A section can be moved onto that bell from the UI's endpoint.
+    const move = await api(principal.token, `/school/orgs/${ORG}/sections/${sandboxSec.id}`, {
+      method: "PATCH", body: JSON.stringify({ scheduleKey: key }),
+    });
+    assert(move.status === 200, `assign section ${move.status}`);
+    const { data: moved } = await admin.from("class_section")
+      .select("schedule_key").eq("id", sandboxSec.id).maybeSingle();
+    assert(moved?.schedule_key === key, `section not moved: ${moved?.schedule_key}`);
+
+    const badMove = await api(principal.token, `/school/orgs/${ORG}/sections/${sandboxSec.id}`, {
+      method: "PATCH", body: JSON.stringify({ scheduleKey: "UPPER case" }),
+    });
+    assert(badMove.status === 400, `bad section scheduleKey should 400, got ${badMove.status}`);
+
+    // The listing the editor drives off must see both sides.
+    const list = await api(principal.token, `/school/orgs/${ORG}/bell-schedules`);
+    const lj = await list.json();
+    assert(list.status === 200, `bell-schedules ${list.status}`);
+    const mine = (lj.schedules ?? []).find((s: any) => s.key === key);
+    assert(mine, `new schedule missing from listing: ${JSON.stringify(lj.schedules)}`);
+    assert(mine.slots === 1 && mine.sections === 1,
+      `counts wrong: ${JSON.stringify(mine)}`);
+    assert((lj.schedules ?? []).some((s: any) => s.key === "default"),
+      "default schedule should always be listed");
+
+    // Filtered slot read — what the periods panel asks for.
+    const filtered = await api(principal.token, `/school/orgs/${ORG}/timetable-slots?scheduleKey=${key}`);
+    const fj = await filtered.json();
+    assert((fj.slots ?? []).length === 1, `filter should return only this bell's periods, got ${(fj.slots ?? []).length}`);
+
+    // Editing a period's time is possible again (the UI had no path).
+    const patched = await api(principal.token, `/school/orgs/${ORG}/timetable-slots/${slotId}`, {
+      method: "PATCH", body: JSON.stringify({ endTime: "08:15" }),
+    });
+    assert(patched.status === 200, `patch slot ${patched.status}`);
+  } finally {
+    await api(principal.token, `/school/orgs/${ORG}/sections/${sandboxSec.id}`, {
+      method: "PATCH", body: JSON.stringify({ scheduleKey: originalKey || "" }),
+    });
+    await api(principal.token, `/school/orgs/${ORG}/timetable-slots/${slotId}`, { method: "DELETE" });
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

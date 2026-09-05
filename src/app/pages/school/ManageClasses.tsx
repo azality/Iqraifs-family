@@ -58,6 +58,7 @@ import {
   deleteClass,
   createSection,
   updateSection,
+  listBellSchedules,
   deleteSection,
   listAdminTeachers,
   getSectionsLeaderboard,
@@ -65,6 +66,7 @@ import {
   type LeaderboardRow,
   type TimetableSectionProgress,
   type AdminClass,
+  type BellSchedule,
   type AdminTeacher,
   type SchoolMeResponse,
 } from "../../../utils/schoolApi";
@@ -75,6 +77,7 @@ export function ManageClasses() {
   const [meLoading, setMeLoading] = useState(true);
   const [classes, setClasses] = useState<AdminClass[]>([]);
   const [teachers, setTeachers] = useState<AdminTeacher[]>([]);
+  const [bellSchedules, setBellSchedules] = useState<BellSchedule[]>([]);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [addOpen, setAddOpen] = useState(false);
   const [newClassName, setNewClassName] = useState("");
@@ -115,6 +118,7 @@ export function ManageClasses() {
     if (!orgId) return;
     refresh();
     listAdminTeachers(orgId).then(setTeachers).catch(() => {});
+    listBellSchedules(orgId).then(setBellSchedules).catch(() => {});
     getSectionsLeaderboard(orgId, "WTD").then((r) => setLbRows(r.sections)).catch(() => {});
     getTimetableSectionProgress(orgId).then(setTtProgress).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -454,6 +458,32 @@ export function ManageClasses() {
                           ))}
                         </SelectContent>
                       </Select>
+                      {/* Which bell schedule this section runs on. Most
+                          schools have one; a school whose junior wing
+                          starts and finishes at different times from its
+                          senior wing needs this, and until now it could
+                          only be set by SQL. Options come from the
+                          schedules that actually have periods defined. */}
+                      {bellSchedules.length > 1 && (
+                        <Select
+                          disabled={!canManage}
+                          value={(sec as any).schedule_key || "default"}
+                          onValueChange={(v) =>
+                            updateSection(orgId, sec.id, { scheduleKey: v }).then(refresh)
+                          }
+                        >
+                          <SelectTrigger className="h-8 w-40 text-xs" title="Bell schedule">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {bellSchedules.map((b) => (
+                              <SelectItem key={b.key} value={b.key}>
+                                {b.key} ({b.slots}p)
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
                       {/* Phase B/C per-section quick-links — compact icon buttons. */}
                       <div className="inline-flex items-center gap-1">
                         <Link to={`/school/orgs/${orgId}/sections/${sec.id}/attendance`}>
