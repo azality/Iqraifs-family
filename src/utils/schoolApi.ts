@@ -1922,6 +1922,53 @@ export const getExamSchedule = (
 ): Promise<ExamScheduleResponse> =>
   apiCall(`/school/orgs/${orgId}/exam-schedule${termId ? `?termId=${termId}` : ""}`);
 
+// Datesheet authoring — admin/principal only, enforced server-side.
+// Any school builds its own from Academics → Assessment; nothing here
+// is specific to one school's sheet.
+export interface ExamPaperInput {
+  termId: string;
+  classId: string;
+  subjectLabel: string;
+  examDate: string;        // YYYY-MM-DD
+  startTime?: string | null; // HH:MM
+  endTime?: string | null;
+  notes?: string | null;
+}
+export const createExamPapers = (
+  orgId: string,
+  papers: ExamPaperInput[],
+): Promise<{ ok: true; created: number; ids: string[] }> =>
+  apiCall(`/school/orgs/${orgId}/exam-schedule`, {
+    method: "POST",
+    body: JSON.stringify(papers.length === 1 ? papers[0] : { papers }),
+  });
+
+export const updateExamPaper = (
+  orgId: string,
+  paperId: string,
+  patch: Partial<Pick<ExamPaperInput, "subjectLabel" | "examDate" | "startTime" | "endTime" | "notes">>,
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/exam-schedule/${paperId}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+
+export const deleteExamPaper = (
+  orgId: string,
+  paperId: string,
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/exam-schedule/${paperId}`, { method: "DELETE" });
+
+export const setExamInstructions = (
+  orgId: string,
+  termId: string,
+  instructions: string[],
+): Promise<{ ok: true; instructions: string[] }> =>
+  apiCall(`/school/orgs/${orgId}/terms/${termId}/exam-instructions`, {
+    method: "PUT",
+    body: JSON.stringify({ instructions }),
+  });
+
 // ── Weekly digest (Teacher Track Record Phase 4) ──────────────────────
 // The principal's Monday-morning read: last completed week vs the week
 // before, org rollup + per-teacher counters. Data-only; the page

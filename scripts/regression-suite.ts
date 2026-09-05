@@ -1585,6 +1585,83 @@ await check("43. forced PIN change: first-login set works, voluntary change stil
   assert(restore.ok, `restore parent pin ${restore.status}`);
 });
 
+await check("44. datesheet authoring: principal builds/edits/clears a paper, office denied", async () => {
+  // The datesheet used to be seed-script-only, which meant a newly
+  // onboarded school could not publish one at all. These are the
+  // endpoints that make it self-serve — and they must stay admin-only.
+  const { data: term } = await admin.from("academic_term")
+    .select("id, exam_instructions").eq("org_id", ORG).is("archived_at", null)
+    .order("start_date", { ascending: false }).limit(1).maybeSingle();
+  assert(term, "need a term to attach a datesheet to");
+
+  const paper = {
+    termId: term.id, classId: sandboxClass.id,
+    subjectLabel: `QA Paper ${Date.now()}`,
+    examDate: "2026-11-03", startTime: "08:00", endTime: "10:30",
+  };
+
+  // Office staff must not be able to publish a school-wide notice.
+  const denied = await api(office.token, `/school/orgs/${ORG}/exam-schedule`, {
+    method: "POST", body: JSON.stringify(paper),
+  });
+  assert(denied.status === 403, `office should be denied, got ${denied.status}`);
+
+  const created = await api(principal.token, `/school/orgs/${ORG}/exam-schedule`, {
+    method: "POST", body: JSON.stringify(paper),
+  });
+  const cj = await created.json();
+  assert(created.status === 200, `create ${created.status}: ${JSON.stringify(cj).slice(0, 120)}`);
+  const paperId = cj.ids?.[0];
+  assert(paperId, "create returned no id");
+
+  try {
+    // Validation actually bites.
+    const badDate = await api(principal.token, `/school/orgs/${ORG}/exam-schedule`, {
+      method: "POST", body: JSON.stringify({ ...paper, examDate: "03-11-2026" }),
+    });
+    assert(badDate.status === 400, `bad date should 400, got ${badDate.status}`);
+    const badTime = await api(principal.token, `/school/orgs/${ORG}/exam-schedule`, {
+      method: "POST", body: JSON.stringify({ ...paper, startTime: "8am" }),
+    });
+    assert(badTime.status === 400, `bad time should 400, got ${badTime.status}`);
+    // A class from outside the org must never land on this org's sheet.
+    const foreign = await api(principal.token, `/school/orgs/${ORG}/exam-schedule`, {
+      method: "POST",
+      body: JSON.stringify({ ...paper, classId: "00000000-0000-0000-0000-000000000000" }),
+    });
+    assert(foreign.status === 404, `foreign class should 404, got ${foreign.status}`);
+
+    const patched = await api(principal.token, `/school/orgs/${ORG}/exam-schedule/${paperId}`, {
+      method: "PATCH", body: JSON.stringify({ subjectLabel: "QA Paper edited", endTime: "11:00" }),
+    });
+    assert(patched.status === 200, `patch ${patched.status}`);
+    const { data: row } = await admin.from("exam_schedule")
+      .select("subject_label, end_time").eq("id", paperId).maybeSingle();
+    assert(row?.subject_label === "QA Paper edited", `label not saved: ${row?.subject_label}`);
+    assert(String(row?.end_time).startsWith("11:00"), `end_time not saved: ${row?.end_time}`);
+
+    const offPatch = await api(office.token, `/school/orgs/${ORG}/exam-schedule/${paperId}`, {
+      method: "PATCH", body: JSON.stringify({ subjectLabel: "nope" }),
+    });
+    assert(offPatch.status === 403, `office patch should 403, got ${offPatch.status}`);
+
+    // Instructions round-trip, then restore exactly what the school had.
+    const original: string[] | null = term.exam_instructions ?? null;
+    const put = await api(principal.token, `/school/orgs/${ORG}/terms/${term.id}/exam-instructions`, {
+      method: "PUT", body: JSON.stringify({ instructions: ["QA line one", "  ", "QA line two"] }),
+    });
+    const pj = await put.json();
+    assert(put.status === 200, `instructions ${put.status}`);
+    assert(pj.instructions?.length === 2, `blank lines should be dropped, got ${JSON.stringify(pj.instructions)}`);
+    await admin.from("academic_term").update({ exam_instructions: original }).eq("id", term.id);
+  } finally {
+    const del = await api(principal.token, `/school/orgs/${ORG}/exam-schedule/${paperId}`, { method: "DELETE" });
+    assert(del.status === 200, `delete ${del.status}`);
+    const { data: gone } = await admin.from("exam_schedule").select("id").eq("id", paperId).maybeSingle();
+    assert(!gone, "paper should be gone after delete");
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
