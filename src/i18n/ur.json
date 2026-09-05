@@ -50,7 +50,22 @@
     "rosterRequests": "روسٹر درخواستیں",
     "announcements": "اعلانات",
     "permissions": "اجازتیں",
-    "settings": "ترتیبات"
+    "settings": "ترتیبات",
+    "roles": {
+      "principal": "پرنسپل",
+      "admin": "ایڈمن",
+      "incharge": "انچارج",
+      "teacher": "استاد",
+      "hifzTeacher": "حفظ استاد",
+      "office": "دفتر",
+      "finance": "مالیات"
+    },
+    "actions": {
+      "dailyAcademics": "آج کی تعلیمی رپورٹ",
+      "todaysRound": "آج کا دور",
+      "parentInbox": "والدین کا ان باکس",
+      "fees": "فیس"
+    }
   },
   "dashboard": {
     "title": "پرفارمنس ڈیش بورڈ",

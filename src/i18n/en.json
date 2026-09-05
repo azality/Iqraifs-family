@@ -50,7 +50,22 @@
     "rosterRequests": "Roster Requests",
     "announcements": "Announcements",
     "permissions": "Permissions",
-    "settings": "Settings"
+    "settings": "Settings",
+    "roles": {
+      "principal": "Principal",
+      "admin": "Admin",
+      "incharge": "Incharge",
+      "teacher": "Teacher",
+      "hifzTeacher": "Hifz teacher",
+      "office": "Office",
+      "finance": "Finance"
+    },
+    "actions": {
+      "dailyAcademics": "Daily academics",
+      "todaysRound": "Today's round",
+      "parentInbox": "Parent inbox",
+      "fees": "Fees"
+    }
   },
   "dashboard": {
     "title": "Performance Dashboard",
