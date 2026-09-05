@@ -262,6 +262,153 @@ export function installAssessment(school: Hono): void {
     });
   });
 
+  // ───────────────────────────────────────────────────────────────────────
+  // Datesheet authoring. Until this existed the only way to publish a
+  // datesheet was a seed script with the service-role key — fine for one
+  // pilot, useless for the next school. Every school's office can now
+  // build and correct its own from Academics → Assessment.
+  //
+  //   POST   /orgs/:orgId/exam-schedule            one paper, or {papers:[…]}
+  //   PATCH  /orgs/:orgId/exam-schedule/:paperId
+  //   DELETE /orgs/:orgId/exam-schedule/:paperId
+  //   PUT    /orgs/:orgId/terms/:termId/exam-instructions
+  //
+  // Writes are admin/principal only: a datesheet is a school-wide notice
+  // that parents act on, not a per-teacher record.
+  // ───────────────────────────────────────────────────────────────────────
+  const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+  const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+  school.post("/orgs/:orgId/exam-schedule", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await isAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+
+    const input: any[] = Array.isArray(body?.papers) ? body.papers : [body];
+    if (input.length === 0) return c.json({ error: "no papers given" }, 400);
+    if (input.length > 500) return c.json({ error: "too many papers in one request" }, 400);
+
+    const rows: any[] = [];
+    for (const p of input) {
+      const label = String(p?.subjectLabel ?? "").trim();
+      if (!p?.termId || !p?.classId || !p?.examDate || !label) {
+        return c.json({ error: "termId, classId, examDate and subjectLabel are required" }, 400);
+      }
+      if (!ISO_DATE.test(String(p.examDate))) {
+        return c.json({ error: "examDate must be YYYY-MM-DD" }, 400);
+      }
+      for (const [k, v] of [["startTime", p.startTime], ["endTime", p.endTime]] as const) {
+        if (v && !HHMM.test(String(v))) return c.json({ error: `${k} must be HH:MM` }, 400);
+      }
+      rows.push({
+        org_id: orgId,
+        term_id: p.termId,
+        class_id: p.classId,
+        class_subject_id: p.classSubjectId ?? null,
+        subject_label: label,
+        exam_date: p.examDate,
+        start_time: p.startTime || null,
+        end_time: p.endTime || null,
+        notes: String(p.notes ?? "").trim() || null,
+        created_by: userId,
+      });
+    }
+
+    // Every class and term named must belong to THIS org — otherwise a
+    // principal could write a paper onto another school's calendar.
+    const classIds = Array.from(new Set(rows.map((r) => r.class_id)));
+    const { data: okClasses } = await serviceRoleClient
+      .from("class").select("id").eq("org_id", orgId).in("id", classIds);
+    if ((okClasses ?? []).length !== classIds.length) {
+      return c.json({ error: "class not found in this org" }, 404);
+    }
+    const termIds = Array.from(new Set(rows.map((r) => r.term_id)));
+    const { data: okTerms } = await serviceRoleClient
+      .from("academic_term").select("id").eq("org_id", orgId).in("id", termIds);
+    if ((okTerms ?? []).length !== termIds.length) {
+      return c.json({ error: "term not found in this org" }, 404);
+    }
+
+    const { data, error } = await serviceRoleClient
+      .from("exam_schedule").insert(rows).select("id");
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ ok: true, created: (data ?? []).length, ids: (data ?? []).map((r: any) => r.id) });
+  });
+
+  school.patch("/orgs/:orgId/exam-schedule/:paperId", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const paperId = c.req.param("paperId");
+    if (!(await isAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+
+    const patch: any = {};
+    if (body.subjectLabel !== undefined) {
+      const label = String(body.subjectLabel).trim();
+      if (!label) return c.json({ error: "subjectLabel cannot be empty" }, 400);
+      patch.subject_label = label;
+    }
+    if (body.examDate !== undefined) {
+      if (!ISO_DATE.test(String(body.examDate))) return c.json({ error: "examDate must be YYYY-MM-DD" }, 400);
+      patch.exam_date = body.examDate;
+    }
+    for (const [key, col] of [["startTime", "start_time"], ["endTime", "end_time"]] as const) {
+      if (body[key] !== undefined) {
+        if (body[key] && !HHMM.test(String(body[key]))) return c.json({ error: `${key} must be HH:MM` }, 400);
+        patch[col] = body[key] || null;
+      }
+    }
+    if (body.notes !== undefined) patch.notes = String(body.notes ?? "").trim() || null;
+    if (Object.keys(patch).length === 0) return c.json({ error: "nothing to update" }, 400);
+    patch.updated_at = new Date().toISOString();
+
+    const { data, error } = await serviceRoleClient
+      .from("exam_schedule").update(patch)
+      .eq("id", paperId).eq("org_id", orgId).select("id").maybeSingle();
+    if (error) return c.json({ error: error.message }, 500);
+    if (!data) return c.json({ error: "paper not found" }, 404);
+    return c.json({ ok: true });
+  });
+
+  school.delete("/orgs/:orgId/exam-schedule/:paperId", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const paperId = c.req.param("paperId");
+    if (!(await isAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    const { data, error } = await serviceRoleClient
+      .from("exam_schedule").delete()
+      .eq("id", paperId).eq("org_id", orgId).select("id").maybeSingle();
+    if (error) return c.json({ error: error.message }, 500);
+    if (!data) return c.json({ error: "paper not found" }, 404);
+    return c.json({ ok: true });
+  });
+
+  school.put("/orgs/:orgId/terms/:termId/exam-instructions", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const termId = c.req.param("termId");
+    if (!(await isAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    if (!Array.isArray(body?.instructions)) {
+      return c.json({ error: "instructions must be an array of lines" }, 400);
+    }
+    const lines = body.instructions
+      .map((l: unknown) => String(l ?? "").trim())
+      .filter((l: string) => l.length > 0)
+      .slice(0, 20);
+
+    const { data, error } = await serviceRoleClient
+      .from("academic_term").update({ exam_instructions: lines })
+      .eq("id", termId).eq("org_id", orgId).select("id").maybeSingle();
+    if (error) return c.json({ error: error.message }, 500);
+    if (!data) return c.json({ error: "term not found" }, 404);
+    return c.json({ ok: true, instructions: lines });
+  });
+
   school.get("/orgs/:orgId/terms/:termId/exams", async (c) => {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
