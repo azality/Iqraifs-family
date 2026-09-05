@@ -3,7 +3,7 @@ import { ChildSelector } from "../components/ChildSelector";
 import { ModeSwitcher } from "../components/ModeSwitcher";
 import { WorkspaceSwitcher } from "../components/WorkspaceSwitcher";
 import { useWorkspace } from "../contexts/WorkspaceContext";
-import { ManageToolbar, schoolNavGroupsForRole, HeaderSearch } from "../components/school-ui";
+import { ManageToolbar, schoolNavGroupsForRole, HeaderSearch, NotificationBell } from "../components/school-ui";
 import { viewerRoleForOrg } from "../../utils/schoolApi";
 import {
   Home, FileText, BarChart3, Settings, Calendar, Gift, Shield,
@@ -456,6 +456,9 @@ export function RootLayout() {
                   </button>
                 </>
               )}
+              {/* Alerts bell — school workspace only. Shows what needs
+                  this person right now, derived live rather than queued. */}
+              {isSchoolWorkspace && schoolOrgId && <NotificationBell orgId={schoolOrgId} />}
               {/* Workspace switcher renders nothing if the user has no
                   school role, so family-only users see no extra chrome. */}
               {!isChildLoggedIn && <WorkspaceSwitcher />}

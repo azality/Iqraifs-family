@@ -1910,6 +1910,77 @@ await check("47. bell schedules: per-wing periods and section assignment, no SQL
   }
 });
 
+await check("48. notifications: mandatory kinds can't be switched off, read state sticks", async () => {
+  const bell = (tok: string) => api(tok, `/school/orgs/${ORG}/me/notifications`).then((r) => r.json());
+
+  const mine = await bell(principal.token);
+  assert(Array.isArray(mine.alerts), "alerts should be a list");
+  assert(typeof mine.unreadCount === "number", "unreadCount should be a number");
+  for (const a of mine.alerts) {
+    assert(a.key && a.kind && a.title, `malformed alert: ${JSON.stringify(a).slice(0, 100)}`);
+    assert(["mandatory", "policy", "personal"].includes(a.tier), `bad tier ${a.tier}`);
+  }
+
+  // A teacher must not receive an admin-only alert kind.
+  const tt = (await ensureUser("qa-teacher@azality.com", "QA Teacher", "class_teacher")).token;
+  const theirs = await bell(tt);
+  assert(!(theirs.alerts ?? []).some((a: any) => a.kind === "parent_inbox_unread"),
+    "parent inbox alerts are for office/principal only");
+
+  // Accountability alerts are not a preference — refuse, don't silently ignore.
+  const refuse = await api(principal.token, `/school/orgs/${ORG}/notification-prefs`, {
+    method: "PUT",
+    body: JSON.stringify({ scope: "user", kind: "roll_call_missing", enabled: false }),
+  });
+  assert(refuse.status === 400, `mandatory kind should be refused, got ${refuse.status}`);
+
+  // A teacher cannot set the school-wide default for a role.
+  const notAllowed = await api(tt, `/school/orgs/${ORG}/notification-prefs`, {
+    method: "PUT",
+    body: JSON.stringify({ scope: "role", scopeId: "class_teacher", kind: "syllabus_untagged", enabled: false }),
+  });
+  assert(notAllowed.status === 403, `role defaults are principal-only, got ${notAllowed.status}`);
+
+  const unknown = await api(principal.token, `/school/orgs/${ORG}/notification-prefs`, {
+    method: "PUT", body: JSON.stringify({ scope: "user", kind: "made_up", enabled: false }),
+  });
+  assert(unknown.status === 400, `unknown kind should 400, got ${unknown.status}`);
+
+  // Optional kinds are on by default and can be turned off personally.
+  const prefsBefore = await api(principal.token, `/school/orgs/${ORG}/notification-prefs`).then((r) => r.json());
+  assert((prefsBefore.kinds ?? []).length > 0, "the registry should be returned");
+  assert(prefsBefore.canSetRoleDefaults === true, "principal should be allowed role defaults");
+  const off = await api(principal.token, `/school/orgs/${ORG}/notification-prefs`, {
+    method: "PUT", body: JSON.stringify({ scope: "user", kind: "syllabus_untagged", enabled: false }),
+  });
+  assert(off.status === 200, `personal opt-out ${off.status}`);
+
+  try {
+    // Read state persists and is per-user.
+    const key = `qa-test-key-${Date.now()}`;
+    const mark = await api(principal.token, `/school/orgs/${ORG}/me/notifications/read`, {
+      method: "POST", body: JSON.stringify({ keys: [key] }),
+    });
+    assert(mark.status === 200, `mark read ${mark.status}`);
+    const again = await api(principal.token, `/school/orgs/${ORG}/me/notifications/read`, {
+      method: "POST", body: JSON.stringify({ keys: [key] }),
+    });
+    assert(again.status === 200, "marking twice should be idempotent");
+    const { data: readRow } = await admin.from("notification_read")
+      .select("user_id").eq("org_id", ORG).eq("alert_key", key).maybeSingle();
+    assert(readRow?.user_id === principal.id, "read state should belong to that user");
+    await admin.from("notification_read").delete().eq("org_id", ORG).eq("alert_key", key);
+
+    const empty = await api(principal.token, `/school/orgs/${ORG}/me/notifications/read`, {
+      method: "POST", body: JSON.stringify({ keys: [] }),
+    });
+    assert(empty.status === 400, `empty keys should 400, got ${empty.status}`);
+  } finally {
+    await admin.from("notification_pref").delete()
+      .eq("org_id", ORG).eq("scope", "user").eq("kind", "syllabus_untagged");
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
