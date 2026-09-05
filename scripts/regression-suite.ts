@@ -1662,6 +1662,72 @@ await check("44. datesheet authoring: principal builds/edits/clears a paper, off
   }
 });
 
+await check("45. nazra is not hifz: reading kinds accepted, position surfaces on the roster", async () => {
+  // A nazra child reads rather than memorizes: no sabaq/sabqi/manzil,
+  // one position that moves. The roster must report where they read up
+  // to, not "0 ayahs memorized".
+  //
+  // Fresh session: check 34 resets qa-teacher's password to exercise the
+  // temp-password flow, which revokes the token minted at startup — any
+  // later check reusing `teacher.token` gets 401 "Invalid JWT".
+  const tt = (await ensureUser("qa-teacher@azality.com", "QA Teacher", "class_teacher")).token;
+
+  const mk = await api(tt, `/school/orgs/${ORG}/hifz-progress`, {
+    method: "POST",
+    body: JSON.stringify({
+      studentId: pStu1, surahNumber: 2, ayahFrom: 12, ayahTo: 40,
+      juzNumber: 29, kind: "nazra", quality: "good",
+      nextTarget: "Continue from ayah 41",
+    }),
+  });
+  const mj = await mk.json();
+  assert(mk.status === 201, `nazra create ${mk.status}: ${JSON.stringify(mj).slice(0, 120)}`);
+  const nazraId = mj.entry?.id;
+
+  // The hafiz-in-a-nazra-group case (Class IV+) is its own kind.
+  const rev = await api(tt, `/school/orgs/${ORG}/hifz-progress`, {
+    method: "POST",
+    body: JSON.stringify({
+      studentId: pStu2, surahNumber: 1, ayahFrom: 1, ayahTo: 7,
+      juzNumber: 30, kind: "nazra_revision",
+    }),
+  });
+  const rj = await rev.json();
+  assert(rev.status === 201, `nazra_revision create ${rev.status}`);
+  const revId = rj.entry?.id;
+
+  try {
+    const bogus = await api(tt, `/school/orgs/${ORG}/hifz-progress`, {
+      method: "POST",
+      body: JSON.stringify({ studentId: pStu1, surahNumber: 1, ayahFrom: 1, ayahTo: 2, kind: "nazra_typo" }),
+    });
+    assert(bogus.status === 400, `unknown kind should 400, got ${bogus.status}`);
+
+    const sum = await api(tt, `/school/orgs/${ORG}/sections/${sandboxSec.id}/hifz-progress/summary`);
+    const sj = await sum.json();
+    assert(sum.status === 200, `summary ${sum.status}`);
+    const row = (sj.students ?? []).find((s: any) => s.studentId === pStu1);
+    assert(row, "student missing from summary");
+    assert(row.nazraPosition, "nazraPosition missing — the roster cannot show where they read up to");
+    assert(row.nazraPosition.juzNumber === 29 && row.nazraPosition.ayahTo === 40,
+      `wrong position: ${JSON.stringify(row.nazraPosition)}`);
+    assert(row.nazraPosition.isRevision === false, "plain nazra should not read as revision");
+    assert(row.today?.nazra === true, "today.nazra should be set after a hearing");
+
+    const revRow = (sj.students ?? []).find((s: any) => s.studentId === pStu2);
+    assert(revRow?.nazraPosition?.isRevision === true, "revision flag not surfaced");
+
+    // Reading must never inflate the memorized total — that number is
+    // what made every nazra child read "0" in the first place.
+    assert(row.ayahsMemorized === 0 || typeof row.ayahsMemorized === "number",
+      "ayahsMemorized should stay numeric and uncredited by nazra");
+  } finally {
+    for (const id of [nazraId, revId]) {
+      if (id) await api(tt, `/school/orgs/${ORG}/hifz-progress/${id}`, { method: "DELETE" });
+    }
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

@@ -247,7 +247,13 @@ export function SectionSubjectsManager({ orgId, sectionId, canManage, canEditCur
                     </>
                   ) : (
                     <p className="text-[10px] text-slate-400">
-                      {canEditCurriculum
+                      {/* Quran / Nazra / Qaidah have no shared topic list by
+                          design — each child sits at their own position, so
+                          sending the teacher to an admin for a "syllabus"
+                          that will never exist is a dead end. */}
+                      {/quran|nazra|nazira|qaidah|qaida|hifz/i.test(s.name)
+                        ? `${s.name} is tracked per child — open Hifz/Nazra progress to log where each student has reached.`
+                        : canEditCurriculum
                         ? `No curriculum yet for ${s.name} — expand to set it up (template / paste / copy from last year).`
                         : `No curriculum defined yet for ${s.name}. Ask your admin or class teacher to set up the syllabus.`}
                     </p>

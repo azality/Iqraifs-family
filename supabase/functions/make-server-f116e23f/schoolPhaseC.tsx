@@ -40,6 +40,12 @@ import { todayInOrgTz } from "./tz.ts";
 // -----------------------------------------------------------------------------
 // Validation helpers
 // -----------------------------------------------------------------------------
+// Nazra is NOT hifz. A nazra student reads the Quran rather than
+// memorizing it, so there is no sabaq/sabqi/manzil trio — there is one
+// moving position ("we are on para 29, ayah 12 to 40"), the teacher
+// hears it, and the child advances. `nazra` is a heard reading portion;
+// `nazra_revision` is the same act for a hafiz child sitting in a nazra
+// group (Class IV+), who is revising rather than progressing.
 const HIFZ_KINDS = new Set([
   "memorized",
   "revised",
@@ -47,7 +53,10 @@ const HIFZ_KINDS = new Set([
   "sabaq",
   "sabqi",
   "manzil",
+  "nazra",
+  "nazra_revision",
 ]);
+const NAZRA_KINDS = new Set(["nazra", "nazra_revision"]);
 const HIFZ_QUALITIES = new Set([
   "excellent",
   "good",
@@ -866,7 +875,7 @@ export function installPhaseC(school: Hono): void {
     const studentIds = studentList.map((s) => s.id);
     const { data: entries, error: entryErr } = await serviceRoleClient
       .from("hifz_progress")
-      .select("student_id, surah_number, ayah_from, ayah_to, kind, recorded_at")
+      .select("student_id, surah_number, ayah_from, ayah_to, juz_number, kind, quality, recorded_at")
       .in("student_id", studentIds);
     if (entryErr) return c.json({ error: entryErr.message }, 500);
 
@@ -874,7 +883,9 @@ export function installPhaseC(school: Hono): void {
       surah_number: number;
       ayah_from: number;
       ayah_to: number;
+      juz_number: number | null;
       kind: string;
+      quality: string | null;
       recorded_at: string;
     }>>();
     for (const e of (entries ?? []) as any[]) {
@@ -893,9 +904,15 @@ export function installPhaseC(school: Hono): void {
       const rows = byStudent.get(s.id) ?? [];
       const { ayahsMemorized } = computeMemorizedTotals(rows);
       let lastEntry: string | null = null;
-      const today = { sabaq: false, sabqi: false, manzil: false };
+      const today = { sabaq: false, sabqi: false, manzil: false, nazra: false };
+      // Where this child has READ up to — the only number that means
+      // anything for nazra, where nothing is being memorized.
+      let lastNazra: typeof rows[number] | null = null;
       for (const r of rows) {
         if (!lastEntry || r.recorded_at > lastEntry) lastEntry = r.recorded_at;
+        if (NAZRA_KINDS.has(r.kind) && (!lastNazra || r.recorded_at > lastNazra.recorded_at)) {
+          lastNazra = r;
+        }
         if (
           new Date(new Date(r.recorded_at).getTime() + 5 * 3600e3)
             .toISOString().slice(0, 10) === todayStr
@@ -903,6 +920,7 @@ export function installPhaseC(school: Hono): void {
           if (r.kind === "sabaq") today.sabaq = true;
           else if (r.kind === "sabqi") today.sabqi = true;
           else if (r.kind === "manzil") today.manzil = true;
+          else if (NAZRA_KINDS.has(r.kind)) today.nazra = true;
         }
       }
       return {
@@ -912,6 +930,19 @@ export function installPhaseC(school: Hono): void {
         ayahsMemorized,
         lastEntry,
         today,
+        // Null until the child has been heard once; the round screen then
+        // starts them wherever the teacher chooses.
+        nazraPosition: lastNazra
+          ? {
+              juzNumber: lastNazra.juz_number ?? null,
+              surahNumber: lastNazra.surah_number ?? null,
+              ayahFrom: lastNazra.ayah_from ?? null,
+              ayahTo: lastNazra.ayah_to ?? null,
+              quality: lastNazra.quality ?? null,
+              isRevision: lastNazra.kind === "nazra_revision",
+              recordedAt: lastNazra.recorded_at,
+            }
+          : null,
       };
     });
 

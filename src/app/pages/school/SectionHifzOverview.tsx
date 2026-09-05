@@ -24,6 +24,8 @@ import {
 } from "../../../utils/schoolApi";
 import { HifzLogEntry } from "./HifzLogEntry";
 import { HifzRoundMode } from "./HifzRoundMode";
+import { NazraRoundMode } from "./NazraRoundMode";
+import { getSurah } from "../../../utils/quranSurahs";
 import { HifzProgressFeed } from "./HifzProgressFeed";
 import {
   Dialog,
@@ -139,8 +141,25 @@ export function SectionHifzOverview() {
   // Round Mode takes over the page while running. Don't gate on `loading`
   // — saves refresh the summary in the background and the round keeps its
   // own queue.
+  // A non-hifz section reaches this page through its Quran/Nazra
+  // subject, and those children are reading rather than memorizing —
+  // "ayahs memorized" reads 0 for every one of them and the S/Sq/M
+  // chips describe a routine they don't follow. Show reading position
+  // instead. (Pilot report: Uroosa Basit, Class II A, Sep 2026.)
+  const isNazraGroup = !isHifzSection;
+
   if (roundActive && sorted.length > 0) {
-    return (
+    // A nazra group reads; it does not memorize. Same round loop, but
+    // the screen is position-and-advance rather than sabaq/sabqi/manzil.
+    return isNazraGroup ? (
+      <NazraRoundMode
+        orgId={orgId}
+        groupLabel={sectionLabel || "Nazra"}
+        roster={sorted}
+        onClose={() => setRoundActive(false)}
+        onSaved={() => setReloadKey((k) => k + 1)}
+      />
+    ) : (
       <HifzRoundMode
         orgId={orgId}
         sectionLabel={sectionLabel || t("hifzTeach.progressTitle")}
@@ -161,6 +180,69 @@ export function SectionHifzOverview() {
   };
 
   const maxAyahs = Math.max(1, ...sorted.map((s) => s.ayahsMemorized));
+
+  const positionText = (s: SectionHifzSummaryRow): string => {
+    const p = s.nazraPosition;
+    if (!p) return "Not started";
+    const where = p.juzNumber
+      ? `Para ${p.juzNumber}`
+      : p.surahNumber
+      ? getSurah(p.surahNumber)?.nameTransliterated ?? `Surah ${p.surahNumber}`
+      : "—";
+    const range = p.ayahFrom != null && p.ayahTo != null ? ` · ayah ${p.ayahFrom}–${p.ayahTo}` : "";
+    return `${where}${range}`;
+  };
+
+  const nazraColumns: DataTableColumn<SectionHifzSummaryRow>[] = [
+    {
+      key: "name",
+      header: (
+        <button type="button" onClick={() => toggleSort("name")} className="inline-flex items-center gap-1">
+          {t("hifzTeach.colStudent")} <ArrowUpDown className="h-3 w-3" />
+        </button>
+      ),
+      cell: (s) => <span className="font-medium">{s.studentName}</span>,
+    },
+    {
+      key: "position",
+      header: "Reading position",
+      cell: (s) => (
+        <span className="text-[12.5px] text-slate-700">
+          {positionText(s)}
+          {s.nazraPosition?.isRevision && (
+            <span className="ml-1.5 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">
+              revision
+            </span>
+          )}
+        </span>
+      ),
+    },
+    {
+      key: "today",
+      header: t("hifzTeach.colToday"),
+      cell: (s) => (
+        <span
+          className={
+            "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold " +
+            (s.today?.nazra
+              ? "bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300"
+              : "bg-slate-100 text-slate-400")
+          }
+        >
+          {s.today?.nazra ? "Heard" : "Pending"}
+        </span>
+      ),
+    },
+    {
+      key: "last",
+      header: (
+        <button type="button" onClick={() => toggleSort("last")} className="inline-flex items-center gap-1">
+          {t("hifzTeach.colLast")} <ArrowUpDown className="h-3 w-3" />
+        </button>
+      ),
+      cell: (s) => <span className="text-xs text-slate-500">{formatDate(s.lastEntry)}</span>,
+    },
+  ];
 
   const columns: DataTableColumn<SectionHifzSummaryRow>[] = [
     {
@@ -265,8 +347,12 @@ export function SectionHifzOverview() {
   return (
     <div className="space-y-4">
       <HeroCard
-        title={t("hifzTeach.progressTitle")}
-        subtitle={t("hifzTeach.progressSubtitle", { count: sorted.length })}
+        title={isNazraGroup ? "Nazra Progress" : t("hifzTeach.progressTitle")}
+        subtitle={
+          isNazraGroup
+            ? `${sorted.length} students · where each child has read up to`
+            : t("hifzTeach.progressSubtitle", { count: sorted.length })
+        }
         rightSlot={
           <div className="flex items-center gap-2 flex-wrap">
             {/* Pilot (hifz teachers): one tap starts the daily round —
@@ -278,7 +364,7 @@ export function SectionHifzOverview() {
                 className="bg-emerald-600 text-white hover:bg-emerald-700"
                 onClick={() => setRoundActive(true)}
               >
-                {t("hifzTeach.startRound")}
+                {isNazraGroup ? "Start today's Nazra round" : t("hifzTeach.startRound")}
               </Button>
             )}
             <Link to={`/school/orgs/${orgId}/admin/classes`}>
@@ -295,7 +381,7 @@ export function SectionHifzOverview() {
       ) : (
         <div className={cardBase}>
           <DataTable<SectionHifzSummaryRow>
-            columns={columns}
+            columns={isNazraGroup ? nazraColumns : columns}
             rows={sorted}
             rowKey={(s) => s.studentId}
             emptyMessage="No students in this section."

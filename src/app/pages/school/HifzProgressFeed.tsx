@@ -35,6 +35,9 @@ const KIND_LABEL: Record<HifzKind, string> = {
   memorized: "Memorized",
   revised: "Revised",
   tested: "Tested",
+  // Reading, not memorizing — the child's history should say so.
+  nazra: "Nazra",
+  nazra_revision: "Nazra revision",
 };
 
 const KIND_CLASSES: Record<HifzKind, string> = {
@@ -44,6 +47,8 @@ const KIND_CLASSES: Record<HifzKind, string> = {
   memorized: "bg-emerald-100 text-emerald-800 border-emerald-200",
   revised: "bg-cyan-100 text-cyan-800 border-cyan-200",
   tested: "bg-amber-100 text-amber-800 border-amber-200",
+  nazra: "bg-teal-100 text-teal-800 border-teal-200",
+  nazra_revision: "bg-teal-50 text-teal-700 border-teal-200",
 };
 
 function formatRelative(iso: string): string {
