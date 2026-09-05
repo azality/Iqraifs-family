@@ -524,7 +524,7 @@ export function ManageStudents() {
         } else if (linked && linked > 0) {
           setNotice(`Student saved + ${linked} guardian${linked === 1 ? "" : "s"} linked.`);
         } else if (guardians.length === 0) {
-          setNotice("Student saved as 'Guardians pending' — add parents from the detail page.");
+          setNotice("Student saved as 'Parents pending' — add parents from the detail page.");
         }
       }
       setFormOpen(false);
@@ -637,7 +637,7 @@ export function ManageStudents() {
       .join(String.fromCharCode(10));
     try {
       await navigator.clipboard.writeText(lines);
-      toast.success(`${selectedRows.length} guardian contact${selectedRows.length === 1 ? "" : "s"} copied — paste into WhatsApp.`);
+      toast.success(`${selectedRows.length} parent contact${selectedRows.length === 1 ? "" : "s"} copied — paste into WhatsApp.`);
     } catch {
       toast.error("Could not copy to the clipboard.");
     }
@@ -709,8 +709,13 @@ export function ManageStudents() {
         {(
           [
             { key: "all", label: `All ${chipCounts.all}`, active: "bg-slate-900 text-white", idle: "border border-slate-200 bg-white text-slate-600" },
-            { key: "pending", label: `Guardians pending ${chipCounts.pending}`, active: "bg-amber-500 text-white", idle: "border border-amber-200 bg-white text-amber-800" },
-            { key: "noparent", label: `No guardian info ${chipCounts.noparent}`, active: "bg-rose-600 text-white", idle: "border border-rose-200 bg-white text-rose-700" },
+            // "Guardians pending" was wrong twice over: it counts EVERY
+            // incomplete admission (documents and fees too), and Pakistani
+            // schools say "parents", not "guardians".
+            { key: "pending", label: `Admission incomplete ${chipCounts.pending}`, active: "bg-amber-500 text-white", idle: "border border-amber-200 bg-white text-amber-800" },
+            // What's actually missing is a way to REACH them — the family
+            // exists, the phone number doesn't.
+            { key: "noparent", label: `No parent contact ${chipCounts.noparent}`, active: "bg-rose-600 text-white", idle: "border border-rose-200 bg-white text-rose-700" },
             { key: "unassigned", label: `Unassigned ${chipCounts.unassigned}`, active: "bg-slate-900 text-white", idle: "border border-slate-200 bg-white text-slate-600" },
             { key: "left", label: `Left ${chipCounts.left}`, active: "bg-slate-900 text-white", idle: "border border-slate-200 bg-white text-slate-600" },
             { key: "hifz", label: `Hifz ${chipCounts.hifz}`, active: "bg-slate-900 text-white", idle: "border border-slate-200 bg-white text-slate-600" },
@@ -827,7 +832,7 @@ export function ManageStudents() {
                   st.status === "withdrawn"
                     ? { cls: "bg-slate-200 text-slate-600", label: "Left" }
                     : pending
-                      ? { cls: "bg-amber-100 text-amber-800", label: ((st as any).completeness_status === "documents_pending" ? "Documents pending" : (st as any).completeness_status === "fees_pending" ? "Fees pending" : "Guardians pending") }
+                      ? { cls: "bg-amber-100 text-amber-800", label: ((st as any).completeness_status === "documents_pending" ? "Documents pending" : (st as any).completeness_status === "fees_pending" ? "Fees pending" : "Parents pending") }
                       : { cls: "bg-emerald-50 text-emerald-700", label: "Complete" };
                 return (
                   <div
@@ -848,7 +853,7 @@ export function ManageStudents() {
                       <span className="min-w-0">
                         <span className="block truncate text-sm font-semibold text-slate-900">{st.full_name}</span>
                         <span className="block truncate text-[11.5px] text-slate-400">
-                          {st.status === "withdrawn" && st.left_reason ? st.left_reason : st.guardian_phone || st.guardian_email || "no guardian contact"}
+                          {st.status === "withdrawn" && st.left_reason ? st.left_reason : st.guardian_phone || st.guardian_email || "no parent contact"}
                         </span>
                       </span>
                     </span>
@@ -1342,8 +1347,8 @@ export function ManageStudents() {
               <p className="text-[11px] text-slate-500 italic">
                 Leave a block empty if not applicable. We dedupe by NIC,
                 email, then phone — siblings sharing parents won't create
-                duplicate records. If no guardian is filled in, the
-                student is saved with status <strong>Guardians pending</strong>.
+                duplicate records. If no parent is filled in, the
+                student is saved with status <strong>Parents pending</strong>.
               </p>
 
               {/* Full IFS admission form fields — religion, nationality,
