@@ -35,6 +35,28 @@ export function todayInOrgTz(tz: string = DEFAULT_TZ, at: Date = new Date()): st
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
+/** "HH:MM" as it would read on a wall clock in the given timezone.
+ *  Same reason as todayInOrgTz: "has the first bell rung yet?" is a
+ *  question about the school's clock, never the server's. */
+export function nowTimeInOrgTz(tz: string = DEFAULT_TZ, at: Date = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: tz,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(at);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "00";
+  return `${get("hour")}:${get("minute")}`;
+}
+
+/** A Date whose UTC calendar date equals the school's calendar date.
+ *  The date helpers in schoolDashboard all read UTC fields, so anchoring
+ *  a weekday walk on this makes them agree with the school's day. Noon
+ *  keeps it clear of any hour-level edge. */
+export function schoolDayAnchor(tz: string = DEFAULT_TZ, at: Date = new Date()): Date {
+  return new Date(`${todayInOrgTz(tz, at)}T12:00:00Z`);
+}
+
 /** Convenience: today minus N days in the given tz, as YYYY-MM-DD. */
 export function daysAgoInOrgTz(n: number, tz: string = DEFAULT_TZ, at: Date = new Date()): string {
   const shifted = new Date(at.getTime() - n * 86_400_000);
