@@ -603,6 +603,10 @@ school.patch("/orgs/:orgId", async (c) => {
     // so the admin isn't scrolling through every teacher every time
     // someone needs covering.
     "substitute_teacher_ids",
+    // How many SCHOOL days the school gives itself to answer a parent
+    // before the inbox flags it and the bell escalates. The school's
+    // policy, not ours; 2 when unset.
+    "parent_reply_sla_days",
     // Portal privacy (pilot review 2026-09-02): whether a STUDENT's own
     // login can see concern notes about themselves. Off by default;
     // parents always see everything.

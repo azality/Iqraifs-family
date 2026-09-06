@@ -2335,7 +2335,7 @@ await check("56. the school's timezone is the school's, not Pakistan's", async (
     `today-ops says ${ops.date} but ${effectiveTz} says ${expected}`);
 });
 
-await check("57. parent inbox: two-way, reading is not answering, and someone owns it", async () => {
+await check("57. parent inbox: two-way, reading is not answering, owned, and aged in school days", async () => {
   // The parent portal's only way to reach the school, and it had no
   // coverage at all. Two things matter: the round trip works, and a
   // thread stays in the queue until someone REPLIES - read_at is one
@@ -2442,7 +2442,41 @@ await check("57. parent inbox: two-way, reading is not answering, and someone ow
       if (t2id) await admin.from("parent_thread_assignment").delete().eq("thread_id", t2id);
     }
 
-    // 9. A teacher must not be able to read parent mail at all.
+    // 9. Ageing: a message that just arrived is waiting 0 SCHOOL days and
+    //    is not overdue. Wall-clock ageing would call a Friday evening
+    //    message overdue by Monday at a school shut all weekend.
+    const aged = (await (await api(principal.token, `/school/orgs/${ORG}/inbox`)).json());
+    assert(typeof aged.slaDays === "number" && aged.slaDays >= 0,
+      `inbox should report the school's reply window, got ${JSON.stringify(aged.slaDays)}`);
+    const s3 = await fetch(`${FUNC}/school/pin-me/messages`, {
+      method: "POST", headers: pinHdr,
+      body: JSON.stringify({ subject: `${MARK} three`, body: `${MARK} three` }),
+    });
+    const t3id = (await s3.json()).threadId;
+    try {
+      const fresh = await (await api(principal.token, `/school/orgs/${ORG}/inbox`)).json();
+      const row = (fresh.threads ?? []).find((t: any) => t.threadId === t3id);
+      assert(row, "the fresh thread should be listed");
+      assert(row.waitingSchoolDays === 0,
+        `a message that just arrived has waited 0 school days, got ${row.waitingSchoolDays}`);
+      assert(row.overdue === false, "a brand new message cannot be overdue");
+      assert(typeof row.waitingSince === "string", "a waiting thread must say since when");
+      // Answered threads stop ageing.
+      await api(principal.token, `/school/orgs/${ORG}/inbox/${t3id}/reply`, {
+        method: "POST", body: JSON.stringify({ body: `${MARK} three reply` }),
+      });
+      const done = await (await api(principal.token, `/school/orgs/${ORG}/inbox`)).json();
+      const answered = (done.threads ?? []).find((t: any) => t.threadId === t3id);
+      assert((answered?.waitingSchoolDays ?? null) === null && answered?.overdue === false,
+        "an answered thread is not waiting on anyone");
+    } finally {
+      if (t3id) {
+        await admin.from("parent_message").delete().eq("thread_id", t3id);
+        await admin.from("parent_thread_assignment").delete().eq("thread_id", t3id);
+      }
+    }
+
+    // 10. A teacher must not be able to read parent mail at all.
     const t2 = await ensureUser("qa-teacher@azality.com", "QA Teacher", "class_teacher");
     const denied = await api(t2.token, `/school/orgs/${ORG}/inbox`);
     assert(denied.status === 403, `teachers must not read the parent inbox, got ${denied.status}`);

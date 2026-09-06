@@ -24,6 +24,7 @@ import { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { hasAnyRoleInOrg, hasAdminOrPrincipal, inchargeClassIds } from "./schoolAuth.ts";
 import { todayInOrgTz, nowTimeInOrgTz, schoolDayAnchor, orgTimezone, zonedDayRangeUtc } from "./tz.ts";
+import { loadSchoolWeek, lastNSchoolDays } from "./schoolWeek.ts";
 
 // -----------------------------------------------------------------------------
 // Period math — period boundaries computed server-side. All dates are
@@ -80,90 +81,6 @@ function addDays(d: Date, n: number): Date {
 }
 function fmtDate(d: Date): string {
   return d.toISOString().slice(0, 10);
-}
-// What counts as a school day, per bell schedule.
-//
-// The old isWeekday()/lastNWeekdays() pair hardcoded Mon-Fri (removed
-// with this change). That was wrong for this school in
-// both directions: Hifz runs Saturday, so a Saturday with no register
-// never counted as a missed day; and any school closed on a Friday would
-// be nagged for it. The timetable already knows - a schedule rings on a
-// weekday if it has a slot there - so ask it instead of assuming, the
-// same rule #469 gave today-ops.
-//
-// Per SCHEDULE, not per school: using an org-wide union would put the
-// academic wings back on the hook for Saturdays that only Hifz runs.
-type SchoolWeek = {
-  /** schedule_key -> ISO weekdays (1=Mon..7=Sun) that schedule rings. */
-  daysBySchedule: Map<string, Set<number>>;
-  /** Union across real schedules - for org-level windows. */
-  orgDays: Set<number>;
-  holidays: Array<{ from: string; to: string }>;
-};
-
-async function loadSchoolWeek(orgId: string): Promise<SchoolWeek> {
-  const [slotRows, orgRow] = await Promise.all([
-    serviceRoleClient
-      .from("timetable_slot")
-      .select("schedule_key, day_of_week")
-      .eq("org_id", orgId)
-      .is("archived_at", null),
-    serviceRoleClient
-      .from("organizations")
-      .select("settings")
-      .eq("id", orgId)
-      .maybeSingle(),
-  ]);
-
-  const daysBySchedule = new Map<string, Set<number>>();
-  const orgDays = new Set<number>();
-  for (const r of (slotRows.data ?? []) as any[]) {
-    const key = r.schedule_key ?? "default";
-    if (key === "sandbox") continue; // QA scaffolding rings every day
-    const dow = Number(r.day_of_week);
-    if (!Number.isInteger(dow) || dow < 1 || dow > 7) continue;
-    if (!daysBySchedule.has(key)) daysBySchedule.set(key, new Set());
-    daysBySchedule.get(key)!.add(dow);
-    orgDays.add(dow);
-  }
-
-  const raw = ((orgRow.data as any)?.settings?.school_year?.holidays ?? []) as any[];
-  const holidays = raw
-    .filter((h) => typeof h?.startDate === "string")
-    .map((h) => ({ from: h.startDate as string, to: (h.endDate || h.startDate) as string }));
-
-  return { daysBySchedule, orgDays, holidays };
-}
-
-function isHolidayOn(week: SchoolWeek, iso: string): boolean {
-  return week.holidays.some((h) => iso >= h.from && iso <= h.to);
-}
-
-/** ISO weekday (1=Mon..7=Sun) of a Date, read in UTC like the helpers here. */
-function isoDowOf(d: Date): number {
-  return ((d.getUTCDay() + 6) % 7) + 1;
-}
-
-/** The last `n` dates a given schedule actually ran, ending on or before
- *  `anchor`, oldest -> newest. Holidays are not school days. Returns
- *  fewer than n only if the schedule barely runs; the 120-day cap stops
- *  a schedule with no slots from spinning. */
-function lastNSchoolDays(
-  week: SchoolWeek,
-  scheduleKey: string | null | undefined,
-  anchor: Date,
-  n: number,
-): string[] {
-  const days = week.daysBySchedule.get(scheduleKey ?? "default") ?? week.orgDays;
-  if (days.size === 0) return [];
-  const out: string[] = [];
-  let cursor = startOfDay(anchor);
-  for (let i = 0; i < 120 && out.length < n; i += 1) {
-    const iso = fmtDate(cursor);
-    if (days.has(isoDowOf(cursor)) && !isHolidayOn(week, iso)) out.push(iso);
-    cursor = addDays(cursor, -1);
-  }
-  return out.reverse();
 }
 
 

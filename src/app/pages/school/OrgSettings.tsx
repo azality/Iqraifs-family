@@ -52,6 +52,8 @@ interface OrgFormState {
   // PR C #5: branding + timezone editors. Stored in
   // organizations.settings jsonb on the backend.
   timezone: string;
+  /** School days the school gives itself to answer a parent message. */
+  parent_reply_sla_days: string;
   logo_url: string;
   theme_color: string;
   school_motto: string;
@@ -81,6 +83,7 @@ export function OrgSettings() {
     contact_phone: "",
     address: "",
     timezone: "",
+    parent_reply_sla_days: "",
     logo_url: "",
     theme_color: "",
     school_motto: "",
@@ -158,6 +161,10 @@ export function OrgSettings() {
             (o.organization.settings?.contact_phone as string | undefined) ?? "",
           address: (o.organization.settings?.address as string | undefined) ?? "",
           timezone: (o.organization.settings?.timezone as string | undefined) ?? "",
+          parent_reply_sla_days:
+            (o.organization.settings as any)?.parent_reply_sla_days != null
+              ? String((o.organization.settings as any).parent_reply_sla_days)
+              : "",
           student_sees_concerns: (o.organization.settings?.student_sees_concerns as boolean | undefined) === true,
           pass_mark_pct: String((o.organization.settings?.pass_mark_pct as number | undefined) ?? 40),
           logo_url: (o.organization.settings?.logo_url as string | undefined) ?? "",
@@ -197,6 +204,9 @@ export function OrgSettings() {
         contact_phone: orgForm.contact_phone,
         address: orgForm.address,
         timezone: orgForm.timezone,
+        ...(orgForm.parent_reply_sla_days.trim() !== ""
+          ? { parent_reply_sla_days: Number(orgForm.parent_reply_sla_days) }
+          : {}),
         logo_url: orgForm.logo_url,
         theme_color: orgForm.theme_color,
         school_motto: orgForm.school_motto,
@@ -507,6 +517,28 @@ export function OrgSettings() {
             <p className="text-xs text-slate-500">
               IANA timezone name (e.g. Asia/Karachi, Asia/Dubai). Used for attendance dates
               and announcement scheduling.
+            </p>
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="org-sla">Reply to parents within</Label>
+            <div className="flex items-center gap-2">
+              <Input
+                id="org-sla"
+                type="number"
+                min={0}
+                max={30}
+                className="w-24"
+                placeholder="2"
+                value={orgForm.parent_reply_sla_days}
+                onChange={(e) => setOrgForm((s) => ({ ...s, parent_reply_sla_days: e.target.value }))}
+              />
+              <span className="text-sm text-slate-600">school days</span>
+            </div>
+            <p className="text-xs text-slate-500">
+              A parent message still unanswered after this is flagged in the Parent
+              inbox and raised on the bell. Counted in school days, so a Friday
+              message is not overdue on Monday. Defaults to 2; set 0 to switch the
+              flag off.
             </p>
           </div>
           <div className="grid gap-1.5">
