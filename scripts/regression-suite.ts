@@ -1996,6 +1996,49 @@ await check("48. notifications: mandatory kinds can't be switched off, read stat
   }
 });
 
+await check("49. org insights exclude the Sandbox: QA behavior never reaches the principal", async () => {
+  // The Sandbox is regression scaffolding. Its behavior notes and
+  // attendance must never appear in an org-level rollup — a principal
+  // saw "uncategorized · 1" in Top Behaviors on a school with no real
+  // notes, which was Sandbox data leaking through the org branch.
+  const tag = `QA-LEAK-${Date.now()}`;
+  const { data: stu } = await admin.from("student")
+    .select("id, class_section_id").eq("id", pStu1).maybeSingle();
+  assert(stu?.class_section_id, "QA student needs a section");
+
+  const { data: ins, error: insErr } = await admin.from("behavior_note").insert({
+    org_id: ORG,
+    student_id: pStu1,
+    class_section_id: stu.class_section_id,
+    kind: "concern",
+    category: tag,
+    points: -1,
+    notes: "regression probe",
+    observed_at: new Date().toISOString(),
+  }).select().single();
+  assert(!insErr, `seed behavior note: ${insErr?.message}`);
+
+  try {
+    const r = await api(principal.token, `/school/orgs/${ORG}/insights?period=MTD`);
+    const j = await r.json();
+    assert(r.status === 200, `insights ${r.status}`);
+    const cats = [...(j.topPositive ?? []), ...(j.topConcern ?? [])].map((x: any) => x.category);
+    assert(!cats.includes(tag),
+      `Sandbox behavior leaked into org insights: ${JSON.stringify(cats)}`);
+
+    // The QA teacher, scoped to that very section, must still see it —
+    // hiding it from the principal must not blind its own teacher.
+    const tt = (await ensureUser("qa-teacher@azality.com", "QA Teacher", "class_teacher")).token;
+    const rt = await api(tt, `/school/orgs/${ORG}/insights?period=MTD`);
+    const jt = await rt.json();
+    const catsT = [...(jt.topPositive ?? []), ...(jt.topConcern ?? [])].map((x: any) => x.category);
+    assert(catsT.includes(tag),
+      `the section's own teacher should still see it: ${JSON.stringify(catsT)}`);
+  } finally {
+    await admin.from("behavior_note").delete().eq("id", ins.id);
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

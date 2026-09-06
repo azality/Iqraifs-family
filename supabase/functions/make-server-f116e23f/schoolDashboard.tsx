@@ -1777,9 +1777,21 @@ export function installDashboard(school: Hono): void {
       fullSkeletonForScope.sections.map((s) => s.id),
     );
     const scopeSet = new Set(scope.sectionIds);
+    // The QA Sandbox is invisible to org-level viewers everywhere else
+    // (withoutSandbox on every skeleton), but this endpoint's org branch
+    // waved through EVERY section — so Sandbox attendance and behavior
+    // notes landed in the principal's own Top Behaviors and attendance
+    // split. That is how "uncategorized · 1" appeared on a school with
+    // no real behavior notes yet (pilot report, 6 Sep).
+    const sandboxSectionIds = new Set(
+      fullSkeletonForScope.sections
+        .filter((sx) => sx.schedule_key === "sandbox")
+        .map((sx) => sx.id),
+    );
     const inScope = (sectionId: string | null | undefined): boolean =>
-      scope.kind === "org" ||
-      (sectionId != null && scopeSet.has(sectionId));
+      scope.kind === "org"
+        ? !(sectionId != null && sandboxSectionIds.has(sectionId))
+        : sectionId != null && scopeSet.has(sectionId);
 
     const attPeriodAll = await fetchAttendance(orgId, start, end);
     const attPeriod = attPeriodAll.filter((r) => inScope(r.class_section_id));
@@ -1798,7 +1810,7 @@ export function installDashboard(school: Hono): void {
     const positiveAgg = new Map<string, { count: number; totalPoints: number }>();
     const concernAgg = new Map<string, { count: number; totalPoints: number }>();
     for (const b of behaviorPeriod) {
-      const cat = b.category ?? "uncategorized";
+      const cat = b.category ?? "No category";
       const pts = Math.abs(Number(b.points ?? 0));
       const bucket = b.kind === "concern" ? concernAgg : positiveAgg;
       const cur = bucket.get(cat) ?? { count: 0, totalPoints: 0 };
