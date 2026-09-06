@@ -1918,7 +1918,7 @@ await check("48. notifications: mandatory kinds can't be switched off, read stat
   assert(typeof mine.unreadCount === "number", "unreadCount should be a number");
   for (const a of mine.alerts) {
     assert(a.key && a.kind && a.title, `malformed alert: ${JSON.stringify(a).slice(0, 100)}`);
-    assert(["mandatory", "policy", "personal"].includes(a.tier), `bad tier ${a.tier}`);
+    assert(["mandatory", "policy", "personal", "activity"].includes(a.tier), `bad tier ${a.tier}`);
   }
 
   // A teacher must not receive an admin-only alert kind.
