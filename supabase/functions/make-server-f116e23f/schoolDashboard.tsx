@@ -595,7 +595,19 @@ export function installDashboard(school: Hono): void {
       (r) => r.date >= fmtDate(prevStart) && r.date <= fmtDate(prevEnd),
     );
 
-    const pctToday = attendancePct(attToday);
+    // attendancePct([]) is 0, so a day with no school scored 0% and
+    // tripped the tile's "low" threshold - the dashboard told the
+    // principal attendance had collapsed on a Sunday (pilot, 6 Sep).
+    // #469/#471 taught today-ops and Right Now to ask the timetable;
+    // this tile never did. Same helper, so the three cannot disagree.
+    const dashDay = await resolveSchoolDay(orgId, fmtDate(today));
+    const anyScheduleRunsToday = Array.from(dashDay.runningKeys).some(
+      (k) => k !== "sandbox",
+    );
+    const schoolClosedToday = dashDay.onHoliday || !anyScheduleRunsToday;
+
+    // null renders as an em dash rather than a number nobody should read.
+    const pctToday = schoolClosedToday ? null : attendancePct(attToday);
     const pctPeriod = attendancePct(attPeriod);
     const pctPrev = attPrev.length > 0 ? attendancePct(attPrev) : null;
     const deltaPp = pctPrev === null ? null
@@ -1225,8 +1237,14 @@ export function installDashboard(school: Hono): void {
         },
         attendanceToday: {
           value: pctToday,
-          hint:
-            attToday.length === 0
+          closed: schoolClosedToday,
+          dayLabel: dashDay.dayLabel,
+          holidayName: dashDay.holidayName,
+          hint: schoolClosedToday
+            ? dashDay.onHoliday
+              ? `${dashDay.holidayName ? `${dashDay.holidayName} - ` : ""}school closed today`
+              : `${dashDay.dayLabel} - no classes scheduled`
+            : attToday.length === 0
               ? "No attendance taken yet today"
               : `${attToday.length} marks recorded today`,
         },

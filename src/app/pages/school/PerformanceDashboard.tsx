@@ -811,9 +811,15 @@ function GlanceBar({
     { label: "STUDENTS", value: numStr(tiles.students.value), to: `/school/orgs/${orgId}/admin/students` },
     {
       label: "ATTENDANCE TODAY",
-      value: pctStr(attToday),
-      delta: attToday !== null && attToday < 75 ? "low" : undefined,
-      deltaColor: "#f87171",
+      // A closed day has no attendance to be low. Show a dash and say
+      // why, instead of a red "0% low" on a Sunday.
+      value: tiles.attendanceToday.closed ? "—" : pctStr(attToday),
+      delta: tiles.attendanceToday.closed
+        ? "no school"
+        : attToday !== null && attToday < 75
+          ? "low"
+          : undefined,
+      deltaColor: tiles.attendanceToday.closed ? "rgba(255,255,255,.45)" : "#f87171",
     },
     {
       label: "ATTENDANCE PERIOD",
