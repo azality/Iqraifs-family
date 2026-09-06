@@ -80,7 +80,9 @@ export function MyAnnouncements() {
             <p className="text-xs text-slate-500 mt-0.5">
               {a.authorName ? `${a.authorName} · ` : ""}posted {timeAgo(a.publishedAt)}
             </p>
-            <p className="mt-3 text-sm text-slate-700 whitespace-pre-wrap">{a.body}</p>
+            {/* dir="auto" so an Urdu announcement aligns right and its
+                numbers land correctly, without tagging the language. */}
+            <p dir="auto" className="mt-3 text-sm text-slate-700 whitespace-pre-wrap">{a.body}</p>
             {a.attachments && a.attachments.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-2">
                 {a.attachments.map((att, i) => (
