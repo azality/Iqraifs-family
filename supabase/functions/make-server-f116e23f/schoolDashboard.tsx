@@ -1239,9 +1239,54 @@ export function installDashboard(school: Hono): void {
     const today = todayInOrgTz(); // school-day boundary = Karachi wall clock
 
     const skeleton = withoutSandbox(await loadOrgSkeleton(orgId));
+
+    // A section can only be "missing" attendance on a day it actually
+    // runs. Asking for it on a Sunday — 0/20, every section named — is
+    // noise that teaches people to ignore the banner (pilot, 6 Sep).
+    //
+    // The school's own timetable is the source of truth, per section:
+    // a section runs today if its bell schedule has a slot on today's
+    // weekday. That handles Hifz running Saturday while the academic
+    // wings don't, without anyone maintaining a second list. Holidays
+    // declared on the School Schedule page close the whole school.
+    const dow = new Date(`${today}T12:00:00+05:00`).getUTCDay(); // 0=Sun
+    const isoDow = dow === 0 ? 7 : dow; // timetable_slot uses 1=Mon..7=Sun
+
+    const [slotRows, orgRow] = await Promise.all([
+      serviceRoleClient
+        .from("timetable_slot")
+        .select("schedule_key")
+        .eq("org_id", orgId)
+        .eq("day_of_week", isoDow)
+        .is("archived_at", null),
+      serviceRoleClient
+        .from("organizations")
+        .select("settings")
+        .eq("id", orgId)
+        .maybeSingle(),
+    ]);
+    const runningKeys = new Set(
+      ((slotRows.data ?? []) as any[]).map((r) => r.schedule_key ?? "default"),
+    );
+
+    // Holidays are stored by the School Schedule editor as
+    // settings.school_year.holidays [{ startDate, endDate }].
+    const holidays = ((orgRow.data as any)?.settings?.school_year?.holidays ?? []) as any[];
+    const onHoliday = holidays.some((h) => {
+      const from = h?.startDate;
+      const to = h?.endDate || h?.startDate;
+      return typeof from === "string" && today >= from && today <= to;
+    });
+
     // Only sections with students can take attendance — empty sections
     // (e.g. Junior B awaiting its student split) don't count as "missing".
-    const expected = skeleton.sections.filter((s) => s.student_count > 0);
+    const expected = onHoliday
+      ? []
+      : skeleton.sections.filter(
+          (s) =>
+            s.student_count > 0 &&
+            runningKeys.has((s as any).schedule_key ?? "default"),
+        );
 
     const [attRes, flagsRes, earlyRes, leaveRes, subsRes] = await Promise.all([
       serviceRoleClient
