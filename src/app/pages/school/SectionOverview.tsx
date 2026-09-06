@@ -157,7 +157,7 @@ export function SectionOverview() {
   const topCategories = useMemo(() => {
     const counts = new Map<string, { positive: number; concern: number; pts: number }>();
     for (const n of notes) {
-      const cat = n.category ?? "uncategorized";
+      const cat = n.category ?? "No category";
       const cur = counts.get(cat) ?? { positive: 0, concern: 0, pts: 0 };
       if (n.kind === "positive") cur.positive += 1;
       else cur.concern += 1;
