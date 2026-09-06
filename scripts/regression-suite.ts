@@ -2292,10 +2292,12 @@ await check("56. the school's timezone is the school's, not Pakistan's", async (
   // Asia/Karachi. That makes the product an anomaly built for its first
   // customer; school #2 in another country would have read the wrong day
   // for five hours of every night (pilot review, 6 Sep).
-  const before = await api(principal.token, `/school/orgs/${ORG}`);
+  // NOTE the two different paths: reads are /school/organizations/:id
+  // (wrapped in { organization }), writes are PATCH /school/orgs/:id.
+  const before = await api(principal.token, `/school/organizations/${ORG}`);
   const beforeJson = await before.json();
   assert(before.status === 200, `org read ${before.status}`);
-  const currentTz = beforeJson?.settings?.timezone ?? "";
+  const currentTz = beforeJson?.organization?.settings?.timezone ?? "";
 
   // Garbage must be refused, not silently ignored: orgTimezone() falls
   // back to the default when it cannot parse, which would look to a
@@ -2306,25 +2308,31 @@ await check("56. the school's timezone is the school's, not Pakistan's", async (
   });
   assert(bad.status === 400, `an invalid zone should be refused, got ${bad.status}`);
 
-  // A real zone is accepted. Write back exactly what was there (or a
-  // correct value for this school) so the run leaves no trace.
-  const restore = currentTz || "Asia/Karachi";
-  const ok = await api(principal.token, `/school/orgs/${ORG}`, {
-    method: "PATCH",
-    body: JSON.stringify({ timezone: restore }),
-  });
-  assert(ok.status === 200, `a valid zone should be accepted, got ${ok.status}`);
-  const after = await (await api(principal.token, `/school/orgs/${ORG}`)).json();
-  assert((after?.settings?.timezone ?? "") === restore,
-    `timezone did not round-trip: ${JSON.stringify(after?.settings?.timezone)}`);
+  // A valid zone is accepted - but only exercise the write when the org
+  // ALREADY has an explicit one, so writing it back is a no-op. The suite
+  // confines its writes to the Sandbox and qa-* accounts; setting a real
+  // school's timezone because a test wanted to is not that.
+  if (currentTz) {
+    const ok = await api(principal.token, `/school/orgs/${ORG}`, {
+      method: "PATCH",
+      body: JSON.stringify({ timezone: currentTz }),
+    });
+    assert(ok.status === 200, `a valid zone should be accepted, got ${ok.status}`);
+    const after = await (await api(principal.token, `/school/organizations/${ORG}`)).json();
+    assert((after?.organization?.settings?.timezone ?? "") === currentTz,
+      `timezone did not round-trip: ${JSON.stringify(after?.organization?.settings?.timezone)}`);
+  }
 
-  // And the day the rest of the system reports must agree with that zone.
+  // Whatever the org resolves to - explicit, campus, or fallback - the
+  // day the rest of the system reports must agree with it. An org with no
+  // explicit zone still must not be reading the SERVER's day.
+  const effectiveTz = currentTz || "Asia/Karachi";
   const ops = await (await api(principal.token, `/school/orgs/${ORG}/today-ops`)).json();
   const expected = new Intl.DateTimeFormat("en-CA", {
-    timeZone: restore, year: "numeric", month: "2-digit", day: "2-digit",
+    timeZone: effectiveTz, year: "numeric", month: "2-digit", day: "2-digit",
   }).format(new Date());
   assert(ops.date === expected,
-    `today-ops says ${ops.date} but ${restore} says ${expected}`);
+    `today-ops says ${ops.date} but ${effectiveTz} says ${expected}`);
 });
 
 // ── Summary ─────────────────────────────────────────────────────────────
