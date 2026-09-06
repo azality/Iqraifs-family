@@ -59,7 +59,8 @@ export function NotificationBell({ orgId }: { orgId: string }) {
   }, [open]);
 
   const markAllRead = async () => {
-    const keys = alerts.filter((a) => !a.read).map((a) => a.key);
+    // Only duty alerts carry the badge, so only they need clearing.
+    const keys = alerts.filter((a) => !a.read && a.tier !== "activity").map((a) => a.key);
     if (keys.length === 0) return;
     // Optimistic: the list is derived, so a failed write just means the
     // dot comes back on the next open.
@@ -118,11 +119,15 @@ export function NotificationBell({ orgId }: { orgId: string }) {
               </p>
             ) : (
               <ul className="divide-y divide-slate-50">
-                {alerts.map((a) => {
+                {alerts.map((a, i) => {
+                  // One divider where duties end and "what happened"
+                  // begins, so the two are never confused for each other.
+                  const firstActivity =
+                    a.tier === "activity" && (i === 0 || alerts[i - 1].tier !== "activity");
                   const inner = (
                     <div className={"px-3 py-2.5 " + (a.read ? "opacity-60" : "")}>
                       <div className="flex items-start gap-2">
-                        {!a.read && (
+                        {!a.read && a.tier !== "activity" && (
                           <span className="mt-1.5 h-1.5 w-1.5 flex-none rounded-full bg-indigo-500" />
                         )}
                         <div className="min-w-0">
@@ -133,12 +138,22 @@ export function NotificationBell({ orgId }: { orgId: string }) {
                               needs action
                             </span>
                           )}
+                          {a.tier === "activity" && a.at && (
+                            <span className="mt-0.5 block text-[10.5px] text-slate-400">
+                              {new Date(a.at).toLocaleDateString(undefined, { day: "numeric", month: "short" })}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
                   );
                   return (
                     <li key={a.key} className="hover:bg-slate-50">
+                      {firstActivity && (
+                        <div className="border-b border-slate-100 bg-slate-50 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          Recent activity
+                        </div>
+                      )}
                       {a.href ? (
                         <Link to={a.href} onClick={() => openOne(a)} className="block">
                           {inner}

@@ -1946,6 +1946,21 @@ await check("48. notifications: mandatory kinds can't be switched off, read stat
   });
   assert(unknown.status === 400, `unknown kind should 400, got ${unknown.status}`);
 
+  // Activity is school-wide context, not a duty: principals and office
+  // get it, teachers do not, and it must never drive the red badge.
+  const admBell = await bell(principal.token);
+  const activity = (admBell.alerts ?? []).filter((a: any) => a.tier === "activity");
+  assert(typeof admBell.activityCount === "number", "activityCount should be reported");
+  assert(!(theirs.alerts ?? []).some((a: any) => a.tier === "activity"),
+    "a teacher's bell stays action-only");
+  const badgeCounts = (admBell.alerts ?? []).filter((a: any) => !a.read && a.tier !== "activity").length;
+  assert(admBell.unreadCount === badgeCounts,
+    `unreadCount must exclude activity: ${admBell.unreadCount} vs ${badgeCounts}`);
+  for (const a of activity) {
+    assert(a.at, `activity item needs a timestamp: ${a.title}`);
+    assert(a.key.includes(":"), "activity keys carry the row id so read state sticks");
+  }
+
   // Optional kinds are on by default and can be turned off personally.
   const prefsBefore = await api(principal.token, `/school/orgs/${ORG}/notification-prefs`).then((r) => r.json());
   assert((prefsBefore.kinds ?? []).length > 0, "the registry should be returned");
