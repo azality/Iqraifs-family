@@ -6,6 +6,7 @@
 // exactly the way the two stored "school week" settings did.
 
 import { serviceRoleClient } from "./middleware.tsx";
+import { todayInOrgTz } from "./tz.ts";
 
 function startOfDay(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
@@ -113,10 +114,17 @@ export function lastNSchoolDays(
  */
 export function schoolDaysWaiting(
   week: SchoolWeek,
+  /** A timestamp (created_at), not a date. */
   sinceIso: string,
+  /** Today's date on the SCHOOL's clock. */
   todayIso: string,
+  tz: string,
 ): number {
-  const from = startOfDay(new Date(`${sinceIso.slice(0, 10)}T12:00:00Z`));
+  // sinceIso.slice(0,10) would be the UTC date, and todayIso is the
+  // school's - so a message that arrived at 02:00 Monday in Karachi
+  // (still Sunday in UTC) counted a day that had not passed. Convert the
+  // timestamp on the same clock the comparison is made on.
+  const from = startOfDay(new Date(`${todayInOrgTz(tz, new Date(sinceIso))}T12:00:00Z`));
   const to = startOfDay(new Date(`${todayIso}T12:00:00Z`));
   if (!(to > from)) return 0;
   const days = week.orgDays;

@@ -369,7 +369,7 @@ export function installMessages(school: Hono): void {
         .map((m: any) => m.created_at)
         .sort()[0] ?? null;
       const waitingDays = oldestWaiting
-        ? schoolDaysWaiting(week, oldestWaiting, todayIso)
+        ? schoolDaysWaiting(week, oldestWaiting, todayIso, tz)
         : null;
       out.push({
         ...t,
