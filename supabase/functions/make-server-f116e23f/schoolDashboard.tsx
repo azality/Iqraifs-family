@@ -81,17 +81,86 @@ function addDays(d: Date, n: number): Date {
 function fmtDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
-function isWeekday(d: Date): boolean {
-  const dow = d.getUTCDay();
-  return dow >= 1 && dow <= 5;
+// What counts as a school day, per bell schedule.
+//
+// The old isWeekday()/lastNWeekdays() pair hardcoded Mon-Fri (removed
+// with this change). That was wrong for this school in
+// both directions: Hifz runs Saturday, so a Saturday with no register
+// never counted as a missed day; and any school closed on a Friday would
+// be nagged for it. The timetable already knows - a schedule rings on a
+// weekday if it has a slot there - so ask it instead of assuming, the
+// same rule #469 gave today-ops.
+//
+// Per SCHEDULE, not per school: using an org-wide union would put the
+// academic wings back on the hook for Saturdays that only Hifz runs.
+type SchoolWeek = {
+  /** schedule_key -> ISO weekdays (1=Mon..7=Sun) that schedule rings. */
+  daysBySchedule: Map<string, Set<number>>;
+  /** Union across real schedules - for org-level windows. */
+  orgDays: Set<number>;
+  holidays: Array<{ from: string; to: string }>;
+};
+
+async function loadSchoolWeek(orgId: string): Promise<SchoolWeek> {
+  const [slotRows, orgRow] = await Promise.all([
+    serviceRoleClient
+      .from("timetable_slot")
+      .select("schedule_key, day_of_week")
+      .eq("org_id", orgId)
+      .is("archived_at", null),
+    serviceRoleClient
+      .from("organizations")
+      .select("settings")
+      .eq("id", orgId)
+      .maybeSingle(),
+  ]);
+
+  const daysBySchedule = new Map<string, Set<number>>();
+  const orgDays = new Set<number>();
+  for (const r of (slotRows.data ?? []) as any[]) {
+    const key = r.schedule_key ?? "default";
+    if (key === "sandbox") continue; // QA scaffolding rings every day
+    const dow = Number(r.day_of_week);
+    if (!Number.isInteger(dow) || dow < 1 || dow > 7) continue;
+    if (!daysBySchedule.has(key)) daysBySchedule.set(key, new Set());
+    daysBySchedule.get(key)!.add(dow);
+    orgDays.add(dow);
+  }
+
+  const raw = ((orgRow.data as any)?.settings?.school_year?.holidays ?? []) as any[];
+  const holidays = raw
+    .filter((h) => typeof h?.startDate === "string")
+    .map((h) => ({ from: h.startDate as string, to: (h.endDate || h.startDate) as string }));
+
+  return { daysBySchedule, orgDays, holidays };
 }
 
-// Returns the last `n` weekday dates ending on or before `end`, oldest→newest.
-function lastNWeekdays(end: Date, n: number): Date[] {
-  const out: Date[] = [];
-  let cursor = startOfDay(end);
-  while (out.length < n) {
-    if (isWeekday(cursor)) out.push(cursor);
+function isHolidayOn(week: SchoolWeek, iso: string): boolean {
+  return week.holidays.some((h) => iso >= h.from && iso <= h.to);
+}
+
+/** ISO weekday (1=Mon..7=Sun) of a Date, read in UTC like the helpers here. */
+function isoDowOf(d: Date): number {
+  return ((d.getUTCDay() + 6) % 7) + 1;
+}
+
+/** The last `n` dates a given schedule actually ran, ending on or before
+ *  `anchor`, oldest -> newest. Holidays are not school days. Returns
+ *  fewer than n only if the schedule barely runs; the 120-day cap stops
+ *  a schedule with no slots from spinning. */
+function lastNSchoolDays(
+  week: SchoolWeek,
+  scheduleKey: string | null | undefined,
+  anchor: Date,
+  n: number,
+): string[] {
+  const days = week.daysBySchedule.get(scheduleKey ?? "default") ?? week.orgDays;
+  if (days.size === 0) return [];
+  const out: string[] = [];
+  let cursor = startOfDay(anchor);
+  for (let i = 0; i < 120 && out.length < n; i += 1) {
+    const iso = fmtDate(cursor);
+    if (days.has(isoDowOf(cursor)) && !isHolidayOn(week, iso)) out.push(iso);
     cursor = addDays(cursor, -1);
   }
   return out.reverse();
@@ -557,6 +626,8 @@ export function installDashboard(school: Hono): void {
     // - otherwise between 00:00 and 05:00 PKT they check the wrong three
     // days. Same five-hour skew as the tile, one layer down.
     const schoolTodayDate = schoolDayAnchor();
+    // The school's real week, per bell schedule - see loadSchoolWeek.
+    const schoolWeek = await loadSchoolWeek(orgId);
 
     const fullSkeleton = await loadOrgSkeleton(orgId);
     const scope = await determineScope(
@@ -853,9 +924,15 @@ export function installDashboard(school: Hono): void {
       }
 
       // attendance_gap rollup — sections missing all of last 3 weekdays
-      const lastThree = lastNWeekdays(schoolTodayDate, 3).map(fmtDate);
       const gapSections = sectionStatuses.filter((ss) => {
         if (ss.section.student_count === 0) return false;
+        // Each section is judged against the days ITS OWN bell schedule
+        // rings, so a Hifz section is asked about Saturday and an
+        // academic one is not.
+        const lastThree = lastNSchoolDays(
+          schoolWeek, ss.section.schedule_key, schoolTodayDate, 3,
+        );
+        if (lastThree.length === 0) return false;
         const dates = new Set(
           (attBySection.get(ss.section.id) ?? []).map((r) => r.date),
         );
@@ -917,7 +994,8 @@ export function installDashboard(school: Hono): void {
       }
 
       // Per-section attendance dip + consecutive dip + concern + gap.
-      const lastThree = lastNWeekdays(schoolTodayDate, 3).map(fmtDate);
+      // lastThree is now resolved per section (each schedule has its own
+      // week), so it is computed inside the loop below.
       // For consecutive_dip we need per-day attendance per section.
       // Build section -> date -> rows from already-filtered attPeriod.
       const attBySectionDate = new Map<
@@ -963,19 +1041,18 @@ export function installDashboard(school: Hono): void {
         // ending on/before today.
         const byDate = attBySectionDate.get(ss.section.id);
         if (byDate && byDate.size > 0) {
-          // walk back from today over weekdays, accumulating streak.
+          // Walk back over the days THIS section's bell schedule rings,
+          // skipping holidays - a school closed for Eid has not "dipped".
           let streak = 0;
-          let cursor = startOfDay(schoolTodayDate);
-          // limit walk to ~20 weekdays
-          for (let i = 0; i < 30 && streak < 30; i += 1) {
-            if (isWeekday(cursor)) {
-              const rows = byDate.get(fmtDate(cursor)) ?? [];
-              if (rows.length === 0) break; // gap; streak broken
-              const dailyPct = attendancePct(rows);
-              if (dailyPct < 75) streak += 1;
-              else break;
-            }
-            cursor = addDays(cursor, -1);
+          const secDays = lastNSchoolDays(
+            schoolWeek, ss.section.schedule_key, schoolTodayDate, 30,
+          );
+          for (let i = secDays.length - 1; i >= 0; i -= 1) {
+            const rows = byDate.get(secDays[i]) ?? [];
+            if (rows.length === 0) break; // gap; streak broken
+            const dailyPct = attendancePct(rows);
+            if (dailyPct < 75) streak += 1;
+            else break;
           }
           if (streak >= 3) {
             alerts.push({
@@ -1012,17 +1089,21 @@ export function installDashboard(school: Hono): void {
           });
         }
 
-        // attendance_gap
+        // attendance_gap - against the days this section actually runs.
         const recentDates = new Set(
           (attBySection.get(ss.section.id) ?? []).map((r) => r.date),
         );
-        const missingAll = lastThree.every((d) => !recentDates.has(d));
+        const secLastThree = lastNSchoolDays(
+          schoolWeek, ss.section.schedule_key, schoolTodayDate, 3,
+        );
+        const missingAll =
+          secLastThree.length > 0 && secLastThree.every((d) => !recentDates.has(d));
         if (missingAll && ss.section.student_count > 0) {
           alerts.push({
             id: `att_gap_${ss.section.id}`,
             severity: "warning",
             kind: "attendance_gap",
-            title: `${label}: no attendance recorded in last 3 weekdays`,
+            title: `${label}: no attendance recorded in last 3 school days`,
             body: `No attendance records for the last 3 school days.`,
             actionLabel: "Take attendance",
             actionPath: `/school/orgs/${orgId}/sections/${ss.section.id}/attendance`,
@@ -1770,11 +1851,13 @@ export function installDashboard(school: Hono): void {
             sections: fullSkeleton.sections.filter((s) => scopeSet.has(s.id)),
           };
 
-    // Need 10 weekday window in addition to period range for last10Days chart.
-    // Anchored on the SCHOOL day for the same reason as the dashboard's
+    // The last 10 days the school actually ran - not the last 10 Mon-Fri.
+    // Anchored on the school day for the same reason as the dashboard's
     // gap alerts: a UTC anchor slides the whole window by one between
     // 00:00 and 05:00 PKT.
-    const last10Dates = lastNWeekdays(schoolDayAnchor(), 10);
+    const lbWeek = await loadSchoolWeek(orgId);
+    const last10Dates = lastNSchoolDays(lbWeek, null, schoolDayAnchor(), 10)
+      .map((iso) => new Date(`${iso}T12:00:00Z`));
     const earliest = new Date(
       Math.min(
         prevStart.getTime(),

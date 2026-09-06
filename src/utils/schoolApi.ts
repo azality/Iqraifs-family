@@ -2518,6 +2518,10 @@ export interface BellSchedule {
   key: string;
   slots: number;
   sections: number;
+  /** ISO weekdays (1=Mon..7=Sun) this bell actually rings on, taken from
+   *  its slots. The school week is not a stored setting - it is whatever
+   *  the timetable says. */
+  days?: number[];
 }
 export const listBellSchedules = async (orgId: string): Promise<BellSchedule[]> => {
   const r = await apiCall<{ schedules: BellSchedule[] }>(
