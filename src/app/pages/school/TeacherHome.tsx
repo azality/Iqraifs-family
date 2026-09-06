@@ -27,6 +27,7 @@ import {
   BookOpen,
   BookMarked,
   MapPin,
+  Plus,
 } from "lucide-react";
 import {
   getSectionsLeaderboard,
@@ -1088,9 +1089,44 @@ export function TeacherHome({ orgId, me }: Props) {
           </DashSection>
         )}
 
-      {/* Recent behavior notes */}
+      {/* Recent behavior notes.
+          The whole section used to be hidden while empty, so a teacher who
+          had never logged a note never learned the feature existed — and
+          one reported she could not add behavior at all. An empty state
+          that names itself and offers the way in is the clue (Muneeb,
+          6 Sep). */}
+      {notes.length === 0 && sections && sections.length > 0 && (
+        <DashSection title={t("teacherHome.recentBehavior")} desktopCollapsible>
+          <section className="space-y-3">
+            {/* No heading here — DashSection already renders the title. */}
+            <div className="rounded-xl border border-dashed border-slate-300 bg-white p-4">
+              <p className="text-sm font-medium text-slate-800">
+                {t("behavior.noneYetTitle")}
+              </p>
+              <p className="mt-1 text-sm text-slate-500">{t("behavior.noneYetBody")}</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {sections.map((s) => (
+                  <Link
+                    key={s.sectionId}
+                    to={`/school/orgs/${orgId}/sections/${s.sectionId}/behavior`}
+                    className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    {sections.length === 1
+                      ? t("behavior.addANote")
+                      : t("behavior.logForClass", {
+                          name: `${s.className} ${s.sectionName}`,
+                        })}
+                  </Link>
+                ))}
+              </div>
+            </div>
+          </section>
+        </DashSection>
+      )}
+
       {notes.length > 0 && (
-        <DashSection title="Recent behavior notes" desktopCollapsible>
+        <DashSection title={t("teacherHome.recentBehavior")} desktopCollapsible>
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
             {t("teacherHome.recentBehavior")}

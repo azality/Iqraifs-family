@@ -4,6 +4,7 @@
 // caller picks the student first and passes studentId/studentName here).
 
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -56,6 +57,7 @@ export function BehaviorLogEntry({
   onOpenChange,
   onSuccess,
 }: Props) {
+  const { t } = useTranslation();
   const [kind, setKind] = useState<BehaviorNoteKind>("positive");
   const [category, setCategory] = useState("");
   const [isOther, setIsOther] = useState(false);
@@ -138,19 +140,19 @@ export function BehaviorLogEntry({
   const submit = async () => {
     setError(null);
     if (!category.trim()) {
-      setError(isOther ? "Type a short name for the behavior." : "Pick a category.");
+      setError(t(isOther ? "behavior.errNameBehavior" : "behavior.errPickCategory"));
       return;
     }
     if (!notes.trim()) {
-      setError("Notes are required.");
+      setError(t("behavior.errNotes"));
       return;
     }
     if (kind === "positive" && points < 0) {
-      setError("Positive notes must have non-negative points.");
+      setError(t("behavior.errPositivePoints"));
       return;
     }
     if (kind === "concern" && points > 0) {
-      setError("Concern notes must have non-positive points.");
+      setError(t("behavior.errConcernPoints"));
       return;
     }
     setSubmitting(true);
@@ -164,7 +166,7 @@ export function BehaviorLogEntry({
         // Convert local-time input to ISO so the server stores UTC.
         observedAt: observedAt ? new Date(observedAt).toISOString() : undefined,
       });
-      toast.success(`Behavior note saved for ${studentName}`);
+      toast.success(t("behavior.saved", { name: studentName }));
       onOpenChange(false);
       onSuccess?.();
     } catch (e) {
@@ -178,13 +180,13 @@ export function BehaviorLogEntry({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Log behavior — {studentName}</DialogTitle>
+          <DialogTitle>{t("behavior.logTitle", { name: studentName })}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
           {/* Kind toggle (radio-like) */}
           <div>
-            <Label className="mb-1.5 block">Kind</Label>
+            <Label className="mb-1.5 block">{t("behavior.kind")}</Label>
             <div className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 p-1">
               <button
                 type="button"
@@ -196,7 +198,7 @@ export function BehaviorLogEntry({
                     : "text-slate-600 hover:text-slate-900")
                 }
               >
-                Positive
+                {t("behavior.positive")}
               </button>
               <button
                 type="button"
@@ -208,13 +210,13 @@ export function BehaviorLogEntry({
                     : "text-slate-600 hover:text-slate-900")
                 }
               >
-                Concern
+                {t("behavior.concern")}
               </button>
             </div>
           </div>
 
           <div>
-            <Label className="mb-1.5 block">Category</Label>
+            <Label className="mb-1.5 block">{t("behavior.category")}</Label>
             <div className="flex flex-wrap gap-1.5">
               {categories.map((c) => {
                 const active = !isOther && category === c.label;
@@ -250,7 +252,7 @@ export function BehaviorLogEntry({
                     : "border-slate-300 text-slate-500 hover:border-slate-400")
                 }
               >
-                Other…
+                {t("behavior.other")}
               </button>
             </div>
 
@@ -260,12 +262,11 @@ export function BehaviorLogEntry({
                   <Input
                     value={category}
                     onChange={(e) => setCategory(e.target.value)}
-                    placeholder="Name the behavior (e.g. Uniform)"
+                    placeholder={t("behavior.otherPlaceholder")}
                     autoFocus
                   />
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Not in the school&apos;s list? Type it — the school sees these
-                    suggestions and can add it for everyone.
+                    {t("behavior.otherHint")}
                   </p>
                 </div>
                 <div>
@@ -275,9 +276,11 @@ export function BehaviorLogEntry({
                     min={kind === "positive" ? 1 : -3}
                     max={kind === "positive" ? 3 : -1}
                     onChange={(e) => setPoints(Number(e.target.value))}
-                    title="Points for one-off entries are limited to 3"
+                    title={t("behavior.pointsLimitTitle")}
                   />
-                  <p className="mt-1 text-xs text-muted-foreground">Up to {kind === "positive" ? "+3" : "−3"}.</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {t("behavior.otherMax", { max: kind === "positive" ? "+3" : "−3" })}
+                  </p>
                 </div>
               </div>
             )}
@@ -286,19 +289,22 @@ export function BehaviorLogEntry({
               <p className="mt-2 text-xs text-muted-foreground">
                 {isAdmin ? (
                   <>
-                    Points:{" "}
+                    {t("behavior.pointsLabel")}{" "}
                     <Input
                       type="number"
                       value={points}
                       onChange={(e) => setPoints(Number(e.target.value))}
                       className="ml-1 inline-block h-7 w-20 align-middle"
                     />{" "}
-                    (school value {points > 0 ? `+${points}` : points}; as admin you may override)
+                    {t("behavior.pointsAdmin", {
+                      value: points > 0 ? `+${points}` : points,
+                    })}
                   </>
                 ) : (
                   <>
-                    Points: <span className="font-semibold">{points > 0 ? `+${points}` : points}</span> — set
-                    by the school so every class counts the same.
+                    {t("behavior.pointsLabel")}{" "}
+                    <span className="font-semibold">{points > 0 ? `+${points}` : points}</span>{" "}
+                    — {t("behavior.pointsTeacher")}
                   </>
                 )}
               </p>
@@ -306,18 +312,18 @@ export function BehaviorLogEntry({
           </div>
 
           <div>
-            <Label htmlFor="bh-notes">Notes*</Label>
+            <Label htmlFor="bh-notes">{t("behavior.notesLabel")}</Label>
             <Textarea
               id="bh-notes"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={4}
-              placeholder="What happened? Be specific so reviewers can verify."
+              placeholder={t("behavior.notesPlaceholder")}
             />
           </div>
 
           <div>
-            <Label htmlFor="bh-when">Observed at</Label>
+            <Label htmlFor="bh-when">{t("behavior.observedAt")}</Label>
             <Input
               id="bh-when"
               type="datetime-local"
@@ -327,7 +333,7 @@ export function BehaviorLogEntry({
               onChange={(e) => setObservedAt(e.target.value)}
             />
             <p className="mt-1 text-xs text-muted-foreground">
-              Up to 14 days back. Defaults to now.
+              {t("behavior.observedHint")}
             </p>
           </div>
 
@@ -336,10 +342,10 @@ export function BehaviorLogEntry({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
-            Cancel
+            {t("behavior.cancel")}
           </Button>
           <Button onClick={submit} disabled={submitting}>
-            {submitting ? "Saving…" : "Save note"}
+            {submitting ? t("behavior.saving") : t("behavior.save")}
           </Button>
         </DialogFooter>
       </DialogContent>
