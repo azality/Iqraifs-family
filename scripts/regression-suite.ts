@@ -2159,6 +2159,41 @@ await check("52. one bell cannot ring twice at the same minute", async () => {
   assert(dupes.length === 0, `duplicate periods: ${dupes.join("; ")}`);
 });
 
+await check("53. the Sandbox stays out of the principal's academics rollup", async () => {
+  // The principal's "Curriculum pace - furthest behind" card led with
+  // "Sandbox . English 60%" and "Sandbox . Islamiyat 60%" on production.
+  // /academics was the one endpoint the principal's dashboard calls that
+  // never filtered the QA class - at-risk and the sections leaderboard
+  // both do (pilot, 6 Sep).
+  const r = await api(principal.token, `/school/orgs/${ORG}/academics`);
+  const j = await r.json();
+  assert(r.status === 200, `academics ${r.status}`);
+
+  const named: string[] = [
+    ...((j.pace?.laggards ?? []) as any[]).map((x) => `${x.className} . ${x.subjectName}`),
+    ...((j.subjectsAtRisk ?? []) as any[]).map((x) => `${x.className} . ${x.subjectName}`),
+    ...((j.topSubjects ?? []) as any[]).map((x) => `${x.className} . ${x.subjectName}`),
+  ];
+  const leaked = named.filter((n) => n.toLowerCase().includes("sandbox"));
+  assert(leaked.length === 0, `Sandbox reached the principal: ${leaked.join("; ")}`);
+
+  // ...and it must not be over-filtered: a teacher scoped to the Sandbox
+  // still needs their own class's numbers. Re-mint - check 34 rotates
+  // qa-teacher's password, so the token held above is stale by now.
+  const t2 = await ensureUser("qa-teacher@azality.com", "QA Teacher", "class_teacher");
+  const rt = await api(t2.token, `/school/orgs/${ORG}/academics`);
+  const jt = await rt.json();
+  assert(rt.status === 200, `academics as teacher ${rt.status}`);
+  const teacherSees = [
+    ...((jt.pace?.laggards ?? []) as any[]),
+    ...((jt.subjectsAtRisk ?? []) as any[]),
+  ].map((x: any) => String(x.className));
+  const sawOwn = teacherSees.some((n) => n.toLowerCase().includes("sandbox"));
+  const subjectCount = jt.curriculum?.subjectCount ?? 0;
+  assert(sawOwn || subjectCount > 0,
+    "the scoped teacher lost sight of their own class - the filter is too wide");
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

@@ -63,6 +63,33 @@ export function installAcademics(school: Hono) {
       allowedClassIds = ids;
     }
 
+    // The QA Sandbox class is regression-suite scaffolding. Every other
+    // org-level rollup hides it (withoutSandbox in schoolDashboard), but
+    // this endpoint never did — so the principal's "Curriculum pace —
+    // furthest behind" card led with Sandbox · English and Sandbox ·
+    // Islamiyat, and the Sandbox's untouched subjects were inflating both
+    // the school-wide % and the "no topics ticked yet" count (pilot,
+    // 6 Sep). A SCOPED caller (the QA teacher) still sees it through
+    // their own classes — same rule the other endpoints use.
+    const sandboxClassIds = new Set<string>();
+    if (allowedClassIds === null) {
+      const { data: sbSections } = await serviceRoleClient
+        .from("class_section")
+        .select("class_id, class:class_id!inner(org_id)")
+        .eq("schedule_key", "sandbox")
+        .eq("class.org_id", orgId);
+      for (const r of (sbSections ?? []) as any[]) {
+        if (r.class_id) sandboxClassIds.add(r.class_id);
+      }
+    }
+    /** One rule for "does this class belong in this caller's numbers?" */
+    const classVisible = (classId: string | null | undefined): boolean => {
+      if (!classId) return false;
+      return allowedClassIds === null
+        ? !sandboxClassIds.has(classId)
+        : allowedClassIds.has(classId);
+    };
+
     // ────────────────────────────────────────────────────────────────────────
     // 1. Curriculum coverage. Sum topic counts across the LATEST curriculum
     //    per (class_subject_id) — older years are excluded so the rollup
@@ -75,8 +102,8 @@ export function installAcademics(school: Hono) {
       .select("id, name, class_id, class:class_id(name)")
       .eq("org_id", orgId)
       .is("archived_at", null);
-    const classSubjects = ((classSubjectsAll ?? []) as any[]).filter(
-      (r) => allowedClassIds === null || allowedClassIds.has(r.class_id),
+    const classSubjects = ((classSubjectsAll ?? []) as any[]).filter((r) =>
+      classVisible(r.class_id),
     );
     const csIds = (classSubjects ?? []).map((r: any) => r.id);
 
@@ -256,7 +283,7 @@ export function installAcademics(school: Hono) {
     const { data: recentGrades } = await serviceRoleClient
       .from("grade")
       .select(
-        "score, status, assignment:assignment_id(section_subject_id, max_score, weight, class_section_id, class_section:class_section_id(name, class:class_id(name)), section_subject:section_subject_id(class_subject:class_subject_id(name)))",
+        "score, status, assignment:assignment_id(section_subject_id, max_score, weight, class_section_id, class_section:class_section_id(name, class:class_id(id, name)), section_subject:section_subject_id(class_subject:class_subject_id(name)))",
       )
       .eq("org_id", orgId)
       .eq("status", "graded")
@@ -277,6 +304,10 @@ export function installAcademics(school: Hono) {
     for (const r of (recentGrades ?? []) as any[]) {
       const a = r.assignment;
       if (!a) continue;
+      // These two lists were built from every graded row in the org: the
+      // Sandbox's QA grades could rank in "Subjects at risk", and an
+      // incharge saw the whole school rather than their wing.
+      if (!classVisible(a.class_section?.class?.id)) continue;
       const ssId = a.section_subject_id ?? `__untagged_${a.class_section_id}__`;
       const max = Number(a.max_score);
       const score = Number(r.score);
