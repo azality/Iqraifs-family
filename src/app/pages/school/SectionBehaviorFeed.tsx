@@ -7,6 +7,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
+import { useTranslation } from "react-i18next";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -41,20 +42,23 @@ function todayIso(): string {
   return isoDaysAgo(0);
 }
 
-function relTime(iso: string): string {
-  const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return iso;
-  const diff = Date.now() - t;
+type TFn = (k: string, o?: Record<string, unknown>) => string;
+
+function relTime(iso: string, t: TFn): string {
+  const ms = new Date(iso).getTime();
+  if (Number.isNaN(ms)) return iso;
+  const diff = Date.now() - ms;
   const m = Math.round(diff / 60000);
-  if (m < 1) return "just now";
-  if (m < 60) return `${m}m ago`;
+  if (m < 1) return t("behavior.justNow");
+  if (m < 60) return t("behavior.minsAgo", { n: m });
   const h = Math.round(m / 60);
-  if (h < 24) return `${h}h ago`;
+  if (h < 24) return t("behavior.hoursAgo", { n: h });
   const d = Math.round(h / 24);
-  return `${d}d ago`;
+  return t("behavior.daysAgo", { n: d });
 }
 
 export function SectionBehaviorFeed() {
+  const { t } = useTranslation();
   const { orgId = "", sectionId = "" } = useParams();
   const [startDate, setStartDate] = useState<string>(isoDaysAgo(30));
   const [endDate, setEndDate] = useState<string>(todayIso());
@@ -78,13 +82,10 @@ export function SectionBehaviorFeed() {
     listStudents(orgId, { classSectionId: sectionId })
       .then((r) => {
         setStudents(r);
-        if (r.length === 0) setRosterError("This class has no students on its roster yet.");
+        if (r.length === 0) setRosterError(t("behavior.noRoster"));
       })
-      .catch((e) =>
-        setRosterError(
-          e?.message || "Could not load this class's students, so notes can't be added right now.",
-        ),
-      );
+      .catch((e) => setRosterError(e?.message || t("behavior.rosterFailed")));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId, sectionId]);
 
   const load = () => {
@@ -96,7 +97,7 @@ export function SectionBehaviorFeed() {
       endDate: endDate || undefined,
     })
       .then((r) => setNotes(r.notes))
-      .catch((e) => setError(e?.message || "Failed to load notes"))
+      .catch((e) => setError(e?.message || t("behavior.loadFailed")))
       .finally(() => setLoading(false));
   };
 
@@ -125,9 +126,9 @@ export function SectionBehaviorFeed() {
   }, [filtered]);
 
   const FILTERS: Array<{ key: Filter; label: string }> = [
-    { key: "all", label: "All" },
-    { key: "positive", label: "Positive" },
-    { key: "concern", label: "Concern" },
+    { key: "all", label: t("behavior.all") },
+    { key: "positive", label: t("behavior.positive") },
+    { key: "concern", label: t("behavior.concern") },
   ];
 
   // Logging needs a roster to pick from. Better to explain than to open a
@@ -147,12 +148,12 @@ export function SectionBehaviorFeed() {
   return (
     <div className="space-y-4">
       <HeroCard
-        title="Behavior log"
-        subtitle="Positive and concern notes for this section"
+        title={t("behavior.title")}
+        subtitle={t("behavior.subtitle")}
         rightSlot={
           <div className="flex flex-wrap items-end gap-2">
             <div>
-              <Label htmlFor="sb-start" className="text-[10px] uppercase tracking-wide text-indigo-200">From</Label>
+              <Label htmlFor="sb-start" className="text-[10px] uppercase tracking-wide text-indigo-200">{t("behavior.from")}</Label>
               <Input
                 id="sb-start"
                 type="date"
@@ -162,7 +163,7 @@ export function SectionBehaviorFeed() {
               />
             </div>
             <div>
-              <Label htmlFor="sb-end" className="text-[10px] uppercase tracking-wide text-indigo-200">To</Label>
+              <Label htmlFor="sb-end" className="text-[10px] uppercase tracking-wide text-indigo-200">{t("behavior.to")}</Label>
               <Input
                 id="sb-end"
                 type="date"
@@ -190,7 +191,7 @@ export function SectionBehaviorFeed() {
             </div>
             <Link to={`/school/orgs/${orgId}/admin/classes`}>
               <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">
-                <ChevronLeft className="h-4 w-4 mr-1" /> Classes
+                <ChevronLeft className="h-4 w-4 mr-1" /> {t("behavior.classes")}
               </Button>
             </Link>
             <Button
@@ -200,7 +201,7 @@ export function SectionBehaviorFeed() {
               title={rosterError ?? undefined}
               className="bg-white text-slate-900 hover:bg-slate-100 disabled:opacity-60"
             >
-              <Plus className="h-4 w-4 mr-1" /> Add note
+              <Plus className="h-4 w-4 mr-1" /> {t("behavior.addNote")}
             </Button>
           </div>
         }
@@ -211,7 +212,7 @@ export function SectionBehaviorFeed() {
       <Card className={`${cardBase} ${cardElev}`}>
         <CardContent className="p-4">
           {loading && notes.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Loading…</p>
+            <p className="text-sm text-muted-foreground">{t("behavior.loading")}</p>
           ) : filtered.length === 0 ? (
             // "No behavior notes in this range." was the whole empty state:
             // a flat statement in the card where the content belongs, with
@@ -225,30 +226,30 @@ export function SectionBehaviorFeed() {
                 <>
                   <div>
                     <p className="text-sm font-medium text-slate-800">
-                      No {filter} notes in this range.
+                      {t("behavior.filterEmptyTitle", { kind: t(`behavior.${filter}`) })}
                     </p>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      There {notes.length === 1 ? "is" : "are"} {notes.length}{" "}
-                      {notes.length === 1 ? "note" : "notes"} here under another filter.
+                      {notes.length === 1
+                        ? t("behavior.filterEmptyOne")
+                        : t("behavior.filterEmptyMany", { count: notes.length })}
                     </p>
                   </div>
                   <Button variant="outline" size="sm" onClick={() => setFilter("all")}>
-                    Show all notes
+                    {t("behavior.showAll")}
                   </Button>
                 </>
               ) : (
                 <>
                   <div>
                     <p className="text-sm font-medium text-slate-800">
-                      Nothing logged for this class between these dates.
+                      {t("behavior.emptyTitle")}
                     </p>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      Positive and concern notes you write for this class appear here.
-                      Widen the dates above to look further back.
+                      {t("behavior.emptyBody")}
                     </p>
                   </div>
                   <Button size="sm" onClick={openPicker} disabled={!canAdd}>
-                    <Plus className="h-4 w-4 mr-1" /> Add a note
+                    <Plus className="h-4 w-4 mr-1" /> {t("behavior.addANote")}
                   </Button>
                 </>
               )}
@@ -303,7 +304,7 @@ export function SectionBehaviorFeed() {
                                       : "border-rose-300 text-rose-700")
                                   }
                                 >
-                                  {n.kind}
+                                  {t(`behavior.${n.kind}`)}
                                 </Badge>
                                 {n.category && (
                                   <span className="text-xs text-slate-700">{n.category}</span>
@@ -321,7 +322,7 @@ export function SectionBehaviorFeed() {
                                 {n.notes}
                               </p>
                               <div className="mt-1 text-xs text-slate-500">
-                                {relTime(n.observedAt)}
+                                {relTime(n.observedAt, t)}
                               </div>
                             </div>
                           </div>
@@ -342,15 +343,15 @@ export function SectionBehaviorFeed() {
       {picker?.id === "__PICK__" && (
         <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/40">
           <div className="w-full max-w-sm rounded-lg bg-white p-4 shadow-lg">
-            <h2 className="text-lg font-semibold mb-2">Pick a student</h2>
+            <h2 className="text-lg font-semibold mb-2">{t("behavior.pickStudent")}</h2>
             {students.length === 0 && (
               <p className="mb-2 text-sm text-amber-700">
-                {rosterError ?? "No students to choose from."}
+                {rosterError ?? t("behavior.noStudents")}
               </p>
             )}
             <Select value={pickerSel} onValueChange={setPickerSel}>
               <SelectTrigger>
-                <SelectValue placeholder="Select student…" />
+                <SelectValue placeholder={t("behavior.selectStudent")} />
               </SelectTrigger>
               <SelectContent>
                 {students.map((s) => (
@@ -362,10 +363,10 @@ export function SectionBehaviorFeed() {
             </Select>
             <div className="mt-4 flex justify-end gap-2">
               <Button variant="outline" onClick={() => setPicker(null)}>
-                Cancel
+                {t("behavior.cancel")}
               </Button>
               <Button onClick={confirmPicker} disabled={!pickerSel}>
-                Next
+                {t("behavior.next")}
               </Button>
             </div>
           </div>
