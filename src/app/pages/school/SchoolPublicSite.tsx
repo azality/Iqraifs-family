@@ -439,7 +439,35 @@ export function SchoolPublicSite() {
                   <article key={a.id} className="sps-card-hover" style={{ background: PALETTE.creamHi, border: "1px solid rgba(201,162,74,0.3)", borderRadius: 18, padding: 28, display: "flex", flexDirection: "column", gap: 12, transition: "all 0.2s" }}>
                     <time style={{ font: `600 12px/1 ${fontSans}`, letterSpacing: "0.08em", textTransform: "uppercase", color: PALETTE.goldDark }}>{formatDate(a.createdAt)}</time>
                     <h3 style={{ font: `600 20px/1.3 ${fontSerif}`, color: PALETTE.ink, margin: 0, textWrap: "balance" as any }}>{a.title}</h3>
-                    <p style={{ font: `400 14px/1.65 ${fontSans}`, color: PALETTE.muted, margin: 0 }}>{a.body}</p>
+                    {/* An announcement is written with paragraphs and is
+                        often bilingual, so it cannot be dumped into one
+                        <p>: newlines collapsed into a wall of text and
+                        Urdu rendered inside an LTR block, which scrambles
+                        where its numbers and punctuation land. Split on
+                        blank lines, and let dir="auto" pick direction per
+                        paragraph from its own first strong character. */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      {a.body
+                        .split(/\n\s*\n/)
+                        .map((para) => para.trim())
+                        // Drop hand-typed separator rules — the gap between
+                        // paragraphs already does that job.
+                        .filter((para) => para.length > 0 && !/^[—\-–\s]+$/.test(para))
+                        .map((para, i) => (
+                          <p
+                            key={i}
+                            dir="auto"
+                            style={{
+                              font: `400 14px/1.75 ${fontSans}`,
+                              color: PALETTE.muted,
+                              margin: 0,
+                              whiteSpace: "pre-line",
+                            }}
+                          >
+                            {para}
+                          </p>
+                        ))}
+                    </div>
                   </article>
                 ))}
               </div>
