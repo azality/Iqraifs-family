@@ -521,6 +521,7 @@
     "tapQualityFirst": "Tap a quality on at least one kind — or Skip for now.",
     "savedToast": "{{name}} saved",
     "tomorrowLabel": "Tomorrow:",
+    "tomorrowAfterRate": "Tomorrow's lesson appears here once you rate — advance or repeat follows the rating.",
     "tomorrowSabqiAuto": "start of the para → today's sabaq (automatic)",
     "tomorrowManzilAuto": "Juz {{n}} (automatic rotation)",
     "tomorrowBoundary": "surah finished — set the next sabaq",

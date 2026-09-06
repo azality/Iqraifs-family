@@ -428,8 +428,15 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
   // What will be assigned for tomorrow, as the teacher will read it.
   // Mirrors the save logic exactly — if these two ever disagree, the
   // line is lying, so keep them in lockstep.
-  const tomorrowText = (key: KindKey): { text: string; auto: boolean } | null => {
+  const tomorrowText = (key: KindKey): { text: string; auto: boolean; hint?: boolean } | null => {
     const k = kinds[key];
+    // Untouched kinds log nothing, so no assignment can ride on them —
+    // but an invisible line read as a missing feature (pilot, Sep 6).
+    // Show WHERE tomorrow will appear, muted, without the change button
+    // (an override on an unsaved kind would be silently dropped).
+    if (k.quality === "" && !(key === "sabaq" ? ovSabaq : key === "sabqi" ? ovSabqi : ovManzil)) {
+      return { text: t("hifzRound.tomorrowAfterRate"), auto: true, hint: true };
+    }
     if (key === "sabaq") {
       if (ovSabaq) {
         return { text: serializeNextSabaq(ovSabaq.surah, ovSabaq.from, ovSabaq.to), auto: false };
@@ -817,16 +824,16 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
                     if (!tm) return null;
                     return (
                       <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11.5px]">
-                        <span className={tm.auto ? "text-slate-500" : "font-semibold text-indigo-700"}>
-                          {t("hifzRound.tomorrowLabel")} {tm.text}
+                        <span className={tm.hint ? "text-slate-400 italic" : tm.auto ? "text-slate-500" : "font-semibold text-indigo-700"}>
+                          {tm.hint ? tm.text : `${t("hifzRound.tomorrowLabel")} ${tm.text}`}
                         </span>
-                        <button
+                        {!tm.hint && <button
                           type="button"
                           onClick={() => setNextOpen(nextOpen === meta.key ? null : meta.key)}
                           className="rounded border border-slate-200 px-1.5 py-0.5 text-[10.5px] font-semibold text-indigo-700 hover:bg-indigo-50"
                         >
                           {nextOpen === meta.key ? t("common.close") : t("hifzRound.change")}
-                        </button>
+                        </button>}
                         {!tm.auto && (
                           <button
                             type="button"
