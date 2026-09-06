@@ -63,13 +63,28 @@ export function SectionBehaviorFeed() {
   const [students, setStudents] = useState<AdminStudent[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Why the roster could not be loaded, if it could not. Without this the
+  // picker opened with an empty dropdown and a dead "Next" button, and
+  // nothing on screen said why — which reads as "I am not allowed to add
+  // notes" (pilot, 6 Sep).
+  const [rosterError, setRosterError] = useState<string | null>(null);
   // Add-note modal state: which student is being logged against.
   const [picker, setPicker] = useState<{ id: string; name: string } | null>(null);
   const [pickerSel, setPickerSel] = useState("");
 
   useEffect(() => {
     if (!orgId || !sectionId) return;
-    listStudents(orgId, { classSectionId: sectionId }).then(setStudents).catch(() => {});
+    setRosterError(null);
+    listStudents(orgId, { classSectionId: sectionId })
+      .then((r) => {
+        setStudents(r);
+        if (r.length === 0) setRosterError("This class has no students on its roster yet.");
+      })
+      .catch((e) =>
+        setRosterError(
+          e?.message || "Could not load this class's students, so notes can't be added right now.",
+        ),
+      );
   }, [orgId, sectionId]);
 
   const load = () => {
@@ -114,6 +129,10 @@ export function SectionBehaviorFeed() {
     { key: "positive", label: "Positive" },
     { key: "concern", label: "Concern" },
   ];
+
+  // Logging needs a roster to pick from. Better to explain than to open a
+  // dialog whose only control is empty.
+  const canAdd = students.length > 0 && !rosterError;
 
   const openPicker = () => {
     setPickerSel("");
@@ -174,7 +193,13 @@ export function SectionBehaviorFeed() {
                 <ChevronLeft className="h-4 w-4 mr-1" /> Classes
               </Button>
             </Link>
-            <Button size="sm" onClick={openPicker} className="bg-white text-slate-900 hover:bg-slate-100">
+            <Button
+              size="sm"
+              onClick={openPicker}
+              disabled={!canAdd}
+              title={rosterError ?? undefined}
+              className="bg-white text-slate-900 hover:bg-slate-100 disabled:opacity-60"
+            >
               <Plus className="h-4 w-4 mr-1" /> Add note
             </Button>
           </div>
@@ -188,7 +213,49 @@ export function SectionBehaviorFeed() {
           {loading && notes.length === 0 ? (
             <p className="text-sm text-muted-foreground">Loading…</p>
           ) : filtered.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No behavior notes in this range.</p>
+            // "No behavior notes in this range." was the whole empty state:
+            // a flat statement in the card where the content belongs, with
+            // the only useful control a small pill up in the header. A
+            // teacher read it as a refusal and reported that she could not
+            // add notes (pilot, 6 Sep). Say what is true and offer the way
+            // forward — and separate "nothing logged" from "the filter is
+            // hiding it", which are different problems.
+            <div className="flex flex-col items-start gap-3 py-3">
+              {notes.length > 0 ? (
+                <>
+                  <div>
+                    <p className="text-sm font-medium text-slate-800">
+                      No {filter} notes in this range.
+                    </p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      There {notes.length === 1 ? "is" : "are"} {notes.length}{" "}
+                      {notes.length === 1 ? "note" : "notes"} here under another filter.
+                    </p>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={() => setFilter("all")}>
+                    Show all notes
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <p className="text-sm font-medium text-slate-800">
+                      Nothing logged for this class between these dates.
+                    </p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Positive and concern notes you write for this class appear here.
+                      Widen the dates above to look further back.
+                    </p>
+                  </div>
+                  <Button size="sm" onClick={openPicker} disabled={!canAdd}>
+                    <Plus className="h-4 w-4 mr-1" /> Add a note
+                  </Button>
+                </>
+              )}
+              {rosterError && (
+                <p className="text-xs text-amber-700">{rosterError}</p>
+              )}
+            </div>
           ) : (
             <div className="space-y-5">
               {grouped.map(([day, dayNotes]) => (
@@ -276,6 +343,11 @@ export function SectionBehaviorFeed() {
         <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/40">
           <div className="w-full max-w-sm rounded-lg bg-white p-4 shadow-lg">
             <h2 className="text-lg font-semibold mb-2">Pick a student</h2>
+            {students.length === 0 && (
+              <p className="mb-2 text-sm text-amber-700">
+                {rosterError ?? "No students to choose from."}
+              </p>
+            )}
             <Select value={pickerSel} onValueChange={setPickerSel}>
               <SelectTrigger>
                 <SelectValue placeholder="Select student…" />
