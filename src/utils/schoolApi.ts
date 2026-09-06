@@ -4950,8 +4950,13 @@ export interface InboxThread {
   latestBody: string;
   latestSentByRole: "parent" | "school";
   latestAt: string;
+  /** Parent messages not yet ANSWERED (a staff read does not clear it). */
   unreadCount: number;
   messageCount: number;
+  /** Who is handling this inquiry; null = nobody has picked it up. */
+  assignedTo?: string | null;
+  assignedToName?: string | null;
+  assignedToMe?: boolean;
 }
 export interface InboxMessage {
   id: string;
@@ -4970,6 +4975,9 @@ export interface InboxThreadDetail {
     parentName: string | null;
     studentId: string | null;
     studentName: string | null;
+    assignedTo?: string | null;
+    assignedToName?: string | null;
+    assignedToMe?: boolean;
   };
   messages: InboxMessage[];
 }
@@ -4984,7 +4992,25 @@ export const replyToInboxThread = (
   apiCall(`/school/orgs/${orgId}/inbox/${threadId}/reply`, {
     method: "POST", body: JSON.stringify({ body }),
   });
-export const getInboxUnreadCount = (orgId: string): Promise<{ unreadCount: number }> =>
+/** Take a thread (or hand it to a colleague by passing their user id).
+ *  Taking over a thread someone else holds is allowed — the person on it
+ *  may be away, and a front office that cannot reassign is worse. */
+export const assignInboxThread = (
+  orgId: string, threadId: string, userId?: string,
+): Promise<{ ok: true; assignedTo: string; assignedToName: string | null }> =>
+  apiCall(`/school/orgs/${orgId}/inbox/${threadId}/assign`, {
+    method: "POST", body: JSON.stringify(userId ? { userId } : {}),
+  });
+/** Put a thread back in the pool. */
+export const releaseInboxThread = (
+  orgId: string, threadId: string,
+): Promise<{ ok: true; assignedTo: null }> =>
+  apiCall(`/school/orgs/${orgId}/inbox/${threadId}/assign`, { method: "DELETE" });
+/** `unreadCount` counts parents still WAITING FOR A REPLY; `awaitingReply`
+ *  is the same number under a name that says so. */
+export const getInboxUnreadCount = (
+  orgId: string,
+): Promise<{ unreadCount: number; awaitingReply?: number }> =>
   apiCall(`/school/orgs/${orgId}/inbox-unread-count`);
 
 // =============================================================================
