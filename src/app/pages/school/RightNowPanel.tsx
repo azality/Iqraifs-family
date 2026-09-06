@@ -73,13 +73,31 @@ function SessionChip({ orgId, s }: { orgId: string; s: NowSection }) {
 }
 
 export function RightNowPanel({ orgId }: { orgId: string }) {
-  const [data, setData] = useState<{ time: string; sections: NowSection[] } | null>(null);
+  const [data, setData] = useState<
+    {
+      time: string;
+      sections: NowSection[];
+      dayLabel?: string;
+      isSchoolDay?: boolean;
+      closedReason?: "holiday" | "not-a-school-day" | null;
+      holidayName?: string | null;
+    } | null
+  >(null);
   const [loading, setLoading] = useState(true);
 
   const load = (silent = false) => {
     if (!silent) setLoading(true);
     getNow(orgId)
-      .then((r) => setData({ time: r.time, sections: r.sections }))
+      .then((r) =>
+        setData({
+          time: r.time,
+          sections: r.sections,
+          dayLabel: r.dayLabel,
+          isSchoolDay: r.isSchoolDay,
+          closedReason: r.closedReason,
+          holidayName: r.holidayName,
+        }),
+      )
       .catch(() => { if (!silent) setData(null); })
       .finally(() => setLoading(false));
   };
@@ -97,7 +115,13 @@ export function RightNowPanel({ orgId }: { orgId: string }) {
     const sections = data?.sections ?? [];
     const active = sections.filter((s) => s.current);
     const freeNow = sections.filter((s) => !s.current && s.next);
-    const done = sections.filter((s) => !s.current && !s.next);
+    // "No period left today" has two very different causes: the section
+    // finished its day, or it never had one. Rendering both as "Done for
+    // today" made a Sunday look like a completed school day (pilot,
+    // 6 Sep). runsToday comes from the section's own bell schedule.
+    const idle = sections.filter((s) => !s.current && !s.next);
+    const offToday = idle.filter((s) => s.runsToday === false);
+    const done = idle.filter((s) => s.runsToday !== false);
     const needsCover = active.filter(
       (s) => s.current!.needsCover || (s.current!.teacherOnLeave && !s.current!.substituteName),
     );
@@ -122,11 +146,16 @@ export function RightNowPanel({ orgId }: { orgId: string }) {
         freeTeachers.push({ name, time });
       }
     }
-    return { sections, active, freeNow, done, needsCover, inSession, upcoming, freeTeachers };
+    return { sections, active, freeNow, done, offToday, needsCover, inSession, upcoming, freeTeachers };
   }, [data]);
 
   if (!data || grouped.sections.length === 0) return null;
-  const { active, freeNow, done, needsCover, inSession, upcoming, freeTeachers } = grouped;
+  const { active, freeNow, done, offToday, needsCover, inSession, upcoming, freeTeachers } = grouped;
+  const schoolClosed = data.isSchoolDay === false;
+  const closedLine =
+    data.closedReason === "holiday"
+      ? `${data.holidayName ? `${data.holidayName} — ` : ""}school closed today`
+      : `${data.dayLabel || "Today"} — no classes scheduled`;
   const firstUpcoming = upcoming[0]?.[0] ?? null;
 
   const slotSummary = (list: NowSection[]) => {
@@ -156,7 +185,7 @@ export function RightNowPanel({ orgId }: { orgId: string }) {
         )}
         <span className="ml-auto flex items-center gap-2">
           <span className="whitespace-nowrap text-[11.5px] text-slate-500">
-            {active.length} in session · {freeNow.length} free
+            {schoolClosed ? "no school today" : `${active.length} in session · ${freeNow.length} free`}
           </span>
           <button
             onClick={() => load()}
@@ -200,9 +229,16 @@ export function RightNowPanel({ orgId }: { orgId: string }) {
               />
             </div>
             <div className="mt-1 text-[12.5px] text-slate-700">
-              {active.length} in session · <b>{freeNow.length} teachers free</b>
-              {firstUpcoming && ` · next start ${firstUpcoming}`}
-              {active.length === 0 && upcoming.length === 0 && done.length === 0 && " · no periods today"}
+              {schoolClosed ? (
+                <b>{closedLine}</b>
+              ) : (
+                <>
+                  {active.length} in session · <b>{freeNow.length} teachers free</b>
+                  {firstUpcoming && ` · next start ${firstUpcoming}`}
+                  {active.length === 0 && upcoming.length === 0 && done.length === 0 &&
+                    " · nothing left today"}
+                </>
+              )}
             </div>
             {freeTeachers.length > 0 && (
               <details className="mt-1">
@@ -259,12 +295,25 @@ export function RightNowPanel({ orgId }: { orgId: string }) {
             </div>
           ))}
 
-          {/* Done for today */}
+          {/* Done for today — sections that ran and finished. */}
           {done.length > 0 && (
             <div className="relative pl-4">
               <NodeDot variant="later" />
               <div className="text-[11px] font-bold text-slate-400">
                 Done for today · {done.length} section{done.length === 1 ? "" : "s"}
+              </div>
+            </div>
+          )}
+
+          {/* Off today — sections whose bell schedule is silent. On a
+              Hifz-only Saturday this is every academic wing; on a Sunday
+              it is the whole school. */}
+          {offToday.length > 0 && (
+            <div className="relative pl-4">
+              <NodeDot variant="later" />
+              <div className="text-[11px] font-bold text-slate-400">
+                Off today · {offToday.length} section{offToday.length === 1 ? "" : "s"}
+                {schoolClosed ? "" : " — not on today's timetable"}
               </div>
             </div>
           )}

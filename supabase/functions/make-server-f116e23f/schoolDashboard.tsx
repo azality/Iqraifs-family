@@ -228,6 +228,65 @@ type SectionRow = {
 // The QA Sandbox class (regression-suite scaffolding) is invisible to
 // org-level viewers — admins should never wonder what "Sandbox" is. The
 // QA accounts still see it via their own teacher scope.
+// Which weekday is it in school time, and what is running?
+//
+// #469 stopped the dashboard demanding attendance on a Sunday, but the
+// words around the number still described a finished school day ("0/0,
+// normal day", "Done for today - 20 sections"). A day with no school
+// has to SAY so, so both /today-ops and /now resolve it here and can
+// never disagree about it.
+const DAY_NAMES = [
+  "", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday",
+];
+
+type SchoolDayFacts = {
+  /** ISO weekday, 1=Mon..7=Sun, matching timetable_slot.day_of_week. */
+  isoDow: number;
+  dayLabel: string;
+  /** Bell schedules with at least one slot on this weekday. */
+  runningKeys: Set<string>;
+  onHoliday: boolean;
+  holidayName: string | null;
+};
+
+async function resolveSchoolDay(orgId: string, today: string): Promise<SchoolDayFacts> {
+  const dow = new Date(`${today}T12:00:00+05:00`).getUTCDay(); // 0=Sun
+  const isoDow = dow === 0 ? 7 : dow;
+
+  const [slotRows, orgRow] = await Promise.all([
+    serviceRoleClient
+      .from("timetable_slot")
+      .select("schedule_key")
+      .eq("org_id", orgId)
+      .eq("day_of_week", isoDow)
+      .is("archived_at", null),
+    serviceRoleClient
+      .from("organizations")
+      .select("settings")
+      .eq("id", orgId)
+      .maybeSingle(),
+  ]);
+
+  // Holidays are written by the School Schedule editor as
+  // settings.school_year.holidays [{ name, startDate, endDate }].
+  const holidays = ((orgRow.data as any)?.settings?.school_year?.holidays ?? []) as any[];
+  const hit = holidays.find((h) => {
+    const from = h?.startDate;
+    const to = h?.endDate || h?.startDate;
+    return typeof from === "string" && today >= from && today <= to;
+  });
+
+  return {
+    isoDow,
+    dayLabel: DAY_NAMES[isoDow] ?? "",
+    runningKeys: new Set(
+      ((slotRows.data ?? []) as any[]).map((r) => r.schedule_key ?? "default"),
+    ),
+    onHoliday: Boolean(hit),
+    holidayName: hit?.name || null,
+  };
+}
+
 function withoutSandbox<T extends { sections: SectionRow[] }>(skel: T): T {
   return {
     ...skel,
@@ -1249,44 +1308,25 @@ export function installDashboard(school: Hono): void {
     // weekday. That handles Hifz running Saturday while the academic
     // wings don't, without anyone maintaining a second list. Holidays
     // declared on the School Schedule page close the whole school.
-    const dow = new Date(`${today}T12:00:00+05:00`).getUTCDay(); // 0=Sun
-    const isoDow = dow === 0 ? 7 : dow; // timetable_slot uses 1=Mon..7=Sun
-
-    const [slotRows, orgRow] = await Promise.all([
-      serviceRoleClient
-        .from("timetable_slot")
-        .select("schedule_key")
-        .eq("org_id", orgId)
-        .eq("day_of_week", isoDow)
-        .is("archived_at", null),
-      serviceRoleClient
-        .from("organizations")
-        .select("settings")
-        .eq("id", orgId)
-        .maybeSingle(),
-    ]);
-    const runningKeys = new Set(
-      ((slotRows.data ?? []) as any[]).map((r) => r.schedule_key ?? "default"),
-    );
-
-    // Holidays are stored by the School Schedule editor as
-    // settings.school_year.holidays [{ startDate, endDate }].
-    const holidays = ((orgRow.data as any)?.settings?.school_year?.holidays ?? []) as any[];
-    const onHoliday = holidays.some((h) => {
-      const from = h?.startDate;
-      const to = h?.endDate || h?.startDate;
-      return typeof from === "string" && today >= from && today <= to;
-    });
+    const day = await resolveSchoolDay(orgId, today);
 
     // Only sections with students can take attendance — empty sections
     // (e.g. Junior B awaiting its student split) don't count as "missing".
-    const expected = onHoliday
-      ? []
-      : skeleton.sections.filter(
-          (s) =>
-            s.student_count > 0 &&
-            runningKeys.has((s as any).schedule_key ?? "default"),
-        );
+    const withStudents = skeleton.sections.filter((s) => s.student_count > 0);
+    const running = withStudents.filter((s) =>
+      day.runningKeys.has(s.schedule_key ?? "default"),
+    );
+    const expected = day.onHoliday ? [] : running;
+
+    // Say WHY nothing is expected, so the dashboard can print "Sunday —
+    // no classes" instead of a green "normal day" over an empty 0/0.
+    // A partial day is a real state here too: Saturday runs Hifz while
+    // the academic wings are closed, and the strip should show both.
+    const closedReason = day.onHoliday
+      ? "holiday"
+      : running.length === 0
+        ? "not-a-school-day"
+        : null;
 
     const [attRes, flagsRes, earlyRes, leaveRes, subsRes] = await Promise.all([
       serviceRoleClient
@@ -1343,6 +1383,16 @@ export function installDashboard(school: Hono): void {
 
     return c.json({
       date: today,
+      dayLabel: day.dayLabel,
+      schoolDay: {
+        isSchoolDay: closedReason === null,
+        closedReason,
+        holidayName: day.holidayName,
+        sectionsRunning: expected.length,
+        // Sections that have students but whose bell schedule is silent
+        // today — the academic wings on a Hifz-only Saturday.
+        sectionsOff: withStudents.length - expected.length,
+      },
       sectionsExpected: expected.length,
       sectionsTaken: expected.length - missing.length,
       missingSections: missing,
@@ -2149,6 +2199,14 @@ export function installDashboard(school: Hono): void {
     const hhmm = `${String(pkt.getUTCHours()).padStart(2, "0")}:${String(pkt.getUTCMinutes()).padStart(2, "0")}`;
     const todayStr = pkt.toISOString().slice(0, 10);
 
+    // A section with no period left today has either finished its day or
+    // never had one. The panel rendered both as "Done for today", so a
+    // Sunday read as a completed school day. Same source of truth as
+    // /today-ops, so the two lines on the dashboard cannot contradict.
+    const day = await resolveSchoolDay(orgId, todayStr);
+    const runsToday = (sec: any) =>
+      !day.onHoliday && day.runningKeys.has(sec.schedule_key ?? "default");
+
     const [{ data: slots }, { data: leave }, { data: subsToday }] = await Promise.all([
       serviceRoleClient.from("timetable_slot")
         .select("id, name, start_time, end_time, schedule_key")
@@ -2228,6 +2286,7 @@ export function installDashboard(school: Hono): void {
         sectionId: sec.id,
         label: `${sec.class_name} · ${sec.name}`,
         kind: sec.class_kind ?? "academic",
+        runsToday: runsToday(sec),
         current: cur ? await pack(cur) : null,
         next: nextEntry ? await pack(nextEntry.e) : null,
         lessonsToday: lessons.map((l) => ({
@@ -2238,7 +2297,21 @@ export function installDashboard(school: Hono): void {
       });
     }
     out.sort((a: any, b: any) => a.label.localeCompare(b.label));
-    return c.json({ date: todayStr, time: hhmm, dayOfWeek: dow, sections: out });
+    const anyRunning = out.some((s: any) => s.runsToday);
+    return c.json({
+      date: todayStr,
+      time: hhmm,
+      dayOfWeek: dow,
+      dayLabel: day.dayLabel,
+      isSchoolDay: anyRunning,
+      closedReason: day.onHoliday
+        ? "holiday"
+        : anyRunning
+          ? null
+          : "not-a-school-day",
+      holidayName: day.holidayName,
+      sections: out,
+    });
   });
 
   // ── Academics day view (incharge digest) ────────────────────────────
