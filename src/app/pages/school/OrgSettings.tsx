@@ -484,7 +484,11 @@ export function OrgSettings() {
       </section>
 
       {/* Section: Branding & locale (PR C #5).
-          Timezone defaults to Asia/Karachi for Iqra pilot but is editable.
+          Timezone drives every school-day decision — which day attendance
+          belongs to, whether school runs today, whether the first bell has
+          rung. Set it to your school&apos;s own zone (an IANA name such as
+          Asia/Karachi or Europe/London); it defaults to Asia/Karachi only
+          because the first school is Pakistani.
           Logo URL is just a string field — file upload comes later; for now
           the principal pastes a hosted image URL. Theme color is HTML
           color picker; applied to HeroCards (TODO: actually wire to UI). */}

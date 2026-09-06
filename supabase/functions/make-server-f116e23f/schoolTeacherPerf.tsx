@@ -12,6 +12,7 @@
 // definitions and fairness guardrails (ramp, term-compare-first).
 
 import type { Hono } from "npm:hono";
+import { orgTimezone, tzOffsetMinutes } from "./tz.ts";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { hasAdminOrPrincipal, inchargeClassIds } from "./schoolAuth.ts";
 
@@ -180,8 +181,10 @@ export function installTeacherPerf(school: Hono) {
       const byDay = new Map<string, Set<string>>();
       const qualityMix: Record<string, number> = {};
       let newAyahs = 0;
+      // Bucket timestamps by the SCHOOL's day, not a hardcoded UTC+5.
+      const tzMs = tzOffsetMinutes(new Date(), await orgTimezone(orgId)) * 60_000;
       for (const h of (heard ?? []) as any[]) {
-        const d = new Date(new Date(h.recorded_at).getTime() + 5 * 3600e3).toISOString().slice(0, 10);
+        const d = new Date(new Date(h.recorded_at).getTime() + tzMs).toISOString().slice(0, 10);
         (byDay.get(d) ?? byDay.set(d, new Set()).get(d)!).add(h.student_id);
         if (h.quality) qualityMix[h.quality] = (qualityMix[h.quality] ?? 0) + 1;
       }
@@ -586,10 +589,12 @@ export function installTeachingOverview(school: Hono) {
             .gte("recorded_at", winStart.toISOString()).lte("recorded_at", winEnd.toISOString())
             .limit(100000)
         : { data: [] };
+      // Same rule as above: the school's day, resolved from the org.
+      const tzMs2 = tzOffsetMinutes(new Date(), await orgTimezone(orgId)) * 60_000;
       for (const h of (heard ?? []) as any[]) {
         const sec = secOf.get(h.student_id);
         if (!sec) continue;
-        const d = new Date(new Date(h.recorded_at).getTime() + 5 * 3600e3).toISOString().slice(0, 10);
+        const d = new Date(new Date(h.recorded_at).getTime() + tzMs2).toISOString().slice(0, 10);
         const agg = heardBySec.get(sec)!;
         const set = agg.days.get(d) ?? new Set<string>();
         set.add(h.student_id);
@@ -697,7 +702,9 @@ export function installTeachingOverview(school: Hono) {
     }
 
     // Last completed Mon–Sun week in org-local time (UTC+5).
-    const TZ = 5 * 3600e3;
+    // The school's offset, not Pakistan's. Sampled once per request;
+    // a report window never straddles a DST change meaningfully here.
+    const TZ = tzOffsetMinutes(new Date(), await orgTimezone(orgId)) * 60_000;
     const localNow = new Date(Date.now() + TZ);
     const dow = (localNow.getUTCDay() + 6) % 7; // 0 = Monday
     const thisMonday = new Date(Date.UTC(localNow.getUTCFullYear(), localNow.getUTCMonth(), localNow.getUTCDate() - dow));
