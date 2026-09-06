@@ -23,7 +23,7 @@
 import { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { hasAnyRoleInOrg, hasAdminOrPrincipal, inchargeClassIds } from "./schoolAuth.ts";
-import { todayInOrgTz, nowTimeInOrgTz, schoolDayAnchor } from "./tz.ts";
+import { todayInOrgTz, nowTimeInOrgTz, schoolDayAnchor, orgTimezone, zonedDayRangeUtc } from "./tz.ts";
 
 // -----------------------------------------------------------------------------
 // Period math — period boundaries computed server-side. All dates are
@@ -324,7 +324,10 @@ type SchoolDayFacts = {
 };
 
 async function resolveSchoolDay(orgId: string, today: string): Promise<SchoolDayFacts> {
-  const dow = new Date(`${today}T12:00:00+05:00`).getUTCDay(); // 0=Sun
+  // `today` is already the school's calendar date; noon UTC keeps the
+  // weekday read stable for any timezone (the old +05:00 literal worked
+  // only because Karachi is the first customer).
+  const dow = new Date(`${today}T12:00:00Z`).getUTCDay(); // 0=Sun
   const isoDow = dow === 0 ? 7 : dow;
 
   const [slotRows, orgRow] = await Promise.all([
@@ -620,12 +623,13 @@ export function installDashboard(school: Hono): void {
     // already resolved the day this way; /dashboard did not, so at
     // 00:12 PKT on a Monday the two disagreed about whether school runs
     // (caught by check 54 the first night it was live).
-    const schoolToday = todayInOrgTz();
+    const tz = await orgTimezone(orgId);
+    const schoolToday = todayInOrgTz(tz);
     // The weekday walks below (attendance gaps, dip streaks) read UTC
     // fields, so anchor them on a date whose UTC day IS the school's day
     // - otherwise between 00:00 and 05:00 PKT they check the wrong three
     // days. Same five-hour skew as the tile, one layer down.
-    const schoolTodayDate = schoolDayAnchor();
+    const schoolTodayDate = schoolDayAnchor(tz);
     // The school's real week, per bell schedule - see loadSchoolWeek.
     const schoolWeek = await loadSchoolWeek(orgId);
 
@@ -709,7 +713,7 @@ export function installDashboard(school: Hono): void {
     // bell had not rung. "Low" should mean people are missing, not that
     // the day has not started (Muneeb, 6 Sep). Compared on the school's
     // wall clock, never the server's.
-    const nowSchoolTime = nowTimeInOrgTz();
+    const nowSchoolTime = nowTimeInOrgTz(tz);
     const beforeFirstBell =
       !schoolClosedToday &&
       dashDay.firstBell !== null &&
@@ -1438,7 +1442,9 @@ export function installDashboard(school: Hono): void {
     if (!(await hasAdminOrPrincipal(userId, orgId))) {
       return c.json({ error: "forbidden" }, 403);
     }
-    const today = todayInOrgTz(); // school-day boundary = Karachi wall clock
+    // School-day boundary = the SCHOOL's wall clock, whichever country
+    // it is in - not the server's, and not a hardcoded Pakistan.
+    const today = todayInOrgTz(await orgTimezone(orgId));
 
     const skeleton = withoutSandbox(await loadOrgSkeleton(orgId));
 
@@ -1856,7 +1862,7 @@ export function installDashboard(school: Hono): void {
     // gap alerts: a UTC anchor slides the whole window by one between
     // 00:00 and 05:00 PKT.
     const lbWeek = await loadSchoolWeek(orgId);
-    const last10Dates = lastNSchoolDays(lbWeek, null, schoolDayAnchor(), 10)
+    const last10Dates = lastNSchoolDays(lbWeek, null, schoolDayAnchor(await orgTimezone(orgId)), 10)
       .map((iso) => new Date(`${iso}T12:00:00Z`));
     const earliest = new Date(
       Math.min(
@@ -2341,11 +2347,12 @@ export function installDashboard(school: Hono): void {
     );
     if (sections.length === 0) return c.json({ now: null, sections: [] });
 
-    // School clock runs on PKT.
-    const pkt = new Date(Date.now() + 5 * 3600e3);
-    const dow = ((pkt.getUTCDay() + 6) % 7) + 1; // ISO Mon=1..Sun=7
-    const hhmm = `${String(pkt.getUTCHours()).padStart(2, "0")}:${String(pkt.getUTCMinutes()).padStart(2, "0")}`;
-    const todayStr = pkt.toISOString().slice(0, 10);
+    // The school's own clock. Offset arithmetic (Date.now() + 5h) was
+    // both Pakistan-specific and DST-blind; Intl handles both.
+    const tz = await orgTimezone(orgId);
+    const todayStr = todayInOrgTz(tz);
+    const hhmm = nowTimeInOrgTz(tz);
+    const dow = ((new Date(`${todayStr}T12:00:00Z`).getUTCDay() + 6) % 7) + 1; // ISO Mon=1..Sun=7
 
     // A section with no period left today has either finished its day or
     // never had one. The panel rendered both as "Done for today", so a
@@ -2482,13 +2489,13 @@ export function installDashboard(school: Hono): void {
       wing = w;
     }
     const qDate = c.req.query("date");
-    const pktToday = new Date(Date.now() + 5 * 3600e3).toISOString().slice(0, 10);
-    const date = qDate && /^\d{4}-\d{2}-\d{2}$/.test(qDate) ? qDate : pktToday;
+    const tz = await orgTimezone(orgId);
+    const date = qDate && /^\d{4}-\d{2}-\d{2}$/.test(qDate) ? qDate : todayInOrgTz(tz);
     const weekEnd = new Date(new Date(`${date}T00:00:00Z`).getTime() + 7 * 86400e3)
       .toISOString().slice(0, 10);
-    // PKT day window for timestamp-based hifz rows.
-    const dayStartUtc = new Date(new Date(`${date}T00:00:00Z`).getTime() - 5 * 3600e3).toISOString();
-    const dayEndUtc = new Date(new Date(`${date}T00:00:00Z`).getTime() + 19 * 3600e3).toISOString();
+    // The school's own day window for timestamp-based hifz rows. Was
+    // -5h/+19h hardcoded, which is Pakistan-only and DST-blind.
+    const { startUtc: dayStartUtc, endUtc: dayEndUtc } = zonedDayRangeUtc(date, tz);
 
     const [lessonsQ, assignQ, plannedQ, hifzSecQ] = await Promise.all([
       serviceRoleClient

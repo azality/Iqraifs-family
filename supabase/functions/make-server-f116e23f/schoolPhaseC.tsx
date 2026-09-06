@@ -35,7 +35,7 @@ import {
   loadSection,
   requireTeacherOfSection,
 } from "./schoolAuth.ts";
-import { todayInOrgTz } from "./tz.ts";
+import { todayInOrgTz, orgTimezone, tzOffsetMinutes } from "./tz.ts";
 
 // -----------------------------------------------------------------------------
 // Validation helpers
@@ -945,10 +945,12 @@ export function installPhaseC(school: Hono): void {
     }
 
     // Today's status per student — drives the roster's S/Sq/M chips so a
-    // teacher sees at a glance who's already been heard today. "Today"
-    // uses Karachi wall clock (UTC+5), matching the portal's 14-day grid
-    // approach — good enough at pilot scale.
-    const todayStr = new Date(Date.now() + 5 * 3600e3).toISOString().slice(0, 10);
+    // teacher sees at a glance who's already been heard today. "Today" is
+    // the SCHOOL's wall clock, resolved from the org (was a hardcoded
+    // UTC+5, which made this Pakistan-only and DST-blind).
+    const hifzTz = await orgTimezone(orgId);
+    const todayStr = todayInOrgTz(hifzTz);
+    const hifzTzOffsetMs = tzOffsetMinutes(new Date(), hifzTz) * 60_000;
 
     const out = studentList.map((s) => {
       const rows = byStudent.get(s.id) ?? [];
@@ -964,7 +966,7 @@ export function installPhaseC(school: Hono): void {
           lastNazra = r;
         }
         if (
-          new Date(new Date(r.recorded_at).getTime() + 5 * 3600e3)
+          new Date(new Date(r.recorded_at).getTime() + hifzTzOffsetMs)
             .toISOString().slice(0, 10) === todayStr
         ) {
           if (r.kind === "sabaq") today.sabaq = true;

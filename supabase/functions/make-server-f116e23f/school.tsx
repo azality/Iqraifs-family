@@ -20,6 +20,7 @@
 // =============================================================================
 
 import { Hono } from "npm:hono";
+import { isValidTimeZone, forgetOrgTimezone } from "./tz.ts";
 import { serviceRoleClient, requireAuth, getAuthUserId } from "./middleware.tsx";
 import { isPrincipalOf, hasAdminOrPrincipal, hasAnyRoleInOrg, todayUtcDate, isRoleActiveNow } from "./schoolAuth.ts";
 import { logAuditWithLookup } from "./schoolAudit.ts";
@@ -624,6 +625,18 @@ school.patch("/orgs/:orgId", async (c) => {
     ...((current.settings as Record<string, unknown>) ?? {}),
   };
   let settingsTouched = false;
+  // A bad timezone must be refused, not silently ignored. Every
+  // school-day decision (is today a school day, has the first bell rung,
+  // was this marked today) resolves through it, and orgTimezone() falls
+  // back to the default when it cannot parse - which would look like the
+  // setting simply not working for a school outside the default zone.
+  if (body.timezone !== undefined && body.timezone !== "" && !isValidTimeZone(body.timezone)) {
+    return c.json(
+      { error: "timezone must be a valid IANA zone, e.g. Asia/Karachi or Europe/London" },
+      400,
+    );
+  }
+
   for (const k of settingsKeys) {
     if (body[k] !== undefined) {
       mergedSettings[k] = body[k];
@@ -686,6 +699,9 @@ school.patch("/orgs/:orgId", async (c) => {
     .select()
     .maybeSingle();
   if (error) return c.json({ error: error.message }, 500);
+  // Zones are cached per isolate; a school that just moved (or fixed a
+  // typo) must not keep being read on the old clock.
+  if (body.timezone !== undefined) forgetOrgTimezone(orgId);
   return c.json(data);
 });
 

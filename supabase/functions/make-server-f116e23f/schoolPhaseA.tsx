@@ -27,6 +27,7 @@
 // =============================================================================
 
 import { Hono } from "npm:hono";
+import { todayInOrgTz, orgTimezone } from "./tz.ts";
 import {
   serviceRoleClient,
   getAuthUserId,
@@ -1357,7 +1358,8 @@ export function installPhaseA(school: Hono) {
         quickFacts.attendanceDays = attRows.length;
       }
       // Current-month fee status.
-      const period = new Date(Date.now() + 5 * 3600e3).toISOString().slice(0, 7);
+      // Billing month on the school's clock, not a hardcoded +5h.
+      const period = todayInOrgTz(await orgTimezone(orgId)).slice(0, 7);
       const { data: fee } = await serviceRoleClient
         .from("fee_status").select("status, amount_due")
         .eq("student_id", studentId).eq("period", period).limit(1).maybeSingle();
@@ -1517,7 +1519,7 @@ export function installPhaseA(school: Hono) {
     // 'waived' status so finance surfaces already exclude them from
     // outstanding. Past-month arrears and partially-paid vouchers are left
     // alone — the office decides those case by case.
-    const currentPeriod = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Karachi" }).slice(0, 7);
+    const currentPeriod = todayInOrgTz(await orgTimezone(orgId)).slice(0, 7);
     const { data: cancelled } = await serviceRoleClient
       .from("fee_status")
       .update({ status: "waived", notes: "Cancelled - student left" })
