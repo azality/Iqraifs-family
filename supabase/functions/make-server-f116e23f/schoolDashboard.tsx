@@ -530,6 +530,14 @@ export function installDashboard(school: Hono): void {
     const now = new Date();
     const { start, end, prevStart, prevEnd } = periodWindows(now, period);
     const today = startOfDay(now);
+    // "Today" for ATTENDANCE is the school day, not the server's UTC day.
+    // Karachi is UTC+5, so from 00:00-05:00 local the UTC date is still
+    // yesterday - the F12 class of bug tz.ts was written for, and its
+    // docs name "today's attendance row" as exactly this case. today-ops
+    // already resolved the day this way; /dashboard did not, so at
+    // 00:12 PKT on a Monday the two disagreed about whether school runs
+    // (caught by check 54 the first night it was live).
+    const schoolToday = todayInOrgTz();
 
     const fullSkeleton = await loadOrgSkeleton(orgId);
     const scope = await determineScope(
@@ -587,7 +595,7 @@ export function installDashboard(school: Hono): void {
     // Attendance: pull period + previous + today in one window.
     const attRangeAll = await fetchAttendance(orgId, prevStart, end);
     const attRange = attRangeAll.filter((r) => inScope(r.class_section_id));
-    const attToday = attRange.filter((r) => r.date === fmtDate(today));
+    const attToday = attRange.filter((r) => r.date === schoolToday);
     const attPeriod = attRange.filter(
       (r) => r.date >= fmtDate(start) && r.date <= fmtDate(end),
     );
@@ -600,7 +608,7 @@ export function installDashboard(school: Hono): void {
     // principal attendance had collapsed on a Sunday (pilot, 6 Sep).
     // #469/#471 taught today-ops and Right Now to ask the timetable;
     // this tile never did. Same helper, so the three cannot disagree.
-    const dashDay = await resolveSchoolDay(orgId, fmtDate(today));
+    const dashDay = await resolveSchoolDay(orgId, schoolToday);
     const anyScheduleRunsToday = Array.from(dashDay.runningKeys).some(
       (k) => k !== "sandbox",
     );
