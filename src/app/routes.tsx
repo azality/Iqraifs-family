@@ -566,8 +566,12 @@ export const router = createBrowserRouter([
               { path: "admin/timetable", element: <ManageTimetable /> },
               { path: "admin/timetable/master", element: <MasterTimetable /> },
               { path: "admin/timetable/substitutions", element: <TimetableSubstitutionsPage /> },
-              // School schedule editor (one-time setup) lives under
-              // Settings since principals only touch it at year-start.
+              // School schedule editor. It sits under Timetable because
+              // that is the only place anyone reaches it from, and so the
+              // nav highlights Academics rather than claiming Admin.
+              { path: "admin/timetable/schedule", element: <TimetableSchedulePage /> },
+              // Old address kept alive — it was linked from Settings and
+              // may sit in a bookmark.
               { path: "admin/settings/school-schedule", element: <TimetableSchedulePage /> },
               { path: "admin/time-off", element: <AdminTimeOff /> },
               { path: "my-week", element: <TeacherWeekView /> },

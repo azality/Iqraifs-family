@@ -87,7 +87,7 @@ export function TimetableSectionsChecklist() {
   if (total === 0) {
     return (
       <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 text-sm text-amber-900">
-        Your school day isn't defined yet. Set it up in <Link to={`/school/orgs/${orgId}/admin/settings/school-schedule`} className="underline font-medium">Settings → School schedule</Link> first — that creates the empty grid each class fills in.
+        Your school day isn't defined yet. Set it up in <Link to={`/school/orgs/${orgId}/admin/timetable/schedule`} className="underline font-medium">Settings → School schedule</Link> first — that creates the empty grid each class fills in.
       </div>
     );
   }

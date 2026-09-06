@@ -256,6 +256,11 @@ export function OrgSettings() {
           endDate: h.endDate || h.startDate,
         }))
         .filter((h) => h.name && /^\d{4}-\d{2}-\d{2}$/.test(h.startDate));
+      // school_year is stored as ONE json blob and replaced wholesale,
+      // so this must keep round-tripping schoolDays and holidays even
+      // though they are no longer edited here - dropping them would
+      // wipe what the schedule editor wrote. They pass through exactly
+      // as loaded.
       await updateOrganization(orgId, {
         school_year: {
           startDate: yearStartDate || undefined,
@@ -271,10 +276,6 @@ export function OrgSettings() {
       setSyearSaving(false);
     }
   };
-
-  function toggleSchoolDay(d: number) {
-    setYearSchoolDays((s) => s.includes(d) ? s.filter((x) => x !== d) : [...s, d].sort((a, b) => a - b));
-  }
 
   return (
     <div className="space-y-5">
@@ -441,47 +442,24 @@ export function OrgSettings() {
           Set this once at year-start; the daily timetable builds on top.
         </p>
         <div className="mt-4">
-          <Link to={`/school/orgs/${orgId}/admin/settings/school-schedule`}>
+          <Link to={`/school/orgs/${orgId}/admin/timetable/schedule`}>
             <Button>Open schedule editor</Button>
           </Link>
         </div>
       </section>
 
-      {/* Section: School calendar — week + year + holidays. */}
+      {/* Section: Academic year dates. School days, periods and
+          holidays moved to the schedule editor — two screens owning
+          settings.school_year.schoolDays is what let them disagree. */}
       <section className={`${cardBase} ${cardElev} p-5`}>
-        <h3 className={sectionTitleClasses}>School calendar</h3>
+        <h3 className={sectionTitleClasses}>Academic year</h3>
         <p className="mt-1 text-sm text-slate-600">
-          Which days are school days, when the academic year runs, and any holidays (Eid, Dec 25,
-          Ramadan break, etc).
+          When the academic year runs. School days, period times and holidays are
+          set in the schedule editor above — they used to be editable in both
+          places, which let the two disagree.
         </p>
 
         <div className="mt-4 space-y-4">
-          <div className="space-y-1.5">
-            <Label className="text-xs uppercase tracking-wider text-slate-500">School days</Label>
-            <div className="flex flex-wrap gap-1.5">
-              {[
-                { num: 1, short: "Mon" }, { num: 2, short: "Tue" }, { num: 3, short: "Wed" },
-                { num: 4, short: "Thu" }, { num: 5, short: "Fri" }, { num: 6, short: "Sat" },
-                { num: 7, short: "Sun" },
-              ].map((d) => {
-                const on = yearSchoolDays.includes(d.num);
-                return (
-                  <button
-                    key={d.num} type="button" onClick={() => toggleSchoolDay(d.num)}
-                    className={
-                      "rounded-full px-3 py-1 text-xs font-medium border " +
-                      (on
-                        ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
-                        : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50")
-                    }
-                  >
-                    {d.short}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1">
               <Label htmlFor="syear-start" className="text-xs">Year starts</Label>
@@ -493,36 +471,6 @@ export function OrgSettings() {
               <Input id="syear-end" type="date" value={yearEndDate}
                      onChange={(e) => setYearEndDate(e.target.value)} />
             </div>
-          </div>
-
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs uppercase tracking-wider text-slate-500">Holidays</Label>
-              <Button variant="outline" size="sm"
-                      onClick={() => setYearHolidays([...yearHolidays, { name: "", startDate: "", endDate: "" }])}>
-                + Add holiday
-              </Button>
-            </div>
-            {yearHolidays.length === 0 ? (
-              <div className="rounded-md border border-dashed border-slate-300 px-3 py-3 text-xs text-slate-500">
-                No holidays added. Examples: Eid al-Fitr (3 days), Eid al-Adha, Independence Day (Aug 14), Ramadan break.
-              </div>
-            ) : (
-              <ul className="space-y-2">
-                {yearHolidays.map((h, i) => (
-                  <li key={i} className="grid grid-cols-[1fr_140px_140px_auto] gap-2 items-center">
-                    <Input value={h.name} placeholder="Name (e.g. Eid al-Fitr)"
-                           onChange={(e) => setYearHolidays(yearHolidays.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} />
-                    <Input type="date" value={h.startDate}
-                           onChange={(e) => setYearHolidays(yearHolidays.map((x, j) => j === i ? { ...x, startDate: e.target.value } : x))} />
-                    <Input type="date" value={h.endDate}
-                           onChange={(e) => setYearHolidays(yearHolidays.map((x, j) => j === i ? { ...x, endDate: e.target.value } : x))} />
-                    <Button variant="outline" size="sm"
-                            onClick={() => setYearHolidays(yearHolidays.filter((_, j) => j !== i))}>×</Button>
-                  </li>
-                ))}
-              </ul>
-            )}
           </div>
 
           <div className="flex items-center gap-3 pt-1">
