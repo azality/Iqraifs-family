@@ -2194,6 +2194,42 @@ await check("53. the Sandbox stays out of the principal's academics rollup", asy
     "the scoped teacher lost sight of their own class - the filter is too wide");
 });
 
+await check("54. the attendance tile does not score a day with no school", async () => {
+  // attendancePct([]) is 0, so a closed day rendered "0% low" in red on
+  // the principal's stat strip - the dashboard reporting an attendance
+  // collapse on a Sunday (pilot, 6 Sep). #469/#471 taught today-ops and
+  // Right Now to ask the timetable; this tile had never been told.
+  const [dashR, opsR] = await Promise.all([
+    api(principal.token, `/school/orgs/${ORG}/dashboard?period=WTD`),
+    api(principal.token, `/school/orgs/${ORG}/today-ops`),
+  ]);
+  const dash = await dashR.json();
+  const ops = await opsR.json();
+  assert(dashR.status === 200 && opsR.status === 200, `dashboard ${dashR.status} / ops ${opsR.status}`);
+
+  const tile = dash.tiles?.attendanceToday;
+  assert(tile && typeof tile.closed === "boolean",
+    "attendanceToday must say whether the school is closed today");
+
+  // The two endpoints resolve the day through the same helper, so a
+  // disagreement here means one of them stopped using it.
+  const opsClosed = ops.schoolDay ? !ops.schoolDay.isSchoolDay : null;
+  if (opsClosed !== null) {
+    assert(tile.closed === opsClosed,
+      `dashboard says closed=${tile.closed} while today-ops says closed=${opsClosed}`);
+  }
+
+  if (tile.closed) {
+    assert(tile.value === null,
+      `a closed day has nothing to be a percentage of - got ${tile.value}`);
+    assert(typeof tile.hint === "string" && tile.hint.length > 0,
+      "a closed tile must say why");
+  } else {
+    assert(tile.value === null || typeof tile.value === "number",
+      "an open day's tile is a number or null");
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

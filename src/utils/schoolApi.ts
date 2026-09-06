@@ -1067,11 +1067,18 @@ export type AttendanceStatus = "present" | "late" | "absent" | "present_remote";
 export type DashboardPeriod = "T" | "WTD" | "MTD" | "QTD" | "YTD";
 
 export interface DashboardTile {
-  /** null = data not yet available (e.g. Phase C/D feature). */
+  /** null = data not yet available (e.g. Phase C/D feature), or the
+   *  number would be meaningless today - see `closed`. */
   value: number | null;
   hint: string;
   /** Period-over-period change in percentage points. Optional. */
   deltaPp?: number | null;
+  /** attendanceToday only: the school does not run today, so there is
+   *  nothing to be a percentage OF. Distinguishes "no school" from a
+   *  genuine 0%. */
+  closed?: boolean;
+  dayLabel?: string;
+  holidayName?: string | null;
 }
 
 export interface DashboardAlert {
