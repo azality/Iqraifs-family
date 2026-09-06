@@ -111,7 +111,14 @@ if ((qaTopics?.length ?? 0) === 0) {
 }
 // QA timetable slot tomorrow + entry for the QA subject.
 const tomorrowDow = (((new Date().getDay() + 6) % 7) + 1) % 7 + 1; // 1..7, tomorrow
-let { data: qaSlot } = await admin.from("timetable_slot").select("id").eq("org_id", ORG).eq("name", "QA P1").eq("day_of_week", tomorrowDow).is("archived_at", null).maybeSingle();
+// maybeSingle() THROWS once two rows match, returning null — which read
+// as "no slot yet" and inserted another every run. That is how the QA
+// band grew four "QA P1" rows at Monday 09:00, and it would now trip the
+// unique-period index. Take the first match instead.
+let { data: qaSlotRows } = await admin.from("timetable_slot").select("id")
+  .eq("org_id", ORG).eq("name", "QA P1").eq("day_of_week", tomorrowDow)
+  .is("archived_at", null).order("created_at").limit(1);
+let qaSlot: any = (qaSlotRows ?? [])[0] ?? null;
 if (!qaSlot) {
   const { data } = await admin.from("timetable_slot").insert({ org_id: ORG, name: "QA P1", day_of_week: tomorrowDow, start_time: "09:00", end_time: "09:30", kind: "academic", display_order: 60, schedule_key: "sandbox" }).select().single();
   qaSlot = data;
@@ -2129,6 +2136,27 @@ await check("51. a closed day says so, and /now agrees with /today-ops", async (
         "school is closed, so no section can be running");
     }
   }
+});
+
+await check("52. one bell cannot ring twice at the same minute", async () => {
+  // apply-template used to delete only the EMPTY slots of the default
+  // band and then re-insert the whole grid, so every slot holding a real
+  // timetable gained an identical empty twin — and the response called
+  // it a success. Pressing Save twice on the School Schedule page was
+  // enough to double the school's timetable (pilot, 6 Sep). The
+  // generator now skips occupied times and a partial unique index backs
+  // it up; this asserts the invariant directly, org-wide.
+  const { data: slots } = await admin.from("timetable_slot")
+    .select("id, name, schedule_key, day_of_week, start_time")
+    .eq("org_id", ORG).is("archived_at", null);
+  const seen = new Map<string, any>();
+  const dupes: string[] = [];
+  for (const s of (slots ?? []) as any[]) {
+    const key = `${s.schedule_key ?? "default"}|${s.day_of_week}|${String(s.start_time).slice(0, 5)}`;
+    if (seen.has(key)) dupes.push(`${key} -> "${seen.get(key).name}" + "${s.name}"`);
+    else seen.set(key, s);
+  }
+  assert(dupes.length === 0, `duplicate periods: ${dupes.join("; ")}`);
 });
 
 // ── Summary ─────────────────────────────────────────────────────────────

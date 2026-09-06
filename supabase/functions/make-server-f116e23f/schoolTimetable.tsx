@@ -51,6 +51,14 @@ function normalizeScheduleKey(v: unknown): string | null {
   return SCHEDULE_KEY_RE.test(k) ? k : null;
 }
 
+// A unique-period violation is a conflict the caller can act on, not a
+// server fault. Postgres 23505 on timetable_slot_unique_period means
+// something already rings at that minute on that day in that schedule.
+function isDuplicatePeriod(err: unknown): boolean {
+  const e = err as any;
+  return e?.code === "23505" || String(e?.message ?? "").includes("timetable_slot_unique_period");
+}
+
 function slotToJson(r: any) {
   return {
     id: r.id,
@@ -279,7 +287,15 @@ export function installTimetable(school: Hono): void {
       })
       .select()
       .single();
-    if (error) return c.json({ error: error.message }, 500);
+    if (error) {
+      if (isDuplicatePeriod(error)) {
+        return c.json(
+          { error: "a period already starts at that time on that day in this schedule" },
+          409,
+        );
+      }
+      return c.json({ error: error.message }, 500);
+    }
     return c.json(slotToJson(data), 201);
   });
 
@@ -314,7 +330,15 @@ export function installTimetable(school: Hono): void {
     if (Object.keys(patch).length === 0) return c.json({ error: "nothing to update" }, 400);
     const { data, error } = await serviceRoleClient
       .from("timetable_slot").update(patch).eq("id", slotId).select().single();
-    if (error) return c.json({ error: error.message }, 500);
+    if (error) {
+      if (isDuplicatePeriod(error)) {
+        return c.json(
+          { error: "a period already starts at that time on that day in this schedule" },
+          409,
+        );
+      }
+      return c.json({ error: error.message }, 500);
+    }
     return c.json(slotToJson(data));
   });
 
@@ -385,7 +409,7 @@ export function installTimetable(school: Hono): void {
     // per-day schedules every time the Mon–Thu template republished.
     const { data: existingSlots } = await serviceRoleClient
       .from("timetable_slot")
-      .select("id, day_of_week")
+      .select("id, day_of_week, start_time")
       .eq("org_id", orgId)
       // The template editor manages ONLY the default schedule. Named
       // schedules (e.g. the primary section's bell times) are never
@@ -400,10 +424,23 @@ export function installTimetable(school: Hono): void {
       await serviceRoleClient.from("timetable_slot").delete().in("id", safeToDeleteIds);
     }
 
-    // Insert one row per (day, period).
+    // The slots we just PRESERVED are still there — so re-inserting the
+    // full grid would give each of them an identical empty twin, and the
+    // response would report it as a success. Pressing Save twice on the
+    // School Schedule page was enough to double the school's timetable
+    // (pilot, 6 Sep). Only insert periods that nothing already occupies.
+    const keptAt = new Set(
+      (existingSlots ?? [])
+        .filter((s: any) => usedSlotIds.has(s.id))
+        .map((s: any) => `${s.day_of_week}|${String(s.start_time).slice(0, 5)}`),
+    );
+
+    // Insert one row per (day, period) that is still free.
     const rows: any[] = [];
+    let skipped = 0;
     for (const day of days) {
       timed.forEach((p, i) => {
+        if (keptAt.has(`${day}|${p.start}`)) { skipped++; return; }
         rows.push({
           org_id: orgId,
           name: p.name,
@@ -415,8 +452,18 @@ export function installTimetable(school: Hono): void {
         });
       });
     }
-    const { error: insErr } = await serviceRoleClient.from("timetable_slot").insert(rows);
-    if (insErr) return c.json({ error: insErr.message }, 500);
+    if (rows.length > 0) {
+      const { error: insErr } = await serviceRoleClient.from("timetable_slot").insert(rows);
+      if (insErr) {
+        if (isDuplicatePeriod(insErr)) {
+          return c.json(
+            { error: "that template collides with periods already on the timetable" },
+            409,
+          );
+        }
+        return c.json({ error: insErr.message }, 500);
+      }
+    }
 
     // Persist the template so the editor can render it back on reload.
     const { data: cur } = await serviceRoleClient
@@ -427,7 +474,10 @@ export function installTimetable(school: Hono): void {
 
     return c.json({
       created: rows.length,
-      preserved: usedSlotIds.size,
+      // Periods the template wanted that a live slot already covers —
+      // left alone rather than duplicated.
+      skipped,
+      preserved: keptAt.size,
       deleted: safeToDeleteIds.length,
     });
   });
