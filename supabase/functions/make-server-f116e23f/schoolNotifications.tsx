@@ -296,7 +296,7 @@ export function installNotifications(school: Hono): void {
             const todayIso = todayInOrgTz(tzName);
             // Oldest first — the worst wait is the one worth naming.
             const waits = (threads ?? [])
-              .map((m: any) => schoolDaysWaiting(week, m.created_at, todayIso))
+              .map((m: any) => schoolDaysWaiting(week, m.created_at, todayIso, tzName))
               .filter((d) => d >= sla)
               .sort((a, b) => b - a);
             if (waits.length > 0) {
