@@ -5655,3 +5655,59 @@ export const getNow = (
   orgId: string,
 ): Promise<{ date: string; time: string; dayOfWeek: number; sections: NowSection[] }> =>
   apiCall(`/school/orgs/${orgId}/now`);
+
+// ── In-app notifications (the bell) ───────────────────────────────────
+// Derived on read from live data — there is no queue to feed, so an
+// alert can never be stale or missed. Only read state and preferences
+// are stored. Mandatory kinds cannot be switched off by anyone.
+export type NotificationTier = "mandatory" | "policy" | "personal";
+
+export interface NotificationAlert {
+  key: string;
+  kind: string;
+  tier: NotificationTier;
+  title: string;
+  body: string;
+  href: string | null;
+  read: boolean;
+}
+
+export interface NotificationKindDef {
+  kind: string;
+  tier: NotificationTier;
+  label: string;
+  describe: string;
+}
+
+export const getMyNotifications = (
+  orgId: string,
+): Promise<{ alerts: NotificationAlert[]; unreadCount: number }> =>
+  apiCall(`/school/orgs/${orgId}/me/notifications`);
+
+export const markNotificationsRead = (
+  orgId: string,
+  keys: string[],
+): Promise<{ ok: true; marked: number }> =>
+  apiCall(`/school/orgs/${orgId}/me/notifications/read`, {
+    method: "POST",
+    body: JSON.stringify({ keys }),
+  });
+
+export const getNotificationPrefs = (
+  orgId: string,
+): Promise<{
+  kinds: NotificationKindDef[];
+  prefs: Array<{ scope: "role" | "user"; scopeId: string; kind: string; enabled: boolean }>;
+  canSetRoleDefaults: boolean;
+}> => apiCall(`/school/orgs/${orgId}/notification-prefs`);
+
+/** scope 'role' is the principal's default for a role; 'user' is the
+ *  caller's own override. Mandatory kinds are refused with a 400. */
+export const setNotificationPref = (
+  orgId: string,
+  body: { scope: "role" | "user"; scopeId?: string; kind: string; enabled: boolean },
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/notification-prefs`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
