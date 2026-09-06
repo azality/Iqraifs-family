@@ -2224,9 +2224,25 @@ await check("54. the attendance tile does not score a day with no school", async
       `a closed day has nothing to be a percentage of - got ${tile.value}`);
     assert(typeof tile.hint === "string" && tile.hint.length > 0,
       "a closed tile must say why");
+    assert(!tile.notStarted, "a closed day cannot also be 'not started yet'");
   } else {
     assert(tile.value === null || typeof tile.value === "number",
       "an open day's tile is a number or null");
+  }
+
+  // Before the first bell, 0% means "not yet", not "people are missing" -
+  // the tile read "0% low" in red at 07:30 on a normal school day.
+  if (tile.notStarted) {
+    assert(tile.value === null,
+      `before the first bell there is no percentage yet - got ${tile.value}`);
+    assert(typeof tile.firstBell === "string" && /^\d{2}:\d{2}$/.test(tile.firstBell),
+      `notStarted must carry the first bell time, got ${JSON.stringify(tile.firstBell)}`);
+    // It must genuinely be before that bell on the SCHOOL clock.
+    const nowPk = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Karachi", hour: "2-digit", minute: "2-digit", hour12: false,
+    }).format(new Date());
+    assert(nowPk < tile.firstBell,
+      `claims school has not started, but it is ${nowPk} and the bell was ${tile.firstBell}`);
   }
 });
 

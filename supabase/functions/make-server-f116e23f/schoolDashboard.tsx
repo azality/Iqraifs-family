@@ -23,7 +23,7 @@
 import { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { hasAnyRoleInOrg, hasAdminOrPrincipal, inchargeClassIds } from "./schoolAuth.ts";
-import { todayInOrgTz } from "./tz.ts";
+import { todayInOrgTz, nowTimeInOrgTz, schoolDayAnchor } from "./tz.ts";
 
 // -----------------------------------------------------------------------------
 // Period math — period boundaries computed server-side. All dates are
@@ -245,6 +245,11 @@ type SchoolDayFacts = {
   dayLabel: string;
   /** Bell schedules with at least one slot on this weekday. */
   runningKeys: Set<string>;
+  /** Earliest slot start today ("HH:MM") across the real schedules, so
+   *  callers can tell "before school" from "nobody has marked". The QA
+   *  sandbox is excluded: its slots exist on all seven days and would
+   *  make every day look like a school day. */
+  firstBell: string | null;
   onHoliday: boolean;
   holidayName: string | null;
 };
@@ -256,7 +261,7 @@ async function resolveSchoolDay(orgId: string, today: string): Promise<SchoolDay
   const [slotRows, orgRow] = await Promise.all([
     serviceRoleClient
       .from("timetable_slot")
-      .select("schedule_key")
+      .select("schedule_key, start_time, kind")
       .eq("org_id", orgId)
       .eq("day_of_week", isoDow)
       .is("archived_at", null),
@@ -276,12 +281,21 @@ async function resolveSchoolDay(orgId: string, today: string): Promise<SchoolDay
     return typeof from === "string" && today >= from && today <= to;
   });
 
+  const realSlots = ((slotRows.data ?? []) as any[]).filter(
+    (r) => (r.schedule_key ?? "default") !== "sandbox",
+  );
+  const starts = realSlots
+    .map((r) => String(r.start_time ?? "").slice(0, 5))
+    .filter((t) => /^\d{2}:\d{2}$/.test(t))
+    .sort();
+
   return {
     isoDow,
     dayLabel: DAY_NAMES[isoDow] ?? "",
     runningKeys: new Set(
       ((slotRows.data ?? []) as any[]).map((r) => r.schedule_key ?? "default"),
     ),
+    firstBell: starts[0] ?? null,
     onHoliday: Boolean(hit),
     holidayName: hit?.name || null,
   };
@@ -538,6 +552,11 @@ export function installDashboard(school: Hono): void {
     // 00:12 PKT on a Monday the two disagreed about whether school runs
     // (caught by check 54 the first night it was live).
     const schoolToday = todayInOrgTz();
+    // The weekday walks below (attendance gaps, dip streaks) read UTC
+    // fields, so anchor them on a date whose UTC day IS the school's day
+    // - otherwise between 00:00 and 05:00 PKT they check the wrong three
+    // days. Same five-hour skew as the tile, one layer down.
+    const schoolTodayDate = schoolDayAnchor();
 
     const fullSkeleton = await loadOrgSkeleton(orgId);
     const scope = await determineScope(
@@ -614,8 +633,21 @@ export function installDashboard(school: Hono): void {
     );
     const schoolClosedToday = dashDay.onHoliday || !anyScheduleRunsToday;
 
+    // At 07:30 on a real school day the tile read "0% low" in red, because
+    // nobody had marked a register yet - of course they hadn't, the first
+    // bell had not rung. "Low" should mean people are missing, not that
+    // the day has not started (Muneeb, 6 Sep). Compared on the school's
+    // wall clock, never the server's.
+    const nowSchoolTime = nowTimeInOrgTz();
+    const beforeFirstBell =
+      !schoolClosedToday &&
+      dashDay.firstBell !== null &&
+      nowSchoolTime < dashDay.firstBell &&
+      attToday.length === 0; // someone marked early? then it is real data
+
     // null renders as an em dash rather than a number nobody should read.
-    const pctToday = schoolClosedToday ? null : attendancePct(attToday);
+    const pctToday =
+      schoolClosedToday || beforeFirstBell ? null : attendancePct(attToday);
     const pctPeriod = attendancePct(attPeriod);
     const pctPrev = attPrev.length > 0 ? attendancePct(attPrev) : null;
     const deltaPp = pctPrev === null ? null
@@ -821,7 +853,7 @@ export function installDashboard(school: Hono): void {
       }
 
       // attendance_gap rollup — sections missing all of last 3 weekdays
-      const lastThree = lastNWeekdays(today, 3).map(fmtDate);
+      const lastThree = lastNWeekdays(schoolTodayDate, 3).map(fmtDate);
       const gapSections = sectionStatuses.filter((ss) => {
         if (ss.section.student_count === 0) return false;
         const dates = new Set(
@@ -885,7 +917,7 @@ export function installDashboard(school: Hono): void {
       }
 
       // Per-section attendance dip + consecutive dip + concern + gap.
-      const lastThree = lastNWeekdays(today, 3).map(fmtDate);
+      const lastThree = lastNWeekdays(schoolTodayDate, 3).map(fmtDate);
       // For consecutive_dip we need per-day attendance per section.
       // Build section -> date -> rows from already-filtered attPeriod.
       const attBySectionDate = new Map<
@@ -933,7 +965,7 @@ export function installDashboard(school: Hono): void {
         if (byDate && byDate.size > 0) {
           // walk back from today over weekdays, accumulating streak.
           let streak = 0;
-          let cursor = startOfDay(today);
+          let cursor = startOfDay(schoolTodayDate);
           // limit walk to ~20 weekdays
           for (let i = 0; i < 30 && streak < 30; i += 1) {
             if (isWeekday(cursor)) {
@@ -1246,15 +1278,19 @@ export function installDashboard(school: Hono): void {
         attendanceToday: {
           value: pctToday,
           closed: schoolClosedToday,
+          notStarted: beforeFirstBell,
+          firstBell: dashDay.firstBell,
           dayLabel: dashDay.dayLabel,
           holidayName: dashDay.holidayName,
           hint: schoolClosedToday
             ? dashDay.onHoliday
               ? `${dashDay.holidayName ? `${dashDay.holidayName} - ` : ""}school closed today`
               : `${dashDay.dayLabel} - no classes scheduled`
-            : attToday.length === 0
-              ? "No attendance taken yet today"
-              : `${attToday.length} marks recorded today`,
+            : beforeFirstBell
+              ? `School has not started yet - first bell ${dashDay.firstBell}`
+              : attToday.length === 0
+                ? "No attendance taken yet today"
+                : `${attToday.length} marks recorded today`,
         },
         attendancePeriod: {
           value: pctPeriod,
@@ -1735,7 +1771,10 @@ export function installDashboard(school: Hono): void {
           };
 
     // Need 10 weekday window in addition to period range for last10Days chart.
-    const last10Dates = lastNWeekdays(today, 10);
+    // Anchored on the SCHOOL day for the same reason as the dashboard's
+    // gap alerts: a UTC anchor slides the whole window by one between
+    // 00:00 and 05:00 PKT.
+    const last10Dates = lastNWeekdays(schoolDayAnchor(), 10);
     const earliest = new Date(
       Math.min(
         prevStart.getTime(),

@@ -1077,6 +1077,11 @@ export interface DashboardTile {
    *  nothing to be a percentage OF. Distinguishes "no school" from a
    *  genuine 0%. */
   closed?: boolean;
+  /** attendanceToday only: school runs today but the first bell has not
+   *  rung, so 0% means "not yet", not "people are missing". */
+  notStarted?: boolean;
+  /** Earliest slot start today, "HH:MM". */
+  firstBell?: string | null;
   dayLabel?: string;
   holidayName?: string | null;
 }
