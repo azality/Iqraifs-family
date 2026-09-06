@@ -321,15 +321,33 @@ export function installMessages(school: Hono): void {
       }
     }
 
+    // Who is holding each thread. One query for the whole inbox.
+    const { data: assigns } = await serviceRoleClient
+      .from("parent_thread_assignment")
+      .select("thread_id, assigned_to")
+      .eq("org_id", orgId);
+    const assignedTo = new Map<string, string>(
+      ((assigns ?? []) as any[]).map((a) => [a.thread_id, a.assigned_to]),
+    );
+    const assigneeNames = new Map<string, string>();
+    for (const uid of new Set(assignedTo.values())) {
+      const n = await resolveSenderName(uid);
+      if (n) assigneeNames.set(uid, n);
+    }
+
     const out: any[] = [];
     for (const [, list] of threads) {
       const latest = list[list.length - 1];
       // For admin: "the other side" is parent.
       const t = threadToJson(latest, list, "school");
+      const holder = assignedTo.get(latest.thread_id) ?? null;
       out.push({
         ...t,
         parentName: parentNames.get(latest.parent_user_id) ?? null,
         studentName: latest.student_id ? studentLabels.get(latest.student_id) ?? null : null,
+        assignedTo: holder,
+        assignedToName: holder ? assigneeNames.get(holder) ?? null : null,
+        assignedToMe: holder === userId,
       });
     }
     out.sort((a, b) => (a.latestAt < b.latestAt ? 1 : -1));
@@ -381,6 +399,13 @@ export function installMessages(school: Hono): void {
       ...m,
       __sent_by_name: names.get(m.sent_by) ?? null,
     })).map(messageToJson);
+    const { data: asn } = await serviceRoleClient
+      .from("parent_thread_assignment")
+      .select("assigned_to")
+      .eq("thread_id", threadId)
+      .maybeSingle();
+    const holder = (asn as any)?.assigned_to ?? null;
+
     return c.json({
       thread: {
         threadId,
@@ -389,6 +414,9 @@ export function installMessages(school: Hono): void {
         parentName,
         studentId: first.student_id,
         studentName,
+        assignedTo: holder,
+        assignedToName: holder ? await resolveSenderName(holder) : null,
+        assignedToMe: holder === userId,
       },
       messages,
     });
@@ -427,6 +455,18 @@ export function installMessages(school: Hono): void {
         sent_by_role: "school",
       });
     if (error) return c.json({ error: error.message }, 500);
+
+    // Answering an unclaimed thread claims it. Whoever replied IS the
+    // person who handled it, and making them press "take" first would
+    // only mean the record is empty exactly when it matters. An existing
+    // holder is left alone - taking over is an explicit act.
+    await serviceRoleClient
+      .from("parent_thread_assignment")
+      .upsert(
+        { thread_id: threadId, org_id: orgId, assigned_to: userId, assigned_by: userId },
+        // Claim only if unclaimed: an existing holder is left alone.
+        { onConflict: "thread_id", ignoreDuplicates: true },
+      );
 
     // The parent has an answer, so the thread stops counting as waiting.
     // (read_at on a parent→school row means "answered" - see the note in
@@ -468,6 +508,72 @@ export function installMessages(school: Hono): void {
     } catch { /* notification failures don't break the reply */ }
 
     return c.json({ ok: true });
+  });
+
+  // POST .../assign   — take a thread, or hand it to a named colleague.
+  // DELETE .../assign — put it back in the pool.
+  //
+  // Taking over someone else's thread is ALLOWED and deliberately not
+  // an error: the person holding it may be off sick, and a front office
+  // that cannot reassign is worse than one that occasionally treads on
+  // toes. The UI shows who held it before the change.
+  school.post("/orgs/:orgId/inbox/:threadId/assign", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await isSchoolStaff(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const threadId = c.req.param("threadId");
+    const body = await c.req.json().catch(() => ({}));
+    const target = typeof body.userId === "string" && body.userId ? body.userId : userId;
+
+    // The thread must exist in this org before we can claim it.
+    const { data: first } = await serviceRoleClient
+      .from("parent_message")
+      .select("org_id")
+      .eq("thread_id", threadId)
+      .limit(1)
+      .maybeSingle();
+    if (!first || (first as any).org_id !== orgId) {
+      return c.json({ error: "thread not found" }, 404);
+    }
+    // Handing a thread to someone who cannot open the inbox would make
+    // it invisible to its own owner.
+    if (target !== userId && !(await isSchoolStaff(target, orgId))) {
+      return c.json({ error: "that person does not have access to the parent inbox" }, 400);
+    }
+
+    const { error } = await serviceRoleClient
+      .from("parent_thread_assignment")
+      .upsert({
+        thread_id: threadId,
+        org_id: orgId,
+        assigned_to: target,
+        assigned_by: userId,
+        assigned_at: new Date().toISOString(),
+      }, { onConflict: "thread_id" });
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({
+      ok: true,
+      assignedTo: target,
+      assignedToName: await resolveSenderName(target),
+    });
+  });
+
+  school.delete("/orgs/:orgId/inbox/:threadId/assign", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await isSchoolStaff(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const threadId = c.req.param("threadId");
+    const { error } = await serviceRoleClient
+      .from("parent_thread_assignment")
+      .delete()
+      .eq("thread_id", threadId)
+      .eq("org_id", orgId);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ ok: true, assignedTo: null });
   });
 
   // Lightweight count for dashboards / nav badges: how many parent

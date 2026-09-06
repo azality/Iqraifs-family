@@ -12,9 +12,16 @@ import {
 import { Button } from "../../components/ui/button";
 import { Textarea } from "../../components/ui/textarea";
 import {
-  getSchoolMe, viewerRoleForOrg,
-  listInbox, getInboxThread, replyToInboxThread,
-  type InboxThread, type InboxThreadDetail, type SchoolMeResponse,
+  getSchoolMe,
+  viewerRoleForOrg,
+  listInbox,
+  getInboxThread,
+  replyToInboxThread,
+  type InboxThread,
+  type InboxThreadDetail,
+  type SchoolMeResponse,
+  assignInboxThread,
+  releaseInboxThread,
 } from "../../../utils/schoolApi";
 import { sectionTitleClasses } from "../../components/school-ui";
 
@@ -52,6 +59,7 @@ export function ParentInbox() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [replyBody, setReplyBody] = useState("");
+  const [assigning, setAssigning] = useState(false);
   const [sending, setSending] = useState(false);
 
   useEffect(() => {
@@ -100,6 +108,24 @@ export function ParentInbox() {
       </div>
     );
   }
+
+  const toggleAssign = async () => {
+    if (!detail) return;
+    setAssigning(true);
+    try {
+      if (detail.thread.assignedToMe) {
+        await releaseInboxThread(orgId, detail.thread.threadId);
+      } else {
+        await assignInboxThread(orgId, detail.thread.threadId);
+      }
+      // Refresh both: the header control and the list chip.
+      const r = await getInboxThread(orgId, detail.thread.threadId);
+      setDetail(r);
+      refreshList();
+    } finally {
+      setAssigning(false);
+    }
+  };
 
   const handleReply = async () => {
     if (!detail || !replyBody.trim()) return;
@@ -187,6 +213,11 @@ export function ParentInbox() {
                       <div className="text-xs text-slate-500 truncate mt-0.5">
                         {thr.latestSentByRole === "school" ? "Us: " : "Parent: "}{thr.latestBody}
                       </div>
+                      {thr.assignedToName && (
+                        <div className="mt-1 inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">
+                          {thr.assignedToMe ? "You are handling this" : `${thr.assignedToName} is handling this`}
+                        </div>
+                      )}
                     </div>
                     {thr.unreadCount > 0 && (
                       <span className="inline-flex items-center justify-center h-5 min-w-[1.25rem] px-1.5 rounded-full bg-indigo-600 text-white text-[10px] font-semibold shrink-0">
@@ -214,6 +245,32 @@ export function ParentInbox() {
                 <div className="text-[11px] text-slate-500 mt-0.5">
                   {detail.thread.parentName ?? "Parent"}
                   {detail.thread.studentName ? ` · about ${detail.thread.studentName}` : ""}
+                </div>
+                {/* Who is on it. Three roles share this inbox, so without
+                    this two people answer the same parent. Replying claims
+                    an unheld thread, so this is usually already right. */}
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <span className="text-[11px] text-slate-600">
+                    {detail.thread.assignedToName
+                      ? (detail.thread.assignedToMe
+                          ? "You are handling this"
+                          : `${detail.thread.assignedToName} is handling this`)
+                      : "Nobody has picked this up yet"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={toggleAssign}
+                    disabled={assigning}
+                    className="rounded-md border border-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                  >
+                    {assigning
+                      ? "…"
+                      : detail.thread.assignedToMe
+                        ? "Release"
+                        : detail.thread.assignedToName
+                          ? "Take over"
+                          : "I'll handle it"}
+                  </button>
                 </div>
               </div>
               <div className="p-4 space-y-2 max-h-[55vh] overflow-y-auto">
@@ -244,6 +301,12 @@ export function ParentInbox() {
                   );
                 })}
               </div>
+              {detail.thread.assignedToName && !detail.thread.assignedToMe && (
+                <div className="border-t border-amber-100 bg-amber-50 px-3 py-2 text-[11.5px] text-amber-800">
+                  {detail.thread.assignedToName} is handling this — replying too may
+                  send the parent two different answers.
+                </div>
+              )}
               <div className="border-t border-slate-100 p-3 flex gap-2 items-end">
                 <Textarea
                   value={replyBody}

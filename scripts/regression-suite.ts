@@ -2335,7 +2335,7 @@ await check("56. the school's timezone is the school's, not Pakistan's", async (
     `today-ops says ${ops.date} but ${effectiveTz} says ${expected}`);
 });
 
-await check("57. parent inbox is two-way, and reading is not answering", async () => {
+await check("57. parent inbox: two-way, reading is not answering, and someone owns it", async () => {
   // The parent portal's only way to reach the school, and it had no
   // coverage at all. Two things matter: the round trip works, and a
   // thread stays in the queue until someone REPLIES - read_at is one
@@ -2393,13 +2393,65 @@ await check("57. parent inbox is two-way, and reading is not answering", async (
     assert(roles.length === 2 && roles[0] === "parent" && roles[1] === "school",
       `parent should see both sides in order, got ${JSON.stringify(roles)}`);
 
-    // 5. A teacher must not be able to read parent mail at all.
+    // 5. Replying claimed it - whoever answered IS who handled it.
+    const claimed = (afterReply.threads ?? []).find((t: any) => t.threadId === threadId);
+    assert(claimed?.assignedTo === principal.id,
+      `replying should claim an unheld thread, got ${JSON.stringify(claimed?.assignedTo)}`);
+    assert(claimed?.assignedToMe === true, "the replier should see it as theirs");
+    assert(typeof claimed?.assignedToName === "string" && claimed.assignedToName.length > 0,
+      "an assigned thread must name its holder");
+
+    // 6. Release puts it back in the pool.
+    const rel = await api(principal.token, `/school/orgs/${ORG}/inbox/${threadId}/assign`, {
+      method: "DELETE",
+    });
+    assert(rel.status === 200, `release ${rel.status}`);
+    const afterRel = await (await api(principal.token, `/school/orgs/${ORG}/inbox/${threadId}`)).json();
+    assert((afterRel.thread?.assignedTo ?? null) === null,
+      "released thread should have no holder");
+
+    // 7. Office staff can take it, and the principal then sees it as
+    //    someone else's - the whole point of the feature.
+    const take = await api(office.token, `/school/orgs/${ORG}/inbox/${threadId}/assign`, {
+      method: "POST", body: JSON.stringify({}),
+    });
+    assert(take.status === 200, `office claim ${take.status}`);
+    const asSeen = await (await api(principal.token, `/school/orgs/${ORG}/inbox/${threadId}`)).json();
+    assert(asSeen.thread?.assignedTo === office.id, "office should hold the thread");
+    assert(asSeen.thread?.assignedToMe === false,
+      "the principal must not see someone else's thread as their own");
+
+    // 8. Assignment does NOT clear the queue - claiming is not answering.
+    //    (This thread is already answered, so re-check the invariant on a
+    //    fresh one.)
+    const s2 = await fetch(`${FUNC}/school/pin-me/messages`, {
+      method: "POST", headers: pinHdr,
+      body: JSON.stringify({ subject: `${MARK} two`, body: `${MARK} two` }),
+    });
+    const t2id = (await s2.json()).threadId;
+    try {
+      await api(principal.token, `/school/orgs/${ORG}/inbox/${t2id}/assign`, {
+        method: "POST", body: JSON.stringify({}),
+      });
+      const stillW = await (await api(principal.token, `/school/orgs/${ORG}/inbox`)).json();
+      const row = (stillW.threads ?? []).find((t: any) => t.threadId === t2id);
+      assert(row && row.unreadCount >= 1,
+        "claiming a thread must not clear it - the parent is still waiting");
+    } finally {
+      if (t2id) await admin.from("parent_message").delete().eq("thread_id", t2id);
+      if (t2id) await admin.from("parent_thread_assignment").delete().eq("thread_id", t2id);
+    }
+
+    // 9. A teacher must not be able to read parent mail at all.
     const t2 = await ensureUser("qa-teacher@azality.com", "QA Teacher", "class_teacher");
     const denied = await api(t2.token, `/school/orgs/${ORG}/inbox`);
     assert(denied.status === 403, `teachers must not read the parent inbox, got ${denied.status}`);
   } finally {
     // Never leave QA chatter in a real school's inbox.
-    if (threadId) await admin.from("parent_message").delete().eq("thread_id", threadId);
+    if (threadId) {
+      await admin.from("parent_message").delete().eq("thread_id", threadId);
+      await admin.from("parent_thread_assignment").delete().eq("thread_id", threadId);
+    }
   }
 });
 
