@@ -157,16 +157,10 @@ export function installMessages(school: Hono): void {
       // For parent: "the other side" is school.
       out.push(threadToJson(latest, list, "parent"));
     }
-    // Newest first.
-    out.sort((a, b) => {
-      // Overdue first, longest wait at the top; everything else by recency.
-      if (a.overdue !== b.overdue) return a.overdue ? -1 : 1;
-      if (a.overdue && b.overdue) {
-        return (b.waitingSchoolDays ?? 0) - (a.waitingSchoolDays ?? 0);
-      }
-      return a.latestAt < b.latestAt ? 1 : -1;
-    });
-    return c.json({ threads: out, slaDays });
+    // Newest first. (Ageing and the reply window belong to the STAFF
+    // inbox; a parent is not chasing their own message.)
+    out.sort((a, b) => (a.latestAt < b.latestAt ? 1 : -1));
+    return c.json({ threads: out });
   });
 
   // GET thread messages (parent view)
@@ -389,8 +383,17 @@ export function installMessages(school: Hono): void {
         overdue: waitingDays !== null && waitingDays >= slaDays && slaDays > 0,
       });
     }
-    out.sort((a, b) => (a.latestAt < b.latestAt ? 1 : -1));
-    return c.json({ threads: out });
+    out.sort((a, b) => {
+      // Overdue first, longest wait at the top; everything else by
+      // recency. An overdue parent must not be pushed down the page by
+      // chatter on a thread that has already been answered.
+      if (a.overdue !== b.overdue) return a.overdue ? -1 : 1;
+      if (a.overdue && b.overdue) {
+        return (b.waitingSchoolDays ?? 0) - (a.waitingSchoolDays ?? 0);
+      }
+      return a.latestAt < b.latestAt ? 1 : -1;
+    });
+    return c.json({ threads: out, slaDays });
   });
 
   school.get("/orgs/:orgId/inbox/:threadId", async (c) => {

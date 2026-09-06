@@ -2358,6 +2358,20 @@ await check("57. parent inbox: two-way, reading is not answering, owned, and age
     threadId = startJson.threadId;
     assert(!!threadId, "no threadId returned");
 
+    // 1b. The parent's own thread LIST must load. Checked explicitly
+    //     because the single-thread read passing says nothing about it -
+    //     a bad edit to the list handler shipped a 500 to every parent's
+    //     Contact school screen and this suite did not notice (6 Sep).
+    const plist = await fetch(`${FUNC}/school/pin-me/messages`, {
+      headers: { apikey: ANON, "X-Pin-Token": pTok },
+    });
+    const plistJson = await plist.json();
+    assert(plist.status === 200,
+      `parent thread list ${plist.status}: ${JSON.stringify(plistJson).slice(0, 140)}`);
+    assert(Array.isArray(plistJson.threads), "parent thread list should carry threads");
+    assert(plistJson.threads.some((t: any) => t.threadId === threadId),
+      "the parent should see the thread they just started");
+
     // 2. Staff see it, and it counts as waiting.
     const listed = await (await api(principal.token, `/school/orgs/${ORG}/inbox`)).json();
     const mine = (listed.threads ?? []).find((t: any) => t.threadId === threadId);
