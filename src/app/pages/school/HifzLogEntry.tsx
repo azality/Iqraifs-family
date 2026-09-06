@@ -100,6 +100,46 @@ const JUZ_STARTS: ReadonlyArray<{ surah: number; ayah: number }> = [
   { surah: 58, ayah: 1 }, { surah: 67, ayah: 1 }, { surah: 78, ayah: 1 },
 ];
 
+// next_target is human-readable on purpose — parents read it in the
+// portal — while staying parseable for next-day prefill.
+//
+// What "next" MEANS depends on the kind, which is the bug this shape
+// fixes: the assigner used to say "next sabaq" and offer one surah with
+// an ayah range no matter what was being heard.
+//
+//   Sabaq:  "Sabaq: Al-Fatiha 1–7"          one new passage
+//   Sabqi:  "Sabqi: Al-Baqarah (full), Al-Imran 1–20"   recent revision,
+//           several surahs at once, each whole or partial
+//           "Sabqi: Para 5"                 or simply a whole para
+//   Manzil: "Manzil: Para 6 (to half)"      older revision, always by
+//           para, with how much of it to hear
+export type AssignExtent = "full" | "quarter" | "half" | "three_quarters";
+
+/** One surah in a sabqi assignment. from/to null = the whole surah. */
+export interface SabqiPart { surah: number; from: number | null; to: number | null }
+
+function serializeNextSabqiSurahs(parts: SabqiPart[]): string {
+  const bits = parts
+    .filter((p) => p.surah > 0)
+    .map((p) => {
+      const name = getSurah(p.surah)?.nameTransliterated ?? String(p.surah);
+      return p.from == null || p.to == null ? `${name} (full)` : `${name} ${p.from}–${p.to}`;
+    });
+  return bits.length ? `Sabqi: ${bits.join(", ")}` : "";
+}
+function serializeNextSabqiPara(juz: number): string {
+  return `Sabqi: Para ${juz}`;
+}
+const EXTENT_SUFFIX: Record<AssignExtent, string> = {
+  full: "full para",
+  quarter: "to ¼",
+  half: "to ½",
+  three_quarters: "to ¾",
+};
+function serializeNextManzil(juz: number, extent: AssignExtent): string {
+  return `Manzil: Para ${juz} (${EXTENT_SUFFIX[extent]})`;
+}
+
 // next_target round-trip format: "Sabaq: <Transliterated name> <from>–<to>".
 // Human-readable (parents see it) AND parseable for next-day prefill.
 function serializeNextSabaq(surahNumber: number, from: number, to: number): string {
@@ -155,6 +195,16 @@ export function HifzLogEntry({
   const [assignSurah, setAssignSurah] = useState<number>(1);
   const [assignFrom, setAssignFrom] = useState<number | "">(1);
   const [assignTo, setAssignTo] = useState<number | "">(1);
+  // Sabqi and manzil assign differently from sabaq — see the serializers
+  // above. Sabqi can be several surahs at once, or a whole para; manzil
+  // is always a para plus how much of it to hear.
+  const [assignSabqiUnit, setAssignSabqiUnit] = useState<"surah" | "para">("surah");
+  const [assignSabqiJuz, setAssignSabqiJuz] = useState<number>(1);
+  const [assignSabqiParts, setAssignSabqiParts] = useState<SabqiPart[]>([
+    { surah: 1, from: null, to: null },
+  ]);
+  const [assignManzilJuz, setAssignManzilJuz] = useState<number>(1);
+  const [assignManzilExtent, setAssignManzilExtent] = useState<AssignExtent>("full");
   const [lastAssigned, setLastAssigned] = useState<string | null>(null);
   // Smart next-sabaq suggestion (pilot: "system khud samajh jaye ke ayah
   // 11 se shuru hona chahiye"). Once the teacher touches any assign field
@@ -334,9 +384,21 @@ export function HifzLogEntry({
     // instead of failing the whole save.
     const aFrom = Math.min(Math.max(num(assignFrom), 1), assignMaxAyah);
     const aTo = Math.min(Math.max(num(assignTo), aFrom), assignMaxAyah);
-    const structuredNext = assignOn
-      ? serializeNextSabaq(assignSurah, aFrom, aTo)
-      : undefined;
+    // The assignment must match what was just heard: a sabqi round ends
+    // by naming tomorrow's sabqi, not a new sabaq.
+    let structuredNext: string | undefined;
+    if (assignOn) {
+      if (kind === "manzil") {
+        structuredNext = serializeNextManzil(assignManzilJuz, assignManzilExtent);
+      } else if (kind === "sabqi") {
+        structuredNext = assignSabqiUnit === "para"
+          ? serializeNextSabqiPara(assignSabqiJuz)
+          : serializeNextSabqiSurahs(assignSabqiParts);
+        if (!structuredNext) structuredNext = undefined;
+      } else {
+        structuredNext = serializeNextSabaq(assignSurah, aFrom, aTo);
+      }
+    }
     setSubmitting(true);
     try {
       await postHifzEntry(orgId, {
@@ -657,10 +719,170 @@ export function HifzLogEntry({
                   }}
                 />
                 <span className="text-sm font-medium text-indigo-900">
-                  {t("hifzTeach.assignNext")}
+                  {kind === "manzil"
+                    ? t("hifzTeach.assignNextManzil")
+                    : kind === "sabqi"
+                    ? t("hifzTeach.assignNextSabqi")
+                    : t("hifzTeach.assignNext")}
                 </span>
               </label>
-              {assignOn && (
+              {assignOn && kind === "manzil" && (
+                <div className="space-y-2">
+                  {/* Manzil is always by para. "By surah" carries no
+                      meaning for older revision, so it isn't offered. */}
+                  <div className="space-y-1">
+                    <Label className="text-xs">{t("hifzTeach.whichPara")}</Label>
+                    <Select
+                      value={String(assignManzilJuz)}
+                      onValueChange={(v) => { setAssignTouched(true); setAssignManzilJuz(Number(v)); }}
+                    >
+                      <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
+                      <SelectContent className="max-h-64">
+                        {Array.from({ length: 30 }, (_, i) => i + 1).map((j) => (
+                          <SelectItem key={j} value={String(j)}>{t("hifzTeach.juzN", { n: j })}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">{t("hifzTeach.howMuchPara")}</Label>
+                    <Select
+                      value={assignManzilExtent}
+                      onValueChange={(v) => { setAssignTouched(true); setAssignManzilExtent(v as AssignExtent); }}
+                    >
+                      <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="full">{t("hifzTeach.extFull")}</SelectItem>
+                        <SelectItem value="quarter">{t("hifzTeach.extQuarter")}</SelectItem>
+                        <SelectItem value="half">{t("hifzTeach.extHalf")}</SelectItem>
+                        <SelectItem value="three_quarters">{t("hifzTeach.extThreeQuarters")}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <p className="text-[11px] text-indigo-800">{t("hifzTeach.assignManzilHint")}</p>
+                </div>
+              )}
+
+              {assignOn && kind === "sabqi" && (
+                <div className="space-y-2">
+                  {/* Sabqi is the recently-memorized stretch, which is
+                      usually several surahs at once, or a whole para. */}
+                  <div className="inline-flex overflow-hidden rounded-lg border border-indigo-200">
+                    {(["surah", "para"] as const).map((u) => (
+                      <button
+                        key={u} type="button"
+                        onClick={() => { setAssignTouched(true); setAssignSabqiUnit(u); }}
+                        className={
+                          "px-3 py-1.5 text-xs font-semibold " +
+                          (assignSabqiUnit === u ? "bg-indigo-600 text-white" : "bg-white text-slate-600")
+                        }
+                      >
+                        {u === "surah" ? t("hifzTeach.bySurah") : t("hifzTeach.byPara")}
+                      </button>
+                    ))}
+                  </div>
+
+                  {assignSabqiUnit === "para" ? (
+                    <Select
+                      value={String(assignSabqiJuz)}
+                      onValueChange={(v) => { setAssignTouched(true); setAssignSabqiJuz(Number(v)); }}
+                    >
+                      <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
+                      <SelectContent className="max-h-64">
+                        {Array.from({ length: 30 }, (_, i) => i + 1).map((j) => (
+                          <SelectItem key={j} value={String(j)}>{t("hifzTeach.juzN", { n: j })}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <div className="space-y-2">
+                      {assignSabqiParts.map((part, i) => {
+                        const info = getSurah(part.surah);
+                        const whole = part.from == null;
+                        const setPart = (patch: Partial<SabqiPart>) => {
+                          setAssignTouched(true);
+                          setAssignSabqiParts((prev) =>
+                            prev.map((x, xi) => (xi === i ? { ...x, ...patch } : x)));
+                        };
+                        return (
+                          <div key={i} className="rounded-md border border-indigo-100 bg-white p-2 space-y-2">
+                            <div className="flex items-center gap-2">
+                              <Select
+                                value={String(part.surah)}
+                                onValueChange={(v) => setPart({ surah: Number(v) })}
+                              >
+                                <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
+                                <SelectContent className="max-h-64">
+                                  {SURAHS.map((sx) => (
+                                    <SelectItem key={sx.number} value={String(sx.number)}>
+                                      {sx.number}. {sx.nameTransliterated} ({sx.ayahCount})
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              {assignSabqiParts.length > 1 && (
+                                <button
+                                  type="button"
+                                  aria-label={t("common.delete")}
+                                  onClick={() => {
+                                    setAssignTouched(true);
+                                    setAssignSabqiParts((prev) => prev.filter((_, xi) => xi !== i));
+                                  }}
+                                  className="rounded px-2 py-1 text-xs font-bold text-rose-700 hover:bg-rose-50"
+                                >
+                                  &times;
+                                </button>
+                              )}
+                            </div>
+                            <label className="flex items-center gap-1.5 text-xs text-slate-600">
+                              <input
+                                type="checkbox"
+                                checked={whole}
+                                onChange={(e) =>
+                                  setPart(e.target.checked
+                                    ? { from: null, to: null }
+                                    : { from: 1, to: info?.ayahCount ?? 1 })}
+                              />
+                              {t("hifzTeach.assignFullSurah")}
+                            </label>
+                            {!whole && (
+                              <div className="grid grid-cols-2 gap-2">
+                                <Input
+                                  type="number" inputMode="numeric" min={1} max={info?.ayahCount ?? 999}
+                                  value={part.from ?? 1}
+                                  onChange={(e) => setPart({ from: Number(e.target.value) || 1 })}
+                                  className="bg-white"
+                                />
+                                <Input
+                                  type="number" inputMode="numeric" min={part.from ?? 1} max={info?.ayahCount ?? 999}
+                                  value={part.to ?? 1}
+                                  onChange={(e) => setPart({ to: Number(e.target.value) || 1 })}
+                                  className="bg-white"
+                                />
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {assignSabqiParts.length < 6 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAssignTouched(true);
+                            setAssignSabqiParts((prev) => [...prev, { surah: 1, from: null, to: null }]);
+                          }}
+                          className="rounded-md border border-indigo-200 px-2.5 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-50"
+                        >
+                          {t("hifzTeach.assignAddSurah")}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  <p className="text-[11px] text-indigo-800">{t("hifzTeach.assignSabqiHint")}</p>
+                </div>
+              )}
+
+              {assignOn && kind !== "manzil" && kind !== "sabqi" && (
                 <div className="space-y-2">
                   <Select
                     value={String(assignSurah)}
