@@ -625,6 +625,9 @@
     "errNotes": "Notes are required.",
     "errPositivePoints": "Positive notes must have non-negative points.",
     "errConcernPoints": "Concern notes must have non-positive points.",
+    "noneForStudent": "No notes for this student yet.",
+    "noneForStudentBody": "Positive and concern notes staff write for this child appear here.",
+    "deleteConfirm": "Delete this behavior note?",
     "noneYetTitle": "No behavior notes yet",
     "noneYetBody": "Log a positive or concern note and it appears here for you and for the school.",
     "logForClass": "Log for {{name}}"

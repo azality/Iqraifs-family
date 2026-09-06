@@ -18,13 +18,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../../components/ui/dialog";
-import { Users, KeyRound, Plus, Copy, Trash2, Link2, BookMarked, Trophy, ClipboardCheck, Wallet, FileText, ArrowRightLeft } from "lucide-react";
+import { Users, KeyRound, Plus, Copy, Trash2, Link2, BookMarked, Trophy, ClipboardCheck, Wallet, FileText, ArrowRightLeft, MessageSquare } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import { HeroCard, sectionTitleClasses } from "../../components/school-ui";
 import { HifzLogEntry } from "./HifzLogEntry";
 import { RelationshipField } from "./components/RelationshipField";
 import { HifzProgressFeed } from "./HifzProgressFeed";
 import { StudentGradesFeed } from "./StudentGradesFeed";
+import { StudentBehaviorFeed } from "./StudentBehaviorFeed";
+import { BehaviorLogEntry } from "./BehaviorLogEntry";
 import { StudentFeeOverrides } from "./StudentFeeOverrides";
 import {
   getSchoolMe,
@@ -133,7 +135,11 @@ export function StudentDetail() {
       .catch(() => setSectionInfo(null));
   }, [orgId, student?.class_section_id]);
 
-  // Behavior at a glance (last 30 days).
+  // Behavior at a glance (last 30 days) + the full timeline on its own
+  // tab. Bumping behaviorRefresh re-fetches BOTH, so logging a note
+  // updates the header tally and the list in one go.
+  const [behaviorOpen, setBehaviorOpen] = useState(false);
+  const [behaviorRefresh, setBehaviorRefresh] = useState(0);
   const [behav30, setBehav30] = useState<{ pos: number; con: number } | null>(null);
   useEffect(() => {
     if (!orgId || !studentId) return;
@@ -147,7 +153,7 @@ export function StudentDetail() {
         });
       })
       .catch(() => setBehav30(null));
-  }, [orgId, studentId]);
+  }, [orgId, studentId, behaviorRefresh]);
 
   useEffect(() => {
     if (!linkOpen || !parentSearch.trim()) { setSearchResults([]); return; }
@@ -393,6 +399,18 @@ export function StudentDetail() {
           mixed into one generic 'grades' screen. Both stay accessible
           from the SAME student profile, but each gets its own surface
           and visual identity (amber for Academic, indigo for Hifz). */}
+      {behaviorOpen && (
+        <BehaviorLogEntry
+          orgId={orgId}
+          studentId={studentId}
+          studentName={student.full_name}
+          defaultSectionId={student.class_section_id ?? undefined}
+          open={behaviorOpen}
+          onOpenChange={setBehaviorOpen}
+          onSuccess={() => setBehaviorRefresh((n) => n + 1)}
+        />
+      )}
+
       <Tabs defaultValue={initialTab} className="w-full">
         <TabsList className="flex w-full max-w-2xl flex-wrap">
           <TabsTrigger value="overview" className="gap-1.5">Overview</TabsTrigger>
@@ -403,6 +421,9 @@ export function StudentDetail() {
             <BookMarked className="h-3.5 w-3.5" /> Hifz
           </TabsTrigger>
           <TabsTrigger value="attendance" className="gap-1.5">Attendance</TabsTrigger>
+          <TabsTrigger value="behavior" className="gap-1.5">
+            <MessageSquare className="h-3.5 w-3.5" /> Behavior
+          </TabsTrigger>
           <TabsTrigger value="fees" className="gap-1.5">
             <Wallet className="h-3.5 w-3.5" /> Fees
           </TabsTrigger>
@@ -556,6 +577,45 @@ export function StudentDetail() {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* Behavior — what this child has actually done, on the child's
+            own page. Before this, a teacher here saw only the 30-day
+            +N/−N tally in the header and a button to the WHOLE class's
+            log, and had to find this student's notes by eye. */}
+        <TabsContent value="behavior" className="mt-4 space-y-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">
+              <div>
+                <CardTitle className="text-base">Behavior notes</CardTitle>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Positive and concern notes for {student.full_name}
+                </p>
+              </div>
+              <Button size="sm" onClick={() => setBehaviorOpen(true)}>
+                <Plus className="h-4 w-4 mr-1" /> Add note
+              </Button>
+            </CardHeader>
+            <CardContent>
+              <StudentBehaviorFeed
+                orgId={orgId}
+                studentId={studentId}
+                sectionId={student.class_section_id ?? undefined}
+                refreshKey={behaviorRefresh}
+                onAddNote={() => setBehaviorOpen(true)}
+              />
+            </CardContent>
+          </Card>
+          {student.class_section_id && (
+            <p className="text-xs text-slate-500">
+              <Link
+                className="font-medium text-indigo-600 hover:underline"
+                to={`/school/orgs/${orgId}/sections/${student.class_section_id}/behavior`}
+              >
+                See the whole class&apos;s behavior log →
+              </Link>
+            </p>
+          )}
         </TabsContent>
 
         <TabsContent value="fees" className="mt-4 space-y-4">
