@@ -2039,6 +2039,49 @@ await check("49. org insights exclude the Sandbox: QA behavior never reaches the
   }
 });
 
+await check("50. today-ops only expects attendance on days the school actually runs", async () => {
+  // A principal opening the dashboard on a Sunday saw "Attendance 0/20"
+  // with every section named. Nothing runs on Sunday, so nothing was
+  // missing — the banner just never asked the timetable.
+  const r = await api(principal.token, `/school/orgs/${ORG}/today-ops`);
+  const j = await r.json();
+  assert(r.status === 200, `today-ops ${r.status}`);
+  assert(typeof j.sectionsExpected === "number", "sectionsExpected should be a number");
+
+  // Which weekday is "today" in school time, and does ANY bell schedule
+  // run then? The endpoint must agree with the timetable either way.
+  const todayIso = j.date as string;
+  const dow = new Date(`${todayIso}T12:00:00+05:00`).getUTCDay();
+  const isoDow = dow === 0 ? 7 : dow;
+  const { data: slots } = await admin.from("timetable_slot")
+    .select("schedule_key").eq("org_id", ORG).eq("day_of_week", isoDow).is("archived_at", null);
+  const keys = new Set((slots ?? []).map((x: any) => x.schedule_key ?? "default"));
+  // The Sandbox is excluded from org rollups, so it can't make a day "run".
+  keys.delete("sandbox");
+
+  if (keys.size === 0) {
+    assert(j.sectionsExpected === 0,
+      `nothing is timetabled on this weekday, so nothing can be missing — got ${j.sectionsExpected}`);
+    assert((j.missingSections ?? []).length === 0,
+      `no section should be named: ${JSON.stringify(j.missingSections)}`);
+  } else {
+    // On a running day, every expected section must belong to a schedule
+    // that actually has slots today.
+    const { data: secs } = await admin.from("class_section")
+      .select("name, schedule_key, class:class_id!inner(name, org_id)")
+      .eq("class.org_id", ORG);
+    const labelToKey = new Map(
+      ((secs ?? []) as any[]).map((x) => [`${x.class?.name} ${x.name}`, x.schedule_key ?? "default"]),
+    );
+    for (const label of j.missingSections ?? []) {
+      const k = labelToKey.get(label);
+      if (k === undefined) continue; // label shape changed; not this check's business
+      assert(keys.has(k),
+        `${label} is on schedule "${k}", which has no slots on this weekday`);
+    }
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
