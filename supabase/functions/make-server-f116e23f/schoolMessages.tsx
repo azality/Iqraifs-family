@@ -95,6 +95,10 @@ function messageToJson(r: any) {
 
 // ─── Thread list shape (latest message + counts) ──────────────────────
 function threadToJson(latest: any, allInThread: any[], otherSideRole: "parent" | "school") {
+  // On the school side this counts parent messages not yet ANSWERED; on
+  // the parent side, school messages the parent has not yet opened. Same
+  // column, and in both cases it means "still owed attention by whoever
+  // is looking".
   const unreadCount = allInThread.filter(
     (m) => m.sent_by_role !== otherSideRole && m.read_at === null,
   ).length;
@@ -348,16 +352,16 @@ export function installMessages(school: Hono): void {
     if (!data || data.length === 0) {
       return c.json({ error: "thread not found" }, 404);
     }
-    // Mark unread parent→school messages as read.
-    const unreadIds = (data as any[])
-      .filter((m) => m.sent_by_role === "parent" && m.read_at === null)
-      .map((m) => m.id);
-    if (unreadIds.length > 0) {
-      await serviceRoleClient
-        .from("parent_message")
-        .update({ read_at: new Date().toISOString() })
-        .in("id", unreadIds);
-    }
+    // NOT marked read on open, deliberately.
+    //
+    // read_at is one column on the MESSAGE, not one per staff member, and
+    // three roles share this inbox (admin, principal, office). Marking on
+    // open meant the principal glancing at a thread cleared it from the
+    // admin's queue while the parent still had no answer - and at this
+    // school the admin works the inbox and the principal only watches
+    // (Muneeb, 6 Sep). So read_at now means ANSWERED, and it is set when
+    // the school replies. The badge counts parents still waiting, which
+    // is the thing a principal should be looking at anyway.
     // Hydrate sender names + parent/student labels.
     const senderIds = Array.from(new Set((data as any[]).map((m) => m.sent_by)));
     const names = new Map<string, string>();
@@ -424,6 +428,16 @@ export function installMessages(school: Hono): void {
       });
     if (error) return c.json({ error: error.message }, 500);
 
+    // The parent has an answer, so the thread stops counting as waiting.
+    // (read_at on a parent→school row means "answered" - see the note in
+    // the thread GET above.)
+    await serviceRoleClient
+      .from("parent_message")
+      .update({ read_at: new Date().toISOString() })
+      .eq("thread_id", threadId)
+      .eq("sent_by_role", "parent")
+      .is("read_at", null);
+
     // Notification trigger (PR feat/notification-scaffold).
     // Channel is 'log' until the operator wires an SMS/email provider —
     // the row still lands in notification_event so analytics + a future
@@ -456,7 +470,9 @@ export function installMessages(school: Hono): void {
     return c.json({ ok: true });
   });
 
-  // Lightweight count for dashboards / nav badges.
+  // Lightweight count for dashboards / nav badges: how many parent
+  // messages are still WAITING FOR A REPLY (not "unopened" - opening a
+  // thread no longer changes anything; see the thread GET).
   school.get("/orgs/:orgId/inbox-unread-count", async (c) => {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
@@ -470,7 +486,9 @@ export function installMessages(school: Hono): void {
       .eq("sent_by_role", "parent")
       .is("read_at", null)
       .is("archived_at", null);
-    return c.json({ unreadCount: count ?? 0 });
+    // `unreadCount` kept as the wire name so existing callers keep
+    // working; `awaitingReply` says what it actually counts now.
+    return c.json({ unreadCount: count ?? 0, awaitingReply: count ?? 0 });
   });
 }
 

@@ -2335,6 +2335,74 @@ await check("56. the school's timezone is the school's, not Pakistan's", async (
     `today-ops says ${ops.date} but ${effectiveTz} says ${expected}`);
 });
 
+await check("57. parent inbox is two-way, and reading is not answering", async () => {
+  // The parent portal's only way to reach the school, and it had no
+  // coverage at all. Two things matter: the round trip works, and a
+  // thread stays in the queue until someone REPLIES - read_at is one
+  // column on the message shared by admin/principal/office, so marking
+  // it on open let a principal's glance clear the admin's queue while
+  // the parent still had no answer (Muneeb, 6 Sep).
+  const MARK = `QA inbox ${Date.now()}`;
+  const pTok = (await (await pinLogin(PARENT_PHONE, "3456")).json()).token;
+  assert(!!pTok, "parent PIN login failed - cannot test the parent inbox");
+  const pinHdr = { apikey: ANON, "X-Pin-Token": pTok, "Content-Type": "application/json" };
+  let threadId = "";
+  try {
+    // 1. Parent opens a thread.
+    const start = await fetch(`${FUNC}/school/pin-me/messages`, {
+      method: "POST", headers: pinHdr,
+      body: JSON.stringify({ subject: MARK, body: `${MARK} body` }),
+    });
+    const startJson = await start.json();
+    assert(start.status === 201, `start thread ${start.status}: ${JSON.stringify(startJson)}`);
+    threadId = startJson.threadId;
+    assert(!!threadId, "no threadId returned");
+
+    // 2. Staff see it, and it counts as waiting.
+    const listed = await (await api(principal.token, `/school/orgs/${ORG}/inbox`)).json();
+    const mine = (listed.threads ?? []).find((t: any) => t.threadId === threadId);
+    assert(mine, "the new thread is not in the staff inbox");
+    assert(mine.unreadCount >= 1, "a brand new parent message should be waiting for a reply");
+    const c1 = await (await api(principal.token, `/school/orgs/${ORG}/inbox-unread-count`)).json();
+    assert((c1.awaitingReply ?? c1.unreadCount) >= 1, "count should include the new message");
+
+    // 3. READING must not clear it. This is the regression that matters:
+    //    the principal looks, the admin's queue must be untouched.
+    const opened = await api(principal.token, `/school/orgs/${ORG}/inbox/${threadId}`);
+    assert(opened.status === 200, `open thread ${opened.status}`);
+    const afterRead = await (await api(principal.token, `/school/orgs/${ORG}/inbox`)).json();
+    const stillWaiting = (afterRead.threads ?? []).find((t: any) => t.threadId === threadId);
+    assert(stillWaiting && stillWaiting.unreadCount >= 1,
+      "opening a thread cleared it from the queue - a glance is not an answer");
+
+    // 4. Replying does clear it, and the parent can see the reply.
+    const rep = await api(principal.token, `/school/orgs/${ORG}/inbox/${threadId}/reply`, {
+      method: "POST", body: JSON.stringify({ body: `${MARK} reply` }),
+    });
+    assert(rep.status === 200, `reply ${rep.status}`);
+
+    const afterReply = await (await api(principal.token, `/school/orgs/${ORG}/inbox`)).json();
+    const answered = (afterReply.threads ?? []).find((t: any) => t.threadId === threadId);
+    assert(answered && answered.unreadCount === 0,
+      `an answered thread should leave the queue, got ${answered?.unreadCount}`);
+
+    const thr = await (await fetch(`${FUNC}/school/pin-me/messages/${threadId}`, {
+      headers: { apikey: ANON, "X-Pin-Token": pTok },
+    })).json();
+    const roles = (thr.messages ?? []).map((m: any) => m.sentByRole ?? m.sent_by_role);
+    assert(roles.length === 2 && roles[0] === "parent" && roles[1] === "school",
+      `parent should see both sides in order, got ${JSON.stringify(roles)}`);
+
+    // 5. A teacher must not be able to read parent mail at all.
+    const t2 = await ensureUser("qa-teacher@azality.com", "QA Teacher", "class_teacher");
+    const denied = await api(t2.token, `/school/orgs/${ORG}/inbox`);
+    assert(denied.status === 403, `teachers must not read the parent inbox, got ${denied.status}`);
+  } finally {
+    // Never leave QA chatter in a real school's inbox.
+    if (threadId) await admin.from("parent_message").delete().eq("thread_id", threadId);
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

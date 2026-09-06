@@ -75,6 +75,10 @@ export function ParentInbox() {
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load thread"));
   }, [orgId, activeThreadId]);
 
+  // Counts parents still WAITING for a reply, not unopened threads.
+  // read_at is one column on the message and three roles share this
+  // inbox, so marking on open let a principal's glance clear the admin's
+  // queue. It is set when the school replies instead.
   const totalUnread = useMemo(
     () => threads.reduce((s, t) => s + t.unreadCount, 0),
     [threads],
@@ -125,13 +129,14 @@ export function ParentInbox() {
           Parent inbox
           {totalUnread > 0 && (
             <span className="ml-2 inline-flex items-center rounded-full bg-indigo-600 text-white text-xs font-medium px-2 py-0.5">
-              {totalUnread} unread
+              {totalUnread} waiting for a reply
             </span>
           )}
         </h1>
         <p className="mt-1 text-sm text-slate-600">
           Parent → school messages from the portal. Replies show up in the parent's
-          Contact school screen.
+          Contact school screen. A thread stays in the count until someone
+          replies — opening one to read it doesn&apos;t clear it for everyone else.
         </p>
       </div>
 
