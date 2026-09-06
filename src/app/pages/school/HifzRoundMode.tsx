@@ -50,6 +50,17 @@ import {
   type SectionHifzSummaryRow,
 } from "../../../utils/schoolApi";
 import { SURAHS, getSurah } from "../../../utils/quranSurahs";
+import {
+  serializeNextSabaq,
+  parseNextSabaq,
+  JUZ_STARTS,
+  juzOfPosition,
+  serializeNextSabqiSurahs,
+  serializeNextSabqiPara,
+  serializeNextManzil,
+  type AssignExtent,
+  type SabqiPart,
+} from "../../../utils/hifzTargets";
 
 interface Props {
   orgId: string;
@@ -64,43 +75,6 @@ type KindKey = "sabaq" | "sabqi" | "manzil";
 type RoundScope = "all" | "sabaq" | "revision";
 
 // Same juz-start convention as HifzLogEntry — the stored position marker
-// for para-mode entries (display-only; totals only count memorized+sabaq).
-const JUZ_STARTS: ReadonlyArray<{ surah: number; ayah: number }> = [
-  { surah: 1, ayah: 1 }, { surah: 2, ayah: 142 }, { surah: 2, ayah: 253 },
-  { surah: 3, ayah: 93 }, { surah: 4, ayah: 24 }, { surah: 4, ayah: 148 },
-  { surah: 5, ayah: 82 }, { surah: 6, ayah: 111 }, { surah: 7, ayah: 88 },
-  { surah: 8, ayah: 41 }, { surah: 9, ayah: 93 }, { surah: 11, ayah: 6 },
-  { surah: 12, ayah: 53 }, { surah: 15, ayah: 1 }, { surah: 17, ayah: 1 },
-  { surah: 18, ayah: 75 }, { surah: 21, ayah: 1 }, { surah: 23, ayah: 1 },
-  { surah: 25, ayah: 21 }, { surah: 27, ayah: 56 }, { surah: 29, ayah: 46 },
-  { surah: 33, ayah: 31 }, { surah: 36, ayah: 28 }, { surah: 39, ayah: 32 },
-  { surah: 41, ayah: 47 }, { surah: 46, ayah: 1 }, { surah: 51, ayah: 31 },
-  { surah: 58, ayah: 1 }, { surah: 67, ayah: 1 }, { surah: 78, ayah: 1 },
-];
-
-/** Which juz a (surah, ayah) position falls in. */
-function juzOfPosition(surah: number, ayah: number): number {
-  let j = 1;
-  for (let i = 0; i < JUZ_STARTS.length; i++) {
-    const st = JUZ_STARTS[i];
-    if (surah > st.surah || (surah === st.surah && ayah >= st.ayah)) j = i + 1;
-    else break;
-  }
-  return j;
-}
-
-function serializeNextSabaq(surahNumber: number, from: number, to: number): string {
-  const s = getSurah(surahNumber);
-  return `Sabaq: ${s?.nameTransliterated ?? surahNumber} ${from}–${to}`;
-}
-function parseNextSabaq(text: string): { surahNumber: number; from: number; to: number } | null {
-  const m = /^Sabaq:\s*(.+?)\s+(\d+)\s*[–-]\s*(\d+)\s*$/.exec(text.trim());
-  if (!m) return null;
-  const name = m[1].toLowerCase();
-  const surah = SURAHS.find((s) => s.nameTransliterated.toLowerCase() === name);
-  if (!surah) return null;
-  return { surahNumber: surah.number, from: Number(m[2]), to: Number(m[3]) };
-}
 
 // Extent → hifzTeach.extShort* key (full appends nothing).
 const EXTENT_KEY: Record<string, string> = {
@@ -265,6 +239,15 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [adv, setAdv] = useState({ tajweed: "", fluency: "", internal: "", target: "", page: "" as number | "" });
   const [prefilling, setPrefilling] = useState(false);
+  // "Tomorrow" overrides — the round derives every next lesson by
+  // default (sabaq advances by quality, sabqi follows the sabaq, manzil
+  // rotates), but a teacher must be able to say otherwise WITHOUT
+  // leaving the round: "sabqi kal Surah Nas tak", "manzil para 30, half".
+  // Null = automatic. Reset per student.
+  const [ovSabaq, setOvSabaq] = useState<{ surah: number; from: number; to: number } | null>(null);
+  const [ovSabqi, setOvSabqi] = useState<{ unit: "surah" | "para"; parts: SabqiPart[]; juz: number } | null>(null);
+  const [ovManzil, setOvManzil] = useState<{ juz: number; extent: AssignExtent } | null>(null);
+  const [nextOpen, setNextOpen] = useState<KindKey | null>(null);
   const [saving, setSaving] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
 
@@ -274,6 +257,10 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
     let cancelled = false;
     studentStartedAt.current = Date.now();
     setKinds({ sabaq: emptyKind("surah"), sabqi: emptyKind("surah"), manzil: emptyKind("para") });
+    setOvSabaq(null);
+    setOvSabqi(null);
+    setOvManzil(null);
+    setNextOpen(null);
     setParentNote("");
     setNoteTouched(false);
     setAdvancedOpen(false);
@@ -438,6 +425,46 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
     }
   };
 
+  // What will be assigned for tomorrow, as the teacher will read it.
+  // Mirrors the save logic exactly — if these two ever disagree, the
+  // line is lying, so keep them in lockstep.
+  const tomorrowText = (key: KindKey): { text: string; auto: boolean } | null => {
+    const k = kinds[key];
+    if (key === "sabaq") {
+      if (ovSabaq) {
+        return { text: serializeNextSabaq(ovSabaq.surah, ovSabaq.from, ovSabaq.to), auto: false };
+      }
+      if (k.quality === "") return null;
+      const pn = k.portion;
+      if (pn.mode !== "surah") return { text: t("hifzRound.tomorrowPick"), auto: true };
+      const maxAyah = getSurah(pn.surah)?.ayahCount ?? pn.to;
+      if (k.quality === "weak" || k.quality === "repeat") {
+        return { text: serializeNextSabaq(pn.surah, pn.from, pn.to), auto: true };
+      }
+      if (pn.to < maxAyah) {
+        const len = Math.max(1, pn.to - pn.from + 1);
+        return { text: serializeNextSabaq(pn.surah, pn.to + 1, Math.min(pn.to + len, maxAyah)), auto: true };
+      }
+      return { text: t("hifzRound.tomorrowBoundary"), auto: true };
+    }
+    if (key === "sabqi") {
+      if (ovSabqi) {
+        const txt = ovSabqi.unit === "para"
+          ? serializeNextSabqiPara(ovSabqi.juz)
+          : serializeNextSabqiSurahs(ovSabqi.parts);
+        if (txt) return { text: txt, auto: false };
+      }
+      if (k.quality === "") return null;
+      return { text: t("hifzRound.tomorrowSabqiAuto"), auto: true };
+    }
+    if (ovManzil) {
+      return { text: serializeNextManzil(ovManzil.juz, ovManzil.extent), auto: false };
+    }
+    if (k.quality === "") return null;
+    const nextJuz = (k.portion.juz % 30) + 1;
+    return { text: t("hifzRound.tomorrowManzilAuto", { n: nextJuz }), auto: true };
+  };
+
   const saveAndNext = async () => {
     if (!currentId || !current) return;
     const scoped = KIND_META.filter((m) => SCOPE_KINDS[scope].includes(m.key));
@@ -466,11 +493,14 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
           juzExtent: para ? (p.extent === "to_surah" ? `to_surah:${p.toSurah}` : p.extent) : undefined,
         };
         if (meta.key === "sabaq") {
-          // Auto-assign the next sabaq (default in Round Mode): advance
-          // on excellent/good (same length, within the surah), repeat on
-          // weak/repeat. At a surah boundary we assign nothing —
-          // memorization order past a finished surah is a school call.
-          if (p.mode === "surah") {
+          if (ovSabaq) {
+            // The teacher named tomorrow's sabaq herself.
+            input.nextTarget = serializeNextSabaq(ovSabaq.surah, ovSabaq.from, ovSabaq.to);
+          } else if (p.mode === "surah") {
+            // Auto-assign the next sabaq (default in Round Mode): advance
+            // on excellent/good (same length, within the surah), repeat on
+            // weak/repeat. At a surah boundary we assign nothing —
+            // memorization order past a finished surah is a school call.
             const maxAyah = getSurah(p.surah)?.ayahCount ?? p.to;
             if (k.quality === "weak" || k.quality === "repeat") {
               input.nextTarget = serializeNextSabaq(p.surah, p.from, p.to);
@@ -479,6 +509,19 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
               input.nextTarget = serializeNextSabaq(p.surah, p.to + 1, Math.min(p.to + len, maxAyah));
             }
           }
+        }
+        // Sabqi and manzil normally need no assignment at all — sabqi
+        // follows the sabaq and manzil rotates. An override is the
+        // teacher departing from the method on purpose, so it is stored
+        // and will win over the derived suggestion at prefill.
+        if (meta.key === "sabqi" && ovSabqi) {
+          const target = ovSabqi.unit === "para"
+            ? serializeNextSabqiPara(ovSabqi.juz)
+            : serializeNextSabqiSurahs(ovSabqi.parts);
+          if (target) input.nextTarget = target;
+        }
+        if (meta.key === "manzil" && ovManzil) {
+          input.nextTarget = serializeNextManzil(ovManzil.juz, ovManzil.extent);
         }
         if (first) {
           // Note + advanced fields ride on the first saved entry.
@@ -764,6 +807,188 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
                   <div className="mt-1.5 hidden text-[11px] text-slate-400 sm:block">
                     {alreadyHeard ? t("hifzRound.alreadyLogged") : t(meta.noteKey)}
                   </div>
+
+                  {/* Tomorrow, in place. The round derives every next
+                      lesson by default; this line shows what will be
+                      assigned and lets the teacher say otherwise without
+                      leaving the round — "sabqi kal Surah Nas tak". */}
+                  {(() => {
+                    const tm = tomorrowText(meta.key);
+                    if (!tm) return null;
+                    return (
+                      <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11.5px]">
+                        <span className={tm.auto ? "text-slate-500" : "font-semibold text-indigo-700"}>
+                          {t("hifzRound.tomorrowLabel")} {tm.text}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setNextOpen(nextOpen === meta.key ? null : meta.key)}
+                          className="rounded border border-slate-200 px-1.5 py-0.5 text-[10.5px] font-semibold text-indigo-700 hover:bg-indigo-50"
+                        >
+                          {nextOpen === meta.key ? t("common.close") : t("hifzRound.change")}
+                        </button>
+                        {!tm.auto && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (meta.key === "sabaq") setOvSabaq(null);
+                              else if (meta.key === "sabqi") setOvSabqi(null);
+                              else setOvManzil(null);
+                              setNextOpen(null);
+                            }}
+                            className="text-[10.5px] text-slate-400 underline hover:text-slate-600"
+                          >
+                            {t("hifzRound.useAuto")}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+                  {nextOpen === meta.key && meta.key === "sabaq" && (() => {
+                    const cur = ovSabaq ?? (() => {
+                      const pn = kinds.sabaq.portion;
+                      const maxA = getSurah(pn.surah)?.ayahCount ?? pn.to;
+                      const len = Math.max(1, pn.to - pn.from + 1);
+                      return pn.to < maxA
+                        ? { surah: pn.surah, from: pn.to + 1, to: Math.min(pn.to + len, maxA) }
+                        : { surah: pn.surah, from: 1, to: len };
+                    })();
+                    const set = (patch: Partial<typeof cur>) => setOvSabaq({ ...cur, ...patch });
+                    const maxA = getSurah(cur.surah)?.ayahCount ?? 286;
+                    return (
+                      <div className="mt-2 grid grid-cols-2 gap-2 rounded-lg border border-indigo-100 bg-indigo-50/40 p-2 sm:grid-cols-4">
+                        <Select value={String(cur.surah)} onValueChange={(v) => set({ surah: Number(v) })}>
+                          <SelectTrigger className="col-span-2 bg-white"><SelectValue /></SelectTrigger>
+                          <SelectContent className="max-h-64">
+                            {SURAHS.map((sx) => (
+                              <SelectItem key={sx.number} value={String(sx.number)}>
+                                {sx.number}. {sx.nameTransliterated} ({sx.ayahCount})
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Input type="number" inputMode="numeric" min={1} max={maxA} value={cur.from}
+                          onChange={(e) => set({ from: Number(e.target.value) || 1 })} className="bg-white" />
+                        <Input type="number" inputMode="numeric" min={cur.from} max={maxA} value={cur.to}
+                          onChange={(e) => set({ to: Number(e.target.value) || cur.from })} className="bg-white" />
+                      </div>
+                    );
+                  })()}
+
+                  {nextOpen === meta.key && meta.key === "sabqi" && (() => {
+                    const cur = ovSabqi ?? {
+                      unit: "surah" as const,
+                      parts: [{ surah: kinds.sabaq.portion.surah, from: null, to: null }],
+                      juz: kinds.sabqi.portion.juz,
+                    };
+                    const set = (patch: Partial<typeof cur>) => setOvSabqi({ ...cur, ...patch });
+                    return (
+                      <div className="mt-2 space-y-2 rounded-lg border border-indigo-100 bg-indigo-50/40 p-2">
+                        <div className="inline-flex overflow-hidden rounded-md border border-slate-200">
+                          {(["surah", "para"] as const).map((u) => (
+                            <button key={u} type="button" onClick={() => set({ unit: u })}
+                              className={"px-3 py-1 text-xs font-medium " +
+                                (cur.unit === u ? "bg-indigo-600 text-white" : "bg-white text-slate-600")}>
+                              {u === "surah" ? t("hifzTeach.bySurah") : t("hifzTeach.byPara")}
+                            </button>
+                          ))}
+                        </div>
+                        {cur.unit === "para" ? (
+                          <Select value={String(cur.juz)} onValueChange={(v) => set({ juz: Number(v) })}>
+                            <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
+                            <SelectContent className="max-h-64">
+                              {Array.from({ length: 30 }, (_, i) => i + 1).map((j) => (
+                                <SelectItem key={j} value={String(j)}>{t("hifzTeach.juzN", { n: j })}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <div className="space-y-1.5">
+                            {cur.parts.map((part, i) => {
+                              const info = getSurah(part.surah);
+                              const whole = part.from == null;
+                              const setPart = (patch: Partial<SabqiPart>) =>
+                                set({ parts: cur.parts.map((x, xi) => (xi === i ? { ...x, ...patch } : x)) });
+                              return (
+                                <div key={i} className="flex flex-wrap items-center gap-1.5">
+                                  <Select value={String(part.surah)} onValueChange={(v) => setPart({ surah: Number(v) })}>
+                                    <SelectTrigger className="w-44 bg-white"><SelectValue /></SelectTrigger>
+                                    <SelectContent className="max-h-64">
+                                      {SURAHS.map((sx) => (
+                                        <SelectItem key={sx.number} value={String(sx.number)}>
+                                          {sx.number}. {sx.nameTransliterated}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  <label className="flex items-center gap-1 text-[11px] text-slate-600">
+                                    <input type="checkbox" checked={whole}
+                                      onChange={(e) => setPart(e.target.checked
+                                        ? { from: null, to: null }
+                                        : { from: 1, to: info?.ayahCount ?? 1 })} />
+                                    {t("hifzTeach.assignFullSurah")}
+                                  </label>
+                                  {!whole && (
+                                    <>
+                                      <Input type="number" inputMode="numeric" min={1} max={info?.ayahCount ?? 999}
+                                        value={part.from ?? 1}
+                                        onChange={(e) => setPart({ from: Number(e.target.value) || 1 })}
+                                        className="w-16 bg-white" />
+                                      <Input type="number" inputMode="numeric" min={part.from ?? 1} max={info?.ayahCount ?? 999}
+                                        value={part.to ?? 1}
+                                        onChange={(e) => setPart({ to: Number(e.target.value) || 1 })}
+                                        className="w-16 bg-white" />
+                                    </>
+                                  )}
+                                  {cur.parts.length > 1 && (
+                                    <button type="button" aria-label={t("common.delete")}
+                                      onClick={() => set({ parts: cur.parts.filter((_, xi) => xi !== i) })}
+                                      className="px-1.5 text-xs font-bold text-rose-700 hover:bg-rose-50">
+                                      &times;
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })}
+                            {cur.parts.length < 4 && (
+                              <button type="button"
+                                onClick={() => set({ parts: [...cur.parts, { surah: 1, from: null, to: null }] })}
+                                className="rounded border border-indigo-200 px-2 py-0.5 text-[11px] font-medium text-indigo-700 hover:bg-indigo-50">
+                                {t("hifzTeach.assignAddSurah")}
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+                  {nextOpen === meta.key && meta.key === "manzil" && (() => {
+                    const cur = ovManzil ?? { juz: (kinds.manzil.portion.juz % 30) + 1, extent: "full" as AssignExtent };
+                    const set = (patch: Partial<typeof cur>) => setOvManzil({ ...cur, ...patch });
+                    return (
+                      <div className="mt-2 grid grid-cols-2 gap-2 rounded-lg border border-indigo-100 bg-indigo-50/40 p-2">
+                        <Select value={String(cur.juz)} onValueChange={(v) => set({ juz: Number(v) })}>
+                          <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
+                          <SelectContent className="max-h-64">
+                            {Array.from({ length: 30 }, (_, i) => i + 1).map((j) => (
+                              <SelectItem key={j} value={String(j)}>{t("hifzTeach.juzN", { n: j })}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Select value={cur.extent} onValueChange={(v) => set({ extent: v as AssignExtent })}>
+                          <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="full">{t("hifzTeach.extFull")}</SelectItem>
+                            <SelectItem value="quarter">{t("hifzTeach.extQuarter")}</SelectItem>
+                            <SelectItem value="half">{t("hifzTeach.extHalf")}</SelectItem>
+                            <SelectItem value="three_quarters">{t("hifzTeach.extThreeQuarters")}</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    );
+                  })()}
 
                   {/* Portion editor — by surah or by para. */}
                   {k.editorOpen && (

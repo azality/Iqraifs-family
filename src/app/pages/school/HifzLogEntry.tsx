@@ -43,6 +43,15 @@ import {
   type HifzQuality,
 } from "../../../utils/schoolApi";
 import { SURAHS, getSurah } from "../../../utils/quranSurahs";
+import {
+  serializeNextSabaq,
+  parseNextSabaq,
+  serializeNextSabqiSurahs,
+  serializeNextSabqiPara,
+  serializeNextManzil,
+  type AssignExtent,
+  type SabqiPart,
+} from "../../../utils/hifzTargets";
 
 interface Props {
   orgId: string;
@@ -100,60 +109,8 @@ const JUZ_STARTS: ReadonlyArray<{ surah: number; ayah: number }> = [
   { surah: 58, ayah: 1 }, { surah: 67, ayah: 1 }, { surah: 78, ayah: 1 },
 ];
 
-// next_target is human-readable on purpose — parents read it in the
-// portal — while staying parseable for next-day prefill.
-//
-// What "next" MEANS depends on the kind, which is the bug this shape
-// fixes: the assigner used to say "next sabaq" and offer one surah with
-// an ayah range no matter what was being heard.
-//
-//   Sabaq:  "Sabaq: Al-Fatiha 1–7"          one new passage
-//   Sabqi:  "Sabqi: Al-Baqarah (full), Al-Imran 1–20"   recent revision,
-//           several surahs at once, each whole or partial
-//           "Sabqi: Para 5"                 or simply a whole para
-//   Manzil: "Manzil: Para 6 (to half)"      older revision, always by
-//           para, with how much of it to hear
-export type AssignExtent = "full" | "quarter" | "half" | "three_quarters";
-
-/** One surah in a sabqi assignment. from/to null = the whole surah. */
-export interface SabqiPart { surah: number; from: number | null; to: number | null }
-
-function serializeNextSabqiSurahs(parts: SabqiPart[]): string {
-  const bits = parts
-    .filter((p) => p.surah > 0)
-    .map((p) => {
-      const name = getSurah(p.surah)?.nameTransliterated ?? String(p.surah);
-      return p.from == null || p.to == null ? `${name} (full)` : `${name} ${p.from}–${p.to}`;
-    });
-  return bits.length ? `Sabqi: ${bits.join(", ")}` : "";
-}
-function serializeNextSabqiPara(juz: number): string {
-  return `Sabqi: Para ${juz}`;
-}
-const EXTENT_SUFFIX: Record<AssignExtent, string> = {
-  full: "full para",
-  quarter: "to ¼",
-  half: "to ½",
-  three_quarters: "to ¾",
-};
-function serializeNextManzil(juz: number, extent: AssignExtent): string {
-  return `Manzil: Para ${juz} (${EXTENT_SUFFIX[extent]})`;
-}
-
-// next_target round-trip format: "Sabaq: <Transliterated name> <from>–<to>".
-// Human-readable (parents see it) AND parseable for next-day prefill.
-function serializeNextSabaq(surahNumber: number, from: number, to: number): string {
-  const s = getSurah(surahNumber);
-  return `Sabaq: ${s?.nameTransliterated ?? surahNumber} ${from}–${to}`;
-}
-function parseNextSabaq(text: string): { surahNumber: number; from: number; to: number } | null {
-  const m = /^Sabaq:\s*(.+?)\s+(\d+)\s*[–-]\s*(\d+)\s*$/.exec(text.trim());
-  if (!m) return null;
-  const name = m[1].toLowerCase();
-  const surah = SURAHS.find((s) => s.nameTransliterated.toLowerCase() === name);
-  if (!surah) return null;
-  return { surahNumber: surah.number, from: Number(m[2]), to: Number(m[3]) };
-}
+// Tomorrow's-lesson serialization lives in utils/hifzTargets so this
+// modal and Round Mode can never drift apart on the format again.
 
 export function HifzLogEntry({
   orgId,
