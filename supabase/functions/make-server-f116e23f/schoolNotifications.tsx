@@ -14,6 +14,12 @@
 //   policy     The principal sets the default per role; a person may
 //              opt out of the ones the principal leaves unlocked.
 //   personal   Purely the individual's choice.
+//   activity   Not a duty — "this happened". Principals and office hold
+//              the school-wide view and have few personal duties, so an
+//              action-only bell is empty for them most days, and a bell
+//              that is always empty teaches people to ignore it. These
+//              fill it honestly WITHOUT touching the red count, which
+//              stays reserved for things that actually need doing.
 //
 // The scarce resource is credibility. A bell showing forty items is a
 // bell nobody reads, and then the mandatory ones stop working too — so
@@ -30,7 +36,7 @@ import {
 } from "./schoolAuth.ts";
 import { todayInOrgTz } from "./tz.ts";
 
-type Tier = "mandatory" | "policy" | "personal";
+type Tier = "mandatory" | "policy" | "personal" | "activity";
 
 export interface AlertKindDef {
   kind: string;
@@ -67,6 +73,30 @@ export const ALERT_KINDS: AlertKindDef[] = [
     label: "Subject with no syllabus",
     describe: "A subject you teach has no topics set for the current term.",
   },
+  {
+    kind: "announcement_posted",
+    tier: "activity",
+    label: "Announcement posted",
+    describe: "An announcement went out to parents or staff.",
+  },
+  {
+    kind: "form_published",
+    tier: "activity",
+    label: "Form published",
+    describe: "A form was opened for responses.",
+  },
+  {
+    kind: "student_admitted",
+    tier: "activity",
+    label: "New student admitted",
+    describe: "A student was added to the roll.",
+  },
+  {
+    kind: "hafiz_confirmed",
+    tier: "activity",
+    label: "Hafiz milestone confirmed",
+    describe: "A student was confirmed to have completed the Quran.",
+  },
 ];
 
 const KIND_BY_NAME = new Map(ALERT_KINDS.map((k) => [k.kind, k]));
@@ -81,6 +111,9 @@ export interface Alert {
   /** Where acting on it happens. */
   href: string | null;
   read: boolean;
+  /** When it happened. Activity items are ordered by this; duty alerts
+   *  leave it null because "since when" isn't the point. */
+  at?: string | null;
 }
 
 /** Resolve which optional kinds this person receives: role default set
@@ -153,8 +186,12 @@ export function installNotifications(school: Hono): void {
     const push = (a: Omit<Alert, "read" | "tier">) => {
       const def = KIND_BY_NAME.get(a.kind);
       if (!def || !allowed.has(a.kind)) return;
-      out.push({ ...a, tier: def.tier, read: readKeys.has(a.key) });
+      out.push({ ...a, tier: def.tier, read: readKeys.has(a.key), at: a.at ?? null });
     };
+    /** Activity only reaches the school-wide roles — a teacher's bell
+     *  stays action-only, which is what makes it worth reading. */
+    const seesActivity = isAdmin || roles.has("office_staff");
+    const SINCE = new Date(Date.now() - 7 * 86400e3).toISOString();
 
     // ── Roll call not taken (teacher, for their own sections) ──────────
     const mySections = await teacherSectionIds(userId, orgId);
@@ -236,14 +273,107 @@ export function installNotifications(school: Hono): void {
       }
     }
 
+    // ── Activity (principals + office only) ────────────────────────────
+    // Cheap, recent, and school-wide. Each key carries the row id so read
+    // state sticks to the thing itself, not to a date bucket.
+    if (seesActivity) {
+      const [anns, forms, admits, hafiz] = await Promise.all([
+        serviceRoleClient
+          .from("announcement")
+          .select("id, title, published_at")
+          .eq("org_id", orgId)
+          .not("published_at", "is", null)
+          .gte("published_at", SINCE)
+          .order("published_at", { ascending: false })
+          .limit(10),
+        serviceRoleClient
+          .from("form")
+          .select("id, title, published_at")
+          .eq("org_id", orgId)
+          .not("published_at", "is", null)
+          .gte("published_at", SINCE)
+          .order("published_at", { ascending: false })
+          .limit(10),
+        serviceRoleClient
+          .from("student")
+          .select("id, full_name, created_at")
+          .eq("org_id", orgId)
+          .is("archived_at", null)
+          .gte("created_at", SINCE)
+          .order("created_at", { ascending: false })
+          .limit(10),
+        serviceRoleClient
+          .from("student")
+          .select("id, full_name, hafiz_since")
+          .eq("org_id", orgId)
+          .not("hafiz_since", "is", null)
+          .gte("hafiz_since", SINCE)
+          .order("hafiz_since", { ascending: false })
+          .limit(10),
+      ]);
+
+      for (const a of (anns.data ?? []) as any[]) {
+        push({
+          key: `announcement_posted:${a.id}`,
+          kind: "announcement_posted",
+          title: `Announcement: ${a.title}`,
+          body: "Published to its audience.",
+          href: `/school/orgs/${orgId}/admin/announcements`,
+          at: a.published_at,
+        });
+      }
+      for (const f of (forms.data ?? []) as any[]) {
+        push({
+          key: `form_published:${f.id}`,
+          kind: "form_published",
+          title: `Form open: ${f.title}`,
+          body: "Now accepting responses.",
+          href: `/school/orgs/${orgId}/admin/forms`,
+          at: f.published_at,
+        });
+      }
+      for (const st of (admits.data ?? []) as any[]) {
+        push({
+          key: `student_admitted:${st.id}`,
+          kind: "student_admitted",
+          title: `${st.full_name} joined the roll`,
+          body: "New student added.",
+          href: `/school/orgs/${orgId}/students/${st.id}`,
+          at: st.created_at,
+        });
+      }
+      for (const st of (hafiz.data ?? []) as any[]) {
+        push({
+          key: `hafiz_confirmed:${st.id}`,
+          kind: "hafiz_confirmed",
+          title: `${st.full_name} completed the Quran`,
+          body: "Confirmed hafiz — mashaAllah.",
+          href: `/school/orgs/${orgId}/students/${st.id}?tab=hifz`,
+          at: st.hafiz_since,
+        });
+      }
+    }
+
     // Unread first, then mandatory before the rest — the bell should open
     // on what actually needs doing.
-    const rank = (a: Alert) => (a.read ? 2 : 0) + (a.tier === "mandatory" ? 0 : 1);
-    out.sort((a, b) => rank(a) - rank(b) || a.title.localeCompare(b.title));
+    // Duties first (unread before read), then activity newest-first.
+    const band = (a: Alert) =>
+      a.tier === "activity" ? 2 : a.read ? 1 : 0;
+    out.sort((a, b) => {
+      const d = band(a) - band(b);
+      if (d !== 0) return d;
+      if (a.tier === "activity" && b.tier === "activity") {
+        return String(b.at ?? "").localeCompare(String(a.at ?? ""));
+      }
+      return a.title.localeCompare(b.title);
+    });
 
     return c.json({
       alerts: out,
-      unreadCount: out.filter((a) => !a.read).length,
+      // The red count is reserved for things that need doing. Activity
+      // fills the bell without ever nagging.
+      unreadCount: out.filter((a) => !a.read && a.tier !== "activity").length,
+      activityCount: out.filter((a) => a.tier === "activity").length,
     });
   });
 

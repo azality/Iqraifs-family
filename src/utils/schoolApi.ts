@@ -5660,7 +5660,7 @@ export const getNow = (
 // Derived on read from live data — there is no queue to feed, so an
 // alert can never be stale or missed. Only read state and preferences
 // are stored. Mandatory kinds cannot be switched off by anyone.
-export type NotificationTier = "mandatory" | "policy" | "personal";
+export type NotificationTier = "mandatory" | "policy" | "personal" | "activity";
 
 export interface NotificationAlert {
   key: string;
@@ -5670,6 +5670,8 @@ export interface NotificationAlert {
   body: string;
   href: string | null;
   read: boolean;
+  /** When it happened — set on activity items, null on duty alerts. */
+  at?: string | null;
 }
 
 export interface NotificationKindDef {
@@ -5679,9 +5681,11 @@ export interface NotificationKindDef {
   describe: string;
 }
 
+/** `unreadCount` counts only things that need doing — activity never
+ *  drives the red badge. */
 export const getMyNotifications = (
   orgId: string,
-): Promise<{ alerts: NotificationAlert[]; unreadCount: number }> =>
+): Promise<{ alerts: NotificationAlert[]; unreadCount: number; activityCount?: number }> =>
   apiCall(`/school/orgs/${orgId}/me/notifications`);
 
 export const markNotificationsRead = (
