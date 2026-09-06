@@ -2082,6 +2082,55 @@ await check("50. today-ops only expects attendance on days the school actually r
   }
 });
 
+await check("51. a closed day says so, and /now agrees with /today-ops", async () => {
+  // #469 made the attendance count honest on a Sunday; the words around
+  // it still described a finished school day ("0/0 - normal day",
+  // "Done for today - 20 sections"). Both endpoints now resolve the day
+  // from the same helper, so the two lines on one dashboard cannot
+  // contradict each other.
+  const [opsR, nowR] = await Promise.all([
+    api(principal.token, `/school/orgs/${ORG}/today-ops`),
+    api(principal.token, `/school/orgs/${ORG}/now`),
+  ]);
+  const ops = await opsR.json();
+  const now = await nowR.json();
+  assert(opsR.status === 200 && nowR.status === 200, `today-ops ${opsR.status} / now ${nowR.status}`);
+
+  const sd = ops.schoolDay;
+  assert(sd && typeof sd.isSchoolDay === "boolean", "today-ops must report schoolDay.isSchoolDay");
+  assert(typeof ops.dayLabel === "string" && ops.dayLabel.length > 0, "today-ops must name the weekday");
+  assert(
+    sd.isSchoolDay === (sd.closedReason === null),
+    `closedReason ${JSON.stringify(sd.closedReason)} disagrees with isSchoolDay ${sd.isSchoolDay}`,
+  );
+  assert(sd.sectionsRunning === ops.sectionsExpected,
+    `schoolDay.sectionsRunning ${sd.sectionsRunning} != sectionsExpected ${ops.sectionsExpected}`);
+  if (!sd.isSchoolDay) {
+    assert(ops.sectionsExpected === 0, "a closed day cannot expect attendance");
+  }
+
+  // /now must reach the same verdict, and mark each section.
+  assert(typeof now.isSchoolDay === "boolean", "/now must report isSchoolDay");
+  assert(now.isSchoolDay === sd.isSchoolDay,
+    `/now says isSchoolDay=${now.isSchoolDay} while /today-ops says ${sd.isSchoolDay}`);
+  const sections = (now.sections ?? []) as any[];
+  if (sections.length > 0) {
+    assert(sections.every((s) => typeof s.runsToday === "boolean"),
+      "every /now section needs runsToday, or 'off today' falls back to 'done for today'");
+    // A section that is off today cannot be mid-period.
+    for (const s of sections) {
+      if (s.runsToday === false) {
+        assert(!s.current && !s.next,
+          `${s.label} is off today but has a period: ${JSON.stringify(s.current ?? s.next)}`);
+      }
+    }
+    if (!now.isSchoolDay) {
+      assert(sections.every((s) => s.runsToday === false),
+        "school is closed, so no section can be running");
+    }
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

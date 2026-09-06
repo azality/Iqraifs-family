@@ -1238,6 +1238,17 @@ export const getOrgAcademics = (orgId: string): Promise<AcademicsResponse> =>
 // ─── Today strip (admin/principal) ─────────────────────────────────────
 export interface TodayOpsResponse {
   date: string;
+  /** "Sunday" — in school time, not the reader's timezone. */
+  dayLabel?: string;
+  /** Whether school runs today at all, and if not, why not. */
+  schoolDay?: {
+    isSchoolDay: boolean;
+    closedReason: "holiday" | "not-a-school-day" | null;
+    holidayName: string | null;
+    sectionsRunning: number;
+    /** Sections with students whose bell schedule is silent today. */
+    sectionsOff: number;
+  };
   sectionsExpected: number;
   sectionsTaken: number;
   missingSections: string[];
@@ -5647,13 +5658,23 @@ export interface NowSectionPeriod {
 }
 export interface NowSection {
   sectionId: string; label: string; kind: string;
+  /** Does this section's bell schedule run today? Absent on old
+   *  responses, where "no period left" was the only signal. */
+  runsToday?: boolean;
   current: NowSectionPeriod | null;
   next: NowSectionPeriod | null;
   lessonsToday: Array<{ subjectName: string | null; title: string; topicName: string | null }>;
 }
 export const getNow = (
   orgId: string,
-): Promise<{ date: string; time: string; dayOfWeek: number; sections: NowSection[] }> =>
+): Promise<{
+  date: string; time: string; dayOfWeek: number;
+  dayLabel?: string;
+  isSchoolDay?: boolean;
+  closedReason?: "holiday" | "not-a-school-day" | null;
+  holidayName?: string | null;
+  sections: NowSection[];
+}> =>
   apiCall(`/school/orgs/${orgId}/now`);
 
 // ── In-app notifications (the bell) ───────────────────────────────────

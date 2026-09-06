@@ -1472,6 +1472,40 @@ export function PerformanceDashboard() {
           attDone && todayOps.openFlags === 0 && todayOps.teachersOnLeave.length === 0;
         const missPreview = todayOps.missingSections.slice(0, 3).join(", ");
         const missMore = todayOps.missingSections.length - 3;
+
+        // Closed today (weekend or holiday). "Attendance 0/0 — normal
+        // day" in green describes a school that ran and finished; a
+        // school that never opened has to say so, or the principal reads
+        // a completed day (pilot, 6 Sep). No attendance chip at all here
+        // — 0/0 is not a number anyone needs.
+        const sd = todayOps.schoolDay;
+        const closed = sd ? !sd.isSchoolDay : false;
+        const closedLine = !sd
+          ? ""
+          : sd.closedReason === "holiday"
+            ? `${sd.holidayName ? `${sd.holidayName} — ` : ""}school closed${
+                todayOps.dayLabel ? ` (${todayOps.dayLabel})` : ""
+              }.`
+            : `${todayOps.dayLabel || "Today"} — no classes scheduled.`;
+        if (closed) {
+          return (
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-600">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                Today
+              </span>
+              <span className="inline-flex items-center rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
+                No school
+              </span>
+              <span className="text-xs">{closedLine}</span>
+              {todayOps.openFlags > 0 && (
+                <span className="inline-flex items-center rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800 ring-1 ring-amber-200">
+                  {todayOps.openFlags} open flag{todayOps.openFlags === 1 ? "" : "s"}
+                </span>
+              )}
+            </div>
+          );
+        }
+
         return (
           <div
             className={
@@ -1525,7 +1559,18 @@ export function PerformanceDashboard() {
                 {todayOps.earlyReleasesToday} early release{todayOps.earlyReleasesToday === 1 ? "" : "s"}
               </span>
             )}
-            {allClear && <span className="text-xs">All sections marked, no open flags — normal day.</span>}
+            {sd && sd.sectionsOff > 0 && (
+              <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
+                {sd.sectionsOff} section{sd.sectionsOff === 1 ? "" : "s"} off today
+              </span>
+            )}
+            {allClear && (
+              <span className="text-xs">
+                {sd && sd.sectionsOff > 0
+                  ? `All ${sd.sectionsRunning} running section${sd.sectionsRunning === 1 ? "" : "s"} marked, no open flags.`
+                  : "All sections marked, no open flags — normal day."}
+              </span>
+            )}
           </div>
         );
       })()}
