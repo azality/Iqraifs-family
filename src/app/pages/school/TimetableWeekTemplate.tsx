@@ -29,6 +29,7 @@ import {
   updateOrganization,
   type TimetableTemplatePeriod,
   type SchoolYearHoliday,
+  listBellSchedules,
 } from "../../../utils/schoolApi";
 
 type Kind = "academic" | "break" | "prayer";
@@ -111,6 +112,12 @@ export function TimetableWeekTemplate() {
   const [ramadan, setRamadan] = useState(false);
   const [ramadanLen, setRamadanLen] = useState(30);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
+  // What the timetable ACTUALLY rings, per bell schedule. The school week
+  // used to live in two settings blobs that drifted from each other and
+  // from the slots; only the slots decide anything, so show those.
+  const [realWeek, setRealWeek] = useState<
+    Array<{ key: string; days: number[]; slots: number }>
+  >([]);
   const [dirty, setDirty] = useState(false);
   const [published, setPublished] = useState(false);
   const [publishing, setPublishing] = useState(false);
@@ -171,6 +178,25 @@ export function TimetableWeekTemplate() {
         }
       })
       .catch(() => { /* non-fatal */ });
+
+    // Runs last on purpose: where a real timetable exists it wins over
+    // whatever the settings blobs remember, so the picker opens on the
+    // truth instead of a list that has not been right since August.
+    listBellSchedules(orgId)
+      .then((rows) => {
+        const real = rows
+          .filter((r) => r.key !== "sandbox" && (r.days?.length ?? 0) > 0)
+          .map((r) => ({ key: r.key, days: r.days ?? [], slots: r.slots }));
+        setRealWeek(real);
+        const union = new Set<number>();
+        for (const r of real) for (const d of r.days) union.add(d);
+        if (union.size > 0) {
+          const arr = [false, false, false, false, false, false, false];
+          for (const d of union) if (d >= 1 && d <= 7) arr[d - 1] = true;
+          setActiveDays(arr);
+        }
+      })
+      .catch(() => { /* fresh school - keep the stored/default week */ });
   }, [orgId]);
 
   function markDirty() { setDirty(true); setPublished(false); }
@@ -375,6 +401,34 @@ export function TimetableWeekTemplate() {
               })}
             </div>
             <p style={{ font: `500 13px/1.4 ${fontI}`, color: "#047857", margin: 0 }}>{weekSummary}</p>
+
+            {/* What the timetable ACTUALLY rings. A school with one rhythm
+                sees nothing here; a school like this one - where Hifz runs
+                Saturday and the academic wings do not - needs to see that
+                the week above is a union, not a single school-wide week.
+                This is also the honest answer to "why is Saturday on?". */}
+            {realWeek.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <p style={{ font: `600 11px/1 ${fontI}`, letterSpacing: ".6px", color: "#8A93A3", margin: 0, textTransform: "uppercase" }}>
+                  Your timetable today
+                </p>
+                {realWeek.map((r) => (
+                  <p key={r.key} style={{ font: `500 12.5px/1.5 ${fontI}`, color: "#5A6172", margin: 0 }}>
+                    <b style={{ color: "#14163a" }}>{r.key === "default" ? "Main school" : r.key}</b>
+                    {" · "}
+                    {r.days.map((d) => DAY_LABELS[d - 1]).join(", ")}
+                    <span style={{ color: "#8A93A3" }}>{` · ${r.slots} period${r.slots === 1 ? "" : "s"}`}</span>
+                  </p>
+                ))}
+                {realWeek.length > 1 && (
+                  <p style={{ font: `400 12px/1.5 ${fontI}`, color: "#8A93A3", margin: 0 }}>
+                    This school runs {realWeek.length} bell schedules. The template below
+                    only rebuilds the main school&apos;s day — edit the others from
+                    Academics › Timetable › Periods.
+                  </p>
+                )}
+              </div>
+            )}
           </section>
 
           {/* Day builder */}

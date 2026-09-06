@@ -2246,6 +2246,46 @@ await check("54. the attendance tile does not score a day with no school", async
   }
 });
 
+await check("55. the school week comes from the timetable, per bell schedule", async () => {
+  // "Which days does school run" was stored in two settings blobs that
+  // disagreed with each other AND with the slots, while the dashboard's
+  // attendance walks hardcoded Mon-Fri - so a Saturday with no Hifz
+  // register never counted as a missed day, and any school not running
+  // Mon-Fri would have been nagged for days it is shut (pilot, 6 Sep).
+  const r = await api(principal.token, `/school/orgs/${ORG}/bell-schedules`);
+  const j = await r.json();
+  assert(r.status === 200, `bell-schedules ${r.status}`);
+  const rows = (j.schedules ?? []) as any[];
+  assert(rows.length > 0, "an org with a timetable has at least one bell schedule");
+
+  for (const row of rows) {
+    assert(Array.isArray(row.days), `schedule "${row.key}" must report its days`);
+    for (const d of row.days) {
+      assert(Number.isInteger(d) && d >= 1 && d <= 7, `bad weekday ${d} on "${row.key}"`);
+    }
+    // A schedule with slots rings on at least one day, and vice versa.
+    assert((row.slots > 0) === (row.days.length > 0),
+      `"${row.key}" has ${row.slots} slots but ${row.days.length} days`);
+  }
+
+  // Cross-check one schedule against the raw slots.
+  const real = rows.find((x: any) => x.key !== "sandbox" && x.slots > 0);
+  if (real) {
+    const { data: slots } = await admin.from("timetable_slot")
+      .select("day_of_week").eq("org_id", ORG).eq("schedule_key", real.key).is("archived_at", null);
+    const expected = [...new Set((slots ?? []).map((x: any) => x.day_of_week))].sort((a, b) => a - b);
+    assert(JSON.stringify(expected) === JSON.stringify(real.days),
+      `"${real.key}" reports ${JSON.stringify(real.days)} but its slots say ${JSON.stringify(expected)}`);
+  }
+
+  // The dashboard must not invent attendance gaps on days a section does
+  // not run - the alert that started all of this.
+  const dashR = await api(principal.token, `/school/orgs/${ORG}/dashboard?period=WTD`);
+  const dash = await dashR.json();
+  assert(dashR.status === 200, `dashboard ${dashR.status}`);
+  assert(Array.isArray(dash.alerts), "dashboard should carry an alerts array");
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

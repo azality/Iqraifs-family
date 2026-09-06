@@ -217,7 +217,7 @@ export function installTimetable(school: Hono): void {
     }
     const { data: slotRows } = await serviceRoleClient
       .from("timetable_slot")
-      .select("schedule_key")
+      .select("schedule_key, day_of_week")
       .eq("org_id", orgId)
       .is("archived_at", null);
     const { data: secRows } = await serviceRoleClient
@@ -236,9 +236,25 @@ export function installTimetable(school: Hono): void {
     for (const r of (secRows ?? []) as any[]) bump(r.schedule_key ?? "default", "sections");
     if (!counts.has("default")) counts.set("default", { slots: 0, sections: 0 });
 
+    // Which weekdays each bell actually rings on. The school week was
+    // being stored in two settings blobs that drifted apart from each
+    // other and from the timetable; the slots are the only copy that
+    // decides anything, so report them and let the editor show the truth.
+    const daysByKey = new Map<string, Set<number>>();
+    for (const r of (slotRows ?? []) as any[]) {
+      const key = r.schedule_key ?? "default";
+      const dow = Number(r.day_of_week);
+      if (!Number.isInteger(dow) || dow < 1 || dow > 7) continue;
+      if (!daysByKey.has(key)) daysByKey.set(key, new Set());
+      daysByKey.get(key)!.add(dow);
+    }
+
     return c.json({
-      schedules: Array.from(counts, ([key, v]) => ({ key, ...v }))
-        .sort((a, b) => (a.key === "default" ? -1 : b.key === "default" ? 1 : a.key.localeCompare(b.key))),
+      schedules: Array.from(counts, ([key, v]) => ({
+        key,
+        ...v,
+        days: Array.from(daysByKey.get(key) ?? []).sort((a, b) => a - b),
+      })).sort((a, b) => (a.key === "default" ? -1 : b.key === "default" ? 1 : a.key.localeCompare(b.key))),
     });
   });
 
