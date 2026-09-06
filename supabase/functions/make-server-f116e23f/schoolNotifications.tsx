@@ -34,7 +34,8 @@ import {
   hasAnyRoleInOrg,
   teacherSectionIds,
 } from "./schoolAuth.ts";
-import { todayInOrgTz } from "./tz.ts";
+import { todayInOrgTz, orgTimezone } from "./tz.ts";
+import { loadSchoolWeek, schoolDaysWaiting } from "./schoolWeek.ts";
 
 type Tier = "mandatory" | "policy" | "personal" | "activity";
 
@@ -66,6 +67,13 @@ export const ALERT_KINDS: AlertKindDef[] = [
     tier: "mandatory",
     label: "Unanswered parent message",
     describe: "A parent has written to the school and nobody has replied.",
+  },
+  {
+    kind: "parent_reply_overdue",
+    tier: "mandatory",
+    label: "Parent waiting past the reply window",
+    describe:
+      "A parent has been waiting longer than the school's own reply window (counted in school days).",
   },
   {
     kind: "syllabus_untagged",
@@ -253,7 +261,9 @@ export function installNotifications(school: Hono): void {
 
     // ── Unanswered parent messages (office / principal) ────────────────
     if (isAdmin || roles.has("office_staff")) {
-      // A message from a parent that no staff member has opened yet.
+      // read_at means ANSWERED, not opened (changed with the inbox review
+      // — a staff member reading a thread no longer clears it). So these
+      // are parents genuinely still owed a reply.
       const { data: threads } = await serviceRoleClient
         .from("parent_message")
         .select("id, thread_id, created_at, sent_by_role, read_at")
@@ -270,6 +280,36 @@ export function installNotifications(school: Hono): void {
           body: "Parents are waiting for a reply from the school.",
           href: `/school/orgs/${orgId}/admin/inbox`,
         });
+
+        // Escalation: someone has been waiting past the school's own
+        // window. Counted in SCHOOL days, so a Friday message is not
+        // "overdue" on Monday at a school that was shut over the weekend.
+        try {
+          const [week, tzName, orgRow] = await Promise.all([
+            loadSchoolWeek(orgId),
+            orgTimezone(orgId),
+            serviceRoleClient.from("organizations").select("settings").eq("id", orgId).maybeSingle(),
+          ]);
+          const rawSla = Number((orgRow.data as any)?.settings?.parent_reply_sla_days);
+          const sla = Number.isFinite(rawSla) && rawSla >= 0 && rawSla <= 30 ? Math.round(rawSla) : 2;
+          if (sla > 0) {
+            const todayIso = todayInOrgTz(tzName);
+            // Oldest first — the worst wait is the one worth naming.
+            const waits = (threads ?? [])
+              .map((m: any) => schoolDaysWaiting(week, m.created_at, todayIso))
+              .filter((d) => d >= sla)
+              .sort((a, b) => b - a);
+            if (waits.length > 0) {
+              push({
+                key: `parent_reply_overdue:${today}:${waits.length}:${waits[0]}`,
+                kind: "parent_reply_overdue",
+                title: `${waits.length} parent${waits.length === 1 ? " has" : "s have"} waited ${waits[0]}+ school days`,
+                body: `The school's reply window is ${sla} school day${sla === 1 ? "" : "s"}.`,
+                href: `/school/orgs/${orgId}/admin/inbox`,
+              });
+            }
+          }
+        } catch { /* ageing must never break the bell */ }
       }
     }
 

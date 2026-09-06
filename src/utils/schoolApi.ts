@@ -4957,6 +4957,12 @@ export interface InboxThread {
   assignedTo?: string | null;
   assignedToName?: string | null;
   assignedToMe?: boolean;
+  /** When the oldest still-unanswered parent message arrived. */
+  waitingSince?: string | null;
+  /** How long they have waited, in SCHOOL days (weekends and holidays
+   *  do not count — a Friday message is not overdue on Monday). */
+  waitingSchoolDays?: number | null;
+  overdue?: boolean;
 }
 export interface InboxMessage {
   id: string;
@@ -4982,7 +4988,9 @@ export interface InboxThreadDetail {
   messages: InboxMessage[];
 }
 
-export const listInbox = (orgId: string): Promise<{ threads: InboxThread[] }> =>
+export const listInbox = (
+  orgId: string,
+): Promise<{ threads: InboxThread[]; slaDays?: number }> =>
   apiCall(`/school/orgs/${orgId}/inbox`);
 export const getInboxThread = (orgId: string, threadId: string): Promise<InboxThreadDetail> =>
   apiCall(`/school/orgs/${orgId}/inbox/${threadId}`);

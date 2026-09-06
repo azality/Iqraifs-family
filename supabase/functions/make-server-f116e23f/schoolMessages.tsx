@@ -14,6 +14,8 @@
 //   school → parent messages: read_at set when the parent opens the thread
 
 import type { Context, Hono } from "npm:hono";
+import { loadSchoolWeek, schoolDaysWaiting } from "./schoolWeek.ts";
+import { todayInOrgTz, orgTimezone } from "./tz.ts";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { verifyPinToken } from "./schoolPhaseA.tsx";
 
@@ -115,6 +117,18 @@ function threadToJson(latest: any, allInThread: any[], otherSideRole: "parent" |
   };
 }
 
+/** How long the school gives itself to answer a parent, in SCHOOL days.
+ *  A policy, so the school owns it: settings.parent_reply_sla_days.
+ *  Two school days by default — a message on Monday is overdue on
+ *  Wednesday, and a Friday message is not overdue on Monday. */
+async function replySlaDays(orgId: string): Promise<number> {
+  const { data } = await serviceRoleClient
+    .from("organizations").select("settings").eq("id", orgId).maybeSingle();
+  const raw = (data as any)?.settings?.parent_reply_sla_days;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 && n <= 30 ? Math.round(n) : 2;
+}
+
 export function installMessages(school: Hono): void {
   // ─── Parent portal ─────────────────────────────────────────────────
   // GET /school/pin-me/messages — thread list
@@ -144,8 +158,15 @@ export function installMessages(school: Hono): void {
       out.push(threadToJson(latest, list, "parent"));
     }
     // Newest first.
-    out.sort((a, b) => (a.latestAt < b.latestAt ? 1 : -1));
-    return c.json({ threads: out });
+    out.sort((a, b) => {
+      // Overdue first, longest wait at the top; everything else by recency.
+      if (a.overdue !== b.overdue) return a.overdue ? -1 : 1;
+      if (a.overdue && b.overdue) {
+        return (b.waitingSchoolDays ?? 0) - (a.waitingSchoolDays ?? 0);
+      }
+      return a.latestAt < b.latestAt ? 1 : -1;
+    });
+    return c.json({ threads: out, slaDays });
   });
 
   // GET thread messages (parent view)
@@ -321,6 +342,12 @@ export function installMessages(school: Hono): void {
       }
     }
 
+    // Ageing, in SCHOOL days. Computed once for the whole inbox.
+    const [week, tz, slaDays] = await Promise.all([
+      loadSchoolWeek(orgId), orgTimezone(orgId), replySlaDays(orgId),
+    ]);
+    const todayIso = todayInOrgTz(tz);
+
     // Who is holding each thread. One query for the whole inbox.
     const { data: assigns } = await serviceRoleClient
       .from("parent_thread_assignment")
@@ -341,6 +368,15 @@ export function installMessages(school: Hono): void {
       // For admin: "the other side" is parent.
       const t = threadToJson(latest, list, "school");
       const holder = assignedTo.get(latest.thread_id) ?? null;
+      // The clock starts at the OLDEST unanswered parent message, not the
+      // newest: a parent who wrote twice has been waiting since the first.
+      const oldestWaiting = list
+        .filter((m: any) => m.sent_by_role === "parent" && m.read_at === null)
+        .map((m: any) => m.created_at)
+        .sort()[0] ?? null;
+      const waitingDays = oldestWaiting
+        ? schoolDaysWaiting(week, oldestWaiting, todayIso)
+        : null;
       out.push({
         ...t,
         parentName: parentNames.get(latest.parent_user_id) ?? null,
@@ -348,6 +384,9 @@ export function installMessages(school: Hono): void {
         assignedTo: holder,
         assignedToName: holder ? assigneeNames.get(holder) ?? null : null,
         assignedToMe: holder === userId,
+        waitingSince: oldestWaiting,
+        waitingSchoolDays: waitingDays,
+        overdue: waitingDays !== null && waitingDays >= slaDays && slaDays > 0,
       });
     }
     out.sort((a, b) => (a.latestAt < b.latestAt ? 1 : -1));

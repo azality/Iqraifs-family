@@ -213,6 +213,17 @@ export function ParentInbox() {
                       <div className="text-xs text-slate-500 truncate mt-0.5">
                         {thr.latestSentByRole === "school" ? "Us: " : "Parent: "}{thr.latestBody}
                       </div>
+                      {typeof thr.waitingSchoolDays === "number" && thr.waitingSchoolDays > 0 && (
+                        <div className={
+                          "mt-1 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold " +
+                          (thr.overdue
+                            ? "bg-rose-100 text-rose-700"
+                            : "bg-amber-50 text-amber-700")
+                        }>
+                          {thr.overdue ? "Overdue · " : ""}
+                          waiting {thr.waitingSchoolDays} school day{thr.waitingSchoolDays === 1 ? "" : "s"}
+                        </div>
+                      )}
                       {thr.assignedToName && (
                         <div className="mt-1 inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">
                           {thr.assignedToMe ? "You are handling this" : `${thr.assignedToName} is handling this`}
