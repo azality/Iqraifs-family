@@ -124,6 +124,14 @@ export function TimetableWeekTemplate() {
   const [error, setError] = useState<string | null>(null);
 
   // Holiday form
+  // school_year is ONE json blob replaced wholesale. Publishing used to
+  // write { schoolDays, holidays } only, which silently wiped the
+  // academic year's start/end dates that Settings owns - the mirror of
+  // the bug #470 fixed on the Settings side. Hold them so we can put
+  // them back untouched.
+  const [yearDates, setYearDates] = useState<{ startDate?: string; endDate?: string }>({});
+  const [savingHolidays, setSavingHolidays] = useState(false);
+  const [holidaysSavedAt, setHolidaysSavedAt] = useState<number | null>(null);
   const [hName, setHName] = useState("");
   const [hStart, setHStart] = useState("");
   const [hEnd, setHEnd] = useState("");
@@ -161,6 +169,10 @@ export function TimetableWeekTemplate() {
     getOrganization(orgId)
       .then((r) => {
         const sy: any = (r.organization as any).settings?.school_year ?? {};
+        setYearDates({
+          startDate: typeof sy.startDate === "string" ? sy.startDate : undefined,
+          endDate: typeof sy.endDate === "string" ? sy.endDate : undefined,
+        });
         if (Array.isArray(sy.holidays)) {
           setHolidays(sy.holidays.map((h: any) => ({
             id: nextId++,
@@ -188,11 +200,18 @@ export function TimetableWeekTemplate() {
           .filter((r) => r.key !== "sandbox" && (r.days?.length ?? 0) > 0)
           .map((r) => ({ key: r.key, days: r.days ?? [], slots: r.slots }));
         setRealWeek(real);
-        const union = new Set<number>();
-        for (const r of real) for (const d of r.days) union.add(d);
-        if (union.size > 0) {
+        // Seed the picker from the band this page can actually rebuild.
+        // The UNION would be wrong as generator input: Hifz runs Saturday,
+        // so publishing would have stamped a Saturday onto the academic
+        // band that never had one. Display shows every schedule; the
+        // builder is seeded by "default" alone.
+        const mainDays = real.find((r) => r.key === "default")?.days ?? [];
+        const seed = mainDays.length > 0
+          ? mainDays
+          : [...new Set(real.flatMap((r) => r.days))];
+        if (seed.length > 0) {
           const arr = [false, false, false, false, false, false, false];
-          for (const d of union) if (d >= 1 && d <= 7) arr[d - 1] = true;
+          for (const d of seed) if (d >= 1 && d <= 7) arr[d - 1] = true;
           setActiveDays(arr);
         }
       })
@@ -303,6 +322,49 @@ export function TimetableWeekTemplate() {
   const sortedHolidays = useMemo(() => holidays.slice().sort((a, b) => a.startDate < b.startDate ? -1 : 1), [holidays]);
   const availablePresets = PRESETS.filter((p) => !holidays.some((h) => h.name === p.name));
 
+  // This page is a GENERATOR, not the timetable. It builds one standard
+  // day and stamps it across the week - which is exactly what a school
+  // needs on day one, and exactly the wrong tool once real schedules
+  // exist, because apply-template only ever rebuilds the "default" band.
+  // So it introduces itself differently depending on which it is:
+  //   setup      - no timetable yet: the wizard, front and centre
+  //   established- a timetable exists: show it, and put the generator
+  //                behind a door with its blast radius written on it.
+  const hasTimetable = realWeek.length > 0;
+  const otherSchedules = realWeek.filter((r) => r.key !== "default");
+  const [showGenerator, setShowGenerator] = useState(false);
+  const generatorOpen = !hasTimetable || showGenerator;
+
+  /** Writes school_year without losing the keys this page does not edit. */
+  function yearBlob(days: number[]) {
+    return {
+      startDate: yearDates.startDate,
+      endDate: yearDates.endDate,
+      schoolDays: days,
+      holidays: holidays.map((h) => ({
+        name: h.name, startDate: h.startDate, endDate: h.endDate, type: h.type, moon: h.moon,
+      })),
+    };
+  }
+
+  /** Holidays are year data, not generator input - a principal must be
+   *  able to add Eid without republishing (and so regenerating) the
+   *  timetable. Saves on its own. */
+  async function saveHolidays() {
+    if (!orgId) return;
+    setSavingHolidays(true);
+    setError(null);
+    try {
+      const days = activeDays.map((on, i) => on ? i + 1 : 0).filter((n) => n > 0);
+      await updateOrganization(orgId, { school_year: yearBlob(days) as any });
+      setHolidaysSavedAt(Date.now());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save holidays");
+    } finally {
+      setSavingHolidays(false);
+    }
+  }
+
   async function publish() {
     if (!orgId) return;
     setPublishing(true);
@@ -320,12 +382,7 @@ export function TimetableWeekTemplate() {
         // so the editor can reload them.
         ramadan, ramadanLen, published: true,
       } as any);
-      await updateOrganization(orgId, {
-        school_year: {
-          schoolDays: days,
-          holidays: holidays.map((h) => ({ name: h.name, startDate: h.startDate, endDate: h.endDate, type: h.type, moon: h.moon } as any)),
-        } as any,
-      });
+      await updateOrganization(orgId, { school_year: yearBlob(days) as any });
       setPublished(true); setDirty(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to publish");
@@ -369,15 +426,106 @@ export function TimetableWeekTemplate() {
       <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 28 }}>
         <h1 style={{ font: `800 26px/1.2 ${fontI}`, color: "#111827", margin: 0 }}>School schedule</h1>
         <p style={{ font: `400 14.5px/1.6 ${fontI}`, color: "#5B6472", margin: 0, maxWidth: "70ch" }}>
-          Set the school week, build the standard day once, and mark the year's holidays. Period 1 is Period 1 for every grade and section — define it here and it applies school-wide.
+          {hasTimetable
+            ? "Your timetable is already running. This page can rebuild the standard day from scratch and mark the year's holidays — the day-to-day edits live in Academics › Timetable › Periods."
+            : "Set the school week, build the standard day once, and mark the year's holidays. Period 1 is Period 1 for every grade and section — define it here and it applies school-wide."}
         </p>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 360px", gap: 24, alignItems: "start" }}>
+      <div style={{
+        display: "grid",
+        // The rail is the generator's preview + Publish. With the builder
+        // closed there is nothing to preview, so the page goes full width
+        // rather than leaving a 360px hole.
+        gridTemplateColumns: generatorOpen ? "minmax(0, 1fr) 360px" : "minmax(0, 1fr)",
+        gap: 24, alignItems: "start",
+      }}>
 
         {/* ─── LEFT ─── */}
         <div style={{ display: "flex", flexDirection: "column", gap: 24, minWidth: 0 }}>
 
+          {/* What the school actually runs. In established mode this is
+              the page's main content: the generator below can only
+              rebuild the main school's band, so leading with the truth
+              stops this page reading as "the timetable". */}
+          {hasTimetable && (
+            <section style={cardBase}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <h2 style={sectionTitle}>Your timetable</h2>
+                <p style={sectionSub}>
+                  {otherSchedules.length > 0
+                    ? `This school runs ${realWeek.length} bell schedules. Each rings its own days and periods.`
+                    : "The days and periods currently running."}
+                </p>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {realWeek.map((r) => (
+                  <div key={r.key} style={{
+                    display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: 8,
+                    padding: "10px 12px", borderRadius: 10, background: "#F7F8FC",
+                    border: "1px solid #E8EBF2",
+                  }}>
+                    <b style={{ font: `700 13px/1.2 ${fontI}`, color: "#14163a" }}>
+                      {r.key === "default" ? "Main school" : r.key}
+                    </b>
+                    <span style={{ font: `500 12.5px/1.4 ${fontI}`, color: "#5A6172" }}>
+                      {r.days.map((d) => DAY_LABELS[d - 1]).join(", ")}
+                    </span>
+                    <span style={{ font: `400 12.5px/1.4 ${fontI}`, color: "#8A93A3", marginLeft: "auto" }}>
+                      {r.slots} period{r.slots === 1 ? "" : "s"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <a href={`/school/orgs/${orgId}/admin/timetable`}
+                 style={{ font: `600 13px/1 ${fontI}`, color: "#4F46E5", textDecoration: "none" }}>
+                Edit periods and times →
+              </a>
+            </section>
+          )}
+
+          {/* The generator. On a school with no timetable this IS the
+              page - steps 1 and 2 of a setup wizard. Once a timetable
+              exists it hides behind a door, because pressing Publish
+              rebuilds the main school's band and a principal who came
+              here to add a holiday should not meet that by accident. */}
+          {!generatorOpen && (
+            <section style={cardBase}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <h2 style={sectionTitle}>Rebuild the standard day</h2>
+                <p style={sectionSub}>
+                  Regenerates the main school&apos;s periods from a single
+                  template — for a fresh year or a changed bell, not for
+                  everyday edits.
+                </p>
+              </div>
+              <div style={{
+                display: "flex", flexDirection: "column", gap: 6,
+                padding: "12px 14px", borderRadius: 10,
+                background: "#FFF8EC", border: "1px solid #F5D9A8",
+              }}>
+                <b style={{ font: `700 12.5px/1.4 ${fontI}`, color: "#8A5A00" }}>What Publish would change</b>
+                <span style={{ font: `400 12.5px/1.6 ${fontI}`, color: "#7A6437" }}>
+                  Replaces the empty periods of <b>Main school</b> on the days you
+                  pick, and leaves any period that already has a class in it.
+                  {otherSchedules.length > 0 && (
+                    <> It does <b>not</b> touch {otherSchedules.map((r) => r.key).join(", ")} —
+                    edit those in Periods.</>
+                  )}
+                </span>
+              </div>
+              <button type="button" onClick={() => setShowGenerator(true)}
+                      style={{
+                        alignSelf: "flex-start", cursor: "pointer", borderRadius: 10,
+                        font: `600 13px/1 ${fontI}`, padding: "11px 16px",
+                        background: "#FFFFFF", color: "#1F2430", border: "1px solid #D9DEE8",
+                      }}>
+                Open the day builder
+              </button>
+            </section>
+          )}
+
+          {generatorOpen && (<>
           {/* School week */}
           <section style={cardBase}>
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -402,33 +550,6 @@ export function TimetableWeekTemplate() {
             </div>
             <p style={{ font: `500 13px/1.4 ${fontI}`, color: "#047857", margin: 0 }}>{weekSummary}</p>
 
-            {/* What the timetable ACTUALLY rings. A school with one rhythm
-                sees nothing here; a school like this one - where Hifz runs
-                Saturday and the academic wings do not - needs to see that
-                the week above is a union, not a single school-wide week.
-                This is also the honest answer to "why is Saturday on?". */}
-            {realWeek.length > 0 && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                <p style={{ font: `600 11px/1 ${fontI}`, letterSpacing: ".6px", color: "#8A93A3", margin: 0, textTransform: "uppercase" }}>
-                  Your timetable today
-                </p>
-                {realWeek.map((r) => (
-                  <p key={r.key} style={{ font: `500 12.5px/1.5 ${fontI}`, color: "#5A6172", margin: 0 }}>
-                    <b style={{ color: "#14163a" }}>{r.key === "default" ? "Main school" : r.key}</b>
-                    {" · "}
-                    {r.days.map((d) => DAY_LABELS[d - 1]).join(", ")}
-                    <span style={{ color: "#8A93A3" }}>{` · ${r.slots} period${r.slots === 1 ? "" : "s"}`}</span>
-                  </p>
-                ))}
-                {realWeek.length > 1 && (
-                  <p style={{ font: `400 12px/1.5 ${fontI}`, color: "#8A93A3", margin: 0 }}>
-                    This school runs {realWeek.length} bell schedules. The template below
-                    only rebuilds the main school&apos;s day — edit the others from
-                    Academics › Timetable › Periods.
-                  </p>
-                )}
-              </div>
-            )}
           </section>
 
           {/* Day builder */}
@@ -521,10 +642,12 @@ export function TimetableWeekTemplate() {
           </section>
 
           {/* Holidays */}
-          <section style={cardBase}>
+                    </>)}
+
+<section style={cardBase}>
             <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                <h2 style={sectionTitle}>3 · Holidays &amp; vacations</h2>
+                <h2 style={sectionTitle}>{generatorOpen ? "3 · " : ""}Holidays &amp; vacations</h2>
                 <p style={sectionSub}>No classes are scheduled on these dates. Eid dates can be adjusted once the moon is sighted.</p>
               </div>
               <span style={{ font: `600 13px/1 ${fontI}`, color: "#4F46E5", background: "#EEF0FE", borderRadius: 999, padding: "8px 14px", whiteSpace: "nowrap" }}>
@@ -591,10 +714,28 @@ export function TimetableWeekTemplate() {
                 Add holiday
               </button>
             </form>
+              <div style={{ borderTop: "1px solid #EDF0F6", paddingTop: 14, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                <button type="button" onClick={saveHolidays} disabled={savingHolidays}
+                        style={{
+                          cursor: savingHolidays ? "wait" : "pointer", borderRadius: 10,
+                          font: `600 13px/1 ${fontI}`, padding: "11px 18px",
+                          background: "#4F46E5", color: "#FFFFFF", border: "none",
+                          opacity: savingHolidays ? 0.7 : 1,
+                        }}>
+                  {savingHolidays ? "Saving…" : "Save holidays"}
+                </button>
+                {holidaysSavedAt !== null && !savingHolidays && (
+                  <span style={{ font: `500 12.5px/1 ${fontI}`, color: "#047857" }}>Saved ✓</span>
+                )}
+                <span style={{ font: `400 12.5px/1.5 ${fontI}`, color: "#8A93A3" }}>
+                  Saves on its own — adding a holiday does not rebuild the timetable.
+                </span>
+              </div>
           </section>
         </div>
 
         {/* ─── RIGHT RAIL ─── */}
+        {generatorOpen && (
         <aside style={{ position: "sticky", top: 24, display: "flex", flexDirection: "column", gap: 16 }}>
           <div style={{ background: "#FFFFFF", border: "1px solid #E8EBF2", borderRadius: 16, padding: 22, display: "flex", flexDirection: "column", gap: 16 }}>
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -637,6 +778,15 @@ export function TimetableWeekTemplate() {
             <span style={{ font: `400 13px/1.55 ${fontI}`, color: "#5B6472" }}>
               Publishing creates <strong style={{ color: "#1F2430" }}>{slotCount} weekly slots</strong> ({blocks.length} blocks × {activeCount} days). Sections and Hifz groups then fill in their own subject + teacher per slot.
             </span>
+            {hasTimetable && (
+              <span style={{ font: `400 12.5px/1.55 ${fontI}`, color: "#8A5A00", background: "#FFF8EC", border: "1px solid #F5D9A8", borderRadius: 10, padding: "10px 12px" }}>
+                A timetable is already running. This replaces the <b>empty</b>
+                {" "}periods of Main school and keeps any period that has a class in it
+                {otherSchedules.length > 0 && (
+                  <>; {otherSchedules.map((r) => r.key).join(", ")} are untouched</>
+                )}.
+              </span>
+            )}
             <button type="button" onClick={publish} disabled={publishing || activeCount === 0 || blocks.length === 0}
                     style={{
                       cursor: publishing ? "wait" : "pointer",
@@ -659,6 +809,7 @@ export function TimetableWeekTemplate() {
             {error && <span style={{ font: `500 12.5px/1.5 ${fontI}`, color: "#C2491D" }}>{error}</span>}
           </div>
         </aside>
+        )}
       </div>
     </div>
   );
