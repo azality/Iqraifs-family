@@ -1,9 +1,15 @@
 // StudentBehaviorFeed — timeline of behavior notes for a single student.
 // Embeddable; pass orgId + studentId. If allowDelete is true, callers who
 // recorded the note OR who are org admins/principals see a delete button.
+//
+// Wired into StudentDetail's Behavior tab (6 Sep 2026). Until then this
+// file was written but imported nowhere, so a teacher looking at one
+// child could see only a 30-day +N/−N tally and a link to the whole
+// class's log — they had to find that child's notes by eye.
 
 import { useEffect, useState } from "react";
-import { Trash2, Sparkles, AlertTriangle } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { Trash2, Sparkles, AlertTriangle, Plus } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
 import {
@@ -22,19 +28,24 @@ interface Props {
   allowDelete?: boolean;
   /** Optional refresh-trigger key — bumping it re-fetches the feed. */
   refreshKey?: number;
+  /** Rendered inside the empty state, so an empty feed offers the way in
+   *  instead of being a dead end. */
+  onAddNote?: () => void;
 }
 
-function relTime(iso: string): string {
-  const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return iso;
-  const diff = Date.now() - t;
+type TFn = (k: string, o?: Record<string, unknown>) => string;
+
+function relTime(iso: string, t: TFn): string {
+  const ms = new Date(iso).getTime();
+  if (Number.isNaN(ms)) return iso;
+  const diff = Date.now() - ms;
   const m = Math.round(diff / 60000);
-  if (m < 1) return "just now";
-  if (m < 60) return `${m}m ago`;
+  if (m < 1) return t("behavior.justNow");
+  if (m < 60) return t("behavior.minsAgo", { n: m });
   const h = Math.round(m / 60);
-  if (h < 24) return `${h}h ago`;
+  if (h < 24) return t("behavior.hoursAgo", { n: h });
   const d = Math.round(h / 24);
-  return `${d}d ago`;
+  return t("behavior.daysAgo", { n: d });
 }
 
 export function StudentBehaviorFeed({
@@ -42,7 +53,9 @@ export function StudentBehaviorFeed({
   studentId,
   allowDelete,
   refreshKey,
+  onAddNote,
 }: Props) {
+  const { t } = useTranslation();
   const [notes, setNotes] = useState<BehaviorNote[]>([]);
   const [me, setMe] = useState<SchoolMeResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -56,7 +69,7 @@ export function StudentBehaviorFeed({
     setLoading(true);
     getStudentBehaviorNotes(orgId, studentId)
       .then((r) => setNotes(r.notes))
-      .catch((e) => setError(e?.message || "Failed to load notes"))
+      .catch((e) => setError(e?.message || t("behavior.loadFailed")))
       .finally(() => setLoading(false));
   };
 
@@ -73,7 +86,7 @@ export function StudentBehaviorFeed({
   };
 
   const handleDelete = async (n: BehaviorNote) => {
-    if (!confirm("Delete this behavior note?")) return;
+    if (!confirm(t("behavior.deleteConfirm"))) return;
     try {
       await deleteBehaviorNote(orgId, n.id);
       load();
@@ -83,13 +96,31 @@ export function StudentBehaviorFeed({
   };
 
   if (loading && notes.length === 0) {
-    return <p className="text-sm text-muted-foreground">Loading notes…</p>;
+    return <p className="text-sm text-muted-foreground">{t("behavior.loading")}</p>;
   }
   if (error) {
     return <p className="text-sm text-rose-600">{error}</p>;
   }
   if (notes.length === 0) {
-    return <p className="text-sm text-muted-foreground">No behavior notes yet.</p>;
+    // An empty log has to say what it is and offer the way in, not just
+    // report emptiness — a teacher read the bare version as a refusal.
+    return (
+      <div className="flex flex-col items-start gap-3 py-2">
+        <div>
+          <p className="text-sm font-medium text-slate-800">
+            {t("behavior.noneForStudent")}
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {t("behavior.noneForStudentBody")}
+          </p>
+        </div>
+        {onAddNote && (
+          <Button size="sm" onClick={onAddNote}>
+            <Plus className="h-4 w-4 mr-1" /> {t("behavior.addANote")}
+          </Button>
+        )}
+      </div>
+    );
   }
 
   return (
@@ -123,7 +154,7 @@ export function StudentBehaviorFeed({
                         : "border-rose-300 text-rose-700")
                     }
                   >
-                    {n.kind}
+                    {t(`behavior.${n.kind}`)}
                   </Badge>
                   {n.category && (
                     <span className="text-xs font-medium text-slate-700">{n.category}</span>
@@ -139,8 +170,11 @@ export function StudentBehaviorFeed({
                 </div>
                 <p className="mt-1 text-sm text-slate-800 whitespace-pre-wrap">{n.notes}</p>
                 <div className="mt-1 flex items-center gap-2 text-xs text-slate-500">
-                  <span>{relTime(n.observedAt)}</span>
-                  {n.recordedBy && <span>· by {n.recordedBy.slice(0, 8)}</span>}
+                  {/* recordedBy is a raw user id and the API returns no
+                      name with it, so the old "· by 8d787815" told the
+                      teacher nothing. Dropped until the note carries a
+                      recorder name. */}
+                  <span>{relTime(n.observedAt, t)}</span>
                 </div>
               </div>
               {canDelete(n) && (
