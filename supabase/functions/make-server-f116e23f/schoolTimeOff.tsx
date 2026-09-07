@@ -307,7 +307,13 @@ export function installTimeOff(school: Hono): void {
         const teacherEntries = byTeacher.get(r.subject_id) ?? [];
         const coverage: any[] = [];
         for (const d of days) {
-          const dow = new Date(`${d}T12:00:00Z`).getUTCDay(); // 0=Sun..6=Sat
+          // timetable_slot.day_of_week is ISO (1=Mon..7=Sun) but
+          // getUTCDay() is 0=Sun..6=Sat. Mon-Sat happen to agree, so this
+          // looked correct at a school closed on Sunday - and silently
+          // showed NO classes needing cover on a Sunday for a school that
+          // runs Sun-Thu, which is a normal week regionally.
+          const js = new Date(`${d}T12:00:00Z`).getUTCDay(); // 0=Sun..6=Sat
+          const dow = js === 0 ? 7 : js;                     // ISO 1=Mon..7=Sun
           const matched = teacherEntries.filter((e: any) => e.slot?.day_of_week === dow);
           if (matched.length === 0) continue;
           coverage.push({

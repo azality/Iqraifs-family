@@ -3231,6 +3231,11 @@ export interface SectionAttendanceResponse {
   date: string;
   sectionId: string;
   entries: SectionAttendanceEntry[];
+  /** Students whose parent filed an absence notice that an admin
+   *  APPROVED covering this date. The register marks them and defaults
+   *  them to excused — otherwise the notice reached the office and never
+   *  reached the person taking the register. */
+  notifiedAbsences?: Array<{ studentId: string; reason: string | null }>;
 }
 
 export const postSectionAttendance = (

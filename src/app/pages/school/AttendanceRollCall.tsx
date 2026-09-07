@@ -76,6 +76,10 @@ export function AttendanceRollCall() {
   const [dirty, setDirty] = useState(false);
   // Notes are the 5% case — keep them behind a per-row disclosure.
   const [openNotes, setOpenNotes] = useState<Set<string>>(new Set());
+  // studentId -> reason. An absence the parent filed and an admin
+  // approved, covering this date. Before this the notice stopped at the
+  // office and the register never heard about it.
+  const [notified, setNotified] = useState<Map<string, string | null>>(new Map());
 
   const max = todayIso();
   const min = minDateIso();
@@ -130,10 +134,19 @@ export function AttendanceRollCall() {
         const js = new Date(`${date}T00:00:00`).getDay();
         const dow = js === 0 ? 7 : js;
         const offDayNow = scheduledDays !== null && !scheduledDays.has(dow);
+        const notifiedMap = new Map<string, string | null>(
+          (r.notifiedAbsences ?? []).map((n) => [n.studentId, n.reason]),
+        );
+        setNotified(notifiedMap);
         for (const s of students) {
           const existing = byId.get(s.id);
+          // Saved data always wins. Otherwise an approved absence
+          // defaults to excused - the admin already agreed to it, and
+          // the teacher can still change it before saving.
           init[s.id] = {
-            status: existing?.status ?? (offDayNow ? null : "present"),
+            status:
+              existing?.status ??
+              (notifiedMap.has(s.id) ? "excused" : offDayNow ? null : "present"),
             notes: existing?.notes ?? "",
           };
           if (existing) saved.add(s.id);
@@ -457,6 +470,12 @@ export function AttendanceRollCall() {
                       <div className="font-mono text-xs text-muted-foreground">
                         GR# {s.gr_number}
                       </div>
+                      {notified.has(s.id) && (
+                        <div className="mt-1 inline-flex items-center rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700 ring-1 ring-sky-200">
+                          Parent notified
+                          {notified.get(s.id) ? ` · ${notified.get(s.id)}` : ""}
+                        </div>
+                      )}
                     </button>
                     <div className="inline-flex rounded-md border border-slate-200 bg-slate-50 p-0.5">
                       {STATUSES.map((opt) => {
