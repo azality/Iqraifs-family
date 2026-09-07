@@ -443,7 +443,18 @@ export function StudentReportCard() {
                     <div className="text-[10px] text-slate-500">{card.placement.classTeacherName ?? ""}</div>
                   </div>
                   <div className="text-center">
-                    <div className="h-10 border-b border-slate-300"></div>
+                    {/* An uploaded signature sits ON the line, like ink
+                        would — set in Settings → Organization. Blank line
+                        when unset (sign by hand). */}
+                    <div className="h-10 border-b border-slate-300 flex items-end justify-center">
+                      {card.school.principalSignatureUrl && (
+                        <img
+                          src={card.school.principalSignatureUrl}
+                          alt=""
+                          className="max-h-9 max-w-full object-contain"
+                        />
+                      )}
+                    </div>
                     <div className="mt-1">Principal</div>
                   </div>
                   <div className="text-center">
@@ -451,9 +462,15 @@ export function StudentReportCard() {
                     <div className="mt-1">Parent signature</div>
                   </div>
                   <div className="text-center">
-                    <div className="h-14 rounded border border-dashed border-slate-300 flex items-center justify-center text-[10px] text-slate-400">
-                      School stamp
-                    </div>
+                    {card.school.stampUrl ? (
+                      <div className="h-14 flex items-center justify-center">
+                        <img src={card.school.stampUrl} alt="School stamp" className="max-h-14 max-w-full object-contain" />
+                      </div>
+                    ) : (
+                      <div className="h-14 rounded border border-dashed border-slate-300 flex items-center justify-center text-[10px] text-slate-400">
+                        School stamp
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="mt-3 text-[10px] text-slate-400 text-center">

@@ -272,6 +272,8 @@ export const updateOrganization = (
     logo_url: string;
     theme_color: string;
     school_motto: string;
+    principal_signature_url: string;
+    school_stamp_url: string;
     school_day_start: string;  // HH:MM
     school_day_end: string;    // HH:MM
     office_day_start: string;  // HH:MM
@@ -4876,7 +4878,7 @@ export interface TermReportCardSubject {
   perExam: Array<{ examId: string; examName: string; obtained: number | null; max: number; absent: boolean }>;
 }
 export interface TermReportCardResponse {
-  school: { name: string; slug: string | null; logoUrl: string | null; motto: string | null; themeColor: string | null; address: string | null };
+  school: { name: string; slug: string | null; logoUrl: string | null; motto: string | null; themeColor: string | null; address: string | null; principalSignatureUrl?: string | null; stampUrl?: string | null };
   student: { id: string; fullName: string; grNumber: string; dateOfBirth: string | null; gender: string | null; photoUrl: string | null; program: string | null; religion: string | null; nationality: string | null };
   placement: { className: string | null; sectionName: string | null; classTeacherName: string | null; hifzTeacherName: string | null };
   term: { id: string; name: string; startDate: string; endDate: string };

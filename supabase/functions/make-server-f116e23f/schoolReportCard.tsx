@@ -323,6 +323,8 @@ async function assembleReportCard(
         motto: (orgSettings as any).school_motto ?? null,
         themeColor: (orgSettings as any).theme_color ?? null,
         address: (orgSettings as any).address ?? null,
+        principalSignatureUrl: (orgSettings as any).principal_signature_url ?? null,
+        stampUrl: (orgSettings as any).school_stamp_url ?? null,
       },
       student: {
         id: stu.id,

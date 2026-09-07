@@ -359,7 +359,9 @@ export function RootLayout() {
       {/* =============== Header =============== */}
       <header
         className={cn(
-          "sticky z-30 shadow-sm border-b transition-all duration-500",
+          // print:hidden — printing any page (report cards especially)
+          // must produce the page's content, not the app chrome.
+          "sticky z-30 shadow-sm border-b transition-all duration-500 print:hidden",
           isPreviewingAsKid ? "top-10" : "top-0",
           isKidMode
             ? "bg-gradient-to-r from-[#1C2541] to-[#2C3E50] border-[#F4C430]/20"
@@ -864,7 +866,7 @@ export function RootLayout() {
       </main>
 
       {/* =============== Footer (desktop only) =============== */}
-      <footer className="hidden sm:block border-t bg-slate-50/60 mt-auto">
+      <footer className="hidden sm:block border-t bg-slate-50/60 mt-auto print:!hidden">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <p className="text-center text-xs text-slate-400">
             {isSchoolWorkspace

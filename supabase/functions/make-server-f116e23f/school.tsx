@@ -619,6 +619,11 @@ school.patch("/orgs/:orgId", async (c) => {
     // Teacher Track Record: score >= this % counts as a pass in the
     // outcomes metrics. Default 40 when unset.
     "pass_mark_pct",
+    // Report-card print (7 Sep): the principal's signature and the
+    // school stamp as images, so 400 printed cards don't each need a
+    // pen. Blank signature lines still print when unset.
+    "principal_signature_url",
+    "school_stamp_url",
   ];
 
   // Load current settings so we merge rather than overwrite.
