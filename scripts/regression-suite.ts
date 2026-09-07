@@ -2832,6 +2832,62 @@ await check("61. quran track: the child's own teacher can flip nazra/hifz; other
   }
 });
 
+await check("62. fees guardrails: duplicate plan 409, sandbox never in the sweep or the org view", async () => {
+  // 7 Sep: per-student amounts entered as 12 extra "Monthly Tuition"
+  // PLANS made the generator bill every Junior ~Rs 48,000 (it sums all
+  // plans), and the org Fees page counted Sandbox demo rows. Guardrails:
+  // same-name monthly plan 409s; the org-wide sweep and the org fees
+  // view exclude the Sandbox (explicit selection still works).
+  const PERIOD = "2031-01"; // far future - never collides with real billing
+  let planId: string | null = null;
+  try {
+    // 1. Baseline org-wide sweep count (dry).
+    const dry0 = await (await api(principal.token, `/school/orgs/${ORG}/fees/bulk-generate`, {
+      method: "POST", body: JSON.stringify({ period: PERIOD, dryRun: true }),
+    })).json();
+    const baseline = dry0.total ?? 0;
+
+    // 2. A plan on the Sandbox class...
+    const mk = await api(principal.token, `/school/orgs/${ORG}/classes/${sandboxClass.id}/fee-plans`, {
+      method: "POST", body: JSON.stringify({ name: "QA Tuition", amount: 100, frequency: "monthly" }),
+    });
+    const mkJ = await mk.json();
+    assert(mk.status === 200 || mk.status === 201, `plan create ${mk.status}`);
+    planId = mkJ.plan?.id ?? mkJ.id ?? null;
+
+    // 3. ...cannot be duplicated by name.
+    const dupe = await api(principal.token, `/school/orgs/${ORG}/classes/${sandboxClass.id}/fee-plans`, {
+      method: "POST", body: JSON.stringify({ name: "qa tuition", amount: 200, frequency: "monthly" }),
+    });
+    assert(dupe.status === 409, `same-name monthly plan should 409, got ${dupe.status}`);
+
+    // 4. The org-wide sweep ignores the Sandbox plan entirely.
+    const dry1 = await (await api(principal.token, `/school/orgs/${ORG}/fees/bulk-generate`, {
+      method: "POST", body: JSON.stringify({ period: PERIOD, dryRun: true }),
+    })).json();
+    assert((dry1.total ?? 0) === baseline,
+      `sandbox plan must not change the sweep: ${baseline} -> ${dry1.total}`);
+
+    // 5. Explicitly choosing the class is deliberate and respected.
+    const gen = await (await api(principal.token, `/school/orgs/${ORG}/fees/bulk-generate`, {
+      method: "POST", body: JSON.stringify({ period: PERIOD, classIds: [sandboxClass.id] }),
+    })).json();
+    assert((gen.created ?? 0) >= 1, `explicit sandbox generate should bill, got ${JSON.stringify(gen)}`);
+
+    // 6. The org fees view hides them; the section filter still shows them.
+    const orgView = await (await api(principal.token, `/school/orgs/${ORG}/fees?period=${PERIOD}`)).json();
+    assert((orgView.fees ?? []).every((f: any) => f.student_id !== pStu1 && f.student_id !== pStu2),
+      "sandbox vouchers must not appear in the org fees view");
+    const secView = await (await api(principal.token,
+      `/school/orgs/${ORG}/fees?period=${PERIOD}&sectionId=${sandboxSec.id}`)).json();
+    assert((secView.fees ?? []).length >= 1, "section filter should still show sandbox vouchers");
+  } finally {
+    await admin.from("fee_status").delete().eq("org_id", ORG).eq("period", PERIOD);
+    if (planId) await admin.from("class_fee_plan").delete().eq("id", planId);
+    else await admin.from("class_fee_plan").delete().eq("class_id", sandboxClass.id).eq("name", "QA Tuition");
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

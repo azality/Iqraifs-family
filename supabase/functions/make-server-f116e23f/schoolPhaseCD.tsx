@@ -913,7 +913,7 @@ export function installPhaseCD(school: Hono): void {
       // Pull class + section names alongside student so the table can
       // render 'Grade 3 · 3-A' without N follow-up queries.
       .select(
-        "*, student:student_id(id, full_name, gr_number, class_section_id, class_section:class_section_id(name, class:class_id(name)))",
+        "*, student:student_id(id, full_name, gr_number, class_section_id, class_section:class_section_id(name, schedule_key, class:class_id(name)))",
       )
       .eq("org_id", orgId)
       .order("period", { ascending: false });
@@ -924,6 +924,12 @@ export function installPhaseCD(school: Hono): void {
     if (error) return c.json({ error: error.message }, 500);
 
     let rows = data ?? [];
+    // The QA Sandbox never reaches the org fees view (7 Sep: "Demo fee"
+    // rows counted in the school's totals) — same rule as every rollup.
+    // Explicitly filtering to the sandbox section still shows them.
+    if (!sectionId) {
+      rows = rows.filter((r: any) => r.student?.class_section?.schedule_key !== "sandbox");
+    }
     if (sectionId) {
       rows = rows.filter((r: any) => r.student?.class_section_id === sectionId);
     }
