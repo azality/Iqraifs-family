@@ -692,7 +692,7 @@ export function installTeachingOverview(school: Hono) {
     out.sort((a, b) => (a.paceDeltaPp ?? 999) - (b.paceDeltaPp ?? 999) || a.name.localeCompare(b.name));
 
     return c.json({
-      term: term ? { id: term.id, name: term.name } : null,
+      term: term ? { id: term.id, name: term.name, start: term.start_date } : null,
       terms: (terms ?? []).map((t: any) => ({ id: t.id, name: t.name, isCurrent: !!t.is_current })),
       window: { start: startStr, end: endStr },
       expectedPct: termElapsedPct,

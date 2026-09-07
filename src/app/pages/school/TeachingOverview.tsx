@@ -17,9 +17,11 @@
 //                started, the groups dissolve into one honest ranked
 //                table. A lifecycle, not a setting.
 //
-// Who sees this (stated in the footer too): principal/admin — whole
-// school; incharge — own wing only (backend-scoped); teachers and
-// office — 403.
+// Who sees this: principal/admin — whole school; incharge — own wing
+// only (backend-scoped); teachers and office — 403. Deliberately NOT
+// stated on the page — everyone who can open it already has access,
+// and an on-screen ACL reads wrong when the page is projected in a
+// staff meeting.
 
 import { useMemo, useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
@@ -141,6 +143,15 @@ export function TeachingOverview() {
     [academic],
   );
   const anyRamp = academic.some((r) => r.inRamp);
+  const allInRamp = academic.length > 0 && academic.every((r) => r.inRamp);
+  // "Pilot · week 3" — how far into the term we are, from the term's
+  // start date (older payloads don't carry it; the chip degrades to
+  // just "Pilot").
+  const pilotWeek = useMemo(() => {
+    const start = data?.term?.start ? Date.parse(`${data.term.start}T00:00:00Z`) : NaN;
+    if (!Number.isFinite(start) || start > Date.now()) return null;
+    return Math.floor((Date.now() - start) / (7 * dayMs)) + 1;
+  }, [data]);
   // An old backend (pre-deploy window) sends rows without the adoption
   // fields; grouping on missing data would file every teacher under
   // "never signed in". Old payload -> old layout: the flat table.
@@ -373,34 +384,62 @@ export function TeachingOverview() {
           {/* One banner instead of a column of identical ramp chips. */}
           <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-4">
             <div className="text-[11px] font-bold uppercase tracking-wider text-indigo-700">
-              Pilot{data?.expectedPct != null ? ` · term ${data.expectedPct}% elapsed` : ""}
+              Pilot{pilotWeek != null ? ` · week ${pilotWeek}` : ""}
             </div>
             <p className="mt-1 text-sm text-indigo-900">
-              Right now this page measures <b>adoption</b>, not teaching quality.
-              {anyRamp && " Accounts inside their 42-day ramp window aren't being ranked."}
-              {notStarted.length > 0 &&
-                " The “not started” list below is an onboarding to-do list, not a league table."}
+              Right now this page measures <b>adoption, not teaching quality</b>.
+              {allInRamp
+                ? " Every account is inside its 42-day ramp window, so nobody is ranked yet"
+                : anyRamp
+                  ? " Accounts inside their 42-day ramp window aren't being ranked yet"
+                  : ""}
+              {notStarted.length > 0
+                ? " — the “not started” list below is an onboarding to-do list, not a league table."
+                : "."}
             </p>
           </div>
 
-          {/* Stage summary */}
-          <div className="grid grid-cols-3 gap-3">
+          {/* Stage summary — each card jumps to its group below. */}
+          <div className="grid gap-3 sm:grid-cols-3">
             {[
-              { n: notStarted.length, t: "Not started", d: "no syllabus entries — onboarding list" },
-              { n: logging.length, t: "Logging", d: "on the board — the real table" },
-              { n: qaris.length, t: "Hifz (Qaris)", d: "measured by rounds heard, not pace" },
+              {
+                n: notStarted.length, t: "Not started",
+                d: "no syllabus entries — onboarding list",
+                cls: "border-red-200 bg-red-50", num: "text-red-700", anchor: "stage-not-started",
+              },
+              {
+                n: logging.length, t: "Logging",
+                d: logging.length > 0 && logging.every((r) => (r.paceDeltaPp ?? 0) >= 0)
+                  ? "on or ahead of the calendar"
+                  : "ranked by pace — the real table",
+                cls: "border-emerald-200 bg-emerald-50", num: "text-emerald-700", anchor: "stage-logging",
+              },
+              {
+                n: qaris.length, t: "Hifz (Qaris)",
+                d: "measured by rounds heard, not pace",
+                cls: "border-amber-200 bg-amber-50", num: "text-amber-700", anchor: "stage-hifz",
+              },
             ].map((c) => (
-              <div key={c.t} className="rounded-xl border border-slate-200 bg-white p-3">
-                <div className="text-2xl font-extrabold tabular-nums text-slate-900">{c.n}</div>
-                <div className="text-sm font-semibold text-slate-800">{c.t}</div>
-                <div className="text-[11px] text-slate-500">{c.d}</div>
-              </div>
+              <button
+                key={c.t}
+                type="button"
+                onClick={() =>
+                  document.getElementById(c.anchor)?.scrollIntoView({ behavior: "smooth", block: "start" })
+                }
+                className={`flex items-center gap-3 rounded-xl border p-3 text-left transition hover:brightness-[0.98] ${c.cls}`}
+              >
+                <span className={`text-3xl font-extrabold tabular-nums ${c.num}`}>{c.n}</span>
+                <span className="min-w-0">
+                  <span className={`block text-sm font-bold ${c.num}`}>{c.t}</span>
+                  <span className="block truncate text-[11.5px] text-slate-600">{c.d}</span>
+                </span>
+              </button>
             ))}
           </div>
 
           {/* ── Not started: what they HAVE done, and a way to nudge ── */}
           {notStarted.length > 0 && (
-            <section className="space-y-2">
+            <section id="stage-not-started" className="scroll-mt-4 space-y-2">
               <div className="flex items-baseline justify-between gap-2">
                 <h2 className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
                   Not started · {notStarted.length}
@@ -457,7 +496,7 @@ export function TeachingOverview() {
 
           {/* ── Logging: the real table with real columns ── */}
           {logging.length > 0 && (
-            <section className="space-y-2">
+            <section id="stage-logging" className="scroll-mt-4 space-y-2">
               <h2 className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
                 Logging · {logging.length}
                 <span className="ml-2 font-normal normal-case tracking-normal text-slate-400">
@@ -475,7 +514,7 @@ export function TeachingOverview() {
 
       {/* ── Qaris: their own columns; pace and grading never applied ── */}
       {!loading && qaris.length > 0 && (
-        <section className="space-y-2">
+        <section id="stage-hifz" className="scroll-mt-4 space-y-2">
           <h2 className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
             Hifz · {qaris.length} {qaris.length === 1 ? "Qari" : "Qaris"}
             <span className="ml-2 font-normal normal-case tracking-normal text-slate-400">
@@ -535,19 +574,12 @@ export function TeachingOverview() {
         </section>
       )}
 
-      <div className="space-y-1 text-[11px] text-slate-400">
-        <p>
-          Pace = avg topics-complete % minus term-elapsed %
-          {data?.expectedPct != null ? ` (~${data.expectedPct}% by now)` : ""}. Grading = median
-          days from due date to first grade + ungraded backlog. Context beats ranking — read
-          alongside each teacher's Track Record.
-        </p>
-        <p>
-          Who sees this: <b className="text-slate-500">Principal</b> · whole school ·{" "}
-          <b className="text-slate-500">Incharge</b> · own wing only ·{" "}
-          <b className="text-slate-500">Teachers &amp; office</b> · no access.
-        </p>
-      </div>
+      <p className="text-[11px] text-slate-400">
+        Pace = avg topics-complete % minus term-elapsed %
+        {data?.expectedPct != null ? ` (~${data.expectedPct}% by now)` : ""}. Grading = median
+        days from due date to first grade + ungraded backlog. Context beats ranking — read
+        alongside each teacher's Track Record.
+      </p>
     </div>
   );
 }
