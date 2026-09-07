@@ -284,7 +284,7 @@ export function SectionSubjectsManager({ orgId, sectionId, canManage, canEditCur
                     {/* Actions row */}
                     <div className="flex flex-wrap gap-2">
                       <Link
-                        to={`/school/orgs/${orgId}/sections/${sectionId}/lessons/new`}
+                        to={`/school/orgs/${orgId}/sections/${sectionId}/lessons/new?classSubjectId=${s.classSubjectId}`}
                         className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-indigo-700"
                       >
                         <Plus className="h-3 w-3" /> Log lesson

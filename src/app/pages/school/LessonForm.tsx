@@ -113,15 +113,32 @@ export function LessonForm() {
   }, [resolvedSectionId, sectionId]);
 
   // Deep-link preselection — the Up Next card's "Prepare lesson" CTA
-  // arrives with ?classSubjectId=…&topicId=… so the form opens on the
-  // right subject with the topic already tagged.
+  // arrives with ?classSubjectId=…&topicId=…, the lessons feed's New
+  // Lesson button carries ?sectionSubjectId=… when a subject chip is
+  // active. With no param at all, the form remembers the last subject
+  // this user logged for in THIS section (Muneeb, 7 Sep: "it should
+  // remember if I clicked new lesson for Class V English").
   const [searchParams] = useSearchParams();
+  const lastSubjectKey = (sid: string) => `iqra_last_lesson_subject:${sid}`;
   useEffect(() => {
-    if (editMode || sectionSubjectId) return;
-    const want = searchParams.get("classSubjectId");
-    if (!want) return;
-    const match = subjects.find((s) => s.classSubjectId === want);
-    if (match) setSectionSubjectId(match.id);
+    if (editMode || sectionSubjectId || subjects.length === 0) return;
+    const wantClass = searchParams.get("classSubjectId");
+    const wantSection = searchParams.get("sectionSubjectId");
+    const byParam =
+      (wantClass && subjects.find((s) => s.classSubjectId === wantClass)) ||
+      (wantSection && subjects.find((s) => s.id === wantSection));
+    if (byParam) {
+      setSectionSubjectId(byParam.id);
+      return;
+    }
+    if (wantClass || wantSection) return; // explicit but unknown — leave blank
+    try {
+      const sid = sectionId || resolvedSectionId;
+      const remembered = sid ? localStorage.getItem(lastSubjectKey(sid)) : null;
+      if (remembered && subjects.some((s) => s.id === remembered)) {
+        setSectionSubjectId(remembered);
+      }
+    } catch { /* storage unavailable — start blank */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subjects]);
   useEffect(() => {
@@ -180,6 +197,10 @@ export function LessonForm() {
         toast.success("Lesson posted");
       }
       const sid = sectionId || resolvedSectionId;
+      if (sid && sectionSubjectId) {
+        // Next time the form opens for this section, start on this subject.
+        try { localStorage.setItem(lastSubjectKey(sid), sectionSubjectId); } catch { /* ignore */ }
+      }
       if (sid) {
         navigate(`/school/orgs/${orgId}/sections/${sid}/lessons`);
       } else {

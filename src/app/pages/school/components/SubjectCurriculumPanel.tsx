@@ -147,6 +147,15 @@ export function SubjectCurriculumPanel({
   // pull the section's lessons + assignments and hang them under their
   // topics; on the admin Classes page (class-wide, many sections) there
   // is no section and the block simply doesn't render.
+  // "Hide done topics" — one global preference, remembered per user.
+  const [hideDone, setHideDoneState] = useState<boolean>(() => {
+    try { return localStorage.getItem("iqra_hide_done_topics") === "1"; } catch { return false; }
+  });
+  const setHideDone = (v: boolean) => {
+    setHideDoneState(v);
+    try { localStorage.setItem("iqra_hide_done_topics", v ? "1" : "0"); } catch { /* ignore */ }
+  };
+
   const [taughtLessons, setTaughtLessons] = useState<Map<string, Lesson[]>>(new Map());
   const [taughtAssignments, setTaughtAssignments] = useState<Map<string, Assignment[]>>(new Map());
   const [taughtOpen, setTaughtOpen] = useState<Set<string>>(new Set());
@@ -504,9 +513,31 @@ export function SubjectCurriculumPanel({
                 </p>
               )}
 
+              {/* Hide-done filter — a long syllabus mid-year is mostly
+                  strikethroughs; the teacher wants what's LEFT. The
+                  preference is one global choice, remembered. */}
+              {topics.some((t) => t.completed) && (
+                <label className="mb-1 inline-flex cursor-pointer items-center gap-1.5 text-[11px] text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={hideDone}
+                    onChange={(e) => setHideDone(e.target.checked)}
+                    className="h-3.5 w-3.5 rounded border-slate-300 text-indigo-600"
+                  />
+                  Hide {topics.filter((t) => t.completed).length} done topic
+                  {topics.filter((t) => t.completed).length === 1 ? "" : "s"}
+                </label>
+              )}
+              {topics.length > 0 && hideDone && topics.every((t) => t.completed) && (
+                <p className="rounded border border-emerald-100 bg-emerald-50/60 p-2 text-center text-xs text-emerald-700">
+                  All {topics.length} topics done — untick above to see them.
+                </p>
+              )}
+
               {topics.length > 0 && (
                 <ol className="space-y-1">
-                  {topics.map((t, idx) => {
+                  {(hideDone ? topics.filter((t) => !t.completed) : topics).map((t) => {
+                    const idx = topics.indexOf(t);
                     const isEditing = editingTopicId === t.id;
                     if (isEditing) {
                       return (
@@ -590,23 +621,38 @@ export function SubjectCurriculumPanel({
                             {termName(t.academicTermId)}
                           </span>
                         )}
+                        {/* From the syllabus line straight into a lesson —
+                            the actual workflow: open syllabus, pick the
+                            next topic, log it. Prefills subject + topic.
+                            Section pages only. */}
+                        {sectionId && !t.completed && (
+                          <Link
+                            to={`/school/orgs/${orgId}/sections/${sectionId}/lessons/new?classSubjectId=${classSubjectId}&topicId=${t.id}`}
+                            className="whitespace-nowrap rounded border border-indigo-200 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-600 hover:bg-indigo-50"
+                          >
+                            + Log lesson
+                          </Link>
+                        )}
                         {canManage && (
                           <div className="flex items-center gap-0.5">
+                            {/* Reordering while completed topics are hidden
+                                would silently swap across invisible rows —
+                                the arrows sit out until the filter is off. */}
                             <button
                               type="button"
                               onClick={() => moveTopic(idx, -1)}
-                              disabled={idx === 0 || saving}
+                              disabled={idx === 0 || saving || hideDone}
+                              title={hideDone ? "Show done topics to reorder" : "Move up"}
                               className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30"
-                              title="Move up"
                             >
                               <ArrowUp className="h-3 w-3" />
                             </button>
                             <button
                               type="button"
                               onClick={() => moveTopic(idx, 1)}
-                              disabled={idx === topics.length - 1 || saving}
+                              disabled={idx === topics.length - 1 || saving || hideDone}
+                              title={hideDone ? "Show done topics to reorder" : "Move down"}
                               className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30"
-                              title="Move down"
                             >
                               <ArrowDown className="h-3 w-3" />
                             </button>
