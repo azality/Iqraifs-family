@@ -5,8 +5,10 @@ import { useParams } from "react-router";
 import { HeroCard, cardBase, cardElev } from "../../components/school-ui";
 import {
   getMyStudentBehavior,
+  getMyPointsLeague,
   type MyStudentBehaviorResponse,
   type MyStudentBehaviorEntry,
+  type PointsLeagueResponse,
 } from "../../../utils/schoolPortalApi";
 
 function relativeTime(iso: string): string {
@@ -29,6 +31,7 @@ function pointsColor(points: number): string {
 export function StudentBehavior() {
   const { studentId = "" } = useParams<{ studentId: string }>();
   const [data, setData] = useState<MyStudentBehaviorResponse | null>(null);
+  const [league, setLeague] = useState<PointsLeagueResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -37,6 +40,10 @@ export function StudentBehavior() {
       try {
         const res = await getMyStudentBehavior(studentId);
         if (!cancelled) setData(res);
+        // The league is optional decoration - it must never block the page.
+        getMyPointsLeague(studentId)
+          .then((l) => { if (!cancelled) setLeague(l); })
+          .catch(() => {});
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load");
       }
@@ -79,6 +86,73 @@ export function StudentBehavior() {
           </div>
         }
       />
+
+      {/* ── The class league ──
+          Like a sports table: the top five and where I stand. No screen in
+          the classroom, so the child's own login IS the scoreboard
+          (Muneeb, 7 Sep). Deliberately never the full table - a list that
+          shows the whole class also shows somebody last, publicly - and
+          classmates appear as name + points only, never their concerns. */}
+      {league?.enabled && league.league && (
+        <div className={`${cardBase} ${cardElev} p-4 space-y-3`}>
+          <div className="flex items-baseline justify-between gap-2">
+            <h2 className="text-sm font-bold text-slate-900">
+              \ud83c\udfc6 Class league · this {league.league.period === "all" ? "year" : league.league.period}
+            </h2>
+            {league.league.me && (
+              <span className="text-xs text-slate-500">
+                You are <b className="text-slate-900">#{league.league.me.rank}</b> of {league.league.classSize}
+              </span>
+            )}
+          </div>
+          <ul className="space-y-1.5">
+            {league.league.top.map((r) => (
+              <li
+                key={`${r.rank}-${r.name}`}
+                className={
+                  "flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm " +
+                  (r.isMe ? "bg-indigo-50 ring-1 ring-indigo-200 font-semibold" : "")
+                }
+              >
+                <span className="w-7 text-center">
+                  {r.rank === 1 ? "\ud83e\udd47" : r.rank === 2 ? "\ud83e\udd48" : r.rank === 3 ? "\ud83e\udd49" : `#${r.rank}`}
+                </span>
+                <span className="min-w-0 flex-1 truncate">
+                  {r.name}{r.isMe ? " (you)" : ""}
+                </span>
+                <span className="font-bold tabular-nums text-emerald-700">
+                  {r.points > 0 ? `+${r.points}` : r.points}
+                </span>
+              </li>
+            ))}
+            {league.league.me && !league.league.top.some((r) => r.isMe) && (
+              <li className="flex items-center gap-2 rounded-lg bg-indigo-50 px-2.5 py-1.5 text-sm font-semibold ring-1 ring-indigo-200">
+                <span className="w-7 text-center">#{league.league.me.rank}</span>
+                <span className="min-w-0 flex-1 truncate">You</span>
+                <span className="font-bold tabular-nums text-emerald-700">
+                  {league.league.me.points > 0 ? `+${league.league.me.points}` : league.league.me.points}
+                </span>
+              </li>
+            )}
+          </ul>
+        </div>
+      )}
+
+      {/* How to earn points - the school's own list, so it always matches
+          what teachers actually award. */}
+      {league?.enabled && (league.earn?.length ?? 0) > 0 && (
+        <div className={`${cardBase} ${cardElev} p-4`}>
+          <h2 className="text-sm font-bold text-slate-900">How to earn points</h2>
+          <ul className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+            {league!.earn!.map((e) => (
+              <li key={e.label} className="flex items-baseline justify-between gap-2 text-sm">
+                <span className="text-slate-700">{e.label}</span>
+                <span className="font-semibold tabular-nums text-emerald-700">+{e.points}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {sortedEntries.length === 0 ? (
         <div className={`${cardBase} ${cardElev} p-6 text-sm text-slate-500 text-center`}>

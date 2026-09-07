@@ -53,6 +53,50 @@ function isIsoDate(s: unknown): s is string {
   return typeof s === "string" && ISO_DATE_RE.test(s);
 }
 
+/** The topic set an assignment covers. Accepts the new plural field or
+ *  the legacy single one (stale clients proved very real this week), and
+ *  validates EVERY id against the subject's own syllabus in one query so
+ *  a "grand test" cannot quietly include another subject's topic. */
+function parseTopicIds(body: any): string[] | { error: string } {
+  let ids: unknown[] = [];
+  if (Array.isArray(body?.curriculumTopicIds)) ids = body.curriculumTopicIds;
+  else if (typeof body?.curriculumTopicId === "string" && body.curriculumTopicId) {
+    ids = [body.curriculumTopicId];
+  }
+  const clean = [...new Set(ids.filter((x): x is string => typeof x === "string" && x.length > 0))];
+  if (clean.length > 20) return { error: "an assignment can cover at most 20 topics" };
+  return clean;
+}
+
+async function topicsBelongToSubject(
+  topicIds: string[],
+  classSubjectId: string,
+): Promise<string | null> {
+  if (topicIds.length === 0) return null;
+  const { data } = await serviceRoleClient
+    .from("curriculum_topic")
+    .select("id, curriculum:curriculum_id(class_subject_id)")
+    .in("id", topicIds);
+  const ok = new Set(
+    ((data ?? []) as any[])
+      .filter((t) => t.curriculum?.class_subject_id === classSubjectId)
+      .map((t) => t.id),
+  );
+  const bad = topicIds.filter((id) => !ok.has(id));
+  return bad.length === 0 ? null : "one or more topics do not belong to this subject";
+}
+
+/** Replace the join rows. The legacy column mirrors the FIRST topic so
+ *  the portal and old clients keep working unchanged. */
+async function writeTopicSet(assignmentId: string, topicIds: string[]): Promise<void> {
+  await serviceRoleClient.from("assignment_topic").delete().eq("assignment_id", assignmentId);
+  if (topicIds.length > 0) {
+    await serviceRoleClient.from("assignment_topic").insert(
+      topicIds.map((tid) => ({ assignment_id: assignmentId, curriculum_topic_id: tid })),
+    );
+  }
+}
+
 function assignmentToJson(r: any) {
   return {
     id: r.id,
@@ -64,6 +108,9 @@ function assignmentToJson(r: any) {
     // refetches the list or treats undefined as "unknown".
     sectionSubjectId: r.section_subject_id ?? null,
     curriculumTopicId: r.curriculum_topic_id ?? null,
+    // The full set (plural). Populated where the caller loaded it;
+    // undefined means "not fetched", not "none".
+    curriculumTopicIds: (r as any).topic_ids ?? undefined,
     subjectName: (r as any).subject_name ?? undefined,
     topicName: (r as any).topic_name ?? undefined,
     title: r.title,
@@ -160,6 +207,7 @@ export function installPhaseC2(school: Hono): void {
     // syllabus, so a teacher can't mis-tag an assignment.
     let sectionSubjectId: string | null = null;
     let curriculumTopicId: string | null = null;
+    let topicIds: string[] = [];
     if (typeof body?.sectionSubjectId === "string" && body.sectionSubjectId.length > 0) {
       const { data: ss } = await serviceRoleClient
         .from("section_subject")
@@ -171,17 +219,13 @@ export function installPhaseC2(school: Hono): void {
       }
       sectionSubjectId = (ss as any).id;
 
-      if (typeof body?.curriculumTopicId === "string" && body.curriculumTopicId.length > 0) {
-        const { data: topic } = await serviceRoleClient
-          .from("curriculum_topic")
-          .select("id, curriculum:curriculum_id(class_subject_id)")
-          .eq("id", body.curriculumTopicId)
-          .maybeSingle();
-        const topicSubjectId = (topic as any)?.curriculum?.class_subject_id;
-        if (!topic || topicSubjectId !== (ss as any).class_subject_id) {
-          return c.json({ error: "curriculumTopicId does not belong to this subject" }, 400);
-        }
-        curriculumTopicId = (topic as any).id;
+      const parsed = parseTopicIds(body);
+      if (!Array.isArray(parsed)) return c.json({ error: parsed.error }, 400);
+      if (parsed.length > 0) {
+        const err = await topicsBelongToSubject(parsed, (ss as any).class_subject_id);
+        if (err) return c.json({ error: err }, 400);
+        curriculumTopicId = parsed[0];
+        topicIds = parsed;
       }
     }
 
@@ -207,8 +251,12 @@ export function installPhaseC2(school: Hono): void {
       .select()
       .single();
     if (insErr) return c.json({ error: insErr.message }, 500);
+    if (topicIds.length > 0) await writeTopicSet((ins as any).id, topicIds);
 
-    return c.json({ assignment: assignmentToJson(ins) }, 201);
+    return c.json(
+      { assignment: { ...assignmentToJson(ins), curriculumTopicIds: topicIds } },
+      201,
+    );
   });
 
   // ---------------------------------------------------------------------------
@@ -261,10 +309,27 @@ export function installPhaseC2(school: Hono): void {
     const { data, error } = await q;
     if (error) return c.json({ error: error.message }, 500);
 
+    // Topic sets, batched for the page. The legacy column only carries
+    // the first topic, and the edit form needs every chip.
+    const listIds = ((data ?? []) as any[]).map((r) => r.id);
+    const setByAssignment = new Map<string, string[]>();
+    if (listIds.length > 0) {
+      const { data: sets } = await serviceRoleClient
+        .from("assignment_topic")
+        .select("assignment_id, curriculum_topic_id")
+        .in("assignment_id", listIds);
+      for (const row of (sets ?? []) as any[]) {
+        const arr = setByAssignment.get(row.assignment_id) ?? [];
+        arr.push(row.curriculum_topic_id);
+        setByAssignment.set(row.assignment_id, arr);
+      }
+    }
+
     const hydrated = ((data ?? []) as any[]).map((r) => ({
       ...r,
       subject_name: r.section_subject?.class_subject?.name ?? null,
       topic_name: r.curriculum_topic?.name ?? null,
+      topic_ids: setByAssignment.get(r.id) ?? [],
     }));
 
     return c.json({
@@ -304,10 +369,15 @@ export function installPhaseC2(school: Hono): void {
     }
 
     const cs = (data as any).class_section;
+    const { data: setRows } = await serviceRoleClient
+      .from("assignment_topic")
+      .select("curriculum_topic_id")
+      .eq("assignment_id", assignmentId);
     const enriched = {
       ...(data as any),
       subject_name: (data as any).section_subject?.class_subject?.name ?? null,
       topic_name: (data as any).curriculum_topic?.name ?? null,
+      topic_ids: ((setRows ?? []) as any[]).map((r) => r.curriculum_topic_id),
     };
     return c.json({
       assignment: assignmentToJson(enriched),
@@ -424,9 +494,38 @@ export function installPhaseC2(school: Hono): void {
         update.section_subject_id = body.sectionSubjectId;
       }
     }
-    if ("curriculumTopicId" in body) {
+    // Plural first: when curriculumTopicIds is present it is the whole
+    // truth and the legacy field is ignored. null/[] clears every topic.
+    let newTopicSet: string[] | null = null; // null = not changing
+    if ("curriculumTopicIds" in body) {
+      if (body.curriculumTopicIds === null) {
+        newTopicSet = [];
+      } else {
+        const parsed = parseTopicIds(body);
+        if (!Array.isArray(parsed)) return c.json({ error: parsed.error }, 400);
+        newTopicSet = parsed;
+      }
+      if (newTopicSet.length > 0) {
+        const targetSubjectId =
+          (update.section_subject_id as string | null | undefined) ??
+          existing.section_subject_id ??
+          null;
+        if (!targetSubjectId) {
+          return c.json({ error: "set a subject before tagging topics" }, 400);
+        }
+        const { data: ss } = await serviceRoleClient
+          .from("section_subject")
+          .select("class_subject_id")
+          .eq("id", targetSubjectId)
+          .maybeSingle();
+        const err = await topicsBelongToSubject(newTopicSet, (ss as any)?.class_subject_id);
+        if (err) return c.json({ error: err }, 400);
+      }
+      update.curriculum_topic_id = newTopicSet[0] ?? null;
+    } else if ("curriculumTopicId" in body) {
       if (body.curriculumTopicId === null) {
         update.curriculum_topic_id = null;
+        newTopicSet = [];
       } else if (typeof body.curriculumTopicId === "string") {
         const targetSubjectId =
           (update.section_subject_id as string | null | undefined) ??
@@ -449,7 +548,15 @@ export function installPhaseC2(school: Hono): void {
           return c.json({ error: "topic does not belong to this subject" }, 400);
         }
         update.curriculum_topic_id = body.curriculumTopicId;
+        // A stale client editing via the single field replaces the whole
+        // set - it cannot see the other topics, so keeping them would
+        // leave the tag half theirs, half ghost.
+        newTopicSet = [body.curriculumTopicId];
       }
+    }
+    // Dropping the subject drops every topic with it.
+    if ("sectionSubjectId" in body && body.sectionSubjectId === null) {
+      newTopicSet = [];
     }
 
     if (Object.keys(update).length === 0) {
@@ -463,8 +570,18 @@ export function installPhaseC2(school: Hono): void {
       .select()
       .single();
     if (updErr) return c.json({ error: updErr.message }, 500);
+    if (newTopicSet !== null) await writeTopicSet(assignmentId, newTopicSet);
 
-    return c.json({ assignment: assignmentToJson(upd) });
+    const { data: setRows } = await serviceRoleClient
+      .from("assignment_topic")
+      .select("curriculum_topic_id")
+      .eq("assignment_id", assignmentId);
+    return c.json({
+      assignment: {
+        ...assignmentToJson(upd),
+        curriculumTopicIds: ((setRows ?? []) as any[]).map((r) => r.curriculum_topic_id),
+      },
+    });
   });
 
   // ---------------------------------------------------------------------------

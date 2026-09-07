@@ -13,6 +13,7 @@
 // Routed at /school/orgs/:orgId/sections/:sectionId.
 
 import { useEffect, useMemo, useState } from "react";
+import { BehaviorLeaderboardCard } from "../../components/school-ui/BehaviorLeaderboardCard";
 import { Link, useParams } from "react-router";
 import { ClipboardCheck } from "lucide-react";
 import { Button } from "../../components/ui/button";
@@ -551,6 +552,13 @@ export function SectionOverview() {
               )}
             </div>
           )}
+
+          {/* Class points leaderboard — who is leading, over the window the
+              teacher picks. Teachers asked for this the week behavior
+              logging took off (7 Sep). */}
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <BehaviorLeaderboardCard orgId={orgId} sectionId={sectionId} />
+          </div>
 
           {/* Behavior — one line while empty (8a), full card once it has
               content. */}

@@ -50,6 +50,7 @@ import {
   createMyTimeOff,
 } from "../../../utils/schoolApi";
 import { TimeOffModal, TeacherTimeOffWidget, DashSection } from "../../components/school-ui";
+import { BehaviorLeaderboardCard } from "../../components/school-ui/BehaviorLeaderboardCard";
 
 function todayDow(): number {
   // ISO day: Mon=1 ... Sun=7. JS getDay(): Sun=0.
@@ -1120,6 +1121,33 @@ export function TeacherHome({ orgId, me }: Props) {
                   </Link>
                 ))}
               </div>
+            </div>
+          </section>
+        </DashSection>
+      )}
+
+      {/* Class points — the teacher's own league table, compact. The full
+          board with windows lives on the class page. */}
+      {sections && sections.length > 0 && (
+        <DashSection title="Class points" desktopCollapsible>
+          <section className="space-y-3">
+            <div className="grid gap-3 md:grid-cols-2">
+              {sections.slice(0, 2).map((s) => (
+                <div key={s.sectionId} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="mb-1 flex items-baseline justify-between gap-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                      {s.className} · {s.sectionName} — this month
+                    </span>
+                    <Link
+                      to={`/school/orgs/${orgId}/sections/${s.sectionId}`}
+                      className="text-[11px] font-semibold text-indigo-600 hover:underline"
+                    >
+                      Full board →
+                    </Link>
+                  </div>
+                  <BehaviorLeaderboardCard orgId={orgId} sectionId={s.sectionId} compact />
+                </div>
+              ))}
             </div>
           </section>
         </DashSection>

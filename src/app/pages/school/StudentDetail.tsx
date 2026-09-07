@@ -26,6 +26,7 @@ import { RelationshipField } from "./components/RelationshipField";
 import { HifzProgressFeed } from "./HifzProgressFeed";
 import { StudentGradesFeed } from "./StudentGradesFeed";
 import { StudentBehaviorFeed } from "./StudentBehaviorFeed";
+import { getStudentBehaviorSummary, type BehaviorTally, type BehaviorStatsPeriod } from "../../../utils/schoolApi";
 import { BehaviorLogEntry } from "./BehaviorLogEntry";
 import { StudentFeeOverrides } from "./StudentFeeOverrides";
 import {
@@ -139,6 +140,11 @@ export function StudentDetail() {
   // tab. Bumping behaviorRefresh re-fetches BOTH, so logging a note
   // updates the header tally and the list in one go.
   const [behaviorOpen, setBehaviorOpen] = useState(false);
+  // Windowed score for the Behavior tab: week / month / term / all-time.
+  const [behaviorScore, setBehaviorScore] = useState<{
+    windows: Record<BehaviorStatsPeriod, BehaviorTally>;
+    termConfigured: boolean;
+  } | null>(null);
   const [behaviorRefresh, setBehaviorRefresh] = useState(0);
   const [behav30, setBehav30] = useState<{ pos: number; con: number } | null>(null);
   useEffect(() => {
@@ -153,6 +159,9 @@ export function StudentDetail() {
         });
       })
       .catch(() => setBehav30(null));
+    getStudentBehaviorSummary(orgId, studentId)
+      .then((r) => setBehaviorScore({ windows: r.windows, termConfigured: r.termConfigured }))
+      .catch(() => setBehaviorScore(null));
   }, [orgId, studentId, behaviorRefresh]);
 
   useEffect(() => {
@@ -597,6 +606,38 @@ export function StudentDetail() {
               </Button>
             </CardHeader>
             <CardContent>
+              {/* Score at a glance across windows — +earned / −concerns = net.
+                  Same numbers the class leaderboard ranks on. */}
+              {behaviorScore && (
+                <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {(
+                    [
+                      ["week", "This week"],
+                      ["month", "This month"],
+                      ["term", "This term"],
+                      ["all", "All time"],
+                    ] as Array<[BehaviorStatsPeriod, string]>
+                  )
+                    .filter(([k]) => k !== "term" || behaviorScore.termConfigured)
+                    .map(([k, label]) => {
+                      const w = behaviorScore.windows[k];
+                      return (
+                        <div key={k} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                            {label}
+                          </div>
+                          <div className="mt-0.5 text-lg font-extrabold tabular-nums leading-tight text-slate-900">
+                            {w.net > 0 ? `+${w.net}` : w.net}
+                          </div>
+                          <div className="text-[11px] tabular-nums text-slate-500">
+                            <span className="text-emerald-600">+{w.positive}</span>{" · "}
+                            <span className="text-rose-500">−{w.concern}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
               <StudentBehaviorFeed
                 orgId={orgId}
                 studentId={studentId}

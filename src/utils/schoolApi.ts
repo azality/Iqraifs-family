@@ -280,6 +280,10 @@ export const updateOrganization = (
     substitute_teacher_ids: string[];
     /** Portal privacy: student logins see concern notes only when true. */
     student_sees_concerns: boolean;
+    /** School days the school gives itself to answer a parent message. */
+    parent_reply_sla_days: number;
+    /** Children see the class points league on their login (default on). */
+    student_points_league: boolean;
     /** Teacher Track Record: pass threshold %, default 40. */
     pass_mark_pct: number;
   }>,
@@ -2031,6 +2035,10 @@ export interface DigestWeek {
   totals: { lessons: number; hifzEntries: number; notes: number; assignments: number; grades: number };
 }
 export interface WeeklyDigestResponse {
+  /** Top five students by net behavior points over the digest's week -
+   *  the celebratory read, deliberately here and not on the ops
+   *  dashboard where cross-class ranking is noise. */
+  behaviorLeaders?: Array<{ studentName: string; sectionLabel: string; points: number }>;
   week: DigestWeek;
   prevWeek: DigestWeek;
   wingScoped: boolean;
@@ -3924,8 +3932,12 @@ export interface Assignment {
   class_section_id: string;
   /** Phase 3: which subject in the section this assignment belongs to. */
   sectionSubjectId?: string | null;
-  /** Phase 3: which curriculum topic the assignment maps to. */
+  /** Phase 3: which curriculum topic the assignment maps to. Mirrors the
+   *  FIRST entry of curriculumTopicIds — kept so old readers keep working. */
   curriculumTopicId?: string | null;
+  /** Every topic this assignment covers (a test can span several).
+   *  undefined = not fetched by this endpoint, not "none". */
+  curriculumTopicIds?: string[];
   /** Denormalised display fields populated by list / detail endpoints. */
   subjectName?: string | null;
   topicName?: string | null;
@@ -3956,8 +3968,11 @@ export interface AssignmentInput {
   relatedTopic?: string;
   /** Phase 3: required to make subject/topic visible on the feed; null clears on PATCH. */
   sectionSubjectId?: string | null;
-  /** Phase 3: optional curriculum topic. */
+  /** Phase 3: optional curriculum topic (legacy single form). */
   curriculumTopicId?: string | null;
+  /** The full topic set. When present it wins over curriculumTopicId;
+   *  null or [] clears every topic. A test can cover several. */
+  curriculumTopicIds?: string[] | null;
   /** Media — same trio as lessons: YouTube/video link, audio link, files. */
   videoUrl?: string | null;
   audioUrl?: string | null;
@@ -5025,6 +5040,65 @@ export const getInboxUnreadCount = (
   orgId: string,
 ): Promise<{ unreadCount: number; awaitingReply?: number }> =>
   apiCall(`/school/orgs/${orgId}/inbox-unread-count`);
+
+// =============================================================================
+// Behavior points, aggregated - leaderboards, per-student score, drilldown
+// =============================================================================
+export type BehaviorStatsPeriod = "week" | "month" | "term" | "all";
+export interface BehaviorTally {
+  positive: number;
+  /** Concern points as a MAGNITUDE (stored negative, shown positive). */
+  concern: number;
+  net: number;
+  count: number;
+}
+export interface BehaviorLeaderboardRow extends BehaviorTally {
+  studentId: string;
+  name: string;
+  grNumber: string | null;
+  rank: number;
+}
+export const getBehaviorLeaderboard = (
+  orgId: string, sectionId: string, period: BehaviorStatsPeriod = "month",
+): Promise<{ period: BehaviorStatsPeriod; since: string | null; rows: BehaviorLeaderboardRow[] }> =>
+  apiCall(`/school/orgs/${orgId}/sections/${sectionId}/behavior-leaderboard?period=${period}`);
+
+export const getStudentBehaviorSummary = (
+  orgId: string, studentId: string,
+): Promise<{
+  studentId: string;
+  windows: Record<BehaviorStatsPeriod, BehaviorTally>;
+  termConfigured: boolean;
+}> =>
+  apiCall(`/school/orgs/${orgId}/students/${studentId}/behavior-summary`);
+
+export interface BehaviorDrilldownNote {
+  id: string;
+  studentId: string;
+  studentName: string | null;
+  grNumber: string | null;
+  sectionId: string | null;
+  sectionLabel: string | null;
+  kind: BehaviorNoteKind;
+  category: string | null;
+  points: number;
+  notes: string;
+  observedAt: string;
+  recordedByName: string | null;
+}
+/** The notes behind an aggregate bar - who, which class, logged by whom.
+ *  category "__none__" selects uncategorised notes. */
+export const getBehaviorDrilldown = (
+  orgId: string,
+  opts: { kind?: "positive" | "concern"; category?: string; period?: BehaviorStatsPeriod; sectionId?: string },
+): Promise<{ period: BehaviorStatsPeriod; since: string | null; notes: BehaviorDrilldownNote[] }> => {
+  const p = new URLSearchParams();
+  if (opts.kind) p.set("kind", opts.kind);
+  if (opts.category) p.set("category", opts.category);
+  if (opts.period) p.set("period", opts.period);
+  if (opts.sectionId) p.set("sectionId", opts.sectionId);
+  return apiCall(`/school/orgs/${orgId}/behavior-drilldown?${p.toString()}`);
+};
 
 // =============================================================================
 // Behavior categories (org-configurable; Islamic-context defaults)

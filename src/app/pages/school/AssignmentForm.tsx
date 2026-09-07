@@ -88,7 +88,7 @@ export function AssignmentForm() {
     relatedTopic: "",
     assignedDate: todayIso(),
     sectionSubjectId: null,
-    curriculumTopicId: null,
+    curriculumTopicIds: [] as string[],
     videoUrl: "",
     audioUrl: "",
   });
@@ -131,7 +131,8 @@ export function AssignmentForm() {
           relatedTopic: a.related_topic ?? "",
           assignedDate: a.assigned_date,
           sectionSubjectId: a.sectionSubjectId ?? null,
-          curriculumTopicId: a.curriculumTopicId ?? null,
+          curriculumTopicIds:
+            a.curriculumTopicIds ?? (a.curriculumTopicId ? [a.curriculumTopicId] : []),
           videoUrl: (a as any).videoUrl ?? "",
           audioUrl: (a as any).audioUrl ?? "",
         });
@@ -201,7 +202,7 @@ export function AssignmentForm() {
       .slice()
       .sort((a, b) => a.displayOrder - b.displayOrder)
       .find((t) => !t.completed);
-    if (next) setForm((f) => (f.curriculumTopicId ? f : { ...f, curriculumTopicId: next.id }));
+    if (next) setForm((f) => (f.curriculumTopicIds.length ? f : { ...f, curriculumTopicIds: [next.id] }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [topics, editMode, topicTouched]);
 
@@ -273,7 +274,10 @@ export function AssignmentForm() {
         relatedTopic: form.relatedTopic?.trim() || undefined,
         assignedDate: form.assignedDate || undefined,
         sectionSubjectId: form.sectionSubjectId || null,
-        curriculumTopicId: form.curriculumTopicId || null,
+        // Old field mirrors the first pick so anything reading the single
+        // value (portal, feeds) stays correct; the plural is the truth.
+        curriculumTopicId: form.curriculumTopicIds[0] ?? null,
+        curriculumTopicIds: form.curriculumTopicIds,
         videoUrl: form.videoUrl?.trim() || null,
         audioUrl: form.audioUrl?.trim() || null,
         attachments: attachments.filter((a) => a.url.trim()),
@@ -439,7 +443,7 @@ export function AssignmentForm() {
                     setForm({
                       ...form,
                       sectionSubjectId: e.target.value || null,
-                      curriculumTopicId: null,
+                      curriculumTopicIds: [],
                     })
                   }
                   className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
@@ -459,13 +463,27 @@ export function AssignmentForm() {
                 )}
               </div>
               <div className="space-y-1">
-                <Label htmlFor="curriculumTopic">Curriculum topic</Label>
+                <Label htmlFor="curriculumTopic">
+                  Curriculum topic{form.curriculumTopicIds.length > 1 ? "s" : ""}
+                </Label>
+                {/* The select ADDS a topic and snaps back to the placeholder,
+                    so a test spanning several chapters is built one tap at a
+                    time — teachers could not tag a "grand test" covering
+                    Biology 1-4 with more than one topic (pilot, 7 Sep). A
+                    single-topic homework still costs the one tap it did. */}
                 <select
                   id="curriculumTopic"
-                  value={form.curriculumTopicId ?? ""}
+                  value=""
                   onChange={(e) => {
+                    const id = e.target.value;
+                    if (!id) return;
                     setTopicTouched(true);
-                    setForm({ ...form, curriculumTopicId: e.target.value || null });
+                    setForm((f) => ({
+                      ...f,
+                      curriculumTopicIds: f.curriculumTopicIds.includes(id)
+                        ? f.curriculumTopicIds
+                        : [...f.curriculumTopicIds, id],
+                    }));
                   }}
                   disabled={!form.sectionSubjectId || topicsLoading}
                   className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 disabled:opacity-60"
@@ -477,16 +495,52 @@ export function AssignmentForm() {
                       ? "Loading topics…"
                       : topics.length === 0
                       ? "No topics in the syllabus yet"
-                      : "— Optional: pick a topic —"}
+                      : form.curriculumTopicIds.length === 0
+                      ? "— Optional: pick a topic —"
+                      : "+ Add another topic"}
                   </option>
-                  {topics.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.completed ? "✓ " : ""}
-                      {t.displayOrder + 1}. {t.name}
-                    </option>
-                  ))}
+                  {topics
+                    .filter((t) => !form.curriculumTopicIds.includes(t.id))
+                    .map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.completed ? "✓ " : ""}
+                        {t.displayOrder + 1}. {t.name}
+                      </option>
+                    ))}
                 </select>
-                {topics.length > 0 && form.curriculumTopicId === suggestedTopicId && suggestedTopicId && (
+                {form.curriculumTopicIds.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {form.curriculumTopicIds.map((id) => {
+                      const t = topics.find((x) => x.id === id);
+                      return (
+                        <span
+                          key={id}
+                          className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs text-indigo-900"
+                        >
+                          {t ? `${t.displayOrder + 1}. ${t.name}` : "…"}
+                          <button
+                            type="button"
+                            aria-label="Remove topic"
+                            onClick={() => {
+                              setTopicTouched(true);
+                              setForm((f) => ({
+                                ...f,
+                                curriculumTopicIds: f.curriculumTopicIds.filter((x) => x !== id),
+                              }));
+                            }}
+                            className="ml-0.5 font-bold text-indigo-400 hover:text-indigo-700"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+                {topics.length > 0 &&
+                  form.curriculumTopicIds.length === 1 &&
+                  form.curriculumTopicIds[0] === suggestedTopicId &&
+                  suggestedTopicId && (
                   <p className="text-[11px] text-slate-400">
                     Suggested — next incomplete topic ({topicsDone}/{topics.length} done).
                   </p>
