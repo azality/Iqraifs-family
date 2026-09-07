@@ -7,7 +7,7 @@
 // Teachers later log lessons against the topics defined here.
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router";
+import { Link, useParams } from "react-router";
 import {
   ChevronDown,
   ChevronRight,
@@ -35,10 +35,14 @@ import {
   deleteClassCurriculumTopic,
   reorderClassCurriculumTopics,
   listTerms,
+  getSectionLessons,
+  getSectionAssignments,
   type AcademicTerm,
   type ClassCurriculum,
   type ClassCurriculumTopic,
   type CurriculumYearSummary,
+  type Lesson,
+  type Assignment,
 } from "../../../../utils/schoolApi";
 import { templateForSubject } from "./curriculumTemplates";
 import { TopicResourcesPanel } from "./TopicResourcesPanel";
@@ -133,8 +137,45 @@ export function SubjectCurriculumPanel({
 
   // Assessment terms (for topic->term tagging). Loaded once per mount;
   // orgId comes from the route. Empty for schools that never set up terms.
-  const { orgId = "" } = useParams();
+  const { orgId = "", sectionId = "" } = useParams();
   const [terms, setTerms] = useState<AcademicTerm[]>([]);
+
+  // What was TAUGHT against each topic — the lessons feed and the
+  // curriculum manager both tag topics, but the manager never showed the
+  // link back ("shouldn't the lesson show under the curriculum?", 7 Sep).
+  // Section pages have :sectionId in the route, so there this panel can
+  // pull the section's lessons + assignments and hang them under their
+  // topics; on the admin Classes page (class-wide, many sections) there
+  // is no section and the block simply doesn't render.
+  const [taughtLessons, setTaughtLessons] = useState<Map<string, Lesson[]>>(new Map());
+  const [taughtAssignments, setTaughtAssignments] = useState<Map<string, Assignment[]>>(new Map());
+  const [taughtOpen, setTaughtOpen] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (!open || !orgId || !sectionId) return;
+    getSectionLessons(orgId, sectionId, { limit: 500 })
+      .then((r) => {
+        const m = new Map<string, Lesson[]>();
+        for (const l of r.lessons) {
+          const tid = (l as any).curriculumTopicId ?? (l as any).curriculum_topic_id;
+          if (!tid) continue;
+          m.set(tid, [...(m.get(tid) ?? []), l]);
+        }
+        setTaughtLessons(m);
+      })
+      .catch(() => {});
+    getSectionAssignments(orgId, sectionId, { limit: 500 })
+      .then((r) => {
+        const m = new Map<string, Assignment[]>();
+        for (const a of r.assignments) {
+          const ids: string[] =
+            (a as any).curriculumTopicIds ??
+            ((a as any).curriculumTopicId ? [(a as any).curriculumTopicId] : []);
+          for (const tid of ids) m.set(tid, [...(m.get(tid) ?? []), a]);
+        }
+        setTaughtAssignments(m);
+      })
+      .catch(() => {});
+  }, [open, orgId, sectionId]);
   const [draftTermId, setDraftTermId] = useState<string>(""); // "" = inherit
   useEffect(() => {
     if (!orgId) return;
@@ -595,6 +636,72 @@ export function SubjectCurriculumPanel({
                           topicName={t.name}
                           canManage={canManage}
                         />
+                        {/* What was actually taught against this topic in
+                            THIS section — lessons and tests link back to
+                            the syllabus line they covered. Section pages
+                            only (the admin Classes page has no section). */}
+                        {(() => {
+                          const ls = taughtLessons.get(t.id) ?? [];
+                          const as_ = taughtAssignments.get(t.id) ?? [];
+                          if (ls.length === 0 && as_.length === 0) return null;
+                          const openHere = taughtOpen.has(t.id);
+                          const label = [
+                            ls.length > 0 ? `${ls.length} lesson${ls.length === 1 ? "" : "s"}` : "",
+                            as_.length > 0 ? `${as_.length} assignment${as_.length === 1 ? "" : "s"}` : "",
+                          ].filter(Boolean).join(" · ");
+                          return (
+                            <div className="mt-1 rounded border border-slate-100 bg-slate-50/60">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setTaughtOpen((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.has(t.id)) next.delete(t.id);
+                                    else next.add(t.id);
+                                    return next;
+                                  })
+                                }
+                                className="flex w-full items-center gap-1 px-2 py-1 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-500 hover:text-slate-700"
+                              >
+                                {openHere ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                                Taught · {label}
+                              </button>
+                              {openHere && (
+                                <ul className="space-y-0.5 px-2 pb-1.5">
+                                  {ls.map((l) => (
+                                    <li key={`l:${l.id}`} className="flex items-center gap-1.5 text-[11px]">
+                                      <span className="rounded bg-indigo-50 px-1 py-px text-[9px] font-semibold uppercase text-indigo-600">lesson</span>
+                                      <Link
+                                        to={`/school/orgs/${orgId}/lessons/${l.id}/edit`}
+                                        className="min-w-0 truncate text-indigo-700 hover:underline"
+                                      >
+                                        {l.title}
+                                      </Link>
+                                      <span className="whitespace-nowrap text-[10px] text-slate-400">
+                                        {new Date(`${l.lesson_date}T00:00:00`).toLocaleDateString()}
+                                        {l.taught_by_name ? ` · ${l.taught_by_name}` : ""}
+                                      </span>
+                                    </li>
+                                  ))}
+                                  {as_.map((a) => (
+                                    <li key={`a:${a.id}`} className="flex items-center gap-1.5 text-[11px]">
+                                      <span className="rounded bg-amber-50 px-1 py-px text-[9px] font-semibold uppercase text-amber-700">{a.kind.replace(/_/g, " ")}</span>
+                                      <Link
+                                        to={`/school/orgs/${orgId}/assignments/${a.id}`}
+                                        className="min-w-0 truncate text-indigo-700 hover:underline"
+                                      >
+                                        {a.title}
+                                      </Link>
+                                      <span className="whitespace-nowrap text-[10px] text-slate-400">
+                                        {new Date(`${(a.due_date ?? a.assigned_date)}T00:00:00`).toLocaleDateString()}
+                                      </span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </li>
                     );
                   })}
