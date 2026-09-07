@@ -304,7 +304,7 @@
       "curriculumProgress": "Curriculum progress · this academic year",
       "topicsCount": "{{done}}/{{total}} topics",
       "noCurriculum": "No curriculum defined yet — ask your admin to set up the syllabus for {{subject}}.",
-      "assignments": "Assignments",
+      "assignments": "Homework & tests",
       "gradebook": "Gradebook",
       "lessons": "Lessons",
       "focusWeek": "Focus this week",

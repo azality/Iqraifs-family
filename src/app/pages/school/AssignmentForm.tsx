@@ -346,7 +346,7 @@ export function AssignmentForm() {
   return (
     <div className="space-y-4 max-w-2xl">
       <HeroCard
-        title={editMode ? "Edit assignment" : "New assignment"}
+        title={editMode ? "Edit" : "New homework / test"}
         subtitle={sectionLabel || "Quiz, test, homework, project, or participation"}
         rightSlot={
           <Link to={backLink}>

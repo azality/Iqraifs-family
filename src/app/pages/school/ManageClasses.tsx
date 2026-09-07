@@ -507,7 +507,7 @@ export function ManageClasses() {
                           </Button>
                         </Link>
                         <Link to={`/school/orgs/${orgId}/sections/${sec.id}/assignments`}>
-                          <Button variant="outline" size="icon" className="h-8 w-8" title="Assignments">
+                          <Button variant="outline" size="icon" className="h-8 w-8" title="Homework & tests">
                             <ClipboardCheck className="h-3.5 w-3.5" />
                           </Button>
                         </Link>

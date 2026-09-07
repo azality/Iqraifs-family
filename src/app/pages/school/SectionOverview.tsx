@@ -306,7 +306,7 @@ export function SectionOverview() {
       ? { label: "Hifz progress", to: `/school/orgs/${orgId}/sections/${sectionId}/hifz` }
       : null,
     { label: "Lessons / diary", to: `/school/orgs/${orgId}/sections/${sectionId}/lessons` },
-    { label: "Assignments", to: `/school/orgs/${orgId}/sections/${sectionId}/assignments` },
+    { label: "Homework & tests", to: `/school/orgs/${orgId}/sections/${sectionId}/assignments` },
     { label: "Gradebook", to: `/school/orgs/${orgId}/sections/${sectionId}/gradebook` },
     (viewerRole === "admin" || viewerRole === "principal" || canManageStudents)
       ? { label: `Students (${row.studentCount})`, to: `/school/orgs/${orgId}/admin/students?classSectionId=${encodeURIComponent(sectionId)}` }

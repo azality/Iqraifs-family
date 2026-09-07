@@ -284,8 +284,8 @@ export function SectionAssignmentsList() {
   return (
     <div className="space-y-4">
       <HeroCard
-        title={focusStudentName ? `Assignments — ${focusStudentName}` : "Assignments"}
-        subtitle={`${assignments.length} assignment${assignments.length === 1 ? "" : "s"} for this section`}
+        title={focusStudentName ? `Homework & tests — ${focusStudentName}` : "Homework & tests"}
+        subtitle={`${assignments.length} posted for this section — homework, quizzes, tests, projects`}
         rightSlot={
           <div className="flex items-center gap-2 flex-wrap">
             <Link to={withFocus(`/school/orgs/${orgId}/sections/${sectionId}/gradebook`)}>
@@ -296,7 +296,7 @@ export function SectionAssignmentsList() {
             </Link>
             <Link to={`/school/orgs/${orgId}/sections/${sectionId}/assignments/new`}>
               <Button size="sm" className="bg-white text-slate-900 hover:bg-slate-100">
-                <Plus className="h-4 w-4 mr-1" /> New Assignment
+                <Plus className="h-4 w-4 mr-1" /> New
               </Button>
             </Link>
           </div>
