@@ -67,6 +67,7 @@ import { ManageHifzGroups } from "./pages/school/ManageHifzGroups";
 import { HifzProgramDashboard } from "./pages/school/HifzProgramDashboard";
 import { AdminAcademicsDay } from "./pages/school/AdminAcademicsDay";
 import { TeachingOverview } from "./pages/school/TeachingOverview";
+import { OrgNotFound } from "./pages/school/OrgNotFound";
 import { ManageTimetable } from "./pages/school/ManageTimetable";
 import { MasterTimetable } from "./pages/school/MasterTimetable";
 import { TimetableSchedulePage } from "./pages/school/TimetableSchedulePage";
@@ -609,6 +610,10 @@ export const router = createBrowserRouter([
               { path: "admin/forms/new", element: <FormBuilder /> },
               { path: "admin/forms/:formId", element: <FormBuilder /> },
               { path: "admin/forms/:formId/responses", element: <FormResponses /> },
+              // Unmatched org URL → say so, IN this org. Falling through
+              // to the app-root catch-all bounced to "/" and could land
+              // in a different school (see OrgNotFound).
+              { path: "*", element: <OrgNotFound /> },
             ],
           },
           // Redirect old routes to homepage
