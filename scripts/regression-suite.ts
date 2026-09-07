@@ -977,6 +977,18 @@ await check("28. hifz sabqi-by-para: juzExtent stored, returned, portal-visible;
   const mk3J = await jparse(mk3, "create3");
   assert(mk3.status === 201, `bad-extent create ${mk3.status}`);
   const id3 = mk3J.entry?.id;
+  // Segment extent (7 Sep): "second_half" = nisf -> end, so a teacher
+  // can say WHICH half was recited, not just a cumulative stop.
+  const mk4 = await api(teacher.token, `/school/orgs/${ORG}/hifz-progress`, {
+    method: "POST",
+    body: JSON.stringify({
+      studentId: pStu1, surahNumber: 67, ayahFrom: 1, ayahTo: 1,
+      kind: "sabqi", juzNumber: 29, juzExtent: "second_half", quality: "good",
+    }),
+  });
+  const mk4J = await jparse(mk4, "create4");
+  assert(mk4.status === 201, `segment-extent create ${mk4.status}`);
+  const id4 = mk4J.entry?.id;
   try {
     // Staff read returns the extent.
     const list = await api(teacher.token, `/school/orgs/${ORG}/students/${pStu1}/hifz-progress?limit=10`);
@@ -985,9 +997,11 @@ await check("28. hifz sabqi-by-para: juzExtent stored, returned, portal-visible;
     const e1 = (listJ.entries ?? []).find((e: any) => e.id === id1);
     const e2 = (listJ.entries ?? []).find((e: any) => e.id === id2);
     const e3 = (listJ.entries ?? []).find((e: any) => e.id === id3);
+    const e4 = (listJ.entries ?? []).find((e: any) => e.id === id4);
     assert(e1?.juzExtent === "half" && e1?.juzNumber === 28, `extent half round-trip: ${JSON.stringify(e1?.juzExtent)}`);
     assert(e2?.juzExtent === "to_surah:95", `to_surah round-trip: ${JSON.stringify(e2?.juzExtent)}`);
     assert(e3 && e3.juzExtent == null, `bad extent should store null, got ${JSON.stringify(e3?.juzExtent)}`);
+    assert(e4?.juzExtent === "second_half", `segment extent round-trip: ${JSON.stringify(e4?.juzExtent)}`);
     // Portal sees juzExtent (it's the position reference, parent-visible).
     const pTok = (await jparse(await pinLogin(PARENT_PHONE, "3456"), "pinLogin")).token;
     const pr = await fetch(`${FUNC}/school/pin-me/students/${pStu1}/hifz`, {
@@ -997,7 +1011,7 @@ await check("28. hifz sabqi-by-para: juzExtent stored, returned, portal-visible;
     assert(pr.status === 200, `portal hifz ${pr.status}`);
     assert(prRaw.includes('"juzExtent":"half"'), "juzExtent missing from portal payload");
   } finally {
-    for (const id of [id1, id2, id3]) {
+    for (const id of [id1, id2, id3, id4]) {
       if (id) await admin.from("hifz_progress").delete().eq("id", id);
     }
   }

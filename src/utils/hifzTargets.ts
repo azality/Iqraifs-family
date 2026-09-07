@@ -16,7 +16,15 @@
 
 import { SURAHS, getSurah } from "./quranSurahs";
 
-export type AssignExtent = "full" | "quarter" | "half" | "three_quarters";
+export type AssignExtent =
+  | "full"
+  | "quarter"          // start → ruba (first quarter)
+  | "second_quarter"   // ruba → nisf
+  | "third_quarter"    // nisf → salasa
+  | "last_quarter"     // salasa → end
+  | "half"             // start → nisf (first half)
+  | "second_half"      // nisf → end
+  | "three_quarters";  // start → salasa
 
 /** First (surah, ayah) of each juz — Hafs. Used to prefill para-mode
  *  entries and to place a position in its juz. */
@@ -103,9 +111,13 @@ export function serializeNextSabqiPara(juz: number): string {
 
 const EXTENT_SUFFIX: Record<AssignExtent, string> = {
   full: "full para",
-  quarter: "to ¼",
-  half: "to ½",
-  three_quarters: "to ¾",
+  quarter: "first ¼ — ruba",
+  second_quarter: "ruba → nisf (¼–½)",
+  third_quarter: "nisf → salasa (½–¾)",
+  last_quarter: "last ¼ — salasa → end",
+  half: "first ½ — nisf",
+  second_half: "second ½ — nisf → end",
+  three_quarters: "to ¾ — salasa",
 };
 
 export function serializeNextManzil(juz: number, extent: AssignExtent): string {

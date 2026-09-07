@@ -50,6 +50,7 @@ import {
   type SectionHifzSummaryRow,
 } from "../../../utils/schoolApi";
 import { SURAHS, getSurah } from "../../../utils/quranSurahs";
+import { PARA_EXTENT_OPTIONS, juzExtentShortKey } from "../../../utils/hifzExtent";
 import {
   serializeNextSabaq,
   parseNextSabaq,
@@ -77,12 +78,8 @@ type RoundScope = "all" | "sabaq" | "revision";
 
 // Same juz-start convention as HifzLogEntry — the stored position marker
 
-// Extent → hifzTeach.extShort* key (full appends nothing).
-const EXTENT_KEY: Record<string, string> = {
-  quarter: "hifzTeach.extShortQuarter",
-  half: "hifzTeach.extShortHalf",
-  three_quarters: "hifzTeach.extShortThreeQuarters",
-};
+// Extent → short display key lives in utils/hifzExtent (shared with
+// the feeds and the parent portal).
 
 type TFn = (key: string, opts?: Record<string, unknown>) => string;
 
@@ -125,7 +122,7 @@ function portionLabel(p: PortionState, t: TFn): string {
     if (p.extent === "to_surah") {
       return `${juz} · ${t("hifzTeach.extShortToSurah", { name: getSurah(p.toSurah)?.nameTransliterated ?? p.toSurah })}`;
     }
-    return `${juz} · ${t(EXTENT_KEY[p.extent] ?? "hifzTeach.extShortFull")}`;
+    return `${juz} · ${t(juzExtentShortKey(p.extent) ?? "hifzTeach.extShortFull")}`;
   }
   const s = getSurah(p.surah);
   return `${s?.nameTransliterated ?? p.surah} ${p.from}–${p.to}`;
@@ -986,10 +983,9 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
                         <Select value={cur.extent} onValueChange={(v) => set({ extent: v as AssignExtent })}>
                           <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="full">{t("hifzTeach.extFull")}</SelectItem>
-                            <SelectItem value="quarter">{t("hifzTeach.extQuarter")}</SelectItem>
-                            <SelectItem value="half">{t("hifzTeach.extHalf")}</SelectItem>
-                            <SelectItem value="three_quarters">{t("hifzTeach.extThreeQuarters")}</SelectItem>
+                            {PARA_EXTENT_OPTIONS.map((o) => (
+                              <SelectItem key={o.value} value={o.value}>{t(o.labelKey)}</SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
                       </div>
@@ -1089,10 +1085,9 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
                           >
                             <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="full">{t("hifzTeach.extFull")}</SelectItem>
-                              <SelectItem value="quarter">{t("hifzTeach.extQuarter")}</SelectItem>
-                              <SelectItem value="half">{t("hifzTeach.extHalf")}</SelectItem>
-                              <SelectItem value="three_quarters">{t("hifzTeach.extThreeQuarters")}</SelectItem>
+                              {PARA_EXTENT_OPTIONS.map((o) => (
+                                <SelectItem key={o.value} value={o.value}>{t(o.labelKey)}</SelectItem>
+                              ))}
                               <SelectItem value="to_surah">{t("hifzTeach.extToSurah")}</SelectItem>
                             </SelectContent>
                           </Select>
