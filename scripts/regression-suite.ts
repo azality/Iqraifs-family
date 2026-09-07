@@ -2545,9 +2545,17 @@ await check("58. an approved student absence reaches the register", async () => 
     assert(typeof mine.subjectName === "string" && mine.subjectName.length > 0,
       "the queue must name the student, not just an id");
 
-    // 3. Before approval the register knows nothing.
-    const before = await (await api(teacher.token,
-      `/school/orgs/${ORG}/sections/${sandboxSec.id}/attendance?date=${today}`)).json();
+    // 3. Before approval the register knows nothing. Re-mint the teacher
+    //    first: check 34 rotates qa-teacher's password, so the token from
+    //    the top of the file is stale by now (the same trap check 53
+    //    dodged) - and a 401 body has no notifiedAbsences, which would
+    //    sail through this NEGATIVE assertion and only trip the positive
+    //    one in step 5, pointing at the wrong culprit.
+    const t3 = await ensureUser("qa-teacher@azality.com", "QA Teacher", "class_teacher");
+    const beforeResp = await api(t3.token,
+      `/school/orgs/${ORG}/sections/${sandboxSec.id}/attendance?date=${today}`);
+    assert(beforeResp.status === 200, `register read ${beforeResp.status}`);
+    const before = await beforeResp.json();
     const notedBefore = (before.notifiedAbsences ?? []).some((n: any) => n.studentId === pStu1);
     assert(!notedBefore, "an UNAPPROVED notice must not excuse anyone");
 
@@ -2559,8 +2567,10 @@ await check("58. an approved student absence reaches the register", async () => 
 
     // 5. Now the person taking the register is told. This is the whole
     //    point: the notice has to reach the teacher, not just the office.
-    const after = await (await api(teacher.token,
-      `/school/orgs/${ORG}/sections/${sandboxSec.id}/attendance?date=${today}`)).json();
+    const afterResp = await api(t3.token,
+      `/school/orgs/${ORG}/sections/${sandboxSec.id}/attendance?date=${today}`);
+    assert(afterResp.status === 200, `register read ${afterResp.status}`);
+    const after = await afterResp.json();
     const hit = (after.notifiedAbsences ?? []).find((n: any) => n.studentId === pStu1);
     assert(hit, "an APPROVED absence must show on the register for that date");
     assert(hit.reason === "QA absence notice", `reason should carry through, got ${hit.reason}`);
@@ -2569,7 +2579,7 @@ await check("58. an approved student absence reaches the register", async () => 
     const other = new Intl.DateTimeFormat("en-CA", {
       timeZone: "Asia/Karachi", year: "numeric", month: "2-digit", day: "2-digit",
     }).format(new Date(Date.now() + 9 * 86400000));
-    const far = await (await api(teacher.token,
+    const far = await (await api(t3.token,
       `/school/orgs/${ORG}/sections/${sandboxSec.id}/attendance?date=${other}`)).json();
     assert(!(far.notifiedAbsences ?? []).some((n: any) => n.studentId === pStu1),
       "the absence must not leak onto dates it does not cover");
