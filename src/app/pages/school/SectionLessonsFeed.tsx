@@ -200,7 +200,13 @@ export function SectionLessonsFeed() {
             <Link to={`/school/orgs/${orgId}/sections/${sectionId}`}>
               <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">← Class page</Button>
             </Link>
-            <Link to={`/school/orgs/${orgId}/sections/${sectionId}/lessons/new`}>
+            {/* Carry the active subject chip into the form — filtering to
+                English then clicking New Lesson opens on English. */}
+            <Link
+              to={`/school/orgs/${orgId}/sections/${sectionId}/lessons/new${
+                subjectFilter ? `?sectionSubjectId=${subjectFilter}` : ""
+              }`}
+            >
               <Button size="sm" className="bg-white text-slate-900 hover:bg-slate-100">
                 <Plus className="h-4 w-4 mr-1" /> New Lesson
               </Button>
