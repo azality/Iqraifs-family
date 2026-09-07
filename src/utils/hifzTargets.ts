@@ -51,6 +51,26 @@ export interface SabqiPart {
   to: number | null;
 }
 
+/** Tomorrow's sabaq when today's went well: the next portion of the
+ *  same length. Rolls into the NEXT surah when today's finished this
+ *  one (Yunus 99–109 → Hud 1–11) — the school's call, made by the
+ *  principal (7 Sep): forward order, not juz-30-back. Returns null
+ *  only after An-Nas — nothing is left to assign. */
+export function nextSabaqAfter(
+  surahNumber: number,
+  from: number,
+  to: number,
+): { surahNumber: number; from: number; to: number } | null {
+  const len = Math.max(1, to - from + 1);
+  const max = getSurah(surahNumber)?.ayahCount ?? to;
+  if (to < max) {
+    return { surahNumber, from: to + 1, to: Math.min(to + len, max) };
+  }
+  if (surahNumber >= 114) return null;
+  const nextMax = getSurah(surahNumber + 1)?.ayahCount ?? 1;
+  return { surahNumber: surahNumber + 1, from: 1, to: Math.min(len, nextMax) };
+}
+
 export function serializeNextSabaq(surahNumber: number, from: number, to: number): string {
   const s = getSurah(surahNumber);
   return `Sabaq: ${s?.nameTransliterated ?? surahNumber} ${from}–${to}`;

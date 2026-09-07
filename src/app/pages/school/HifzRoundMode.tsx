@@ -55,6 +55,7 @@ import {
   parseNextSabaq,
   JUZ_STARTS,
   juzOfPosition,
+  nextSabaqAfter,
   serializeNextSabqiSurahs,
   serializeNextSabqiPara,
   serializeNextManzil,
@@ -444,14 +445,14 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
       if (k.quality === "") return null;
       const pn = k.portion;
       if (pn.mode !== "surah") return { text: t("hifzRound.tomorrowPick"), auto: true };
-      const maxAyah = getSurah(pn.surah)?.ayahCount ?? pn.to;
       if (k.quality === "weak" || k.quality === "repeat") {
         return { text: serializeNextSabaq(pn.surah, pn.from, pn.to), auto: true };
       }
-      if (pn.to < maxAyah) {
-        const len = Math.max(1, pn.to - pn.from + 1);
-        return { text: serializeNextSabaq(pn.surah, pn.to + 1, Math.min(pn.to + len, maxAyah)), auto: true };
+      const nxt = nextSabaqAfter(pn.surah, pn.from, pn.to);
+      if (nxt) {
+        return { text: serializeNextSabaq(nxt.surahNumber, nxt.from, nxt.to), auto: true };
       }
+      // Only reachable after An-Nas — nothing left to assign.
       return { text: t("hifzRound.tomorrowBoundary"), auto: true };
     }
     if (key === "sabqi") {
@@ -505,15 +506,14 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
             input.nextTarget = serializeNextSabaq(ovSabaq.surah, ovSabaq.from, ovSabaq.to);
           } else if (p.mode === "surah") {
             // Auto-assign the next sabaq (default in Round Mode): advance
-            // on excellent/good (same length, within the surah), repeat on
-            // weak/repeat. At a surah boundary we assign nothing —
-            // memorization order past a finished surah is a school call.
-            const maxAyah = getSurah(p.surah)?.ayahCount ?? p.to;
+            // on excellent/good (same length; rolls into the next surah
+            // at a boundary — principal's call, 7 Sep), repeat on
+            // weak/repeat.
             if (k.quality === "weak" || k.quality === "repeat") {
               input.nextTarget = serializeNextSabaq(p.surah, p.from, p.to);
-            } else if (p.to < maxAyah) {
-              const len = Math.max(1, p.to - p.from + 1);
-              input.nextTarget = serializeNextSabaq(p.surah, p.to + 1, Math.min(p.to + len, maxAyah));
+            } else {
+              const nxt = nextSabaqAfter(p.surah, p.from, p.to);
+              if (nxt) input.nextTarget = serializeNextSabaq(nxt.surahNumber, nxt.from, nxt.to);
             }
           }
         }
@@ -855,11 +855,10 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
                   {nextOpen === meta.key && meta.key === "sabaq" && (() => {
                     const cur = ovSabaq ?? (() => {
                       const pn = kinds.sabaq.portion;
-                      const maxA = getSurah(pn.surah)?.ayahCount ?? pn.to;
-                      const len = Math.max(1, pn.to - pn.from + 1);
-                      return pn.to < maxA
-                        ? { surah: pn.surah, from: pn.to + 1, to: Math.min(pn.to + len, maxA) }
-                        : { surah: pn.surah, from: 1, to: len };
+                      const nxt = nextSabaqAfter(pn.surah, pn.from, pn.to);
+                      return nxt
+                        ? { surah: nxt.surahNumber, from: nxt.from, to: nxt.to }
+                        : { surah: pn.surah, from: pn.from, to: pn.to };
                     })();
                     const set = (patch: Partial<typeof cur>) => setOvSabaq({ ...cur, ...patch });
                     const maxA = getSurah(cur.surah)?.ayahCount ?? 286;
