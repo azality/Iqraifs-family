@@ -120,8 +120,11 @@ export function StudentReportCard() {
   return (
     <div className="space-y-4 print:space-y-3">
       <style>{`
-        /* PR feat/report-card-print — A4 print quality */
-        @page { size: A4; margin: 12mm 12mm 14mm 12mm; }
+        /* PR feat/report-card-print — A4 print quality. Landscape by
+           default (principal's call, 7 Sep): the card is a wide layout —
+           three stat tiles + remark columns side by side — and reads
+           better across the long edge. */
+        @page { size: A4 landscape; margin: 10mm 12mm; }
         @media print {
           .no-print, .no-print * { display: none !important; }
           body { background: white !important; }
