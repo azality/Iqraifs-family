@@ -2578,6 +2578,82 @@ await check("58. an approved student absence reaches the register", async () => 
   }
 });
 
+await check("59. a test can cover several topics, and old clients still work", async () => {
+  // Teachers could not tag a "grand test" spanning Biology 1-4 with more
+  // than one topic - assignment.curriculum_topic_id is a single FK
+  // (pilot, 7 Sep). The set now lives in assignment_topic; the legacy
+  // column mirrors the FIRST topic so the portal and any stale client
+  // keep working (stale clients proved very real this same week).
+  const t = await ensureUser("qa-teacher@azality.com", "QA Teacher", "class_teacher");
+  const { data: qaTopics } = await admin.from("curriculum_topic")
+    .select("id, name").eq("curriculum_id", qaCur.id).order("display_order").limit(2);
+  assert((qaTopics ?? []).length >= 2, "sandbox curriculum should have two QA topics");
+  const [t1, t2] = (qaTopics ?? []).map((x: any) => x.id);
+
+  let asgId: string | null = null;
+  try {
+    // 1. Create with BOTH topics.
+    const mk = await api(t.token, `/school/orgs/${ORG}/sections/${sandboxSec.id}/assignments`, {
+      method: "POST",
+      body: JSON.stringify({
+        title: "QA grand test", kind: "test", maxScore: 100,
+        sectionSubjectId: qaSs.id, curriculumTopicIds: [t1, t2],
+      }),
+    });
+    const mkJson = await mk.json();
+    assert(mk.status === 201, `create ${mk.status}: ${JSON.stringify(mkJson).slice(0, 140)}`);
+    asgId = mkJson.assignment.id;
+    assert(
+      JSON.stringify([...(mkJson.assignment.curriculumTopicIds ?? [])].sort()) ===
+        JSON.stringify([t1, t2].sort()),
+      `create should return both topics, got ${JSON.stringify(mkJson.assignment.curriculumTopicIds)}`,
+    );
+    assert(mkJson.assignment.curriculumTopicId === t1,
+      "the legacy single field must mirror the FIRST topic");
+
+    // 2. The list carries the full set (the edit form loads from here).
+    const list = await (await api(t.token,
+      `/school/orgs/${ORG}/sections/${sandboxSec.id}/assignments`)).json();
+    const row = (list.assignments ?? []).find((a: any) => a.id === asgId);
+    assert(row && (row.curriculumTopicIds ?? []).length === 2,
+      `list should carry both topics, got ${JSON.stringify(row?.curriculumTopicIds)}`);
+
+    // 3. Editing via the NEW field replaces the set and re-mirrors.
+    const ed = await api(t.token, `/school/orgs/${ORG}/assignments/${asgId}`, {
+      method: "PATCH", body: JSON.stringify({ curriculumTopicIds: [t2] }),
+    });
+    const edJson = await ed.json();
+    assert(ed.status === 200, `patch ${ed.status}: ${JSON.stringify(edJson).slice(0, 140)}`);
+    assert(edJson.assignment.curriculumTopicId === t2, "mirror should follow the new first topic");
+    assert((edJson.assignment.curriculumTopicIds ?? []).length === 1, "set should be replaced, not merged");
+
+    // 4. A STALE client editing via the old single field owns the whole
+    //    set - it cannot see the other topics, so keeping them would
+    //    leave a tag half-ghost.
+    const old = await api(t.token, `/school/orgs/${ORG}/assignments/${asgId}`, {
+      method: "PATCH", body: JSON.stringify({ curriculumTopicId: t1 }),
+    });
+    const oldJson = await old.json();
+    assert(old.status === 200, `legacy patch ${old.status}`);
+    assert(
+      JSON.stringify(oldJson.assignment.curriculumTopicIds ?? []) === JSON.stringify([t1]),
+      `legacy edit should collapse the set to its one topic, got ${JSON.stringify(oldJson.assignment.curriculumTopicIds)}`,
+    );
+
+    // 5. A topic from outside this subject's syllabus is refused.
+    const bogus = crypto.randomUUID();
+    const bad = await api(t.token, `/school/orgs/${ORG}/assignments/${asgId}`, {
+      method: "PATCH", body: JSON.stringify({ curriculumTopicIds: [t1, bogus] }),
+    });
+    assert(bad.status === 400, `foreign topic should be refused, got ${bad.status}`);
+  } finally {
+    if (asgId) {
+      await admin.from("assignment_topic").delete().eq("assignment_id", asgId);
+      await admin.from("assignment").delete().eq("id", asgId);
+    }
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

@@ -3924,8 +3924,12 @@ export interface Assignment {
   class_section_id: string;
   /** Phase 3: which subject in the section this assignment belongs to. */
   sectionSubjectId?: string | null;
-  /** Phase 3: which curriculum topic the assignment maps to. */
+  /** Phase 3: which curriculum topic the assignment maps to. Mirrors the
+   *  FIRST entry of curriculumTopicIds — kept so old readers keep working. */
   curriculumTopicId?: string | null;
+  /** Every topic this assignment covers (a test can span several).
+   *  undefined = not fetched by this endpoint, not "none". */
+  curriculumTopicIds?: string[];
   /** Denormalised display fields populated by list / detail endpoints. */
   subjectName?: string | null;
   topicName?: string | null;
@@ -3956,8 +3960,11 @@ export interface AssignmentInput {
   relatedTopic?: string;
   /** Phase 3: required to make subject/topic visible on the feed; null clears on PATCH. */
   sectionSubjectId?: string | null;
-  /** Phase 3: optional curriculum topic. */
+  /** Phase 3: optional curriculum topic (legacy single form). */
   curriculumTopicId?: string | null;
+  /** The full topic set. When present it wins over curriculumTopicId;
+   *  null or [] clears every topic. A test can cover several. */
+  curriculumTopicIds?: string[] | null;
   /** Media — same trio as lessons: YouTube/video link, audio link, files. */
   videoUrl?: string | null;
   audioUrl?: string | null;
