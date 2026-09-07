@@ -227,7 +227,7 @@ export function AssignmentDetail() {
               Max <b className="ml-1">{assignment.max_score}</b>
             </span>
             <Link to={backLink}>
-              <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">← Assignments</Button>
+              <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">← Homework & tests</Button>
             </Link>
             {canEdit && (
               <>

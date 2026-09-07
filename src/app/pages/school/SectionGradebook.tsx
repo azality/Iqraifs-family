@@ -308,7 +308,7 @@ export function SectionGradebook() {
               <Save className="h-4 w-4 mr-1" /> {saving ? "Saving…" : "Save All"}
             </Button>
             <Link to={`/school/orgs/${orgId}/sections/${sectionId}/assignments${focusStudent ? `?studentId=${focusStudent.id}` : ""}`}>
-              <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">Assignments</Button>
+              <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">Homework & tests</Button>
             </Link>
             <Link to={`/school/orgs/${orgId}/sections/${sectionId}`}>
               <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">← Class page</Button>
