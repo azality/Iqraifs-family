@@ -149,6 +149,9 @@ export function FeesOverview() {
   // generator previews what "Generate" would create.
   const [dryInfo, setDryInfo] = useState<BulkFeeGenerateResult | null>(null);
   const [generating, setGenerating] = useState(false);
+  // Which classes to bill (7 Sep: Ambreen wanted vouchers for Catch Up
+  // only — the button billed the whole school). "__all__" = every class.
+  const [genClassId, setGenClassId] = useState<string>("__all__");
   const [feesLoaded, setFeesLoaded] = useState(false);
   const [classes, setClasses] = useState<AdminClass[]>([]);
   const [markPaid, setMarkPaid] = useState<MarkPaidState | null>(null);
@@ -180,16 +183,23 @@ export function FeesOverview() {
   useEffect(() => {
     if (!orgId || !monthEmpty) { setDryInfo(null); return; }
     let cancelled = false;
-    bulkGenerateFees(orgId, { period, dryRun: true })
+    bulkGenerateFees(orgId, {
+      period,
+      dryRun: true,
+      ...(genClassId !== "__all__" ? { classIds: [genClassId] } : {}),
+    })
       .then((r) => { if (!cancelled) setDryInfo(r); })
       .catch(() => { if (!cancelled) setDryInfo(null); });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orgId, period, monthEmpty]);
+  }, [orgId, period, monthEmpty, genClassId]);
   const runGenerate = async () => {
     setGenerating(true);
     try {
-      const r = await bulkGenerateFees(orgId, { period });
+      const r = await bulkGenerateFees(orgId, {
+        period,
+        ...(genClassId !== "__all__" ? { classIds: [genClassId] } : {}),
+      });
       toast.success(
         `${r.created} voucher${r.created === 1 ? "" : "s"} created` +
           (r.skipped > 0 ? ` · ${r.skipped} skipped (no fee plan)` : "") +
@@ -373,9 +383,20 @@ export function FeesOverview() {
               ? <>Generating creates vouchers for <strong className="text-slate-700">{dryInfo.total} student{dryInfo.total === 1 ? "" : "s"}</strong> from each class&apos;s fee plan{dryInfo.waived > 0 ? <>, honoring {dryInfo.waived} waiver{dryInfo.waived === 1 ? "" : "s"}</> : null}.</>
               : "Vouchers are created from each class's monthly fee plan, honoring per-student overrides."}
           </p>
-          <div className="mt-4 flex flex-wrap justify-center gap-2.5">
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-2.5">
+            {/* Scope: one class or the whole school — Ambreen only
+                wanted Catch Up billed and got everyone (7 Sep). */}
+            <Select value={genClassId} onValueChange={setGenClassId}>
+              <SelectTrigger className="h-10 w-44"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">Whole school</SelectItem>
+                {classes.map((c) => <SelectItem key={c.id} value={c.id}>{c.name} only</SelectItem>)}
+              </SelectContent>
+            </Select>
             <Button className="bg-indigo-600 hover:bg-indigo-700" onClick={runGenerate} disabled={generating}>
-              {generating ? "Generating…" : `Generate ${monthLabel} vouchers`}
+              {generating
+                ? "Generating…"
+                : `Generate ${monthLabel} vouchers${genClassId !== "__all__" ? ` — ${classes.find((c) => c.id === genClassId)?.name ?? ""}` : ""}`}
             </Button>
             <Link to={`/school/orgs/${orgId}/admin/fees/plans`}>
               <Button variant="outline">Review fee plans first</Button>
@@ -408,6 +429,22 @@ export function FeesOverview() {
             <SelectItem value="waived">Waived</SelectItem>
           </SelectContent>
         </Select>
+        {/* Bill more classes after a partial run — generating Catch Up
+            first no longer strands the rest of the school (re-running an
+            already-billed class just refreshes its amounts, never
+            doubles). */}
+        <div className="ml-auto flex items-center gap-2">
+          <Select value={genClassId} onValueChange={setGenClassId}>
+            <SelectTrigger className="h-9 w-40"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">Whole school</SelectItem>
+              {classes.map((c) => <SelectItem key={c.id} value={c.id}>{c.name} only</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Button variant="outline" size="sm" onClick={runGenerate} disabled={generating}>
+            {generating ? "Generating…" : "Generate vouchers"}
+          </Button>
+        </div>
       </div>
 
       <DataTable

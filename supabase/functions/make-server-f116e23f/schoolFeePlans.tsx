@@ -109,6 +109,32 @@ export function installFeePlans(school: Hono): void {
     if (!Number.isFinite(amount) || amount < 0) {
       return c.json({ error: "amount must be a non-negative number" }, 400);
     }
+    // Duplicate guard (7 Sep): per-student amounts were entered as 12
+    // extra "Monthly Tuition" PLANS on one class — and the generator
+    // SUMS every plan, so each child was billed ~Rs 48,000. Two active
+    // monthly plans with the same name on one class is always that
+    // mistake (Tuition + Transport are different names). Per-student
+    // amounts belong in overrides, so say so.
+    if (frequency === "monthly") {
+      const { data: dupe } = await serviceRoleClient
+        .from("class_fee_plan")
+        .select("id")
+        .eq("class_id", classId)
+        .eq("frequency", "monthly")
+        .is("archived_at", null)
+        .ilike("name", name)
+        .limit(1)
+        .maybeSingle();
+      if (dupe) {
+        return c.json({
+          error:
+            `An active monthly plan named "${name}" already exists for this class. ` +
+            `Every plan is billed on top of the others — for a per-student amount, ` +
+            `set an override on the existing plan instead.`,
+          code: "DUPLICATE_PLAN",
+        }, 409);
+      }
+    }
     let default_due_day: number | null = null;
     let one_off_due_date: string | null = null;
     if (frequency === "monthly") {
@@ -397,11 +423,17 @@ export function installFeePlans(school: Hono): void {
     const classIdsTouched = Array.from(plansByClass.keys());
 
     // 3. Pull students for every class — via their class_sections.
+    // The ORG-WIDE sweep never bills the QA Sandbox (same rule as every
+    // org rollup); explicitly picking a class in classIds is deliberate
+    // and respected.
     const { data: sections } = await serviceRoleClient
       .from("class_section")
-      .select("id, class_id")
+      .select("id, class_id, schedule_key")
       .in("class_id", classIdsTouched);
-    const sectionIds = ((sections ?? []) as any[]).map((s) => s.id);
+    const usableSections = ((sections ?? []) as any[]).filter(
+      (s) => classIds !== null || s.schedule_key !== "sandbox",
+    );
+    const sectionIds = usableSections.map((s) => s.id);
     const sectionToClass = new Map<string, string>();
     for (const s of ((sections ?? []) as any[])) sectionToClass.set(s.id, s.class_id);
 
