@@ -1345,6 +1345,9 @@ await check("36. incharge lens: /now wing-scoped, academics rollup class-scoped"
 });
 
 await check("37. teaching overview: principal org rows, incharge wing rows, office denied", async () => {
+  // 12a redesign contract: rows must carry the adoption fields the
+  // grouped layout keys on (topicsDone / lastSignInAt / accountCreatedAt),
+  // or the page silently falls back to the flat table forever.
   // Office staff: no track-record access.
   const denied = await api(office.token, `/school/orgs/${ORG}/teaching-overview`);
   assert(denied.status === 403, `office overview expected 403, got ${denied.status}`);
@@ -1355,7 +1358,8 @@ await check("37. teaching overview: principal org rows, incharge wing rows, offi
   assert(Array.isArray(j.rows) && j.rows.length > 3, `expected many rows, got ${(j.rows ?? []).length}`);
   assert(j.wingScoped === false, "principal should not be wing-scoped");
   const sample = j.rows[0];
-  for (const k of ["userId", "name", "paceDeltaPp", "lessonsPerWeek", "notes", "inRamp"]) {
+  for (const k of ["userId", "name", "paceDeltaPp", "lessonsPerWeek", "notes", "inRamp",
+                   "topicsDone", "lastSignInAt", "accountCreatedAt", "lastHifzDays"]) {
     assert(k in sample, `row missing ${k}`);
   }
   assert(!j.rows.some((x: any) => x.name === "QA Teacher"), "Sandbox teacher leaked into org overview");
