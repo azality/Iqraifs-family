@@ -2788,6 +2788,50 @@ await check("60. points: class leaderboard, child league privacy, drilldown gati
   }
 });
 
+await check("61. quran track: the child's own teacher can flip nazra/hifz; others cannot", async () => {
+  // Hifz IV is the intake class (Ambreen, 7 Sep): part of a hifz-kind
+  // section reads nazra first. The narrow track endpoint lets the
+  // section's own teacher set student.quran_track without needing the
+  // manage_students PATCH.
+  const t = await ensureUser("qa-teacher@azality.com", "QA Teacher", "class_teacher");
+  try {
+    // 1. Teacher of the section sets an explicit track.
+    const set1 = await api(t.token, `/school/orgs/${ORG}/students/${pStu1}/quran-track`, {
+      method: "POST", body: JSON.stringify({ quranTrack: "revision" }),
+    });
+    assert(set1.status === 200, `teacher set track ${set1.status}`);
+    // 2. The summary reflects it as EXPLICIT (inferred for this sandbox
+    //    section would be nazra, so revision proves the write).
+    const sum = await (await api(t.token,
+      `/school/orgs/${ORG}/sections/${sandboxSec.id}/hifz-progress/summary`)).json();
+    const row = (sum.students ?? []).find((r: any) => r.studentId === pStu1);
+    assert(row?.quranTrack === "revision", `summary track: ${JSON.stringify(row?.quranTrack)}`);
+    assert(row?.quranTrackInferred === false, "track must read as explicit, not inferred");
+    // 3. Garbage 400s.
+    const bad = await api(t.token, `/school/orgs/${ORG}/students/${pStu1}/quran-track`, {
+      method: "POST", body: JSON.stringify({ quranTrack: "qaidah" }),
+    });
+    assert(bad.status === 400, `bad track should 400, got ${bad.status}`);
+    // 4. Office staff is neither this child's teacher nor admin here.
+    const off = await ensureUser("qa-office@azality.com", "QA Office", "office_staff");
+    const deny = await api(off.token, `/school/orgs/${ORG}/students/${pStu1}/quran-track`, {
+      method: "POST", body: JSON.stringify({ quranTrack: "hifz" }),
+    });
+    assert(deny.status === 403, `office must not set tracks here, got ${deny.status}`);
+    // 5. null returns the child to automatic inference.
+    const clr = await api(t.token, `/school/orgs/${ORG}/students/${pStu1}/quran-track`, {
+      method: "POST", body: JSON.stringify({ quranTrack: null }),
+    });
+    assert(clr.status === 200, `clear track ${clr.status}`);
+    const sum2 = await (await api(t.token,
+      `/school/orgs/${ORG}/sections/${sandboxSec.id}/hifz-progress/summary`)).json();
+    const row2 = (sum2.students ?? []).find((r: any) => r.studentId === pStu1);
+    assert(row2?.quranTrackInferred === true, "cleared track must infer again");
+  } finally {
+    await admin.from("student").update({ quran_track: null }).eq("id", pStu1);
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

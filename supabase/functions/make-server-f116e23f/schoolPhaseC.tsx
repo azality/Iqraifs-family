@@ -1147,6 +1147,61 @@ export function installPhaseC(school: Hono): void {
   // DELETE /school/orgs/:orgId/hifz-progress/:entryId
   // Only the recorder or Admin+.
   // ---------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // POST /school/orgs/:orgId/students/:studentId/quran-track
+  // Body: { quranTrack: "nazra" | "hifz" | "revision" | null }
+  //
+  // Hifz IV is the INTAKE class (Ambreen, 7 Sep): a new child reads 2-3
+  // paras of nazra (sometimes Norani Qaidah first, depending on makharij),
+  // then the full 30-para nazra, and only then starts hifz — so ~35-40% of
+  // Qari Usman's roster is on nazra inside a hifz-kind section. The track
+  // column already exists (student.quran_track) but only manage_students
+  // could set it via the big student PATCH. This narrow endpoint lets the
+  // child's own teacher flip JUST the track ("woh apna select karenge").
+  // ---------------------------------------------------------------------------
+  school.post("/orgs/:orgId/students/:studentId/quran-track", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    const studentId = c.req.param("studentId");
+
+    let body: any;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "invalid JSON body" }, 400);
+    }
+    const v = body?.quranTrack ?? null;
+    if (v !== null && !["nazra", "hifz", "revision"].includes(v)) {
+      return c.json({ error: "quranTrack must be nazra, hifz, revision or null" }, 400);
+    }
+
+    const { data: stu } = await serviceRoleClient
+      .from("student")
+      .select("id, org_id, class_section_id")
+      .eq("id", studentId)
+      .maybeSingle();
+    if (!stu || (stu as any).org_id !== orgId) {
+      return c.json({ error: "student not found" }, 404);
+    }
+    // The child's own teacher (class / subject / hifz) or admin/principal.
+    let allowed = await hasAdminOrPrincipal(userId, orgId);
+    if (!allowed && (stu as any).class_section_id) {
+      const gate = await requireTeacherOfSection(
+        userId, orgId, (stu as any).class_section_id,
+      );
+      allowed = gate.ok;
+    }
+    if (!allowed) return c.json({ error: "forbidden" }, 403);
+
+    const { error } = await serviceRoleClient
+      .from("student")
+      .update({ quran_track: v })
+      .eq("id", studentId);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ ok: true, quranTrack: v });
+  });
+
   school.delete("/orgs/:orgId/hifz-progress/:entryId", async (c) => {
     const userId = getAuthUserId(c);
     if (!userId) return c.json({ error: "unauthenticated" }, 401);
