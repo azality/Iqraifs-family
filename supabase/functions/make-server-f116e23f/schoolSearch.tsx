@@ -192,7 +192,13 @@ export function installSchoolSearch(school: Hono): void {
         phone: p.phone,
         email: p.email,
         children: linkedByParent.get(p.id) ?? [],
-        path: `/school/orgs/${orgId}/admin/parents/${p.id}`,
+        // There is no parent DETAIL page — /admin/parents/:id never
+        // existed, so this used to 404 into the router's catch-all,
+        // which bounced the user to "/" and could land them in a
+        // DIFFERENT org (7 Sep: clicking a parent result put the
+        // principal on the demo academy's dashboard). Deep-link to
+        // the parents list pre-filtered to this parent instead.
+        path: `/school/orgs/${orgId}/admin/parents?q=${encodeURIComponent(p.full_name ?? "")}`,
       })),
       threads: (threads ?? []).map((t: any) => ({
         id: t.id,

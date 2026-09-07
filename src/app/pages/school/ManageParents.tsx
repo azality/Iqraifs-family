@@ -2,7 +2,7 @@
 // table, single add/edit/delete, CSV bulk upload.
 
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -51,10 +51,13 @@ const empty: CreateParentBody = { fullName: "", phone: "", email: "", relationsh
 
 export function ManageParents() {
   const { orgId = "" } = useParams();
+  // ?q= deep-links from Cmd-K search: there is no parent detail page,
+  // so a search result lands here pre-filtered to that parent's name.
+  const [searchParams] = useSearchParams();
   const [me, setMe] = useState<SchoolMeResponse | null>(null);
   const [meLoading, setMeLoading] = useState(true);
   const [parents, setParents] = useState<AdminParent[]>([]);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<AdminParent | null>(null);
 

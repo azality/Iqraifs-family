@@ -59,6 +59,9 @@ interface OrgFormState {
   logo_url: string;
   theme_color: string;
   school_motto: string;
+  /** Printed onto the report card's Principal line / stamp box. */
+  principal_signature_url: string;
+  school_stamp_url: string;
   // School hours: visible to students/parents. Office hours: staff
   // attendance window. Calendar uses office_hours to set the time axis;
   // school_hours is a soft annotation rendered on top.
@@ -90,6 +93,8 @@ export function OrgSettings() {
     logo_url: "",
     theme_color: "",
     school_motto: "",
+    principal_signature_url: "",
+    school_stamp_url: "",
     school_day_start: "",
     school_day_end: "",
     office_day_start: "",
@@ -175,6 +180,8 @@ export function OrgSettings() {
           logo_url: (o.organization.settings?.logo_url as string | undefined) ?? "",
           theme_color: (o.organization.settings?.theme_color as string | undefined) ?? "",
           school_motto: (o.organization.settings?.school_motto as string | undefined) ?? "",
+          principal_signature_url: (o.organization.settings?.principal_signature_url as string | undefined) ?? "",
+          school_stamp_url: (o.organization.settings?.school_stamp_url as string | undefined) ?? "",
           school_day_start: (o.organization.settings?.school_day_start as string | undefined) ?? "",
           school_day_end: (o.organization.settings?.school_day_end as string | undefined) ?? "",
           office_day_start: (o.organization.settings?.office_day_start as string | undefined) ?? "",
@@ -216,6 +223,8 @@ export function OrgSettings() {
         logo_url: orgForm.logo_url,
         theme_color: orgForm.theme_color,
         school_motto: orgForm.school_motto,
+        principal_signature_url: orgForm.principal_signature_url,
+        school_stamp_url: orgForm.school_stamp_url,
         school_day_start: orgForm.school_day_start,
         school_day_end: orgForm.school_day_end,
         office_day_start: orgForm.office_day_start,
@@ -606,9 +615,59 @@ export function OrgSettings() {
             </div>
             <p className="text-xs text-slate-500">
               Upload a PNG/JPG (up to 2 MB) or paste a public URL. Shown on the dashboard,
-              parent portal and public site.
+              parent portal, public site and printed report cards.
             </p>
           </div>
+          {/* Report-card print assets (7 Sep): the principal signs 400
+              cards a term — an uploaded signature + stamp print onto
+              every card automatically. Unset = blank lines to sign by
+              hand, exactly as before. */}
+          {([
+            ["principal_signature_url", "Principal's signature (report cards)",
+              "Printed on the Principal line of every report card. A photo of the signature on white paper works — PNG with transparency looks best."],
+            ["school_stamp_url", "School stamp (report cards)",
+              "Printed in the stamp box of every report card. Leave empty to stamp by hand."],
+          ] as const).map(([key, label, hint]) => (
+            <div key={key} className="grid gap-1.5">
+              <Label htmlFor={`org-${key}`}>{label}</Label>
+              <div className="flex items-center gap-3">
+                {orgForm[key] && (
+                  <img src={orgForm[key]} alt="" className="h-10 max-w-24 rounded border border-slate-200 object-contain bg-white" />
+                )}
+                <Input
+                  id={`org-${key}`}
+                  placeholder="https://…/signature.png"
+                  value={orgForm[key]}
+                  onChange={(e) => setOrgForm((s) => ({ ...s, [key]: e.target.value }))}
+                />
+                <label className="inline-flex shrink-0 cursor-pointer items-center rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                  {logoUploading ? "Uploading…" : "Upload"}
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    className="hidden"
+                    disabled={logoUploading}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      e.target.value = "";
+                      if (!file) return;
+                      setLogoUploading(true);
+                      try {
+                        const { url } = await uploadSchoolPhoto(orgId, file);
+                        setOrgForm((s) => ({ ...s, [key]: url }));
+                        toast.success("Uploaded — press Save to apply.");
+                      } catch (err) {
+                        toast.error(err instanceof Error ? err.message : "Upload failed");
+                      } finally {
+                        setLogoUploading(false);
+                      }
+                    }}
+                  />
+                </label>
+              </div>
+              <p className="text-xs text-slate-500">{hint}</p>
+            </div>
+          ))}
           <div className="grid gap-1.5">
             <Label htmlFor="org-color">Theme color</Label>
             <div className="flex items-center gap-2">

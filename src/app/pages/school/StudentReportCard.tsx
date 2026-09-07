@@ -120,8 +120,11 @@ export function StudentReportCard() {
   return (
     <div className="space-y-4 print:space-y-3">
       <style>{`
-        /* PR feat/report-card-print — A4 print quality */
-        @page { size: A4; margin: 12mm 12mm 14mm 12mm; }
+        /* PR feat/report-card-print — A4 print quality. Landscape by
+           default (principal's call, 7 Sep): the card is a wide layout —
+           three stat tiles + remark columns side by side — and reads
+           better across the long edge. */
+        @page { size: A4 landscape; margin: 10mm 12mm; }
         @media print {
           .no-print, .no-print * { display: none !important; }
           body { background: white !important; }
@@ -443,7 +446,18 @@ export function StudentReportCard() {
                     <div className="text-[10px] text-slate-500">{card.placement.classTeacherName ?? ""}</div>
                   </div>
                   <div className="text-center">
-                    <div className="h-10 border-b border-slate-300"></div>
+                    {/* An uploaded signature sits ON the line, like ink
+                        would — set in Settings → Organization. Blank line
+                        when unset (sign by hand). */}
+                    <div className="h-10 border-b border-slate-300 flex items-end justify-center">
+                      {card.school.principalSignatureUrl && (
+                        <img
+                          src={card.school.principalSignatureUrl}
+                          alt=""
+                          className="max-h-9 max-w-full object-contain"
+                        />
+                      )}
+                    </div>
                     <div className="mt-1">Principal</div>
                   </div>
                   <div className="text-center">
@@ -451,9 +465,15 @@ export function StudentReportCard() {
                     <div className="mt-1">Parent signature</div>
                   </div>
                   <div className="text-center">
-                    <div className="h-14 rounded border border-dashed border-slate-300 flex items-center justify-center text-[10px] text-slate-400">
-                      School stamp
-                    </div>
+                    {card.school.stampUrl ? (
+                      <div className="h-14 flex items-center justify-center">
+                        <img src={card.school.stampUrl} alt="School stamp" className="max-h-14 max-w-full object-contain" />
+                      </div>
+                    ) : (
+                      <div className="h-14 rounded border border-dashed border-slate-300 flex items-center justify-center text-[10px] text-slate-400">
+                        School stamp
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="mt-3 text-[10px] text-slate-400 text-center">
