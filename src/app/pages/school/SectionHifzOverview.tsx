@@ -18,9 +18,11 @@ import {
 import {
   getSchoolMe,
   getSectionHifzSummary,
+  setStudentQuranTrack,
   updateStudent,
   isOrgAdmin,
   listClasses,
+  type QuranTrack,
   type SchoolMeResponse,
   type SectionHifzSummaryRow,
 } from "../../../utils/schoolApi";
@@ -75,6 +77,10 @@ export function SectionHifzOverview() {
   // Round Mode (design 6a/6b): the focused screen replaces the table
   // while a round is running. The modal stays for one-off Log buttons.
   const [roundActive, setRoundActive] = useState(false);
+  // One-off logging for a nazra-track child in a hifz intake class:
+  // the HifzLogEntry dialog has no nazra kinds, so their Log button
+  // runs the per-child round screen for JUST that child instead.
+  const [roundQueue, setRoundQueue] = useState<SectionHifzSummaryRow[] | null>(null);
   useEffect(() => {
     if (!orgId || !sectionId) return;
     listClasses(orgId)
@@ -166,18 +172,45 @@ export function SectionHifzOverview() {
   // chips describe a routine they don't follow. Show reading position
   // instead. (Pilot report: Uroosa Basit, Class II A, Sep 2026.)
   const isNazraGroup = !isHifzSection;
+  // Hifz IV is the INTAKE class (Ambreen, 7 Sep): a new child reads
+  // 2–3 paras of nazra first (sometimes Norani Qaidah, per makharij),
+  // then the full 30-para nazra, and only then starts hifz — so a
+  // hifz-kind section can hold nazra readers. When it does, the round
+  // uses the per-child screen (nazra loop vs the trio) and the table
+  // shows each child's track.
+  const mixedRoster = isHifzSection && sorted.some((s) => s.quranTrack === "nazra");
+  const nazraCount = sorted.filter((s) => s.quranTrack === "nazra").length;
+
+  const changeTrack = async (row: SectionHifzSummaryRow, track: QuranTrack) => {
+    try {
+      await setStudentQuranTrack(orgId, row.studentId, track);
+      toast.success(
+        track === "nazra"
+          ? `${row.studentName} is on nazra — their card is now read-and-advance.`
+          : track === "hifz"
+          ? `${row.studentName} is on hifz — their card is now sabaq / sabqi / manzil.`
+          : `${row.studentName} is on revision — the full trio.`,
+      );
+      setReloadKey((k) => k + 1);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not change the track.");
+    }
+  };
 
   if (roundActive && sorted.length > 0) {
     // A nazra group reads; it does not memorize. Same round loop, but
     // the screen is position-and-advance rather than sabaq/sabqi/manzil.
-    return isNazraGroup ? (
+    // A MIXED hifz roster (intake class) also takes the per-child round:
+    // QuranRoundMode already picks each child's card by track — the
+    // nazra loop for readers, the full trio for hifz/revision.
+    return isNazraGroup || mixedRoster ? (
       <QuranRoundMode
         orgId={orgId}
         groupLabel={sectionLabel || "Nazra"}
-        roster={sorted.map((r) =>
+        roster={(roundQueue ?? sorted).map((r) =>
           dismissedHafiz.has(r.studentId) ? { ...r, needsHafizConfirmation: false } : r,
         )}
-        onClose={() => setRoundActive(false)}
+        onClose={() => { setRoundActive(false); setRoundQueue(null); }}
         onSaved={() => setReloadKey((k) => k + 1)}
         onConfirmHafiz={confirmHafiz}
         onDismissHafiz={(row) => setDismissedHafiz((p) => new Set(p).add(row.studentId))}
@@ -298,6 +331,11 @@ export function SectionHifzOverview() {
         </button>
       ),
       cell: (s) => {
+        // A nazra reader in the intake class memorizes nothing yet —
+        // their number is where they've read up to, not an ayah bar.
+        if (s.quranTrack === "nazra") {
+          return <span className="text-xs text-slate-600">{positionText(s)}</span>;
+        }
         const pct = (s.ayahsMemorized / maxAyahs) * 100;
         const color =
           pct >= 75 ? "bg-emerald-500" : pct >= 40 ? "bg-amber-500" : "bg-rose-500";
@@ -315,6 +353,20 @@ export function SectionHifzOverview() {
       key: "today",
       header: t("hifzTeach.colToday"),
       cell: (s) => {
+        if (s.quranTrack === "nazra") {
+          return (
+            <span
+              className={
+                "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold " +
+                (s.today?.nazra
+                  ? "bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300"
+                  : "bg-slate-100 text-slate-400")
+              }
+            >
+              {s.today?.nazra ? "Heard" : "Pending"}
+            </span>
+          );
+        }
         const t = s.today ?? { sabaq: false, sabqi: false, manzil: false };
         const chip = (done: boolean, label: string) => (
           <span
@@ -348,6 +400,35 @@ export function SectionHifzOverview() {
       cell: (s) => <span className="text-xs text-slate-500">{formatDate(s.lastEntry)}</span>,
     },
     {
+      key: "track",
+      header: "Track",
+      cell: (s) => (
+        <select
+          value={s.quranTrack ?? "hifz"}
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => {
+            e.stopPropagation();
+            changeTrack(s, e.target.value as QuranTrack);
+          }}
+          className={
+            "rounded-md border px-1.5 py-0.5 text-[11px] font-medium " +
+            (s.quranTrack === "nazra"
+              ? "border-sky-200 bg-sky-50 text-sky-800"
+              : "border-slate-200 bg-white text-slate-700")
+          }
+          title={
+            s.quranTrackInferred
+              ? "Automatic (from the class) — pick to set it for this child"
+              : "Set for this child"
+          }
+        >
+          <option value="hifz">Hifz</option>
+          <option value="nazra">Nazra</option>
+          <option value="revision">Revision</option>
+        </select>
+      ),
+    },
+    {
       key: "actions",
       header: "",
       align: "right",
@@ -369,6 +450,13 @@ export function SectionHifzOverview() {
             size="sm"
             onClick={(e) => {
               e.stopPropagation();
+              if (s.quranTrack === "nazra") {
+                // The hifz log dialog has no nazra kinds — run the
+                // per-child round screen for just this reader.
+                setRoundQueue([s]);
+                setRoundActive(true);
+                return;
+              }
               setLogRoster(sorted);
               setLogTarget(s);
             }}
@@ -387,6 +475,8 @@ export function SectionHifzOverview() {
         subtitle={
           isNazraGroup
             ? `${sorted.length} students · where each child has read up to`
+            : mixedRoster
+            ? `${sorted.length} students · ${sorted.length - nazraCount} hifz · ${nazraCount} nazra (intake)`
             : t("hifzTeach.progressSubtitle", { count: sorted.length })
         }
         rightSlot={
@@ -437,7 +527,9 @@ export function SectionHifzOverview() {
             orgId={orgId}
             studentId={logTarget.studentId}
             studentName={logTarget.studentName}
-            hifzOnly={isHifzSection}
+            // A nazra-track child in the intake hifz class logs nazra
+            // kinds, not the trio.
+            hifzOnly={isHifzSection && logTarget.quranTrack !== "nazra"}
             positionLabel={idx >= 0 ? t("hifzTeach.studentOf", { n: idx + 1, total: logRoster.length }) : null}
             onNextStudent={next ? () => setLogTarget(next) : null}
             open={!!logTarget}

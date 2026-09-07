@@ -3910,6 +3910,18 @@ export const getSectionHifzSummary = (
 ): Promise<{ students: SectionHifzSummaryRow[] }> =>
   apiCall(`/school/orgs/${orgId}/sections/${sectionId}/hifz-progress/summary`);
 
+/** Narrow track setter the child's own teacher may call (the big student
+ *  PATCH needs manage_students). null = back to automatic inference. */
+export const setStudentQuranTrack = (
+  orgId: string,
+  studentId: string,
+  quranTrack: QuranTrack | null,
+): Promise<{ ok: true; quranTrack: QuranTrack | null }> =>
+  apiCall(`/school/orgs/${orgId}/students/${studentId}/quran-track`, {
+    method: "POST",
+    body: JSON.stringify({ quranTrack }),
+  });
+
 export const deleteHifzEntry = (
   orgId: string,
   entryId: string,
