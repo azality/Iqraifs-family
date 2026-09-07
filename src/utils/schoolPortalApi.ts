@@ -417,6 +417,26 @@ export interface MyStudentBehaviorResponse {
   summary: MyStudentBehaviorSummary;
 }
 
+export interface PointsLeagueResponse {
+  enabled: boolean;
+  league?: {
+    period: "week" | "month" | "term" | "all";
+    since: string | null;
+    classSize: number;
+    /** Top five only, by design - the child sees the podium and where
+     *  they stand, never who is last. */
+    top: Array<{ rank: number; name: string; points: number; isMe: boolean }>;
+    me: { rank: number; points: number; positive: number; concern: number } | null;
+  } | null;
+  /** How points are earned - the school's own positive categories. */
+  earn?: Array<{ label: string; points: number }>;
+}
+export const getMyPointsLeague = (
+  studentId: string,
+  period: "week" | "month" | "term" | "all" = "month",
+): Promise<PointsLeagueResponse> =>
+  pinApiCall(`/school/pin-me/students/${studentId}/points-league?period=${period}`);
+
 export const getMyStudentBehavior = (studentId: string): Promise<MyStudentBehaviorResponse> =>
   pinApiCall(`/school/pin-me/students/${studentId}/behavior`);
 

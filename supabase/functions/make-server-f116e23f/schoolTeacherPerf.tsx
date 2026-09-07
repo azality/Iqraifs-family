@@ -871,7 +871,40 @@ export function installTeachingOverview(school: Hono) {
       attendancePct: w.attendancePct, attendanceMarked: w.attendanceMarked,
       rollCall: w.rollCall, totals: w.totals,
     });
+    // Behavior leaders — the digest is the right home for "who is leading
+    // the school": Monday-morning celebration cadence, not the ops
+    // dashboard, where cross-class ranking is noise (different teachers
+    // log at different rates and Class I vs Class X is meaningless as a
+    // contest). Net points over the digest's own week.
+    let behaviorLeaders: Array<{ studentName: string; sectionLabel: string; points: number }> = [];
+    try {
+      const weekAgoIso = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+      const { data: bnotes } = await serviceRoleClient
+        .from("behavior_note")
+        .select("student_id, class_section_id, points, student:student_id(full_name), section:class_section_id(name, schedule_key, class:class_id(name))")
+        .eq("org_id", orgId)
+        .gte("observed_at", weekAgoIso)
+        .limit(5000);
+      const tally = new Map<string, { name: string; label: string; pts: number; sandbox: boolean }>();
+      for (const n of (bnotes ?? []) as any[]) {
+        const cur = tally.get(n.student_id) ?? {
+          name: n.student?.full_name ?? "Student",
+          label: n.section ? `${n.section.class?.name ?? ""} ${n.section.name ?? ""}`.trim() : "",
+          pts: 0,
+          sandbox: n.section?.schedule_key === "sandbox",
+        };
+        cur.pts += Number(n.points) || 0;
+        tally.set(n.student_id, cur);
+      }
+      behaviorLeaders = [...tally.values()]
+        .filter((t) => !t.sandbox && t.pts > 0)
+        .sort((a, b) => b.pts - a.pts)
+        .slice(0, 5)
+        .map((t) => ({ studentName: t.name, sectionLabel: t.label, points: t.pts }));
+    } catch { /* leaders must never break the digest */ }
+
     return c.json({
+      behaviorLeaders,
       week: orgOf(cur),
       prevWeek: orgOf(prev),
       wingScoped: wing !== null,

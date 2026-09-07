@@ -54,6 +54,8 @@ interface OrgFormState {
   timezone: string;
   /** School days the school gives itself to answer a parent message. */
   parent_reply_sla_days: string;
+  /** Whether children see the class points league on their own login. */
+  student_points_league: boolean;
   logo_url: string;
   theme_color: string;
   school_motto: string;
@@ -84,6 +86,7 @@ export function OrgSettings() {
     address: "",
     timezone: "",
     parent_reply_sla_days: "",
+    student_points_league: true,
     logo_url: "",
     theme_color: "",
     school_motto: "",
@@ -165,6 +168,8 @@ export function OrgSettings() {
             (o.organization.settings as any)?.parent_reply_sla_days != null
               ? String((o.organization.settings as any).parent_reply_sla_days)
               : "",
+          student_points_league:
+            (o.organization.settings as any)?.student_points_league !== false,
           student_sees_concerns: (o.organization.settings?.student_sees_concerns as boolean | undefined) === true,
           pass_mark_pct: String((o.organization.settings?.pass_mark_pct as number | undefined) ?? 40),
           logo_url: (o.organization.settings?.logo_url as string | undefined) ?? "",
@@ -207,6 +212,7 @@ export function OrgSettings() {
         ...(orgForm.parent_reply_sla_days.trim() !== ""
           ? { parent_reply_sla_days: Number(orgForm.parent_reply_sla_days) }
           : {}),
+        student_points_league: orgForm.student_points_league,
         logo_url: orgForm.logo_url,
         theme_color: orgForm.theme_color,
         school_motto: orgForm.school_motto,
@@ -518,6 +524,25 @@ export function OrgSettings() {
               IANA timezone name (e.g. Asia/Karachi, Asia/Dubai). Used for attendance dates
               and announcement scheduling.
             </p>
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="org-league">Class points league for students</Label>
+            <label className="flex items-start gap-2 text-sm text-slate-700">
+              <input
+                id="org-league"
+                type="checkbox"
+                className="mt-0.5"
+                checked={orgForm.student_points_league}
+                onChange={(e) =>
+                  setOrgForm((s) => ({ ...s, student_points_league: e.target.checked }))
+                }
+              />
+              <span>
+                Children see their class&apos;s top five and their own rank on
+                their login. Teachers always see the full board either way.
+                Untick if your school doesn&apos;t want ranking shown to students.
+              </span>
+            </label>
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="org-sla">Reply to parents within</Label>

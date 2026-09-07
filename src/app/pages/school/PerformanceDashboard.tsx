@@ -77,6 +77,8 @@ import {
   type TodayOpsResponse,
   type SchoolMeResponse,
   type SchoolGroupSummary,
+  getBehaviorDrilldown,
+  type BehaviorDrilldownNote,
 } from "../../../utils/schoolApi";
 import { SetupChecklist, setupChecklistDismissed, PendingTimeOffWidget, TermSwitchNudge, DashSection } from "../../components/school-ui";
 import { AttendanceDayNotes } from "./AttendanceDayNotes";
@@ -583,11 +585,15 @@ function BehaviorBars({
   description,
   rows,
   variant,
+  onDrill,
 }: {
   title: string;
   description: string;
   rows: InsightsResponse["topPositive"];
   variant: "positive" | "concern";
+  /** "Attendance - 12 pts" on its own tells a principal nothing: WHO,
+   *  logged by WHOM, saying WHAT? Every bar opens the notes behind it. */
+  onDrill?: (category: string, kind: "positive" | "concern") => void;
 }) {
   const max = Math.max(1, ...rows.map((r) => r.count));
   const barColor = variant === "positive" ? "bg-emerald-500" : "bg-rose-500";
@@ -605,18 +611,26 @@ function BehaviorBars({
           <ul className="space-y-2.5">
             {rows.slice(0, 6).map((r) => (
               <li key={r.category}>
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-medium text-slate-800">{r.category}</span>
-                  <span className="tabular-nums text-slate-500">
-                    {r.count} · {r.points} pts
-                  </span>
-                </div>
-                <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
-                  <div
-                    className={barColor}
-                    style={{ width: `${Math.round((r.count / max) * 100)}%`, height: "100%" }}
-                  />
-                </div>
+                <button
+                  type="button"
+                  onClick={() => onDrill?.(r.category, variant)}
+                  disabled={!onDrill}
+                  className="block w-full rounded-md px-1 py-0.5 text-left hover:bg-slate-50 disabled:cursor-default"
+                  title="See the notes behind this"
+                >
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-medium text-slate-800">{r.category}</span>
+                    <span className="tabular-nums text-slate-500">
+                      {r.count} · {r.points} pts {onDrill && <span className="text-indigo-500">›</span>}
+                    </span>
+                  </div>
+                  <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      className={barColor}
+                      style={{ width: `${Math.round((r.count / max) * 100)}%`, height: "100%" }}
+                    />
+                  </div>
+                </button>
               </li>
             ))}
           </ul>
@@ -1050,6 +1064,27 @@ export function PerformanceDashboard() {
   const [atRiskPeriod, setAtRiskPeriod] = useState<string>("TERM");
   // Snapshot-first: the card shows the worst few; "Show all" expands.
   const [atRiskExpanded, setAtRiskExpanded] = useState(false);
+  // Drilldown behind a behavior bar: which notes, which students, logged
+  // by which teacher. "Attendance - 12 pts" alone is unactionable.
+  const [drill, setDrill] = useState<{
+    category: string;
+    kind: "positive" | "concern";
+    notes: BehaviorDrilldownNote[] | null;
+    error: string | null;
+  } | null>(null);
+  const openDrill = (category: string, kind: "positive" | "concern") => {
+    setDrill({ category, kind, notes: null, error: null });
+    getBehaviorDrilldown(orgId, {
+      kind,
+      // The dashboard shows "No category" for untagged notes.
+      category: category === "No category" ? "__none__" : category,
+      period: "month",
+    })
+      .then((r) => setDrill((d) => (d && d.category === category ? { ...d, notes: r.notes } : d)))
+      .catch((e) =>
+        setDrill((d) => (d && d.category === category ? { ...d, error: e?.message || "Failed to load" } : d)),
+      );
+  };
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [me, setMe] = useState<SchoolMeResponse | null>(null);
@@ -1481,6 +1516,86 @@ export function PerformanceDashboard() {
           date passes, so the manual is_current flag can't silently lag
           the calendar (coverage/pace measure against the current term). */}
       <TermSwitchNudge orgId={orgId} />
+
+      {/* Behavior drilldown — the notes behind an aggregate bar. */}
+      {drill && (
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setDrill(null)}
+        >
+          <div
+            className="max-h-[80vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-4 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-2 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-bold text-slate-900">
+                  {drill.category}
+                  <span
+                    className={
+                      "ml-2 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase " +
+                      (drill.kind === "positive"
+                        ? "bg-emerald-50 text-emerald-700"
+                        : "bg-rose-50 text-rose-700")
+                    }
+                  >
+                    {drill.kind}
+                  </span>
+                </h2>
+                <p className="text-xs text-slate-500">This month · who, and logged by whom</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDrill(null)}
+                className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+              >
+                Close
+              </button>
+            </div>
+            {drill.error && <p className="text-sm text-rose-600">{drill.error}</p>}
+            {!drill.error && drill.notes === null && (
+              <p className="py-4 text-center text-sm text-slate-400">Loading…</p>
+            )}
+            {drill.notes !== null && drill.notes.length === 0 && (
+              <p className="py-4 text-center text-sm text-slate-500">
+                Nothing in this category this month.
+              </p>
+            )}
+            {drill.notes !== null && drill.notes.length > 0 && (
+              <ul className="divide-y divide-slate-100">
+                {drill.notes.map((n) => (
+                  <li key={n.id} className="py-2.5">
+                    <div className="flex items-baseline justify-between gap-2 text-sm">
+                      <Link
+                        to={`/school/orgs/${orgId}/admin/students/${n.studentId}?tab=behavior`}
+                        className="min-w-0 truncate font-semibold text-indigo-700 hover:underline"
+                        onClick={() => setDrill(null)}
+                      >
+                        {n.studentName ?? "Student"}
+                      </Link>
+                      <span
+                        className={
+                          "shrink-0 font-bold tabular-nums " +
+                          (n.points >= 0 ? "text-emerald-700" : "text-rose-600")
+                        }
+                      >
+                        {n.points > 0 ? `+${n.points}` : n.points}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-slate-500">
+                      {n.sectionLabel ?? ""}
+                      {n.recordedByName ? ` · logged by ${n.recordedByName}` : ""}
+                      {" · "}
+                      {new Date(n.observedAt).toLocaleDateString()}
+                    </div>
+                    {n.notes && <p className="mt-1 text-sm text-slate-700">{n.notes}</p>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Today strip — "is school running normally right now?" */}
       {todayOps && (() => {
@@ -1988,12 +2103,14 @@ export function PerformanceDashboard() {
             title="Top Positive Behaviors"
             description="Most logged this period"
             rows={insights.topPositive}
+            onDrill={(cat) => openDrill(cat, "positive")}
             variant="positive"
           />
           <BehaviorBars
             title="Top Concerns"
             description="Most logged this period"
             rows={insights.topConcern}
+            onDrill={(cat) => openDrill(cat, "concern")}
             variant="concern"
           />
         </div>

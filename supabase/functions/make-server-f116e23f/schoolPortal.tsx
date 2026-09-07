@@ -28,6 +28,7 @@ import type { Hono, Context } from "npm:hono";
 import { serviceRoleClient } from "./middleware.tsx";
 import { computeMemorizedTotals } from "./schoolPhaseC.tsx";
 import { todayInOrgTz } from "./tz.ts";
+import { windowStarts, sectionTallies, parseStatsPeriod } from "./schoolBehaviorStats.tsx";
 
 // -----------------------------------------------------------------------------
 // PIN token verification — same algorithm as schoolPhaseA.tsx. Duplicated here
@@ -1276,6 +1277,99 @@ export function installPortal(school: Hono): void {
     return c.json({
       entries: (data ?? []).map(attendanceToJson),
       summary: { present, late, absent, excused, attendancePct },
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // GET /school/pin-me/students/:studentId/points-league?period=
+  //
+  // The class competition, on the child's own login. There is no TV in
+  // the classroom, so the league table IS the child's screen (Muneeb,
+  // 7 Sep): my points, my rank, the top five, and how points are earned.
+  //
+  // Deliberate shape:
+  //   - top FIVE plus "you", never the full table. A list that shows the
+  //     whole class also shows somebody last, publicly. The teacher's
+  //     leaderboard has every row; a child sees the podium and themself.
+  //   - other children appear as name + NET points only. Nobody's
+  //     concerns are shown to classmates, ever.
+  //   - the school can switch the whole thing off:
+  //     settings.student_points_league = false. Recognition is this
+  //     school's model; another school may not want ranking at all.
+  // ---------------------------------------------------------------------------
+  school.get("/pin-me/students/:studentId/points-league", async (c) => {
+    const g = await gatePerStudent(c);
+    if (!g.ok) return g.resp;
+    const { studentId } = g;
+    const orgId = g.subject.orgId;
+    const period = parseStatsPeriod(c.req.query("period") ?? undefined);
+    if (!period) return c.json({ error: "period must be week|month|term|all" }, 400);
+
+    const { data: org } = await serviceRoleClient
+      .from("organizations")
+      .select("settings")
+      .eq("id", orgId)
+      .maybeSingle();
+    if ((org as any)?.settings?.student_points_league === false) {
+      return c.json({ enabled: false });
+    }
+
+    const { data: stu } = await serviceRoleClient
+      .from("student")
+      .select("class_section_id")
+      .eq("id", studentId)
+      .maybeSingle();
+    const sectionId = (stu as any)?.class_section_id ?? null;
+    if (!sectionId) return c.json({ enabled: true, league: null });
+
+    const starts = await windowStarts(orgId);
+    const effective = period === "term" && starts.term === null ? "month" : period;
+    const rows = await sectionTallies(orgId, sectionId, starts[effective]);
+
+    const meIdx = rows.findIndex((r) => r.studentId === studentId);
+    const me = meIdx >= 0 ? rows[meIdx] : null;
+    // First name + last initial: recognisable inside one classroom
+    // without printing full names onto every classmate's device.
+    const shortName = (full: string) => {
+      const parts = full.trim().split(/\s+/);
+      return parts.length > 1
+        ? `${parts[0]} ${parts[parts.length - 1][0]}.`
+        : parts[0];
+    };
+
+    // How points are earned: the school's own positive categories.
+    const { data: cats } = await serviceRoleClient
+      .from("behavior_category")
+      .select("label, kind, points_positive, sort_order")
+      .eq("org_id", orgId)
+      .is("archived_at", null)
+      .order("sort_order");
+    const earn = ((cats ?? []) as any[])
+      .filter((x) => x.kind === "positive" || x.kind === "both")
+      .map((x) => ({ label: x.label, points: Math.abs(Number(x.points_positive) || 1) }));
+
+    return c.json({
+      enabled: true,
+      league: {
+        period: effective,
+        since: starts[effective],
+        classSize: rows.length,
+        top: rows.slice(0, 5).map((r) => ({
+          rank: r.rank,
+          name: shortName(r.name),
+          points: r.net,
+          isMe: r.studentId === studentId,
+        })),
+        me: me
+          ? {
+              rank: me.rank,
+              points: me.net,
+              positive: me.positive,
+              concern: me.concern,
+            }
+          : null,
+      },
+      earn,
     });
   });
 

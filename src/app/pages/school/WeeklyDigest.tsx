@@ -111,6 +111,27 @@ export function WeeklyDigest() {
         </Link>
       </div>
 
+      {/* Star students of the week - who is leading the school on
+          behavior points. The one ranking a principal reads weekly,
+          not live. */}
+      {data && (data.behaviorLeaders?.length ?? 0) > 0 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <div className="text-[11px] font-bold uppercase tracking-wider text-amber-700">
+            🏆 Behavior leaders this week
+          </div>
+          <ul className="mt-2 space-y-1">
+            {data.behaviorLeaders!.map((l, i) => (
+              <li key={`${l.studentName}-${i}`} className="flex items-baseline gap-2 text-sm">
+                <span className="w-5 text-center">{i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i + 1}.`}</span>
+                <span className="font-semibold text-slate-900">{l.studentName}</span>
+                <span className="text-xs text-slate-500">{l.sectionLabel}</span>
+                <span className="ml-auto font-bold tabular-nums text-emerald-700">+{l.points}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <HeroCard
         eyebrow="Weekly digest"
         title={data ? `Week of ${fmtRange(data.week.start, data.week.end)}` : "Weekly digest"}

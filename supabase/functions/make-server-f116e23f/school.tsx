@@ -52,6 +52,7 @@ import { installFeePlans } from "./schoolFeePlans.tsx";
 import { installAssessment } from "./schoolAssessment.tsx";
 import { installReportCard } from "./schoolReportCard.tsx";
 import { installMessages } from "./schoolMessages.tsx";
+import { installBehaviorStats } from "./schoolBehaviorStats.tsx";
 import { verifyPinToken } from "./schoolPhaseA.tsx";
 
 const school = new Hono();
@@ -603,6 +604,10 @@ school.patch("/orgs/:orgId", async (c) => {
     // so the admin isn't scrolling through every teacher every time
     // someone needs covering.
     "substitute_teacher_ids",
+    // Whether children see the class points league on their own login.
+    // Recognition is this school's model; another school may not want
+    // ranking shown to students at all. Default on; false hides it.
+    "student_points_league",
     // How many SCHOOL days the school gives itself to answer a parent
     // before the inbox flags it and the bell escalates. The school's
     // policy, not ours; 2 when unset.
@@ -3311,6 +3316,7 @@ installFeePlans(school);
 installAssessment(school);
 installReportCard(school);
 installMessages(school);
+installBehaviorStats(school);
 
 // ─── Notification queue flush (PR feat/notification-scaffold) ─────────
 // Admin-triggered flush — calls processNotificationQueue. Until an SMS

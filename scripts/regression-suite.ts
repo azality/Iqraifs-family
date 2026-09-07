@@ -2654,6 +2654,112 @@ await check("59. a test can cover several topics, and old clients still work", a
   }
 });
 
+await check("60. points: class leaderboard, child league privacy, drilldown gating", async () => {
+  // Teachers started logging behavior and asked for the obvious next
+  // layer: who leads the class, a league on the child's login, and -
+  // from the principal - the notes BEHIND an aggregate bar (7 Sep).
+  const t = await ensureUser("qa-teacher@azality.com", "QA Teacher", "class_teacher");
+  const noteIds: string[] = [];
+  const mkNote = async (studentId: string, kind: string, category: string, points: number) => {
+    const r = await api(t.token, `/school/orgs/${ORG}/behavior-notes`, {
+      method: "POST",
+      body: JSON.stringify({ studentId, kind, category, points, notes: `QA points ${category}` }),
+    });
+    const j = await r.json();
+    assert(r.status === 200 || r.status === 201, `note ${r.status}`);
+    noteIds.push(j.note.id);
+    return j.note;
+  };
+
+  try {
+    // Student 1 earns more than student 2; student 2 carries a concern.
+    await mkNote(pStu1, "positive", "Adab", 1);
+    await mkNote(pStu1, "positive", "Adab", 1);
+    await mkNote(pStu2, "positive", "Adab", 1);
+    await mkNote(pStu2, "concern", "Attendance", -1);
+
+    // 1. Teacher's leaderboard: full table, every enrolled student, net
+    //    ranking, both windows sane.
+    const lb = await (await api(t.token,
+      `/school/orgs/${ORG}/sections/${sandboxSec.id}/behavior-leaderboard?period=month`)).json();
+    assert(Array.isArray(lb.rows) && lb.rows.length >= 2, "leaderboard should list students");
+    const r1 = lb.rows.find((r: any) => r.studentId === pStu1);
+    const r2 = lb.rows.find((r: any) => r.studentId === pStu2);
+    assert(r1 && r2, "both QA students should appear");
+    assert(r1.net > r2.net, `stu1 should lead: ${r1.net} vs ${r2.net}`);
+    assert(r1.rank < r2.rank, "rank must follow net points");
+    assert(typeof r2.concern === "number" && r2.concern > 0,
+      "staff view carries the concern magnitude");
+    const bad = await api(t.token,
+      `/school/orgs/${ORG}/sections/${sandboxSec.id}/behavior-leaderboard?period=decade`);
+    assert(bad.status === 400, `bad period should 400, got ${bad.status}`);
+
+    // 2. The child's league: top five + self, and NOBODY else's concerns.
+    const pin = await pinLogin("QA-PORTAL-1", "1234");
+    const pTokStu = (await pin.json()).token;
+    const lg = await (await fetch(`${FUNC}/school/pin-me/students/${pStu1}/points-league?period=month`, {
+      headers: { apikey: ANON, "X-Pin-Token": pTokStu },
+    })).json();
+    assert(lg.enabled === true, "league should be enabled by default");
+    assert(lg.league && Array.isArray(lg.league.top), "league should carry a top list");
+    assert(lg.league.top.length <= 5, "the child sees at most the top five");
+    assert(lg.league.me && lg.league.me.rank >= 1, "the child sees their own rank");
+    for (const row of lg.league.top) {
+      assert(!("concern" in row) && !("positive" in row),
+        "classmates appear as name + net points ONLY - no one's concerns");
+    }
+    assert(Array.isArray(lg.earn) && lg.earn.length > 0,
+      "the league explains how points are earned");
+    assert(lg.earn.every((e: any) => e.points > 0), "earn rules are positive");
+
+    // 3. The school can switch the child league OFF; staff boards remain.
+    const off = await api(principal.token, `/school/orgs/${ORG}`, {
+      method: "PATCH", body: JSON.stringify({ student_points_league: false }),
+    });
+    assert(off.status === 200, `settings off ${off.status}`);
+    try {
+      const hidden = await (await fetch(`${FUNC}/school/pin-me/students/${pStu1}/points-league`, {
+        headers: { apikey: ANON, "X-Pin-Token": pTokStu },
+      })).json();
+      assert(hidden.enabled === false, "disabled league must say so to the child");
+      const stillStaff = await api(t.token,
+        `/school/orgs/${ORG}/sections/${sandboxSec.id}/behavior-leaderboard`);
+      assert(stillStaff.status === 200, "the staff board is not affected by the child switch");
+    } finally {
+      const on = await api(principal.token, `/school/orgs/${ORG}`, {
+        method: "PATCH", body: JSON.stringify({ student_points_league: true }),
+      });
+      assert(on.status === 200, "restore league setting");
+    }
+
+    // 4. Drilldown: the principal sees who/by whom; a teacher cannot read
+    //    the org-wide view; a section they teach is fine.
+    const dd = await (await api(principal.token,
+      `/school/orgs/${ORG}/behavior-drilldown?kind=positive&category=Adab&period=month&sectionId=${sandboxSec.id}`)).json();
+    assert(Array.isArray(dd.notes) && dd.notes.length >= 3, "drilldown should list the Adab notes");
+    assert(dd.notes.every((n: any) => typeof n.studentName === "string"),
+      "drilldown names the student");
+    assert(dd.notes.some((n: any) => typeof n.recordedByName === "string" && n.recordedByName.length > 0),
+      "drilldown names who logged it");
+    const orgWide = await api(t.token, `/school/orgs/${ORG}/behavior-drilldown?kind=concern`);
+    assert(orgWide.status === 403, `teacher must not read the org-wide drilldown, got ${orgWide.status}`);
+    const own = await api(t.token,
+      `/school/orgs/${ORG}/behavior-drilldown?kind=positive&sectionId=${sandboxSec.id}`);
+    assert(own.status === 200, `teacher can drill into their own class, got ${own.status}`);
+
+    // 5. Summary windows for one student.
+    const sum = await (await api(t.token,
+      `/school/orgs/${ORG}/students/${pStu1}/behavior-summary`)).json();
+    assert(sum.windows && sum.windows.month && sum.windows.all,
+      "summary should carry the windows");
+    assert(sum.windows.month.net >= 2, `stu1 net this month should include the QA notes, got ${sum.windows.month.net}`);
+  } finally {
+    for (const id of noteIds) {
+      await admin.from("behavior_note").delete().eq("id", id);
+    }
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
