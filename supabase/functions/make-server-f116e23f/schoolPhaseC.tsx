@@ -685,9 +685,15 @@ export function installPhaseC(school: Hono): void {
     };
     // Sabqi-by-para: how much of juz_number was revised. Mirrors the DB
     // CHECK constraint so a bad value degrades to null, not a 500.
+    // Segment extents (second_quarter = ruba→nisf, etc.) added 7 Sep:
+    // teachers needed to say WHICH quarter/half was recited, not just a
+    // cumulative stop.
     const safeExtent = (v: unknown): string | null => {
       if (typeof v !== "string") return null;
-      if (["quarter", "half", "three_quarters", "full"].includes(v)) return v;
+      if ([
+        "quarter", "half", "three_quarters", "full",
+        "second_quarter", "third_quarter", "last_quarter", "second_half",
+      ].includes(v)) return v;
       const m = v.match(/^to_surah:([1-9][0-9]{0,2})$/);
       if (m && Number(m[1]) >= 1 && Number(m[1]) <= 114) return v;
       return null;

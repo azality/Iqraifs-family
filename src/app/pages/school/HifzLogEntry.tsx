@@ -43,6 +43,7 @@ import {
   type HifzQuality,
 } from "../../../utils/schoolApi";
 import { SURAHS, getSurah } from "../../../utils/quranSurahs";
+import { PARA_EXTENT_OPTIONS } from "../../../utils/hifzExtent";
 import {
   serializeNextSabaq,
   parseNextSabaq,
@@ -546,10 +547,9 @@ export function HifzLogEntry({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="full">{t("hifzTeach.extFull")}</SelectItem>
-                    <SelectItem value="quarter">{t("hifzTeach.extQuarter")}</SelectItem>
-                    <SelectItem value="half">{t("hifzTeach.extHalf")}</SelectItem>
-                    <SelectItem value="three_quarters">{t("hifzTeach.extThreeQuarters")}</SelectItem>
+                    {PARA_EXTENT_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>{t(o.labelKey)}</SelectItem>
+                    ))}
                     <SelectItem value="to_surah">{t("hifzTeach.extToSurah")}</SelectItem>
                   </SelectContent>
                 </Select>
@@ -720,11 +720,8 @@ export function HifzLogEntry({
                       // Manzil rotates by para: today Para 6 → next Para 7.
                       if (typeof revJuz === "number") {
                         setAssignManzilJuz((revJuz % 30) + 1);
-                        if (
-                          revExtent === "full" || revExtent === "quarter" ||
-                          revExtent === "half" || revExtent === "three_quarters"
-                        ) {
-                          setAssignManzilExtent(revExtent);
+                        if (PARA_EXTENT_OPTIONS.some((o) => o.value === revExtent)) {
+                          setAssignManzilExtent(revExtent as AssignExtent);
                         }
                       }
                     }
@@ -764,10 +761,9 @@ export function HifzLogEntry({
                     >
                       <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="full">{t("hifzTeach.extFull")}</SelectItem>
-                        <SelectItem value="quarter">{t("hifzTeach.extQuarter")}</SelectItem>
-                        <SelectItem value="half">{t("hifzTeach.extHalf")}</SelectItem>
-                        <SelectItem value="three_quarters">{t("hifzTeach.extThreeQuarters")}</SelectItem>
+                        {PARA_EXTENT_OPTIONS.map((o) => (
+                          <SelectItem key={o.value} value={o.value}>{t(o.labelKey)}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
