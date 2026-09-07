@@ -615,16 +615,27 @@ export function installTeachingOverview(school: Hono) {
     const out: any[] = [];
     for (const [uid, r] of rows) {
       let name = "Teacher";
+      // Account state rides the same lookup that resolves the name. The
+      // redesigned overview (12a) needs to say "never signed in" and
+      // "account created today" instead of showing a meaningless -91pp -
+      // Sarwat's row looked like the school's worst teacher when she had
+      // been ISSUED HER PASSWORD an hour earlier.
+      let lastSignInAt: string | null = null;
+      let accountCreatedAt: string | null = null;
       try {
         const { data: u } = await serviceRoleClient.auth.admin.getUserById(uid);
         name = u?.user?.user_metadata?.name || u?.user?.email || "Teacher";
+        lastSignInAt = u?.user?.last_sign_in_at ?? null;
+        accountCreatedAt = u?.user?.created_at ?? null;
       } catch { /* keep fallback */ }
       let paceDelta: number | null = null;
+      let topicsDone = 0;
       if (termElapsedPct != null && r.classSubjects.size > 0) {
         const deltas: number[] = [];
         for (const cs of r.classSubjects) {
           const agg = paceByCs.get(cs);
           if (!agg || agg.total === 0) continue;
+          topicsDone += agg.done;
           deltas.push(Math.round((agg.done / agg.total) * 100) - termElapsedPct);
         }
         if (deltas.length) paceDelta = Math.round(deltas.reduce((a, b) => a + b, 0) / deltas.length);
@@ -637,15 +648,22 @@ export function installTeachingOverview(school: Hono) {
         rollCall = { marked: best, schoolDays: schoolDays.size };
       }
       let heardRatePct: number | null = null;
+      let lastHifzDays: number | null = null;
       if (r.hifzSections.size > 0) {
         let sum = 0, cnt = 0;
+        let latestDay = "";
         for (const sid of r.hifzSections) {
           const agg = heardBySec.get(sid);
           if (!agg || agg.roster === 0 || agg.days.size === 0) continue;
           const avg = Array.from(agg.days.values()).reduce((acc, s) => acc + s.size, 0) / agg.days.size;
           sum += (avg / agg.roster) * 100; cnt++;
+          for (const day of agg.days.keys()) if (day > latestDay) latestDay = day;
         }
         if (cnt) heardRatePct = Math.round(sum / cnt);
+        if (latestDay) {
+          const diff = Date.parse(endStr) - Date.parse(latestDay);
+          lastHifzDays = Math.max(0, Math.round(diff / 86400000));
+        }
       }
       const fg = firstGrant.get(uid);
       const rampUntil = fg ? new Date(new Date(fg).getTime() + 42 * DAY) : null;
@@ -664,13 +682,17 @@ export function installTeachingOverview(school: Hono) {
         heardRatePct,
         notes: notesBy.get(uid) ?? { pos: 0, con: 0 },
         inRamp: !!rampUntil && today < rampUntil,
+        topicsDone,
+        lastSignInAt,
+        accountCreatedAt,
+        lastHifzDays,
       });
     }
     // Most-behind first; rows with no pace data sink below scored rows.
     out.sort((a, b) => (a.paceDeltaPp ?? 999) - (b.paceDeltaPp ?? 999) || a.name.localeCompare(b.name));
 
     return c.json({
-      term: term ? { id: term.id, name: term.name } : null,
+      term: term ? { id: term.id, name: term.name, start: term.start_date } : null,
       terms: (terms ?? []).map((t: any) => ({ id: t.id, name: t.name, isCurrent: !!t.is_current })),
       window: { start: startStr, end: endStr },
       expectedPct: termElapsedPct,
