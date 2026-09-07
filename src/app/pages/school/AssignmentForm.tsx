@@ -420,6 +420,17 @@ export function AssignmentForm() {
                   </span>
                 )}
               </p>
+              {/* Boundary hint (Muneeb, 7 Sep): teachers asked whether the
+                  midterm/final goes here. It doesn't — formal exam marks
+                  are entered per subject under Assessment and print on the
+                  report card; this Test is a class test in the gradebook. */}
+              {form.kind === "test" && !editMode && (
+                <p className="text-[11px] text-amber-700">
+                  Class tests live here and count in the gradebook. Midterm / final
+                  exam marks are entered under <b>Assessment</b> and print on the
+                  report card.
+                </p>
+              )}
             </div>
 
             <div className="space-y-1">
@@ -508,6 +519,61 @@ export function AssignmentForm() {
                       </option>
                     ))}
                 </select>
+                {/* One-tap bulk picks (pilot, 7 Sep): a term test covers
+                    many chapters and adding them one dropdown round-trip
+                    at a time is slow on a phone. "Taught only" = the ✓
+                    topics — you test what was taught. */}
+                {topics.length > 1 && !topicsLoading && (
+                  <div className="flex flex-wrap gap-1.5 pt-0.5">
+                    {topics.some((t) => !form.curriculumTopicIds.includes(t.id)) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTopicTouched(true);
+                          setForm((f) => ({ ...f, curriculumTopicIds: topics.map((t) => t.id) }));
+                        }}
+                        className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+                      >
+                        + All topics ({topics.length})
+                      </button>
+                    )}
+                    {(() => {
+                      const taught = topics.filter((t) => t.completed);
+                      if (taught.length === 0 || taught.length === topics.length) return null;
+                      if (taught.every((t) => form.curriculumTopicIds.includes(t.id))) return null;
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTopicTouched(true);
+                            setForm((f) => ({
+                              ...f,
+                              curriculumTopicIds: [
+                                ...f.curriculumTopicIds,
+                                ...taught.map((t) => t.id).filter((id) => !f.curriculumTopicIds.includes(id)),
+                              ],
+                            }));
+                          }}
+                          className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+                        >
+                          + Taught only ✓ ({taught.length})
+                        </button>
+                      );
+                    })()}
+                    {form.curriculumTopicIds.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTopicTouched(true);
+                          setForm((f) => ({ ...f, curriculumTopicIds: [] }));
+                        }}
+                        className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-500 hover:bg-slate-50"
+                      >
+                        Clear all
+                      </button>
+                    )}
+                  </div>
+                )}
                 {form.curriculumTopicIds.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 pt-1">
                     {form.curriculumTopicIds.map((id) => {
