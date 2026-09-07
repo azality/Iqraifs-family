@@ -46,6 +46,7 @@ import { SURAHS, getSurah } from "../../../utils/quranSurahs";
 import {
   serializeNextSabaq,
   parseNextSabaq,
+  nextSabaqAfter,
   serializeNextSabqiSurahs,
   serializeNextSabqiPara,
   serializeNextManzil,
@@ -164,9 +165,13 @@ export function HifzLogEntry({
   const [assignManzilExtent, setAssignManzilExtent] = useState<AssignExtent>("full");
   const [lastAssigned, setLastAssigned] = useState<string | null>(null);
   // Smart next-sabaq suggestion (pilot: "system khud samajh jaye ke ayah
-  // 11 se shuru hona chahiye"). Once the teacher touches any assign field
-  // (or the toggle) the suggestion never overwrites their input.
+  // 11 se shuru hona chahiye"). Once the teacher edits an assign FIELD
+  // the suggestion never overwrites their input; unchecking the box is
+  // a separate opt-out, so ticking it again still seeds from today's
+  // entry (the toggle alone must never strand the form on Al-Fatiha
+  // 1–1 — pilot screenshot, 7 Sep).
   const [assignTouched, setAssignTouched] = useState(false);
+  const [assignOptOut, setAssignOptOut] = useState(false);
   const [suggestion, setSuggestion] = useState<"none" | "advance" | "repeat">("none");
 
   // PR feat/hifz-trends-missed-teacher — explicit miss toggle. When
@@ -220,6 +225,7 @@ export function HifzLogEntry({
     setAssignTo(1);
     setLastAssigned(null);
     setAssignTouched(false);
+    setAssignOptOut(false);
     setSuggestion("none");
     setJuzNumber("");
     setPageNumber("");
@@ -268,14 +274,13 @@ export function HifzLogEntry({
   // Smart next-sabaq suggestion. Fires on the sabaq entry once a quality
   // is picked (or missed is checked), and only while the teacher hasn't
   // touched the assign fields themselves:
-  //   good recitation  → continue: next portion of the same length,
-  //                      within the same surah (11–20 after 1–10).
+  //   good recitation  → continue: next portion of the same length —
+  //                      within the surah (11–20 after 1–10), and past
+  //                      a finished surah into the NEXT one (Yunus
+  //                      99–109 → Hud 1–11; principal's call, 7 Sep).
   //   weak / not learned / missed → repeat the same sabaq tomorrow.
-  // Surah-boundary advance is left to the teacher — memorization order
-  // past a finished surah is a school decision (forward vs juz-30-back),
-  // so we suggest nothing there rather than guess wrong.
   useEffect(() => {
-    if (kind !== "sabaq" || assignTouched) return;
+    if (kind !== "sabaq" || assignTouched || assignOptOut) return;
     if (ayahFrom === "" || ayahTo === "" || ayahTo < ayahFrom) return;
     const repeat = missed ||
       quality === "needs_practice" || quality === "weak" || quality === "not_learned";
@@ -287,21 +292,21 @@ export function HifzLogEntry({
       setAssignOn(true);
       setSuggestion("repeat");
     } else if (advance) {
-      if (ayahTo >= maxAyah) {
-        // Surah finished — no safe within-surah continuation.
+      const nxt = nextSabaqAfter(surahNumber, ayahFrom, ayahTo);
+      if (!nxt) {
+        // An-Nas finished — nothing left to assign.
         setAssignOn(false);
         setSuggestion("none");
         return;
       }
-      const len = Math.max(1, ayahTo - ayahFrom + 1);
-      setAssignSurah(surahNumber);
-      setAssignFrom(ayahTo + 1);
-      setAssignTo(Math.min(ayahTo + len, maxAyah));
+      setAssignSurah(nxt.surahNumber);
+      setAssignFrom(nxt.from);
+      setAssignTo(nxt.to);
       setAssignOn(true);
       setSuggestion("advance");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind, quality, missed, surahNumber, ayahFrom, ayahTo, maxAyah, assignTouched]);
+  }, [kind, quality, missed, surahNumber, ayahFrom, ayahTo, maxAyah, assignTouched, assignOptOut]);
 
   const isManzil = kind === "manzil";
   const isSabaq = kind === "sabaq";
@@ -671,8 +676,58 @@ export function HifzLogEntry({
                   type="checkbox"
                   checked={assignOn}
                   onChange={(e) => {
-                    setAssignTouched(true);
-                    setAssignOn(e.target.checked);
+                    const on = e.target.checked;
+                    setAssignOn(on);
+                    if (!on) {
+                      // Explicit opt-out: a later quality pick must not
+                      // re-tick the box behind the teacher's back.
+                      setAssignOptOut(true);
+                      setSuggestion("none");
+                      return;
+                    }
+                    setAssignOptOut(false);
+                    if (assignTouched) return; // teacher already shaped the fields
+                    // Seed from TODAY's entry, so the box never opens on
+                    // Al-Fatiha 1–1 (pilot screenshot: Yunus 79–88 heard,
+                    // next sabaq should offer 89–98).
+                    if (kind === "sabaq") {
+                      if (ayahFrom === "" || ayahTo === "" || ayahTo < num(ayahFrom)) return;
+                      const repeat = missed || quality === "needs_practice" ||
+                        quality === "weak" || quality === "not_learned";
+                      const nxt = repeat
+                        ? { surahNumber, from: num(ayahFrom), to: num(ayahTo) }
+                        : nextSabaqAfter(surahNumber, num(ayahFrom), num(ayahTo));
+                      if (!nxt) return;
+                      setAssignSurah(nxt.surahNumber);
+                      setAssignFrom(nxt.from);
+                      setAssignTo(nxt.to);
+                      setSuggestion(repeat ? "repeat" : "advance");
+                    } else if (kind === "sabqi") {
+                      // Tomorrow's sabqi starts from what was heard today.
+                      if (isParaSabqi && typeof revJuz === "number") {
+                        setAssignSabqiUnit("para");
+                        setAssignSabqiJuz(revJuz);
+                      } else if (ayahFrom !== "" && ayahTo !== "") {
+                        setAssignSabqiUnit("surah");
+                        const whole = num(ayahFrom) <= 1 && num(ayahTo) >= maxAyah;
+                        setAssignSabqiParts([
+                          whole
+                            ? { surah: surahNumber, from: null, to: null }
+                            : { surah: surahNumber, from: num(ayahFrom), to: num(ayahTo) },
+                        ]);
+                      }
+                    } else if (kind === "manzil") {
+                      // Manzil rotates by para: today Para 6 → next Para 7.
+                      if (typeof revJuz === "number") {
+                        setAssignManzilJuz((revJuz % 30) + 1);
+                        if (
+                          revExtent === "full" || revExtent === "quarter" ||
+                          revExtent === "half" || revExtent === "three_quarters"
+                        ) {
+                          setAssignManzilExtent(revExtent);
+                        }
+                      }
+                    }
                   }}
                 />
                 <span className="text-sm font-medium text-indigo-900">
