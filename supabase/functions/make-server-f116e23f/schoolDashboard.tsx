@@ -1210,6 +1210,23 @@ export function installDashboard(school: Hono): void {
 
         // 3. Quiet week — scheduled teachers with zero lessons in 7 days.
         const weekAgo = fmtDate(new Date(today.getTime() - 7 * 24 * 3600e3));
+        // Exam week: teachers legitimately stop logging lessons while
+        // papers run. With 3+ exam dates in the window, the "quiet"
+        // alert would flag the whole staff for following the datesheet —
+        // suppress it rather than cry wolf. (Sandbox's demo datesheet is
+        // ignored, as in every rollup.)
+        const { data: examDates } = await serviceRoleClient
+          .from("exam_schedule")
+          .select("exam_date, class:class_id(name)")
+          .eq("org_id", orgId)
+          .gte("exam_date", weekAgo)
+          .lte("exam_date", todayStr);
+        const distinctExamDates = new Set(
+          ((examDates ?? []) as any[])
+            .filter((r) => r.class?.name !== "Sandbox")
+            .map((r) => r.exam_date),
+        );
+        const examWeek = distinctExamDates.size >= 3;
         const { data: schedEntries } = await serviceRoleClient
           .from("timetable_entry")
           .select("teacher_user_id")
@@ -1244,7 +1261,7 @@ export function installDashboard(school: Hono): void {
           }
           const quiet = scheduled.filter((uid) =>
             !activeSet.has(uid) && (firstGrantBy.get(uid) ?? "") < rampCutoff);
-          if (quiet.length > 0) {
+          if (quiet.length > 0 && !examWeek) {
             const names: string[] = [];
             for (const uid of quiet.slice(0, 4)) names.push(await taName(uid));
             alerts.push({
@@ -2279,6 +2296,19 @@ export function installDashboard(school: Hono): void {
     const runsToday = (sec: any) =>
       !day.onHoliday && day.runningKeys.has(sec.schedule_key ?? "default");
 
+    // Exam days are a third day-state: the class runs and takes
+    // attendance, but nobody teaches the timetable — the datesheet does.
+    // Without this, exam week read as "no lesson logged" everywhere.
+    const { data: examRows } = await serviceRoleClient
+      .from("exam_schedule")
+      .select("class_id, subject_label")
+      .eq("org_id", orgId)
+      .eq("exam_date", todayStr);
+    const examsByClass = new Map<string, string[]>();
+    for (const r of ((examRows ?? []) as any[])) {
+      examsByClass.set(r.class_id, [...(examsByClass.get(r.class_id) ?? []), r.subject_label]);
+    }
+
     const [{ data: slots }, { data: leave }, { data: subsToday }] = await Promise.all([
       serviceRoleClient.from("timetable_slot")
         .select("id, name, start_time, end_time, schedule_key")
@@ -2359,6 +2389,9 @@ export function installDashboard(school: Hono): void {
         label: `${sec.class_name} · ${sec.name}`,
         kind: sec.class_kind ?? "academic",
         runsToday: runsToday(sec),
+        // Papers this class sits today, e.g. ["Urdu (Oral)"]. null when
+        // it's an ordinary teaching day.
+        examToday: examsByClass.get(sec.class_id) ?? null,
         current: cur ? await pack(cur) : null,
         next: nextEntry ? await pack(nextEntry.e) : null,
         lessonsToday: lessons.map((l) => ({

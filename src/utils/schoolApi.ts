@@ -5838,6 +5838,8 @@ export interface NowSection {
   /** Does this section's bell schedule run today? Absent on old
    *  responses, where "no period left" was the only signal. */
   runsToday?: boolean;
+  /** Papers this class sits today, e.g. ["Urdu (Oral)"]; null on ordinary days. */
+  examToday?: string[] | null;
   current: NowSectionPeriod | null;
   next: NowSectionPeriod | null;
   lessonsToday: Array<{ subjectName: string | null; title: string; topicName: string | null }>;

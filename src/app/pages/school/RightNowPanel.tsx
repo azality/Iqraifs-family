@@ -146,11 +146,14 @@ export function RightNowPanel({ orgId }: { orgId: string }) {
         freeTeachers.push({ name, time });
       }
     }
-    return { sections, active, freeNow, done, offToday, needsCover, inSession, upcoming, freeTeachers };
+    // Classes sitting papers today — surfaced as their own strip so exam
+    // week doesn't read as "nobody is teaching".
+    const exams = sections.filter((s) => (s.examToday?.length ?? 0) > 0);
+    return { sections, active, freeNow, done, offToday, needsCover, inSession, upcoming, freeTeachers, exams };
   }, [data]);
 
   if (!data || grouped.sections.length === 0) return null;
-  const { active, freeNow, done, offToday, needsCover, inSession, upcoming, freeTeachers } = grouped;
+  const { active, freeNow, done, offToday, needsCover, inSession, upcoming, freeTeachers, exams } = grouped;
   const schoolClosed = data.isSchoolDay === false;
   const closedLine =
     data.closedReason === "holiday"
@@ -197,6 +200,22 @@ export function RightNowPanel({ orgId }: { orgId: string }) {
           </button>
         </span>
       </div>
+
+      {/* Exam strip — the datesheet is today's real plan for these
+          classes; their quiet timetable is by design, not neglect. */}
+      {exams.length > 0 && (
+        <div
+          className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b bg-indigo-50/60 px-4 py-2 text-[11.5px] text-indigo-900"
+          style={{ borderColor: "rgba(20,22,58,.07)" }}
+        >
+          <span className="font-bold">📝 Exams today:</span>
+          {exams.map((s) => (
+            <span key={s.sectionId} className="whitespace-nowrap">
+              <b>{s.label}</b> — {(s.examToday ?? []).join(", ")}
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* Timeline */}
       <div className="py-4 pl-6 pr-4">

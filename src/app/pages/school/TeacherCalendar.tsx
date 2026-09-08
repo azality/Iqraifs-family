@@ -19,6 +19,8 @@ import {
   getOrganization,
   createMyTimeOff,
   listTimetableSlots,
+  getExamSchedule,
+  listClasses,
   type MyTimetableCell,
   type TimetableSlot,
 } from "../../../utils/schoolApi";
@@ -91,6 +93,40 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
     if (!orgId) return;
     listTimetableSlots(orgId).then(setBellSlots).catch(() => setBellSlots([]));
   }, [orgId]);
+  // Exam banner (Muneeb, 8 Sep): if a class this teacher teaches sits a
+  // paper today, the day view says so — the quiet timetable is the
+  // datesheet at work, not a skipped day. In a primary/secondary school
+  // the class's own teacher runs the paper; there is no invigilator
+  // roster to model.
+  const [examsToday, setExamsToday] = useState<Array<{ className: string; labels: string[] }>>([]);
+  useEffect(() => {
+    if (!orgId || !cells || cells.length === 0) { setExamsToday([]); return; }
+    Promise.all([getExamSchedule(orgId), listClasses(orgId)])
+      .then(([ex, classes]) => {
+        const pad = (n: number) => String(n).padStart(2, "0");
+        const d = new Date();
+        const today = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+        const todayIsoDow = ((d.getDay() + 6) % 7) + 1;
+        const secToClass = new Map<string, string>();
+        for (const c of classes) for (const s of c.sections ?? []) secToClass.set(s.id, c.id);
+        const myClassesToday = new Set(
+          cells
+            .filter((c) => c.slot.dayOfWeek === todayIsoDow && c.entry.scopeSectionId)
+            .map((c) => secToClass.get(c.entry.scopeSectionId!))
+            .filter(Boolean) as string[],
+        );
+        setExamsToday(
+          ex.classes
+            .filter((c) => myClassesToday.has(c.classId))
+            .map((c) => ({
+              className: c.className,
+              labels: c.papers.filter((p) => p.examDate === today).map((p) => p.subjectLabel),
+            }))
+            .filter((c) => c.labels.length > 0),
+        );
+      })
+      .catch(() => setExamsToday([]));
+  }, [orgId, cells]);
   const [showTimeOff, setShowTimeOff] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -370,6 +406,17 @@ export function TeacherCalendar(props: TeacherCalendarProps = {}) {
         // better than the absolute-positioned canvas (blocks collided at
         // 48px/hour). Gaps ≥ 10 min render as quiet prep dividers.
         <div className="space-y-3">
+          {/* Exam banner — today's papers for classes this teacher takes. */}
+          {dayNum === todayDow && examsToday.length > 0 && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-[12.5px] text-indigo-900">
+              <span className="font-bold">📝 Exams today</span>
+              {examsToday.map((e) => (
+                <span key={e.className} className="whitespace-nowrap">
+                  <b>{e.className}</b> — {e.labels.join(", ")}
+                </span>
+              ))}
+            </div>
+          )}
           {/* Now / Next hero (design 2b): answers "where am I due?" */}
           {dayNum === todayDow && (nowNext.current || nowNext.next) && (
             <div className="rounded-xl px-4 py-3.5 text-white" style={{ background: "#312e81" }}>
