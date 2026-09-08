@@ -28,6 +28,7 @@ import {
   getSectionTimetable,
   getSectionAssignments,
   getSectionHifzSummary,
+  getExamSchedule,
   postAttendanceFlag,
   viewerRoleForOrg,
   type Assignment,
@@ -122,6 +123,22 @@ export function SectionOverview() {
       })
       .finally(() => setLoading(false));
   }, [orgId, sectionId]);
+
+  // Exam day (Muneeb, 8 Sep): if this class sits a paper today, the
+  // Today panel says so instead of implying the timetable was skipped.
+  const [examsToday, setExamsToday] = useState<string[]>([]);
+  useEffect(() => {
+    if (!orgId || !row?.classId) return;
+    getExamSchedule(orgId)
+      .then((r) => {
+        const today = todayIsoLocal();
+        const cls = r.classes.find((c) => c.classId === row.classId);
+        setExamsToday(
+          (cls?.papers ?? []).filter((p) => p.examDate === today).map((p) => p.subjectLabel),
+        );
+      })
+      .catch(() => setExamsToday([]));
+  }, [orgId, row?.classId]);
 
   // Today panel data — each piece independent and best-effort.
   useEffect(() => {
@@ -433,7 +450,15 @@ export function SectionOverview() {
                   </span>
                 </div>
               )}
-              {!isHifzClass && (
+              {examsToday.length > 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 rounded-md bg-indigo-50 px-2 py-1 -mx-2">
+                  <span className="font-semibold text-indigo-900">📝 Exam day</span>
+                  <span className="min-w-0 text-right font-semibold text-indigo-900">
+                    {examsToday.join(", ")}
+                  </span>
+                </div>
+              )}
+              {!isHifzClass && examsToday.length === 0 && (
                 <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5">
                   <span>Lessons logged</span>
                   {todayLessons === null || periodsToday === null ? (
