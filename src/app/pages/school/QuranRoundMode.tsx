@@ -330,7 +330,10 @@ export function QuranRoundMode({ orgId, groupLabel, roster, onClose, onSaved, on
                 onChange={(e) => setRevision(e.target.checked)}
                 className="h-3.5 w-3.5 rounded border-slate-300"
               />
-              Revision (hafiz child)
+              {/* One flag, two audiences: the intake reader's SABQI
+                  (revising what they've read) and the hafiz child
+                  revising in a nazra group. Same stored kind. */}
+              Sabqi / revision
             </label>
           )}
         </div>

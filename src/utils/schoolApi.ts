@@ -3881,7 +3881,13 @@ export interface SectionHifzSummaryRow {
   lastEntry: string | null;
   /** Which of the daily trio has been logged today (org-local day).
    *  `nazra` is the reading equivalent — one hearing, not three. */
-  today?: { sabaq: boolean; sabqi: boolean; manzil: boolean; nazra?: boolean };
+  today?: {
+    sabaq: boolean; sabqi: boolean; manzil: boolean;
+    /** Any nazra activity (kept for older payload readers). */
+    nazra?: boolean;
+    /** Nazra's own daily pair: new reading portion / revision of read portion. */
+    nazraSabaq?: boolean; nazraSabqi?: boolean;
+  };
   /** Reading position. Meaningful for nazra groups; null for hifz. */
   nazraPosition?: NazraPosition | null;
   /** Which screen THIS child gets — one Quran period can hold both a

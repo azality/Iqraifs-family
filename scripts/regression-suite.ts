@@ -2958,6 +2958,38 @@ await check("63. suggestion triage: adopt relabels the notes, dismiss hides with
   }
 });
 
+await check("64. nazra has its own daily pair: sabaq and sabqi flags on the summary", async () => {
+  // Qari Usman (8 Sep): even nazra readers have sabaq (new portion) and
+  // sabqi (revision of read portion) - one 'Pending' chip undersold the
+  // routine. kind nazra -> nazraSabaq, kind nazra_revision -> nazraSabqi,
+  // and the legacy any-activity `nazra` flag stays true for old readers.
+  const t = await ensureUser("qa-teacher@azality.com", "QA Teacher", "class_teacher");
+  const ids: string[] = [];
+  const mk = async (kind: string) => {
+    const r = await api(t.token, `/school/orgs/${ORG}/hifz-progress`, {
+      method: "POST",
+      body: JSON.stringify({ studentId: pStu1, surahNumber: 1, ayahFrom: 1, ayahTo: 3, kind }),
+    });
+    const j = await r.json();
+    assert(r.status === 201, `${kind} create ${r.status}`);
+    ids.push(j.entry.id);
+  };
+  try {
+    await mk("nazra");
+    const s1 = await (await api(t.token, `/school/orgs/${ORG}/sections/${sandboxSec.id}/hifz-progress/summary`)).json();
+    const r1 = (s1.students ?? []).find((x: any) => x.studentId === pStu1);
+    assert(r1?.today?.nazraSabaq === true, `nazra entry should flag nazraSabaq: ${JSON.stringify(r1?.today)}`);
+    assert(r1?.today?.nazraSabqi === false, "sabqi must not be flagged yet");
+    assert(r1?.today?.nazra === true, "legacy any-activity flag stays true");
+    await mk("nazra_revision");
+    const s2 = await (await api(t.token, `/school/orgs/${ORG}/sections/${sandboxSec.id}/hifz-progress/summary`)).json();
+    const r2 = (s2.students ?? []).find((x: any) => x.studentId === pStu1);
+    assert(r2?.today?.nazraSabqi === true, `nazra_revision should flag nazraSabqi: ${JSON.stringify(r2?.today)}`);
+  } finally {
+    for (const id of ids) await admin.from("hifz_progress").delete().eq("id", id);
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
