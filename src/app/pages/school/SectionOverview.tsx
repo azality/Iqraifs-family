@@ -305,7 +305,9 @@ export function SectionOverview() {
     (canRollCall || teachesQuranHere)
       ? { label: "Hifz progress", to: `/school/orgs/${orgId}/sections/${sectionId}/hifz` }
       : null,
-    { label: "Lessons / diary", to: `/school/orgs/${orgId}/sections/${sectionId}/lessons` },
+    // "diary" reads as the HOMEWORK diary to Pakistani teachers, which
+    // collides with the Homework & tests chip next to it (Ambreen, 8 Sep).
+    { label: "Lessons / classwork", to: `/school/orgs/${orgId}/sections/${sectionId}/lessons` },
     { label: "Homework & tests", to: `/school/orgs/${orgId}/sections/${sectionId}/assignments` },
     { label: "Gradebook", to: `/school/orgs/${orgId}/sections/${sectionId}/gradebook` },
     (viewerRole === "admin" || viewerRole === "principal" || canManageStudents)
