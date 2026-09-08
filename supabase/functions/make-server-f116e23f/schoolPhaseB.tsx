@@ -40,6 +40,25 @@ import {
   requireTeacherOfSection,
   userHasRoleRow,
 } from "./schoolAuth.ts";
+import { zonedDayRangeUtc, orgTimezone } from "./tz.ts";
+
+// Date-only behavior filters resolve on the SCHOOL's day, not midnight
+// UTC. `observed_at <= '2026-09-08'` parses as 00:00Z, which silently
+// excluded everything logged ON the end date (Ambreen, 8 Sep: picked
+// today, got two-day-old notes) — the fifth member of the
+// UTC-vs-school-clock bug family (#478/#479/#481/#488).
+async function observedRangeUtc(
+  orgId: string,
+  startDate?: string | null,
+  endDate?: string | null,
+): Promise<{ startUtc: string | null; endUtc: string | null }> {
+  if (!startDate && !endDate) return { startUtc: null, endUtc: null };
+  const tz = await orgTimezone(orgId);
+  return {
+    startUtc: startDate ? zonedDayRangeUtc(startDate, tz).startUtc : null,
+    endUtc: endDate ? zonedDayRangeUtc(endDate, tz).endUtc : null,
+  };
+}
 
 // Roll-call OWNERSHIP gate — stricter than requireTeacherOfSection (which
 // admits subject teachers so they can teach). Early release and flag
@@ -803,8 +822,9 @@ export function installPhaseB(school: Hono): void {
       .select("id, kind, category, points, notes, observed_at, class_section_id, recorded_by")
       .eq("student_id", studentId)
       .order("observed_at", { ascending: false });
-    if (startDate) q = q.gte("observed_at", startDate);
-    if (endDate) q = q.lte("observed_at", endDate);
+    const { startUtc, endUtc } = await observedRangeUtc(orgId, startDate, endDate);
+    if (startUtc) q = q.gte("observed_at", startUtc);
+    if (endUtc) q = q.lt("observed_at", endUtc);
     if (kind) q = q.eq("kind", kind);
 
     const { data, error } = await q;
@@ -850,8 +870,9 @@ export function installPhaseB(school: Hono): void {
       )
       .eq("class_section_id", sectionId)
       .order("observed_at", { ascending: false });
-    if (startDate) q = q.gte("observed_at", startDate);
-    if (endDate) q = q.lte("observed_at", endDate);
+    const { startUtc, endUtc } = await observedRangeUtc(orgId, startDate, endDate);
+    if (startUtc) q = q.gte("observed_at", startUtc);
+    if (endUtc) q = q.lt("observed_at", endUtc);
 
     const { data, error } = await q;
     if (error) return c.json({ error: error.message }, 500);

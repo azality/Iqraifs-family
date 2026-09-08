@@ -2990,6 +2990,47 @@ await check("64. nazra has its own daily pair: sabaq and sabqi flags on the summ
   }
 });
 
+await check("65. behavior date filter runs on the school's day; recorder can undo a note", async () => {
+  // Ambreen (8 Sep): logged behavior, picked today as the end date, got
+  // two-day-old notes. `observed_at <= 'YYYY-MM-DD'` parsed the bare
+  // date as midnight UTC and excluded the whole end day. Fifth member
+  // of the UTC-vs-school-clock family.
+  const t = await ensureUser("qa-teacher@azality.com", "QA Teacher", "class_teacher");
+  const todayKhi = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Karachi" }).format(new Date());
+  const yestKhi = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Karachi" })
+    .format(new Date(Date.now() - 86400000));
+  const mk = await api(t.token, `/school/orgs/${ORG}/behavior-notes`, {
+    method: "POST",
+    body: JSON.stringify({ studentId: pStu1, kind: "positive", category: "Effort", points: 1, notes: "QA date filter" }),
+  });
+  const mkJ = await mk.json();
+  assert(mk.status === 200 || mk.status === 201, `note ${mk.status}`);
+  const noteId = mkJ.note.id;
+  try {
+    // 1. today..today INCLUDES a note logged right now.
+    const sameDay = await (await api(t.token,
+      `/school/orgs/${ORG}/sections/${sandboxSec.id}/behavior-notes?startDate=${todayKhi}&endDate=${todayKhi}`)).json();
+    const hit = (sameDay.notes ?? []).find((n: any) => n.id === noteId);
+    assert(hit, "a note logged today must appear when the end date IS today");
+    // 2. The feed's delete affordance needs to know who recorded it.
+    assert(typeof hit.recordedBy === "string" && hit.recordedBy.length > 0,
+      "section list must carry recordedBy");
+    // 3. An end date of yesterday EXCLUDES it.
+    const past = await (await api(t.token,
+      `/school/orgs/${ORG}/sections/${sandboxSec.id}/behavior-notes?startDate=${yestKhi}&endDate=${yestKhi}`)).json();
+    assert(!(past.notes ?? []).some((n: any) => n.id === noteId),
+      "yesterday's window must not include today's note");
+    // 4. The recorder can undo their own note (Ambreen's second ask).
+    const del = await api(t.token, `/school/orgs/${ORG}/behavior-notes/${noteId}`, { method: "DELETE" });
+    assert(del.status === 200, `recorder delete ${del.status}`);
+    const after = await (await api(t.token,
+      `/school/orgs/${ORG}/sections/${sandboxSec.id}/behavior-notes?startDate=${todayKhi}&endDate=${todayKhi}`)).json();
+    assert(!(after.notes ?? []).some((n: any) => n.id === noteId), "deleted note must be gone");
+  } finally {
+    await admin.from("behavior_note").delete().eq("id", noteId);
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
