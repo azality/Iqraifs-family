@@ -161,6 +161,23 @@ export function SectionBehaviorFeed() {
   // dialog whose only control is empty.
   const canAdd = students.length > 0 && !rosterError;
 
+  // One-tap ranges (Muneeb, 8 Sep): teachers reach for "today's notes"
+  // far more often than a custom range. The From/To inputs stay for
+  // everything else; editing them just un-highlights the presets.
+  const PRESETS = [
+    { key: "today", days: 0, label: t("behavior.rangeToday") },
+    { key: "week", days: 7, label: t("behavior.rangeWeek") },
+    { key: "month", days: 30, label: t("behavior.rangeMonth") },
+  ] as const;
+  const activePreset =
+    endDate !== todayIso()
+      ? null
+      : PRESETS.find((p) => startDate === isoDaysAgo(p.days))?.key ?? null;
+  const applyPreset = (days: number) => {
+    setStartDate(isoDaysAgo(days));
+    setEndDate(todayIso());
+  };
+
   const openPicker = () => {
     setPickerSel("");
     setPicker({ id: "__PICK__", name: "" });
@@ -178,6 +195,23 @@ export function SectionBehaviorFeed() {
         subtitle={t("behavior.subtitle")}
         rightSlot={
           <div className="flex flex-wrap items-end gap-2">
+            <div className="inline-flex items-center rounded-lg border border-white/20 bg-white/10 p-1">
+              {PRESETS.map((p) => (
+                <button
+                  key={p.key}
+                  type="button"
+                  onClick={() => applyPreset(p.days)}
+                  className={
+                    "rounded-md px-3 py-1 text-xs font-medium transition-colors " +
+                    (activePreset === p.key
+                      ? "bg-white text-slate-900 shadow-sm"
+                      : "text-indigo-100 hover:text-white")
+                  }
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
             <div>
               <Label htmlFor="sb-start" className="text-[10px] uppercase tracking-wide text-indigo-200">{t("behavior.from")}</Label>
               <Input
