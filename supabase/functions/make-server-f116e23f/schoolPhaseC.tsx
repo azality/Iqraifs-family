@@ -962,7 +962,14 @@ export function installPhaseC(school: Hono): void {
       const rows = byStudent.get(s.id) ?? [];
       const { ayahsMemorized } = computeMemorizedTotals(rows);
       let lastEntry: string | null = null;
-      const today = { sabaq: false, sabqi: false, manzil: false, nazra: false };
+      // Nazra in the intake class has its own daily pair (Qari Usman,
+      // 8 Sep): sabaq = today's NEW reading portion (kind nazra), sabqi
+      // = revision of what was read (kind nazra_revision). `nazra`
+      // stays "any nazra activity" so older readers keep working.
+      const today = {
+        sabaq: false, sabqi: false, manzil: false,
+        nazra: false, nazraSabaq: false, nazraSabqi: false,
+      };
       // Where this child has READ up to — the only number that means
       // anything for nazra, where nothing is being memorized.
       let lastNazra: typeof rows[number] | null = null;
@@ -978,7 +985,8 @@ export function installPhaseC(school: Hono): void {
           if (r.kind === "sabaq") today.sabaq = true;
           else if (r.kind === "sabqi") today.sabqi = true;
           else if (r.kind === "manzil") today.manzil = true;
-          else if (NAZRA_KINDS.has(r.kind)) today.nazra = true;
+          else if (r.kind === "nazra") { today.nazra = true; today.nazraSabaq = true; }
+          else if (r.kind === "nazra_revision") { today.nazra = true; today.nazraSabqi = true; }
         }
       }
       // Which screen this CHILD gets today. One Quran period can hold

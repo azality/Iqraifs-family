@@ -252,6 +252,48 @@ export function SectionHifzOverview() {
     return `${where}${range}`;
   };
 
+  // Nazra has its own daily pair (Qari Usman, 8 Sep): sabaq = today's
+  // NEW reading portion, sabqi = revision of what was read. Two chips,
+  // like the hifz trio — one "Pending" undersold the routine. An old
+  // backend payload lacks the split flags; it degrades to the single
+  // Heard/Pending chip.
+  const nazraTodayChips = (s: SectionHifzSummaryRow) => {
+    const t2 = s.today;
+    if (t2?.nazraSabaq === undefined && t2?.nazraSabqi === undefined) {
+      return (
+        <span
+          className={
+            "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold " +
+            (t2?.nazra
+              ? "bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300"
+              : "bg-slate-100 text-slate-400")
+          }
+        >
+          {t2?.nazra ? "Heard" : "Pending"}
+        </span>
+      );
+    }
+    const chip = (done: boolean | undefined, label: string, title: string) => (
+      <span
+        className={
+          "inline-flex items-center justify-center rounded px-1.5 py-0.5 text-[10px] font-semibold " +
+          (done
+            ? "bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300"
+            : "bg-slate-100 text-slate-400")
+        }
+        title={title + (done ? " — heard today" : " — pending")}
+      >
+        {label}
+      </span>
+    );
+    return (
+      <div className="inline-flex gap-1">
+        {chip(t2?.nazraSabaq, "S", "Sabaq — new reading portion")}
+        {chip(t2?.nazraSabqi, "Sq", "Sabqi — revision of read portion")}
+      </div>
+    );
+  };
+
   const nazraColumns: DataTableColumn<SectionHifzSummaryRow>[] = [
     {
       key: "name",
@@ -289,18 +331,7 @@ export function SectionHifzOverview() {
     {
       key: "today",
       header: t("hifzTeach.colToday"),
-      cell: (s) => (
-        <span
-          className={
-            "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold " +
-            (s.today?.nazra
-              ? "bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300"
-              : "bg-slate-100 text-slate-400")
-          }
-        >
-          {s.today?.nazra ? "Heard" : "Pending"}
-        </span>
-      ),
+      cell: (s) => nazraTodayChips(s),
     },
     {
       key: "last",
@@ -354,18 +385,7 @@ export function SectionHifzOverview() {
       header: t("hifzTeach.colToday"),
       cell: (s) => {
         if (s.quranTrack === "nazra") {
-          return (
-            <span
-              className={
-                "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold " +
-                (s.today?.nazra
-                  ? "bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300"
-                  : "bg-slate-100 text-slate-400")
-              }
-            >
-              {s.today?.nazra ? "Heard" : "Pending"}
-            </span>
-          );
+          return nazraTodayChips(s);
         }
         const t = s.today ?? { sabaq: false, sabqi: false, manzil: false };
         const chip = (done: boolean, label: string) => (
