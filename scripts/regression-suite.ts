@@ -2888,6 +2888,76 @@ await check("62. fees guardrails: duplicate plan 409, sandbox never in the sweep
   }
 });
 
+await check("63. suggestion triage: adopt relabels the notes, dismiss hides without touching them", async () => {
+  // 8 Sep: 'Add to catalog' was the ONLY action on teacher suggestions.
+  // Now: adopt-as (rename to what the school means, past notes re-filed
+  // under it) and dismiss ('try to be regular' is advice, not a
+  // behavior). Both must remember context (who said it, where).
+  const t = await ensureUser("qa-teacher@azality.com", "QA Teacher", "class_teacher");
+  const noteIds: string[] = [];
+  let catId: string | null = null;
+  const KV_KEY = `school:${ORG}:behavior-suggestion-dismissed`;
+  const mkNote = async (category: string) => {
+    const r = await api(t.token, `/school/orgs/${ORG}/behavior-notes`, {
+      method: "POST",
+      body: JSON.stringify({ studentId: pStu1, kind: "positive", category, points: 1, notes: "QA triage" }),
+    });
+    const j = await r.json();
+    assert(r.status === 200 || r.status === 201, `note ${r.status}`);
+    noteIds.push(j.note.id);
+  };
+  try {
+    await mkNote("QA Odd Habit");
+    await mkNote("qa odd habit "); // case/space variant must group + relabel too
+    await mkNote("QA Advice Text");
+
+    // 1. The rollup carries who/where context.
+    const sg1 = await (await api(principal.token, `/school/orgs/${ORG}/behavior-categories/suggestions`)).json();
+    const odd = (sg1.suggestions ?? []).find((x: any) => x.label.toLowerCase().startsWith("qa odd habit"));
+    assert(odd && odd.count === 2, `grouped count should be 2, got ${JSON.stringify(odd?.count)}`);
+    assert((odd.suggestedBy ?? []).length > 0, "suggestion names who typed it");
+    assert((odd.usedIn ?? []).length > 0, "suggestion names where it was used");
+
+    // 2. Adopt as a NEW category under the school's own name.
+    const ad = await (await api(principal.token, `/school/orgs/${ORG}/behavior-categories/suggestions/adopt`, {
+      method: "POST",
+      body: JSON.stringify({ label: odd.label, newCategory: { label: "QA Adopted Habit", kind: "positive" } }),
+    })).json();
+    assert(ad.ok === true && ad.relabeled === 2, `adopt should relabel 2 notes, got ${JSON.stringify(ad.relabeled)}`);
+    catId = ad.category?.id ?? null;
+    const { data: relabeled } = await admin.from("behavior_note").select("category").in("id", noteIds.slice(0, 2));
+    assert(relabeled!.every((n: any) => n.category === "QA Adopted Habit"),
+      "past notes must carry the adopted name");
+
+    // 3. Dismiss: the advice text disappears from the rollup, notes untouched.
+    const dm = await api(principal.token, `/school/orgs/${ORG}/behavior-categories/suggestions/dismiss`, {
+      method: "POST", body: JSON.stringify({ label: "QA Advice Text" }),
+    });
+    assert(dm.status === 200, `dismiss ${dm.status}`);
+    const sg2 = await (await api(principal.token, `/school/orgs/${ORG}/behavior-categories/suggestions`)).json();
+    assert(!(sg2.suggestions ?? []).some((x: any) => x.label.toLowerCase().includes("qa advice")),
+      "dismissed suggestion must not reappear");
+    assert(!(sg2.suggestions ?? []).some((x: any) => x.label.toLowerCase().includes("qa odd habit")),
+      "adopted suggestion must not reappear");
+    const { data: untouched } = await admin.from("behavior_note").select("category").eq("id", noteIds[2]).single();
+    assert(untouched!.category === "QA Advice Text", "dismiss must not rewrite notes");
+
+    // 4. A teacher cannot triage.
+    const deny = await api(t.token, `/school/orgs/${ORG}/behavior-categories/suggestions/dismiss`, {
+      method: "POST", body: JSON.stringify({ label: "whatever" }),
+    });
+    assert(deny.status === 403, `teacher triage should 403, got ${deny.status}`);
+  } finally {
+    for (const id of noteIds) await admin.from("behavior_note").delete().eq("id", id);
+    if (catId) await admin.from("behavior_category").delete().eq("id", catId);
+    const { data: kvRow } = await admin.from("kv_store_f116e23f").select("value").eq("key", KV_KEY).maybeSingle();
+    if (kvRow) {
+      const cleaned = ((kvRow.value ?? []) as string[]).filter((x) => !x.startsWith("qa "));
+      await admin.from("kv_store_f116e23f").update({ value: cleaned }).eq("key", KV_KEY);
+    }
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

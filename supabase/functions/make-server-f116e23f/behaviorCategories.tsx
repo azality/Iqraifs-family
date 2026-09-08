@@ -18,6 +18,13 @@
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { hasAnyRoleInOrg as hasAnyOrgRole, hasAdminOrPrincipal as isAdminOrPrincipal } from "./schoolAuth.ts";
+import * as kv from "./kv_store.tsx";
+
+// Suggestions an admin explicitly declined ("Try to be regular" is
+// advice, not a behavior). Normalized strings; a dismissed text stops
+// appearing in the rollup even if teachers keep typing it.
+const dismissedKey = (orgId: string) => `school:${orgId}:behavior-suggestion-dismissed`;
+const normalizeSuggestion = (s: string) => s.trim().toLowerCase();
 
 // Iqra Academy / Hifz-school sensible defaults. Principal may delete or
 // rename any of these after the first run.
@@ -168,24 +175,48 @@ export function installBehaviorCategories(school: Hono): void {
     const known = new Set((cats ?? []).map((r: any) => String(r.label).trim().toLowerCase()));
     const cutoff = new Date();
     cutoff.setUTCDate(cutoff.getUTCDate() - 90);
+    const dismissed = new Set<string>((await kv.get(dismissedKey(orgId))) ?? []);
     const { data: notes } = await serviceRoleClient
       .from("behavior_note")
-      .select("category, kind, notes, created_at")
+      .select("category, kind, notes, created_at, recorded_by, class_section:class_section_id(name, class:class_id(name))")
       .eq("org_id", orgId)
       .not("category", "is", null)
       .gte("created_at", cutoff.toISOString())
       .order("created_at", { ascending: false })
       .limit(1000);
-    const groups = new Map<string, { label: string; count: number; kinds: Set<string>; lastUsed: string; sample: string }>();
+    const groups = new Map<string, {
+      label: string; count: number; kinds: Set<string>; lastUsed: string; sample: string;
+      recorders: Set<string>; sections: Set<string>;
+    }>();
     for (const n of (notes ?? []) as any[]) {
       const raw = String(n.category ?? "").trim();
       if (!raw) continue;
       const norm = raw.toLowerCase();
-      if (known.has(norm)) continue;
-      const g = groups.get(norm) ?? { label: raw, count: 0, kinds: new Set<string>(), lastUsed: n.created_at, sample: String(n.notes ?? "").slice(0, 120) };
+      if (known.has(norm) || dismissed.has(norm)) continue;
+      const g = groups.get(norm) ?? {
+        label: raw, count: 0, kinds: new Set<string>(), lastUsed: n.created_at,
+        sample: String(n.notes ?? "").slice(0, 120),
+        recorders: new Set<string>(), sections: new Set<string>(),
+      };
       g.count += 1;
       g.kinds.add(n.kind);
+      if (n.recorded_by) g.recorders.add(n.recorded_by);
+      const secLabel = n.class_section
+        ? `${n.class_section.class?.name ?? ""} ${n.class_section.name ?? ""}`.trim()
+        : "";
+      if (secLabel) g.sections.add(secLabel);
       groups.set(norm, g);
+    }
+    // "Remember which teacher said it and where" — resolve recorder names
+    // once for the whole batch so the admin reviews with full context.
+    const allRecorders = new Set<string>();
+    for (const g of groups.values()) for (const r of g.recorders) allRecorders.add(r);
+    const recorderName = new Map<string, string>();
+    for (const rid of allRecorders) {
+      try {
+        const { data: u } = await (serviceRoleClient as any).auth.admin.getUserById(rid);
+        recorderName.set(rid, u?.user?.user_metadata?.name || u?.user?.email || "Staff");
+      } catch { /* leave unnamed */ }
     }
     const suggestions = Array.from(groups.values())
       .sort((a, b) => b.count - a.count)
@@ -196,8 +227,122 @@ export function installBehaviorCategories(school: Hono): void {
         kinds: Array.from(g.kinds),
         lastUsed: g.lastUsed,
         sampleNote: g.sample,
+        suggestedBy: Array.from(g.recorders).map((r) => recorderName.get(r) ?? "Staff"),
+        usedIn: Array.from(g.sections),
       }));
     return c.json({ suggestions });
+  });
+
+  // Decline a suggestion — "Try to be regular" is advice, not a behavior.
+  // The text stops appearing in the rollup; the underlying notes keep
+  // their recorded label untouched.
+  school.post("/orgs/:orgId/behavior-categories/suggestions/dismiss", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    if (!(await isAdminOrPrincipal(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const body = await c.req.json().catch(() => ({}));
+    const label = String(body.label ?? "").trim();
+    if (!label) return c.json({ error: "label required" }, 400);
+    const list: string[] = (await kv.get(dismissedKey(orgId))) ?? [];
+    const norm = normalizeSuggestion(label);
+    if (!list.includes(norm)) {
+      list.push(norm);
+      await kv.set(dismissedKey(orgId), list);
+    }
+    return c.json({ ok: true });
+  });
+
+  // Adopt a suggestion under a proper name — either into an EXISTING
+  // category or as a NEW one — and relabel every past note that used the
+  // free-typed text so the history counts under the adopted category
+  // ("they said 'try to be regular', the school means 'Punctuality'").
+  // Notes keep recorded_by, so who observed it survives the rename.
+  school.post("/orgs/:orgId/behavior-categories/suggestions/adopt", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    if (!(await isAdminOrPrincipal(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const body = await c.req.json().catch(() => ({}));
+    const label = String(body.label ?? "").trim();
+    if (!label) return c.json({ error: "label required" }, 400);
+
+    // Resolve the target category.
+    let target: any = null;
+    if (body.categoryId) {
+      const { data } = await serviceRoleClient
+        .from("behavior_category")
+        .select("*")
+        .eq("id", String(body.categoryId))
+        .eq("org_id", orgId)
+        .is("archived_at", null)
+        .maybeSingle();
+      if (!data) return c.json({ error: "category not found" }, 404);
+      target = data;
+    } else if (body.newCategory) {
+      const nc = body.newCategory;
+      const newLabel = String(nc.label ?? "").trim();
+      const kind = ["positive", "concern", "both"].includes(nc.kind) ? nc.kind : "both";
+      if (!newLabel) return c.json({ error: "newCategory.label required" }, 400);
+      const pp = validMagnitude(nc.pointsPositive) ? nc.pointsPositive : 1;
+      const pc = validMagnitude(nc.pointsConcern) ? nc.pointsConcern : 1;
+      const { data: maxRow } = await serviceRoleClient
+        .from("behavior_category")
+        .select("sort_order")
+        .eq("org_id", orgId)
+        .order("sort_order", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const { data, error } = await serviceRoleClient
+        .from("behavior_category")
+        .insert({
+          org_id: orgId,
+          key: newLabel.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 60) || "custom",
+          label: newLabel,
+          kind,
+          sort_order: ((maxRow as any)?.sort_order ?? 0) + 10,
+          points_positive: pp,
+          points_concern: pc,
+        })
+        .select("*")
+        .single();
+      if (error) return c.json({ error: error.message }, 500);
+      target = data;
+    } else {
+      return c.json({ error: "categoryId or newCategory required" }, 400);
+    }
+
+    // Relabel past notes that carry the free-typed text (normalized
+    // match, so trailing-space variants like "Slow learner " count too).
+    const norm = normalizeSuggestion(label);
+    const { data: candidates } = await serviceRoleClient
+      .from("behavior_note")
+      .select("id, category")
+      .eq("org_id", orgId)
+      .not("category", "is", null)
+      .limit(2000);
+    const ids = ((candidates ?? []) as any[])
+      .filter((n) => normalizeSuggestion(String(n.category)) === norm)
+      .map((n) => n.id);
+    if (ids.length > 0) {
+      const { error: upErr } = await serviceRoleClient
+        .from("behavior_note")
+        .update({ category: target.label })
+        .in("id", ids);
+      if (upErr) return c.json({ error: upErr.message }, 500);
+    }
+    // The adopted text never shows as a suggestion again even if the
+    // category is later renamed.
+    const list: string[] = (await kv.get(dismissedKey(orgId))) ?? [];
+    if (!list.includes(norm)) {
+      list.push(norm);
+      await kv.set(dismissedKey(orgId), list);
+    }
+    return c.json({ ok: true, category: toJson(target), relabeled: ids.length });
   });
 
   school.delete("/orgs/:orgId/behavior-categories/:id", async (c) => {
