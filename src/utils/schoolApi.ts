@@ -5164,7 +5164,35 @@ export interface BehaviorCategorySuggestion {
   kinds: string[];
   lastUsed: string;
   sampleNote: string;
+  /** Who typed it (resolved names) and where it was used. */
+  suggestedBy?: string[];
+  usedIn?: string[];
 }
+
+/** Decline a suggestion — it stops appearing; past notes keep their text. */
+export const dismissBehaviorSuggestion = (
+  orgId: string,
+  label: string,
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/behavior-categories/suggestions/dismiss`, {
+    method: "POST",
+    body: JSON.stringify({ label }),
+  });
+
+/** Adopt a suggestion into an existing category, or as a new one —
+ *  relabels every past note that used the free-typed text. */
+export const adoptBehaviorSuggestion = (
+  orgId: string,
+  body: {
+    label: string;
+    categoryId?: string;
+    newCategory?: { label: string; kind: BehaviorCategory["kind"]; pointsPositive?: number; pointsConcern?: number };
+  },
+): Promise<{ ok: true; category: BehaviorCategory; relabeled: number }> =>
+  apiCall(`/school/orgs/${orgId}/behavior-categories/suggestions/adopt`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 export const listBehaviorCategorySuggestions = (
   orgId: string,
 ): Promise<{ suggestions: BehaviorCategorySuggestion[] }> =>

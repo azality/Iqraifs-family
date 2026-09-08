@@ -53,6 +53,8 @@ import {
   updateBehaviorCategory,
   archiveBehaviorCategory,
   listBehaviorCategorySuggestions,
+  dismissBehaviorSuggestion,
+  adoptBehaviorSuggestion,
   type BehaviorCategory,
   type BehaviorCategorySuggestion,
   type SchoolMeResponse,
@@ -103,6 +105,47 @@ export function BehaviorCatalog() {
   const [ptsPos, setPtsPos] = useState(1);
   const [ptsCon, setPtsCon] = useState(1);
   const [suggestions, setSuggestions] = useState<BehaviorCategorySuggestion[]>([]);
+  // Adopt dialog: turn a free-typed suggestion into a category — either
+  // merged into an existing one or created under a proper name — and
+  // relabel the notes that used the raw text.
+  const [adopting, setAdopting] = useState<BehaviorCategorySuggestion | null>(null);
+  const [adoptMode, setAdoptMode] = useState<"existing" | "new">("new");
+  const [adoptCategoryId, setAdoptCategoryId] = useState("");
+  const [adoptLabel, setAdoptLabel] = useState("");
+  const [adoptKind, setAdoptKind] = useState<BehaviorCategory["kind"]>("both");
+
+  const runAdopt = async () => {
+    if (!adopting) return;
+    setSubmitting(true);
+    try {
+      const r = await adoptBehaviorSuggestion(orgId, {
+        label: adopting.label,
+        ...(adoptMode === "existing"
+          ? { categoryId: adoptCategoryId }
+          : { newCategory: { label: adoptLabel.trim(), kind: adoptKind } }),
+      });
+      toast.success(
+        `Adopted as “${r.category.label}”` +
+          (r.relabeled > 0 ? ` — ${r.relabeled} past note${r.relabeled === 1 ? "" : "s"} now count under it.` : "."),
+      );
+      setAdopting(null);
+      void reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not adopt suggestion");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const runDismiss = async (sg: BehaviorCategorySuggestion) => {
+    try {
+      await dismissBehaviorSuggestion(orgId, sg.label);
+      toast.success(`Dismissed “${sg.label}” — the notes that used it are unchanged.`);
+      setSuggestions((prev) => prev.filter((s) => s.label !== sg.label));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not dismiss");
+    }
+  };
 
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
@@ -318,27 +361,142 @@ export function BehaviorCatalog() {
             </p>
             <ul className="mt-2 divide-y divide-slate-100">
               {suggestions.map((sg) => (
-                <li key={sg.label} className="flex items-center justify-between gap-3 py-2">
-                  <div className="min-w-0">
+                <li key={sg.label} className="flex flex-wrap items-center justify-between gap-3 py-2">
+                  <div className="min-w-0 flex-1">
                     <div className="text-sm font-medium text-slate-900">
                       {sg.label}
                       <span className="ml-2 text-[10px] text-slate-400">
                         used {sg.count} time{sg.count === 1 ? "" : "s"}
                       </span>
                     </div>
+                    {/* Who said it and where — the context the admin needs
+                        to decide adopt-as vs dismiss. */}
+                    {((sg.suggestedBy ?? []).length > 0 || (sg.usedIn ?? []).length > 0) && (
+                      <div className="text-[11px] text-slate-500">
+                        {(sg.suggestedBy ?? []).join(", ")}
+                        {(sg.usedIn ?? []).length > 0 && <> · in {(sg.usedIn ?? []).join(", ")}</>}
+                      </div>
+                    )}
                     {sg.sampleNote && (
-                      <div className="truncate text-[11px] text-slate-500">"{sg.sampleNote}"</div>
+                      <div className="truncate text-[11px] text-slate-400">"{sg.sampleNote}"</div>
                     )}
                   </div>
-                  <Button variant="outline" size="sm" onClick={() => openCreate(sg.label)}>
-                    <Plus className="h-3.5 w-3.5 mr-1" /> Add to catalog
-                  </Button>
+                  <div className="flex shrink-0 gap-1.5">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setAdopting(sg);
+                        setAdoptMode("new");
+                        setAdoptLabel(sg.label);
+                        setAdoptKind(
+                          sg.kinds.length === 1 ? (sg.kinds[0] as BehaviorCategory["kind"]) : "both",
+                        );
+                        setAdoptCategoryId(items.find((i) => !i.archivedAt)?.id ?? "");
+                      }}
+                    >
+                      <Plus className="h-3.5 w-3.5 mr-1" /> Adopt…
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-slate-500"
+                      onClick={() => runDismiss(sg)}
+                    >
+                      Dismiss
+                    </Button>
+                  </div>
                 </li>
               ))}
             </ul>
           </CardContent>
         </Card>
       )}
+
+      {/* Adopt dialog — a suggestion becomes a category under the name
+          the SCHOOL means ("try to be regular" → Punctuality), and the
+          past notes move with it. */}
+      <Dialog open={!!adopting} onOpenChange={(v) => { if (!v) setAdopting(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Adopt “{adopting?.label}”</DialogTitle>
+            <DialogDescription>
+              The {adopting?.count ?? 0} note{(adopting?.count ?? 0) === 1 ? "" : "s"} logged with this
+              text will be re-filed under the category you choose — the teacher who observed each one
+              stays on the note.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant={adoptMode === "new" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setAdoptMode("new")}
+              >
+                As a new category
+              </Button>
+              <Button
+                type="button"
+                variant={adoptMode === "existing" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setAdoptMode("existing")}
+              >
+                Into an existing one
+              </Button>
+            </div>
+            {adoptMode === "new" ? (
+              <>
+                <div className="space-y-1.5">
+                  <Label htmlFor="adopt-label">Category name</Label>
+                  <Input
+                    id="adopt-label"
+                    value={adoptLabel}
+                    onChange={(e) => setAdoptLabel(e.target.value)}
+                    placeholder="e.g. Punctuality"
+                  />
+                  <p className="text-[11px] text-slate-500">
+                    Rename it to what the school means — “try to be regular” is advice; the behavior is
+                    punctuality.
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Applies to</Label>
+                  <Select value={adoptKind} onValueChange={(v) => setAdoptKind(v as BehaviorCategory["kind"])}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {KINDS.map((k) => (
+                        <SelectItem key={k.value} value={k.value}>{k.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </>
+            ) : (
+              <div className="space-y-1.5">
+                <Label>Merge into</Label>
+                <Select value={adoptCategoryId} onValueChange={setAdoptCategoryId}>
+                  <SelectTrigger><SelectValue placeholder="Pick a category…" /></SelectTrigger>
+                  <SelectContent>
+                    {items.filter((i) => !i.archivedAt).map((i) => (
+                      <SelectItem key={i.id} value={i.id}>{i.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAdopting(null)}>Cancel</Button>
+            <Button
+              onClick={runAdopt}
+              disabled={submitting || (adoptMode === "new" ? !adoptLabel.trim() : !adoptCategoryId)}
+            >
+              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Adopt"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
