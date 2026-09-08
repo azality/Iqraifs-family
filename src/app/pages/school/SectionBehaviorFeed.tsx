@@ -22,11 +22,17 @@ import {
 } from "../../components/ui/select";
 import { ChevronLeft, Plus, Sparkles, AlertTriangle } from "lucide-react";
 import { HeroCard, cardBase, cardElev, sectionTitleClasses } from "../../components/school-ui";
+import { toast } from "sonner";
+import { Trash2 } from "lucide-react";
 import {
   getSectionBehaviorNotes,
+  deleteBehaviorNote,
   listStudents,
+  getSchoolMe,
+  isOrgAdmin,
   type AdminStudent,
   type BehaviorNote,
+  type SchoolMeResponse,
 } from "../../../utils/schoolApi";
 import { BehaviorLogEntry } from "./BehaviorLogEntry";
 
@@ -72,6 +78,26 @@ export function SectionBehaviorFeed() {
   // nothing on screen said why — which reads as "I am not allowed to add
   // notes" (pilot, 6 Sep).
   const [rosterError, setRosterError] = useState<string | null>(null);
+  // Undo a mistaken note (Ambreen, 8 Sep) — the delete endpoint always
+  // existed (author or admin/principal); no feed surfaced it. Points,
+  // leaderboards and the parent's view all recompute live, so deleting
+  // truly undoes it.
+  const [me, setMe] = useState<SchoolMeResponse | null>(null);
+  useEffect(() => {
+    getSchoolMe().then(setMe).catch(() => setMe(null));
+  }, []);
+  const canDelete = (n: BehaviorNote) =>
+    isOrgAdmin(me, orgId) || (!!me?.userId && n.recordedBy === me.userId);
+  const removeNote = async (n: BehaviorNote) => {
+    if (!confirm(t("behavior.deleteConfirm"))) return;
+    try {
+      await deleteBehaviorNote(orgId, n.id);
+      toast.success(t("behavior.deleted"));
+      setNotes((prev) => prev.filter((x) => x.id !== n.id));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("behavior.deleteFailed"));
+    }
+  };
   // Add-note modal state: which student is being logged against.
   const [picker, setPicker] = useState<{ id: string; name: string } | null>(null);
   const [pickerSel, setPickerSel] = useState("");
@@ -317,6 +343,16 @@ export function SectionBehaviorFeed() {
                                 >
                                   {n.points > 0 ? `+${n.points}` : n.points}
                                 </span>
+                                {canDelete(n) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => removeNote(n)}
+                                    title={t("common.delete")}
+                                    className="rounded p-1 text-slate-300 hover:bg-rose-50 hover:text-rose-600"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
                               </div>
                               <p className="mt-1 text-sm text-slate-800 whitespace-pre-wrap">
                                 {n.notes}
