@@ -7,6 +7,7 @@
 // a tutoring session, "Just report cards" for the end-of-term meeting).
 
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, useParams } from "react-router";
 import {
   MessageSquare, Award, BookOpen, FileText, ClipboardList,
@@ -21,14 +22,14 @@ import {
   type CommentAckAction,
 } from "../../../utils/schoolPortalApi";
 
-const KIND_LABEL: Record<TeacherCommentKind, string> = {
-  behavior: "Behavior",
-  hifz: "Hifz",
-  exam_note: "Exam",
-  report_card_subject: "Report · subject",
-  report_card_class_teacher: "Report · class teacher",
-  report_card_principal: "Report · principal",
-  lesson: "Lesson",
+const KIND_LABEL_KEY: Record<TeacherCommentKind, string> = {
+  behavior: "portal.tc.kindBehavior",
+  hifz: "portal.tc.kindHifz",
+  exam_note: "portal.tc.kindExam",
+  report_card_subject: "portal.tc.kindReportSubject",
+  report_card_class_teacher: "portal.tc.kindReportCT",
+  report_card_principal: "portal.tc.kindReportPrincipal",
+  lesson: "portal.tc.kindLesson",
 };
 
 const KIND_ICON: Record<TeacherCommentKind, any> = {
@@ -47,22 +48,24 @@ function toneClasses(tone: TeacherCommentItem["tone"]): string {
   return "border-slate-200 bg-white";
 }
 
-function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, {
-    weekday: "short", month: "short", day: "numeric",
-  });
+function fmtDate(iso: string, lang: string): string {
+  return new Date(iso).toLocaleDateString(
+    lang.startsWith("ur") ? "ur-PK" : undefined,
+    { weekday: "short", month: "short", day: "numeric" },
+  );
 }
 
-const FILTER_GROUPS: Array<{ id: string; label: string; kinds: TeacherCommentKind[] }> = [
-  { id: "all", label: "All", kinds: [] },
-  { id: "behavior", label: "Behavior", kinds: ["behavior"] },
-  { id: "hifz", label: "Hifz", kinds: ["hifz"] },
-  { id: "lesson", label: "Lessons", kinds: ["lesson"] },
-  { id: "exam_note", label: "Exam notes", kinds: ["exam_note"] },
-  { id: "report", label: "Report cards", kinds: ["report_card_subject", "report_card_class_teacher", "report_card_principal"] },
+const FILTER_GROUPS: Array<{ id: string; labelKey: string; kinds: TeacherCommentKind[] }> = [
+  { id: "all", labelKey: "portal.tc.all", kinds: [] },
+  { id: "behavior", labelKey: "portal.tc.kindBehavior", kinds: ["behavior"] },
+  { id: "hifz", labelKey: "portal.tc.kindHifz", kinds: ["hifz"] },
+  { id: "lesson", labelKey: "portal.tc.lessons", kinds: ["lesson"] },
+  { id: "exam_note", labelKey: "portal.tc.examNotes", kinds: ["exam_note"] },
+  { id: "report", labelKey: "portal.tc.reportCards", kinds: ["report_card_subject", "report_card_class_teacher", "report_card_principal"] },
 ];
 
 export function StudentTeacherComments() {
+  const { t, i18n } = useTranslation();
   const { studentId = "" } = useParams<{ studentId: string }>();
   const [items, setItems] = useState<TeacherCommentItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -108,8 +111,8 @@ export function StudentTeacherComments() {
   return (
     <div className="space-y-4">
       <HeroCard
-        title="Teacher comments"
-        subtitle="Everything teachers and the principal have written about your child"
+        title={t("portal.tc.title")}
+        subtitle={t("portal.tc.subtitle")}
       />
 
       {error && (
@@ -137,7 +140,7 @@ export function StudentTeacherComments() {
                   : "bg-white text-slate-700 border-slate-200 hover:border-slate-300")
               }
             >
-              {g.label}
+              {t(g.labelKey)}
               <span className={
                 "inline-flex items-center justify-center h-4 min-w-[1rem] px-1 rounded-full text-[10px] font-semibold " +
                 (active ? "bg-white/20" : "bg-slate-100 text-slate-600")
@@ -150,13 +153,11 @@ export function StudentTeacherComments() {
       </div>
 
       {!items ? (
-        <div className="text-sm text-slate-500">Loading…</div>
+        <div className="text-sm text-slate-500">{t("common.loading")}</div>
       ) : filtered.length === 0 ? (
         <div className="bg-white border border-slate-200 rounded-xl p-6 text-center text-sm text-slate-500">
           <MessageSquare className="h-6 w-6 mx-auto text-slate-300 mb-2" />
-          {items.length === 0
-            ? "No teacher comments in the last 120 days."
-            : "No comments in this filter."}
+          {items.length === 0 ? t("portal.tc.emptyAll") : t("portal.tc.emptyFilter")}
         </div>
       ) : (
         <ul className="space-y-2">
@@ -175,9 +176,9 @@ export function StudentTeacherComments() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center flex-wrap gap-2">
                       <span className="text-xs font-semibold text-slate-700">
-                        {KIND_LABEL[it.kind]}
+                        {t(KIND_LABEL_KEY[it.kind])}
                       </span>
-                      <span className="text-[11px] text-slate-500">{fmtDate(it.at)}</span>
+                      <span className="text-[11px] text-slate-500">{fmtDate(it.at, i18n.language ?? "en")}</span>
                       {it.authorName && (
                         <span className="text-[11px] text-slate-500">· {it.authorName}</span>
                       )}
@@ -192,9 +193,9 @@ export function StudentTeacherComments() {
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       {(
                         [
-                          { key: "read",       label: "Read"        },
-                          { key: "thank_you",  label: "Thank you"   },
-                          { key: "follow_up",  label: "Follow up"   },
+                          { key: "read",       label: t("portal.tc.ackRead") },
+                          { key: "thank_you",  label: t("portal.tc.ackThankYou") },
+                          { key: "follow_up",  label: t("portal.tc.ackFollowUp") },
                         ] as Array<{ key: CommentAckAction; label: string }>
                       ).map(({ key, label }) => {
                         const active = it.acks.includes(key);
@@ -222,7 +223,7 @@ export function StudentTeacherComments() {
                     <Link
                       to={`/school-portal/students/${studentId}${it.link}`}
                       className="text-slate-300 hover:text-slate-600 shrink-0"
-                      title="Open detail"
+                      title={t("portal.tc.openDetail")}
                     >
                       <ChevronRight className="h-4 w-4" />
                     </Link>

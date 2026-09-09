@@ -24,12 +24,26 @@ import {
 } from "../../../utils/schoolPortalApi";
 import { BookOpen, Camera, CheckCircle2, Clock, FileText, Loader2, Paperclip } from "lucide-react";
 
-function fmtDate(iso: string | null): string {
+function fmtDate(iso: string | null, lang?: string): string {
   if (!iso) return "—";
-  return new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, {
-    day: "numeric",
-    month: "short",
-  });
+  return new Date(`${iso}T00:00:00`).toLocaleDateString(
+    lang && lang.startsWith("ur") ? "ur-PK" : undefined,
+    { day: "numeric", month: "short" },
+  );
+}
+
+// Assignment kinds are a small fixed vocabulary from the gradebook; label
+// known ones, fall back to the raw value for anything school-specific.
+const HW_KIND_KEY: Record<string, string> = {
+  homework: "portal.hw.kindHomework",
+  quiz: "portal.hw.kindQuiz",
+  test: "portal.hw.kindTest",
+  classwork: "portal.hw.kindClasswork",
+  project: "portal.hw.kindProject",
+};
+type TFn = (k: string, o?: Record<string, unknown>) => string;
+function kindLabel(kind: string, t: TFn): string {
+  return HW_KIND_KEY[kind] ? t(HW_KIND_KEY[kind]) : kind;
 }
 
 function isOverdue(due: string | null): boolean {
@@ -49,7 +63,7 @@ function AssignmentCard({
   a: PortalAssignmentRow;
   onChanged: () => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [files, setFiles] = useState<File[]>([]);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -69,7 +83,7 @@ function AssignmentCard({
 
   const doSubmit = async () => {
     if (files.length === 0 && !note.trim()) {
-      toast.error("Attach a photo/PDF of your work (or write a note).");
+      toast.error(t("portal.hw.attachFirst"));
       return;
     }
     setBusy(true);
@@ -82,13 +96,13 @@ function AssignmentCard({
         attachments,
         note: note.trim() || undefined,
       });
-      toast.success("Homework submitted — your teacher can see it now.");
+      toast.success(t("portal.hw.submittedToast"));
       setFiles([]);
       setNote("");
       setFormOpen(false);
       onChanged();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Submission failed");
+      toast.error(e instanceof Error ? e.message : t("portal.submitFailed"));
     } finally {
       setBusy(false);
     }
@@ -101,8 +115,8 @@ function AssignmentCard({
           <h3 className="font-semibold text-slate-900">{a.title}</h3>
           <p className="text-xs text-slate-500">
             {a.subjectName ? `${a.subjectName} · ` : ""}
-            {a.kind}
-            {a.maxScore ? ` · ${a.maxScore} marks` : ""}
+            {kindLabel(a.kind, t)}
+            {a.maxScore ? ` · ${t("portal.hw.marksN", { n: a.maxScore })}` : ""}
           </p>
         </div>
         <span
@@ -126,7 +140,7 @@ function AssignmentCard({
                 ? t("portal.hw.overdue")
                 : dueTomorrow
                 ? t("portal.hw.dueTomorrow")
-                : t("portal.hw.due", { date: fmtDate(a.dueDate) })}
+                : t("portal.hw.due", { date: fmtDate(a.dueDate, i18n.language) })}
             </>
           )}
         </span>
@@ -146,8 +160,12 @@ function AssignmentCard({
       {a.submission && !a.quiz && (
         <div className="rounded-lg bg-emerald-50/60 border border-emerald-100 p-2.5 space-y-1.5">
           <p className="text-xs text-emerald-800">
-            Submitted {new Date(a.submission.submittedAt).toLocaleString()}
-            {a.submission.reviewedAt ? " · Seen by teacher ✓" : " · Waiting for teacher"}
+            {t("portal.hw.submittedAt", {
+              when: new Date(a.submission.submittedAt).toLocaleString(
+                (i18n.language ?? "en").startsWith("ur") ? "ur-PK" : undefined,
+              ),
+            })}
+            {a.submission.reviewedAt ? ` · ${t("portal.hw.seenByTeacher")}` : ` · ${t("portal.hw.waitingTeacher")}`}
           </p>
           {a.submission.attachments.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
@@ -340,7 +358,7 @@ export function StudentHomework() {
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-[13px] font-bold text-slate-900">{a.title}</div>
                         <div className="truncate text-[11px] text-slate-500">
-                          {[a.subjectName, a.kind, a.grade?.feedback ? `“${a.grade.feedback}”` : null]
+                          {[a.subjectName, kindLabel(a.kind, t), a.grade?.feedback ? `“${a.grade.feedback}”` : null]
                             .filter(Boolean)
                             .join(" · ")}
                         </div>
@@ -376,6 +394,7 @@ function QuizBlock({
   a: PortalAssignmentRow;
   onChanged: () => void;
 }) {
+  const { t } = useTranslation();
   const [quiz, setQuiz] = useState<PortalQuizResponse | null>(null);
   const [open, setOpen] = useState(false);
   const [answers, setAnswers] = useState<Record<number, number>>({});
@@ -388,7 +407,7 @@ function QuizBlock({
     try {
       setQuiz(await getMyQuiz(studentId, a.id));
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not load the quiz");
+      toast.error(e instanceof Error ? e.message : t("portal.hw.quizLoadFailed"));
       setOpen(false);
     }
   };
@@ -397,18 +416,22 @@ function QuizBlock({
     if (!quiz) return;
     const list = quiz.questions.map((_, i) => answers[i]);
     if (list.some((x) => x === undefined)) {
-      toast.error("Answer every question first.");
+      toast.error(t("portal.hw.answerAll"));
       return;
     }
     setBusy(true);
     try {
       const r = await submitQuizAttempt(studentId, a.id, list as number[]);
-      toast.success(`Done! You scored ${r.correctCount}/${r.total} (${r.score}${r.maxScore ? ` / ${r.maxScore}` : ""} marks)`);
+      toast.success(t("portal.hw.quizDone", {
+        c: r.correctCount,
+        total: r.total,
+        marks: `${r.score}${r.maxScore ? ` / ${r.maxScore}` : ""}`,
+      }));
       setQuiz(null);
       setOpen(false);
       onChanged();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not submit the quiz");
+      toast.error(e instanceof Error ? e.message : t("portal.hw.quizSubmitFailed"));
     } finally {
       setBusy(false);
     }
@@ -418,12 +441,14 @@ function QuizBlock({
     return (
       <Button variant={taken ? "outline" : "default"} size="sm" onClick={() => void load()}>
         {taken
-          ? `Review quiz${a.quiz?.score !== null && a.quiz?.score !== undefined ? ` — scored ${a.quiz.score}${a.maxScore ? ` / ${a.maxScore}` : ""}` : ""}`
-          : `Take quiz (${a.quiz?.questionCount} question${(a.quiz?.questionCount ?? 0) === 1 ? "" : "s"})`}
+          ? (a.quiz?.score !== null && a.quiz?.score !== undefined
+              ? t("portal.hw.reviewQuizScored", { s: `${a.quiz.score}${a.maxScore ? ` / ${a.maxScore}` : ""}` })
+              : t("portal.hw.reviewQuiz"))
+          : t("portal.hw.takeQuiz", { n: a.quiz?.questionCount ?? 0 })}
       </Button>
     );
   }
-  if (!quiz) return <p className="text-sm text-slate-500">Loading quiz…</p>;
+  if (!quiz) return <p className="text-sm text-slate-500">{t("portal.hw.loadingQuiz")}</p>;
 
   return (
     <div className="space-y-3 rounded-lg border border-violet-200 bg-violet-50/40 p-3">
@@ -468,20 +493,20 @@ function QuizBlock({
       ))}
       {quiz.taken ? (
         <p className="text-sm font-medium text-violet-800">
-          Scored {quiz.score}{quiz.maxScore ? ` / ${quiz.maxScore}` : ""}
+          {t("portal.hw.scored", { s: `${quiz.score}${quiz.maxScore ? ` / ${quiz.maxScore}` : ""}` })}
         </p>
       ) : (
         <div className="flex gap-2">
           <Button size="sm" onClick={() => void submit()} disabled={busy}>
-            {busy ? "Submitting…" : "Submit answers"}
+            {busy ? t("portal.hw.submitting") : t("portal.hw.submitAnswers")}
           </Button>
           <Button variant="ghost" size="sm" onClick={() => setOpen(false)} disabled={busy}>
-            Not now
+            {t("portal.hw.notNow")}
           </Button>
         </div>
       )}
       {!quiz.taken && (
-        <p className="text-[11px] text-violet-700">One attempt only — check your answers before submitting.</p>
+        <p className="text-[11px] text-violet-700">{t("portal.hw.oneAttempt")}</p>
       )}
     </div>
   );

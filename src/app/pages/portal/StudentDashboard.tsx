@@ -42,35 +42,41 @@ const surahLabel = (n: number) =>
  *    Reminders: Bring notebook tomorrow
  */
 function DiaryCard({ diary }: { diary: MyStudentDiaryResponse }) {
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language ?? "en";
   // Parse YYYY-MM-DD as LOCAL midnight, not UTC — appending "T00:00:00Z"
   // anchors to UTC, which `toLocaleDateString` then shifts back into the
   // browser TZ, causing "Today" to render as the previous day for any
   // browser west of UTC (e.g. North America). Constructing with
   // (year, month-1, day) sidesteps the round-trip.
   const [_y, _m, _d] = diary.date.split("-").map((x) => Number(x));
-  const dateLabel = new Date(_y, _m - 1, _d).toLocaleDateString(undefined, {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-  });
+  const dateLabel = new Date(_y, _m - 1, _d).toLocaleDateString(
+    lang.startsWith("ur") ? "ur-PK" : undefined,
+    { weekday: "long", month: "long", day: "numeric" },
+  );
   const lessonsBySubject = new Map<string, string>();
   for (const l of diary.lessons) {
-    const key = l.subject ?? "Lessons";
+    const key = l.subject ?? t("portal.nav.lessons");
     if (!lessonsBySubject.has(key)) lessonsBySubject.set(key, l.title);
   }
 
+  const ayahRange = (from: number, to: number) =>
+    `${from}${to !== from ? `–${to}` : ""}`;
   const hifzLine = (() => {
     if (!diary.hifz) return null;
     const { sabaq, revision } = diary.hifz;
     if (sabaq) {
-      return `Today's sabaq — ${surahLabel(sabaq.surahNumber)}, ayah ${sabaq.ayahFrom}${
-        sabaq.ayahTo !== sabaq.ayahFrom ? ` to ${sabaq.ayahTo}` : ""
-      }`;
+      return t("portal.diary.sabaqLine", {
+        surah: surahLabel(sabaq.surahNumber),
+        range: ayahRange(sabaq.ayahFrom, sabaq.ayahTo),
+      });
     }
     if (revision) {
-      return `Revision (${revision.kind}) — ${surahLabel(revision.surahNumber)}, ayah ${revision.ayahFrom}${
-        revision.ayahTo !== revision.ayahFrom ? ` to ${revision.ayahTo}` : ""
-      }`;
+      return t("portal.diary.revisionLine", {
+        kind: revision.kind,
+        surah: surahLabel(revision.surahNumber),
+        range: ayahRange(revision.ayahFrom, revision.ayahTo),
+      });
     }
     return null;
   })();
@@ -85,14 +91,14 @@ function DiaryCard({ diary }: { diary: MyStudentDiaryResponse }) {
     <div className="bg-white border border-indigo-200 rounded-2xl shadow-sm overflow-hidden">
       <div className="bg-gradient-to-br from-indigo-50 to-white px-5 py-3 border-b border-indigo-100">
         <div className="text-xs font-medium uppercase tracking-wide text-indigo-700">
-          Today's Diary
+          {t("portal.diary.title")}
         </div>
         <div className="text-sm text-slate-700">{dateLabel}</div>
       </div>
       <div className="p-5 space-y-2.5 text-sm">
         {isEmpty && (
           <div className="text-slate-500 italic text-center py-2">
-            Nothing logged for today yet. The teacher will post updates as the day progresses.
+            {t("portal.diary.empty")}
           </div>
         )}
 
@@ -108,7 +114,7 @@ function DiaryCard({ diary }: { diary: MyStudentDiaryResponse }) {
 
         {diary.assignments.map((a) => {
           const today = diary.date;
-          const dueLabel = a.dueDate === today ? "due today" : "due tomorrow";
+          const dueLabel = a.dueDate === today ? t("portal.diary.dueToday") : t("portal.diary.dueTomorrow");
           return (
             <div key={a.id} className="flex gap-2 items-start">
               <ClipboardList className="h-4 w-4 mt-0.5 text-amber-600 shrink-0" />
@@ -121,13 +127,13 @@ function DiaryCard({ diary }: { diary: MyStudentDiaryResponse }) {
                 {(((a as any).videoUrl || (a as any).audioUrl || ((a as any).attachments ?? []).length > 0)) && (
                   <div className="mt-0.5 flex flex-wrap gap-2">
                     {(a as any).videoUrl && (
-                      <a href={(a as any).videoUrl} target="_blank" rel="noreferrer" className="text-[11px] text-indigo-600 underline">▶ Video</a>
+                      <a href={(a as any).videoUrl} target="_blank" rel="noreferrer" className="text-[11px] text-indigo-600 underline">▶ {t("portal.diary.video")}</a>
                     )}
                     {(a as any).audioUrl && (
-                      <a href={(a as any).audioUrl} target="_blank" rel="noreferrer" className="text-[11px] text-indigo-600 underline">🎧 Audio</a>
+                      <a href={(a as any).audioUrl} target="_blank" rel="noreferrer" className="text-[11px] text-indigo-600 underline">🎧 {t("portal.diary.audio")}</a>
                     )}
                     {(((a as any).attachments ?? []) as Array<{ label: string; url: string }>).map((att, i) => (
-                      <a key={i} href={att.url} target="_blank" rel="noreferrer" className="text-[11px] text-indigo-600 underline">📎 {att.label || "Attachment"}</a>
+                      <a key={i} href={att.url} target="_blank" rel="noreferrer" className="text-[11px] text-indigo-600 underline">📎 {att.label || t("portal.diary.attachment")}</a>
                     ))}
                   </div>
                 )}
@@ -140,7 +146,7 @@ function DiaryCard({ diary }: { diary: MyStudentDiaryResponse }) {
           <div className="flex gap-2 items-start">
             <Award className="h-4 w-4 mt-0.5 text-emerald-600 shrink-0" />
             <div className="min-w-0">
-              <span className="font-medium text-slate-900">Hifz:</span>{" "}
+              <span className="font-medium text-slate-900">{t("portal.nav.hifz")}:</span>{" "}
               <span className="text-slate-700">{hifzLine}</span>
             </div>
           </div>
@@ -149,7 +155,7 @@ function DiaryCard({ diary }: { diary: MyStudentDiaryResponse }) {
         {diary.hifz?.parentAction && (
           <div className="mt-3 rounded-lg bg-emerald-50 border border-emerald-200 p-3">
             <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
-              What to do tonight
+              {t("portal.diary.whatTonight")}
             </div>
             <div className="mt-1 text-sm text-emerald-900">{diary.hifz.parentAction}</div>
           </div>
@@ -158,7 +164,7 @@ function DiaryCard({ diary }: { diary: MyStudentDiaryResponse }) {
         {diary.reminders.length > 0 && (
           <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 p-3">
             <div className="text-xs font-semibold uppercase tracking-wide text-amber-700 flex items-center gap-1">
-              <Bell className="h-3 w-3" /> Reminders
+              <Bell className="h-3 w-3" /> {t("portal.diary.reminders")}
             </div>
             <ul className="mt-1 space-y-0.5 text-sm text-amber-900 list-disc list-inside">
               {diary.reminders.map((r, i) => <li key={i}>{r}</li>)}
@@ -170,39 +176,17 @@ function DiaryCard({ diary }: { diary: MyStudentDiaryResponse }) {
   );
 }
 
-function relativeTime(iso: string): string {
-  // Date-only values (lesson_date etc.) carry no clock — "Xh ago" math on
-  // them is meaningless (UTC-midnight parsing made same-day events read
-  // as many hours old). Show the day instead.
-  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
-    const today = new Date();
-    const pad = (n: number) => String(n).padStart(2, "0");
-    const todayStr = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
-    if (iso === todayStr) return "today";
-    return new Date(`${iso}T00:00:00`).toLocaleDateString();
-  }
-  const d = new Date(iso).getTime();
-  const diff = Date.now() - d;
-  const mins = Math.round(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.round(hrs / 24);
-  if (days < 7) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString();
-}
-
-const KIND_LABEL: Record<string, string> = {
-  lesson: "Lesson",
-  grade: "Grade",
-  hifz: "Hifz",
-  attendance: "Attendance",
-  behavior: "Teacher note",
+const KIND_LABEL_KEY: Record<string, string> = {
+  lesson: "portal.tc.kindLesson",
+  grade: "portal.diary.kindGrade",
+  hifz: "portal.nav.hifz",
+  attendance: "portal.nav.attendance",
+  behavior: "portal.diary.kindTeacherNote",
 };
 
 export function StudentDashboard() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language ?? "en";
   const { studentId = "" } = useParams<{ studentId: string }>();
   const [snapshot, setSnapshot] = useState<TodaySnapshot | null>(null);
   const [data, setData] = useState<StudentDashboardResponse | null>(null);
@@ -249,7 +233,7 @@ export function StudentDashboard() {
   const att = snapshot.attendanceToday;
   const fmtTime = (iso: string | null) => {
     if (!iso) return "";
-    try { return new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }); } catch { return ""; }
+    try { return new Date(iso).toLocaleTimeString(lang.startsWith("ur") ? "ur-PK" : undefined, { hour: "2-digit", minute: "2-digit" }); } catch { return ""; }
   };
   const chips: Array<{ label: string; value: string; cls: string }> = [
     att === null
@@ -279,8 +263,8 @@ export function StudentDashboard() {
     for (const r of others) {
       const d = new Date(r.at);
       digest.push({
-        day: Number.isFinite(d.getTime()) ? d.toLocaleDateString(undefined, { weekday: "short" }) : "",
-        text: `${KIND_LABEL[r.kind] ?? r.kind}: ${r.summary}`,
+        day: Number.isFinite(d.getTime()) ? d.toLocaleDateString(lang.startsWith("ur") ? "ur-PK" : undefined, { weekday: "short" }) : "",
+        text: `${KIND_LABEL_KEY[r.kind] ? t(KIND_LABEL_KEY[r.kind]) : r.kind}: ${r.summary}`,
       });
     }
     if (attRows.length > 0) {

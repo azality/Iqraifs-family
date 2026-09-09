@@ -26,7 +26,7 @@ function todayIso(): string {
 }
 
 export function StudentLessons() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { studentId = "" } = useParams<{ studentId: string }>();
   const { subject } = usePinAuth();
   const isStudent = subject?.subjectType === "student";
@@ -111,8 +111,8 @@ export function StudentLessons() {
   return (
     <div className="space-y-5">
       <HeroCard
-        title="Lessons"
-        subtitle="Daily sabaq and class lessons"
+        title={t("portal.nav.lessons")}
+        subtitle={t("portal.lessonsSubtitle")}
         rightSlot={
           <div className="flex flex-wrap items-center gap-2 text-xs">
             {/* Phase 7: quick range presets so a student can jump to
@@ -132,7 +132,7 @@ export function StudentLessons() {
                     : "bg-white/10 text-white hover:bg-white/20")
                 }
               >
-                Today
+                {t("behavior.rangeToday")}
               </button>
               <button
                 type="button"
@@ -147,7 +147,7 @@ export function StudentLessons() {
                     : "bg-white/10 text-white hover:bg-white/20")
                 }
               >
-                7 days
+                {t("portal.lessons7d")}
               </button>
               <button
                 type="button"
@@ -162,7 +162,7 @@ export function StudentLessons() {
                     : "bg-white/10 text-white hover:bg-white/20")
                 }
               >
-                30 days
+                {t("portal.lessons30d")}
               </button>
             </div>
             <input
@@ -171,7 +171,7 @@ export function StudentLessons() {
               onChange={(e) => setStartDate(e.target.value)}
               className="bg-white/10 text-white border border-white/20 rounded px-2 py-1"
             />
-            <span className="text-indigo-200">to</span>
+            <span className="text-indigo-200">{t("portal.lessonsTo")}</span>
             <input
               type="date"
               value={endDate}
@@ -188,7 +188,7 @@ export function StudentLessons() {
         </div>
       )}
 
-      {!lessons && !error && <div className="text-slate-500 text-sm">Loading…</div>}
+      {!lessons && !error && <div className="text-slate-500 text-sm">{t("common.loading")}</div>}
 
       {/* Phase 4b: subject filter chip row. Derived from the lesson set so
           it only shows subjects the student actually has lessons for. */}
@@ -242,7 +242,7 @@ export function StudentLessons() {
 
       {lessons && lessons.length === 0 && (
         <div className={`${cardBase} ${cardElev} p-6 text-sm text-slate-500 text-center`}>
-          No lessons in this range.
+          {t("portal.lessonsNoRange")}
         </div>
       )}
 
@@ -297,19 +297,19 @@ export function StudentLessons() {
                   {isComplete ? (
                     <>
                       <CheckCircle2 className="h-3.5 w-3.5" />
-                      Completed
+                      {t("portal.lessonCompleted")}
                     </>
                   ) : (
                     <>
                       <Circle className="h-3.5 w-3.5" />
-                      Mark complete
+                      {t("portal.lessonMarkComplete")}
                     </>
                   )}
                 </button>
               ) : isComplete && completedAt ? (
                 <span className="inline-flex items-center gap-1.5 text-xs rounded-md px-2.5 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 whitespace-nowrap">
                   <CheckCircle2 className="h-3.5 w-3.5" />
-                  Completed {new Date(completedAt).toLocaleDateString()}
+                  {t("portal.lessonCompleted")} {new Date(completedAt).toLocaleDateString(i18n.language === "ur" ? "ur-PK" : undefined)}
                 </span>
               ) : null}
             </div>

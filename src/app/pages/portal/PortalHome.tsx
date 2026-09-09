@@ -85,11 +85,11 @@ export function PortalHome() {
     const diff = Math.round((d.getTime() - today.getTime()) / 86400e3);
     if (diff <= 0) return t("portal.home.dueToday");
     if (diff === 1) return t("portal.home.dueTomorrow");
-    return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+    return d.toLocaleDateString(i18n.language === "ur" ? "ur-PK" : undefined, { weekday: "short", month: "short", day: "numeric" });
   };
   const fmtTime = (iso: string | null): string => {
     if (!iso) return "";
-    try { return new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }); } catch { return ""; }
+    try { return new Date(iso).toLocaleTimeString(i18n.language === "ur" ? "ur-PK" : undefined, { hour: "2-digit", minute: "2-digit" }); } catch { return ""; }
   };
   const qualityWord = (q: string | null): string => {
     if (!q) return "";
@@ -164,7 +164,7 @@ export function PortalHome() {
                 const surah = getSurah(lh.surahNumber)?.nameTransliterated ?? lh.surahNumber;
                 const kindWord = ["sabaq", "sabqi", "manzil"].includes(lh.kind) ? t(`hifzTeach.${lh.kind}`) : lh.kind;
                 const dayDiff = Math.floor((Date.now() - Date.parse(lh.recordedAt)) / 86400e3);
-                const when = dayDiff <= 0 ? t("portal.home.today") : dayDiff === 1 ? t("portal.home.yesterday") : new Date(lh.recordedAt).toLocaleDateString(undefined, { weekday: "short" });
+                const when = dayDiff <= 0 ? t("portal.home.today") : dayDiff === 1 ? t("portal.home.yesterday") : new Date(lh.recordedAt).toLocaleDateString(i18n.language === "ur" ? "ur-PK" : undefined, { weekday: "short" });
                 lines.push({
                   tone: lh.missed ? "rose" : "emerald",
                   node: lh.missed ? (
