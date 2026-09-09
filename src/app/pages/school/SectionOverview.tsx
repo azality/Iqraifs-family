@@ -29,8 +29,7 @@ import {
   getSectionAssignments,
   getSectionHifzSummary,
   getExamSchedule,
-  listTerms,
-  listExams,
+  getSectionExamMarksProgress,
   postAttendanceFlag,
   viewerRoleForOrg,
   type Assignment,
@@ -133,7 +132,7 @@ export function SectionOverview() {
   // class's first scheduled paper until a few days after the last, the
   // Today panel links straight to the term's marks sheets — teachers
   // enter oral/written marks from the class page, not via Admin.
-  const [examMarksLinks, setExamMarksLinks] = useState<Array<{ id: string; name: string }>>([]);
+  const [examMarksLinks, setExamMarksLinks] = useState<Array<{ id: string; name: string; studentsMarked: number; studentCount: number }>>([]);
   useEffect(() => {
     if (!orgId || !row?.classId) return;
     getExamSchedule(orgId)
@@ -149,24 +148,24 @@ export function SectionOverview() {
           const pad = (n: number) => String(n).padStart(2, "0");
           return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
         };
-        const lo = shift(today, -3);
-        const hi = shift(today, 2);
-        const inWindow = (cls?.papers ?? []).some(
-          (p) => p.examDate >= lo && p.examDate <= hi,
-        );
-        if (!inWindow) { setExamMarksLinks([]); return; }
+        // The window OPENS 3 days before this class's first paper and
+        // stays open until every student is marked in every term exam —
+        // "until they enter those marks", not a fixed number of days
+        // (Muneeb, 11 Sep).
+        const hi = shift(today, 3);
+        const opened = (cls?.papers ?? []).some((p) => p.examDate <= hi);
+        if (!opened) { setExamMarksLinks([]); return; }
         try {
-          const { terms } = await listTerms(orgId);
-          const current = terms.find((t) => t.isCurrent);
-          if (!current) { setExamMarksLinks([]); return; }
-          const { exams } = await listExams(orgId, current.id);
-          setExamMarksLinks(exams.map((e) => ({ id: e.id, name: e.name })));
+          const prog = await getSectionExamMarksProgress(orgId, sectionId);
+          setExamMarksLinks(
+            prog.exams.filter((e) => e.studentCount > 0 && e.studentsMarked < e.studentCount),
+          );
         } catch {
           setExamMarksLinks([]);
         }
       })
       .catch(() => { setExamsToday([]); setExamMarksLinks([]); });
-  }, [orgId, row?.classId]);
+  }, [orgId, row?.classId, sectionId]);
 
   // Today panel data — each piece independent and best-effort.
   useEffect(() => {
@@ -496,7 +495,10 @@ export function SectionOverview() {
                         to={`/school/orgs/${orgId}/admin/assessment/exams/${e.id}/marks?sectionId=${sectionId}`}
                         className="ml-2 font-semibold text-violet-700 hover:underline"
                       >
-                        {e.name.replace(/^.*?—\s*/, "") || e.name} →
+                        {e.name.replace(/^.*?—\s*/, "") || e.name}{" "}
+                        <span className="font-normal text-violet-500">
+                          {e.studentsMarked}/{e.studentCount}
+                        </span>{" "}→
                       </Link>
                     ))}
                   </span>

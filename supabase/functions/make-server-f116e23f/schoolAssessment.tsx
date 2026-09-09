@@ -544,6 +544,63 @@ export function installAssessment(school: Hono): void {
     return c.json({ ok: true });
   });
 
+  // ─── Exam marks progress ────────────────────────────────────────────
+  // How far a section's marks entry has come for each current-term exam:
+  // a student counts as marked once they have ANY score row (a mark or
+  // an absence) in that exam. Drives the Today-panel "Enter exam marks"
+  // links, which stay up until every student is marked (Muneeb, 11 Sep:
+  // "until they enter those marks", not a fixed number of days).
+  school.get("/orgs/:orgId/sections/:sectionId/exam-marks-progress", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const sectionId = c.req.param("sectionId");
+    if (!(await hasAnyOrgRole(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const { data: term } = await serviceRoleClient
+      .from("academic_term")
+      .select("id, name")
+      .eq("org_id", orgId).eq("is_current", true)
+      .is("archived_at", null)
+      .maybeSingle();
+    if (!term) return c.json({ termName: null, exams: [] });
+    const { data: exams } = await serviceRoleClient
+      .from("exam")
+      .select("id, name")
+      .eq("term_id", (term as any).id)
+      .is("archived_at", null)
+      .order("exam_date", { ascending: true });
+    const { data: students } = await serviceRoleClient
+      .from("student")
+      .select("id")
+      .eq("class_section_id", sectionId);
+    const studentIds = ((students ?? []) as any[]).map((s) => s.id);
+    const examIds = ((exams ?? []) as any[]).map((e) => e.id);
+    const markedByExam = new Map<string, Set<string>>();
+    if (studentIds.length && examIds.length) {
+      const { data: scores } = await serviceRoleClient
+        .from("exam_subject_score")
+        .select("exam_id, student_id, obtained_marks, absent")
+        .in("exam_id", examIds)
+        .in("student_id", studentIds);
+      for (const sc of ((scores ?? []) as any[])) {
+        if (sc.obtained_marks === null && sc.absent !== true) continue;
+        let set = markedByExam.get(sc.exam_id);
+        if (!set) { set = new Set(); markedByExam.set(sc.exam_id, set); }
+        set.add(sc.student_id);
+      }
+    }
+    return c.json({
+      termName: (term as any).name,
+      exams: ((exams ?? []) as any[]).map((e) => ({
+        id: e.id,
+        name: e.name,
+        studentsMarked: markedByExam.get(e.id)?.size ?? 0,
+        studentCount: studentIds.length,
+      })),
+    });
+  });
+
   // ─── Marks sheet ────────────────────────────────────────────────────
   // Returns a section's gradebook-shaped sheet for one exam: students
   // (rows) × class_subjects (columns) with the current score per cell.

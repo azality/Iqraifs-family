@@ -4849,6 +4849,16 @@ export const updateTerm = (
 export const archiveTerm = (orgId: string, termId: string): Promise<{ ok: true }> =>
   apiCall(`/school/orgs/${orgId}/terms/${termId}`, { method: "DELETE" });
 
+export interface SectionExamMarksProgress {
+  termName: string | null;
+  exams: Array<{ id: string; name: string; studentsMarked: number; studentCount: number }>;
+}
+export const getSectionExamMarksProgress = (
+  orgId: string,
+  sectionId: string,
+): Promise<SectionExamMarksProgress> =>
+  apiCall(`/school/orgs/${orgId}/sections/${sectionId}/exam-marks-progress`);
+
 export const listExams = (orgId: string, termId: string): Promise<{ exams: Exam[] }> =>
   apiCall(`/school/orgs/${orgId}/terms/${termId}/exams`);
 export const createExam = (
