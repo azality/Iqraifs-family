@@ -27,27 +27,7 @@
 
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
-import { hasAnyRoleInOrg as hasAnyOrgRole, hasAdminOrPrincipal as isAdminOrPrincipal, teachesSubjectInSection } from "./schoolAuth.ts";
-
-async function isTeacherOfSection(userId: string, sectionId: string): Promise<boolean> {
-  // Section's class teacher OR subject teacher of the section (marks
-  // entry is per subject — the specialist who teaches it must be able
-  // to enter them).
-  //
-  // NB: the old version embedded class(class_teacher_user_id) — a column
-  // that does NOT exist on class — which errored the whole select and
-  // made this return false for EVERY teacher. Latent since MarksEntry
-  // was admin-gated; surfaced the day teachers got the front door
-  // (11 Sep — the real reason orals were logged as gradebook tests).
-  const { data: sec } = await serviceRoleClient
-    .from("class_section")
-    .select("class_teacher_user_id")
-    .eq("id", sectionId).maybeSingle();
-  if (!sec) return false;
-  if ((sec as any).class_teacher_user_id === userId) return true;
-  if (await teachesSubjectInSection(userId, sectionId)) return true;
-  return false;
-}
+import { hasAnyRoleInOrg as hasAnyOrgRole, hasAdminOrPrincipal as isAdminOrPrincipal } from "./schoolAuth.ts";
 
 // Which subject columns this caller may edit in this section.
 // null = ALL (admin/principal/class teacher — they own the section);
@@ -705,13 +685,11 @@ export function installAssessment(school: Hono): void {
     const sectionId = String(body.sectionId ?? "");
     if (!sectionId) return c.json({ error: "sectionId required" }, 400);
 
-    // Auth — admin/principal OR class teacher of this section.
-    const isAdmin = await isAdminOrPrincipal(userId, orgId);
-    if (!isAdmin && !(await isTeacherOfSection(userId, sectionId))) {
-      return c.json({ error: "forbidden" }, 403);
-    }
-    // Per-subject enforcement: a subject teacher may only write the
-    // columns they teach (the sheet only shows them those anyway).
+    // Auth + per-subject enforcement in one computation: null means the
+    // caller owns the whole sheet (admin/principal/class teacher), a set
+    // means only those columns, empty means no marks entry here at all.
+    // (Was two overlapping gates — the first one carried the 42703 bug
+    // fixed in #524. One computation, one truth.)
     const editableForWrite = await editableSubjects(userId, orgId, sectionId);
     if (editableForWrite !== null && editableForWrite.size === 0) {
       return c.json({ error: "you don't teach a subject in this section" }, 403);

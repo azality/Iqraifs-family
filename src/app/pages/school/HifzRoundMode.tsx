@@ -62,6 +62,7 @@ import {
   parseNextManzilParts,
   serializeNextManzilParts,
   nextManzilAfter,
+  isRepeatRating,
   type ManzilPart,
   JUZ_STARTS,
   juzOfPosition,
@@ -546,7 +547,7 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
       if (pn.mode !== "surah") {
         // Consolidation day - the ratings run the break: weak/repeat
         // hears the para again tomorrow, good resumes the stashed sabaq.
-        if (k.quality === "weak" || k.quality === "repeat") {
+        if (isRepeatRating(k.quality)) {
           return {
             text: t("hifzRound.tomorrowManzilRepeat", {
               portion: t("hifzRound.paraRevisionLabel", { n: pn.juz }),
@@ -558,7 +559,7 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
           ? { text: serializeNextSabaq(sabaqResume.surahNumber, sabaqResume.from, sabaqResume.to), auto: true }
           : { text: t("hifzRound.tomorrowPick"), auto: true };
       }
-      if (k.quality === "weak" || k.quality === "repeat") {
+      if (isRepeatRating(k.quality)) {
         return { text: serializeNextSabaq(pn.surah, pn.from, pn.to), auto: true };
       }
       const nxt = nextSabaqAfter(pn.surah, pn.from, pn.to);
@@ -599,7 +600,7 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
       const nextJuz = (mp.juz % 30) + 1;
       return { text: t("hifzRound.tomorrowManzilAuto", { n: nextJuz }), auto: true };
     }
-    const mRepeat = k.quality === "weak" || k.quality === "repeat";
+    const mRepeat = isRepeatRating(k.quality);
     // A two-slice sitting is a sliding window: repeat keeps both slices,
     // advance moves each slice one juz forward (16 second-half + 17
     // first-half → 17 second-half + 18 first-half).
@@ -670,7 +671,7 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
             // weak/repeat. When the advance finishes a para and the
             // school keeps the para break on, tomorrow is the full-para
             // consolidation with the continuation stashed inside.
-            if (k.quality === "weak" || k.quality === "repeat") {
+            if (isRepeatRating(k.quality)) {
               input.nextTarget = serializeNextSabaq(p.surah, p.from, p.to);
             } else {
               const nxt = nextSabaqAfter(p.surah, p.from, p.to);
@@ -683,7 +684,7 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
             }
           } else {
             // Consolidation-day para-mode sabaq: mirror of tomorrowText.
-            if (k.quality === "weak" || k.quality === "repeat") {
+            if (isRepeatRating(k.quality)) {
               input.nextTarget = serializeSabaqParaRevision(p.juz, sabaqResume);
             } else if (sabaqResume) {
               input.nextTarget = serializeNextSabaq(sabaqResume.surahNumber, sabaqResume.from, sabaqResume.to);
@@ -711,7 +712,7 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
           if (ovManzil) {
             manzilTarget = serializeNextManzil(ovManzil.juz, ovManzil.extent);
           } else if (manzilTwoSlices) {
-            const mRepeat = k.quality === "weak" || k.quality === "repeat";
+            const mRepeat = isRepeatRating(k.quality);
             const parts: ManzilPart[] = [
               { juz: p.juz, extent: p.extent as AssignExtent },
               manzilPart2!,
@@ -720,7 +721,7 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
               mRepeat ? parts : parts.map((x) => ({ juz: (x.juz % 30) + 1, extent: x.extent })),
             );
           } else if (p.mode === "para" && p.extent !== "to_surah") {
-            const mRepeat = k.quality === "weak" || k.quality === "repeat";
+            const mRepeat = isRepeatRating(k.quality);
             const d = nextManzilAfter(p.juz, p.extent as AssignExtent, mRepeat);
             manzilTarget = serializeNextManzil(d.juz, d.extent);
           }

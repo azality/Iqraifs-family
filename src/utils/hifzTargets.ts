@@ -81,6 +81,14 @@ export function nextSabaqAfter(
   return { surahNumber: surahNumber + 1, from: 1, to: Math.min(len, nextMax) };
 }
 
+/** Ratings that mean "the same portion again tomorrow" — one predicate
+ *  for both vocabularies: the round's chips (weak / repeat) and the
+ *  stored qualities (needs_practice / not_learned). Keeping it here
+ *  stops the dialog and the round drifting on what counts as a repeat. */
+export function isRepeatRating(q: string | null | undefined): boolean {
+  return q === "weak" || q === "repeat" || q === "needs_practice" || q === "not_learned";
+}
+
 export function serializeNextSabaq(surahNumber: number, from: number, to: number): string {
   const s = getSurah(surahNumber);
   // Normalize a reversed range — a teacher typing "to" before "from"
