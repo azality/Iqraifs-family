@@ -624,6 +624,11 @@ school.patch("/orgs/:orgId", async (c) => {
     // pen. Blank signature lines still print when unset.
     "principal_signature_url",
     "school_stamp_url",
+    // Hifz method: when a sabaq finishes a para, the next lesson is a
+    // full-para consolidation revision before the next para starts —
+    // ratings extend or end the break (good resumes, weak repeats).
+    // Default on; false disables (Muneeb, 10 Sep).
+    "sabaq_para_break",
   ];
 
   // Load current settings so we merge rather than overwrite.

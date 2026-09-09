@@ -286,6 +286,8 @@ export const updateOrganization = (
     parent_reply_sla_days: number;
     /** Children see the class points league on their login (default on). */
     student_points_league: boolean;
+    /** Hifz: full-para revision break when a sabaq finishes a para (default on). */
+    sabaq_para_break: boolean;
     /** Teacher Track Record: pass threshold %, default 40. */
     pass_mark_pct: number;
   }>,

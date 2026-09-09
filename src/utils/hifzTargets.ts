@@ -114,6 +114,68 @@ export function parseNextSabqiPara(text: string): number | null {
   return juz >= 1 && juz <= 30 ? juz : null;
 }
 
+/** End-of-para consolidation (Muneeb, 10 Sep): when a sabaq finishes a
+ *  juz, the method pauses new lessons while the whole para is heard —
+ *  even mid-surah (juz 1 ends at Baqarah 141; the break still happens).
+ *  Returns the finished juz number, or null when the portion doesn't
+ *  end exactly at a juz boundary. */
+export function paraFinishedBySabaq(
+  surahNumber: number,
+  from: number,
+  to: number,
+): number | null {
+  void from;
+  const max = getSurah(surahNumber)?.ayahCount ?? to;
+  const end = Math.min(to, max);
+  const endJuz = juzOfPosition(surahNumber, end);
+  let nextS: number;
+  let nextA: number;
+  if (end < max) {
+    nextS = surahNumber; nextA = end + 1;
+  } else if (surahNumber < 114) {
+    nextS = surahNumber + 1; nextA = 1;
+  } else {
+    return endJuz === 30 ? 30 : null; // An-Nas finished = juz 30 done
+  }
+  return juzOfPosition(nextS, nextA) > endJuz ? endJuz : null;
+}
+
+/** "Sabaq: Revise Para 17 — then Al-Mu'minun 1–6". The continuation is
+ *  stashed inside the target so the resume point survives however many
+ *  consolidation days the ratings extend it to. */
+export function serializeSabaqParaRevision(
+  juz: number,
+  then: { surahNumber: number; from: number; to: number } | null,
+): string {
+  const tail = then
+    ? ` — then ${getSurah(then.surahNumber)?.nameTransliterated ?? then.surahNumber} ${Math.min(then.from, then.to)}–${Math.max(then.from, then.to)}`
+    : "";
+  return `Sabaq: Revise Para ${juz}${tail}`;
+}
+
+export function parseSabaqParaRevision(
+  text: string,
+): { juz: number; then: { surahNumber: number; from: number; to: number } | null } | null {
+  const m = /^Sabaq:\s*Revise\s+Para\s+(\d{1,2})(?:\s*—\s*then\s+(.+?)\s+(\d+)\s*[–-]\s*(\d+))?\s*$/i.exec(
+    text.trim(),
+  );
+  if (!m) return null;
+  const juz = Number(m[1]);
+  if (juz < 1 || juz > 30) return null;
+  let then: { surahNumber: number; from: number; to: number } | null = null;
+  if (m[2]) {
+    const surah = SURAHS.find(
+      (s) => s.nameTransliterated.toLowerCase() === m[2].toLowerCase(),
+    );
+    if (surah) {
+      const a = Number(m[3]);
+      const b = Number(m[4]);
+      then = { surahNumber: surah.number, from: Math.min(a, b), to: Math.max(a, b) };
+    }
+  }
+  return { juz, then };
+}
+
 export function serializeNextSabqiSurahs(parts: SabqiPart[]): string {
   const bits = parts
     .filter((p) => p.surah > 0)

@@ -43,6 +43,7 @@ import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { Textarea } from "../../components/ui/textarea";
 import {
+  getOrganization,
   getStudentHifz,
   postHifzEntry,
   type HifzEntryInput,
@@ -54,6 +55,9 @@ import { PARA_EXTENT_OPTIONS, juzExtentShortKey, formatJuzExtent } from "../../.
 import {
   serializeNextSabaq,
   parseNextSabaq,
+  paraFinishedBySabaq,
+  serializeSabaqParaRevision,
+  parseSabaqParaRevision,
   parseNextSabqiPara,
   parseNextManzilParts,
   serializeNextManzilParts,
@@ -254,6 +258,19 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
   // of 16 + first half of 17", Muneeb 10 Sep). Saved as its own entry;
   // null = single-para sitting like before.
   const [manzilPart2, setManzilPart2] = useState<ManzilPart | null>(null);
+  // Consolidation-day resume point: when the sabaq slot holds a full-
+  // para revision, this is where normal sabaq continues once it's rated
+  // good. Parsed out of the stored revision target.
+  const [sabaqResume, setSabaqResume] = useState<{ surahNumber: number; from: number; to: number } | null>(null);
+  // Org setting (default ON): end-of-para consolidation break. Gates
+  // only NEW derivations - already-stored revision targets are honored
+  // regardless, so flipping the setting never strands a student.
+  const [paraBreak, setParaBreak] = useState(true);
+  useEffect(() => {
+    getOrganization(orgId)
+      .then((o: any) => setParaBreak(((o?.organization?.settings as any)?.sabaq_para_break) !== false))
+      .catch(() => {});
+  }, [orgId]);
   const [nextOpen, setNextOpen] = useState<KindKey | null>(null);
   const [saving, setSaving] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
@@ -268,6 +285,7 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
     setOvSabqi(null);
     setOvManzil(null);
     setManzilPart2(null);
+    setSabaqResume(null);
     setNextOpen(null);
     setParentNote("");
     setNoteTouched(false);
@@ -287,17 +305,30 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
         // sabqi assignment hijacked the sabaq slot and the real sabaq
         // target was silently dropped (Muneeb, 9 Sep — Abdullah Rafiq
         // showed a 3-day-old 32–40 instead of the assigned 51–57).
-        const withTarget = entries.find(
-          (e) => parseNextSabaq((e.nextTarget ?? "").trim()) !== null,
-        );
-        const parsed = withTarget?.nextTarget ? parseNextSabaq(withTarget.nextTarget) : null;
+        const withTarget = entries.find((e) => {
+          const txt = (e.nextTarget ?? "").trim();
+          return parseSabaqParaRevision(txt) !== null || parseNextSabaq(txt) !== null;
+        });
+        const targetTxt = (withTarget?.nextTarget ?? "").trim();
+        // An end-of-para consolidation target opens the sabaq slot on the
+        // full-para revision; the stashed continuation resumes after a
+        // good rating.
+        const revParsed = targetTxt ? parseSabaqParaRevision(targetTxt) : null;
+        setSabaqResume(revParsed?.then ?? null);
+        if (revParsed) {
+          next.sabaq.portion = {
+            ...emptyPortion(), mode: "para", juz: revParsed.juz, extent: "full",
+            pretty: t("hifzRound.paraRevisionLabel", { n: revParsed.juz }),
+          };
+        }
+        const parsed = revParsed ? null : (targetTxt ? parseNextSabaq(targetTxt) : null);
         const lastSabaq = entries.find((e) => e.kind === "sabaq" && !e.missed);
         const sabaqPos = parsed
           ? { surah: parsed.surahNumber, from: parsed.from, to: parsed.to }
           : lastSabaq
           ? { surah: lastSabaq.surahNumber, from: lastSabaq.ayahFrom, to: lastSabaq.ayahTo }
           : null;
-        if (sabaqPos) {
+        if (!revParsed && sabaqPos) {
           next.sabaq.portion = {
             ...next.sabaq.portion,
             surah: sabaqPos.surah, from: sabaqPos.from, to: sabaqPos.to,
@@ -492,12 +523,35 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
       }
       if (k.quality === "") return null;
       const pn = k.portion;
-      if (pn.mode !== "surah") return { text: t("hifzRound.tomorrowPick"), auto: true };
+      if (pn.mode !== "surah") {
+        // Consolidation day - the ratings run the break: weak/repeat
+        // hears the para again tomorrow, good resumes the stashed sabaq.
+        if (k.quality === "weak" || k.quality === "repeat") {
+          return {
+            text: t("hifzRound.tomorrowManzilRepeat", {
+              portion: t("hifzRound.paraRevisionLabel", { n: pn.juz }),
+            }),
+            auto: true,
+          };
+        }
+        return sabaqResume
+          ? { text: serializeNextSabaq(sabaqResume.surahNumber, sabaqResume.from, sabaqResume.to), auto: true }
+          : { text: t("hifzRound.tomorrowPick"), auto: true };
+      }
       if (k.quality === "weak" || k.quality === "repeat") {
         return { text: serializeNextSabaq(pn.surah, pn.from, pn.to), auto: true };
       }
       const nxt = nextSabaqAfter(pn.surah, pn.from, pn.to);
       if (nxt) {
+        const doneJuz = paraBreak ? paraFinishedBySabaq(pn.surah, pn.from, pn.to) : null;
+        if (doneJuz) {
+          return {
+            text: `${t("hifzRound.paraRevisionLabel", { n: doneJuz })} — ${t("hifzRound.thenResume", {
+              portion: `${surahDisplayName(nxt.surahNumber, lang)} ${nxt.from}–${nxt.to}`,
+            })}`,
+            auto: true,
+          };
+        }
         return { text: serializeNextSabaq(nxt.surahNumber, nxt.from, nxt.to), auto: true };
       }
       // Only reachable after An-Nas — nothing left to assign.
@@ -589,12 +643,26 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
             // Auto-assign the next sabaq (default in Round Mode): advance
             // on excellent/good (same length; rolls into the next surah
             // at a boundary — principal's call, 7 Sep), repeat on
-            // weak/repeat.
+            // weak/repeat. When the advance finishes a para and the
+            // school keeps the para break on, tomorrow is the full-para
+            // consolidation with the continuation stashed inside.
             if (k.quality === "weak" || k.quality === "repeat") {
               input.nextTarget = serializeNextSabaq(p.surah, p.from, p.to);
             } else {
               const nxt = nextSabaqAfter(p.surah, p.from, p.to);
-              if (nxt) input.nextTarget = serializeNextSabaq(nxt.surahNumber, nxt.from, nxt.to);
+              if (nxt) {
+                const doneJuz = paraBreak ? paraFinishedBySabaq(p.surah, p.from, p.to) : null;
+                input.nextTarget = doneJuz
+                  ? serializeSabaqParaRevision(doneJuz, nxt)
+                  : serializeNextSabaq(nxt.surahNumber, nxt.from, nxt.to);
+              }
+            }
+          } else {
+            // Consolidation-day para-mode sabaq: mirror of tomorrowText.
+            if (k.quality === "weak" || k.quality === "repeat") {
+              input.nextTarget = serializeSabaqParaRevision(p.juz, sabaqResume);
+            } else if (sabaqResume) {
+              input.nextTarget = serializeNextSabaq(sabaqResume.surahNumber, sabaqResume.from, sabaqResume.to);
             }
           }
         }

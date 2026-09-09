@@ -749,6 +749,8 @@
     "saving": "Saving…"
   },
   "hifzRound": {
+    "paraRevisionLabel": "Revise Para {{n}} (full)",
+    "thenResume": "then {{portion}}",
     "addSecondPara": "second para in this sitting",
     "plusPara": "also heard:",
     "removePara": "remove",
