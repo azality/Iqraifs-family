@@ -749,6 +749,9 @@
     "saving": "محفوظ ہو رہا ہے…"
   },
   "hifzRound": {
+    "addSecondPara": "اسی نشست میں دوسرا پارہ",
+    "plusPara": "ساتھ سنا:",
+    "removePara": "ہٹائیں",
     "tomorrowManzilRepeat": "{{portion}} دوبارہ (اعادہ)",
     "tomorrowManzilNext": "{{portion}} (پارے کا اگلا حصہ)",
     "tomorrowManzilRotate": "{{portion}} (خودکار ترتیب)",
