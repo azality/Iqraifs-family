@@ -631,6 +631,9 @@
       "openLesson": "Open lesson"
   },
   "hifzTeach": {
+    "revisionDayTitle": "Consolidation day — Revise Para {{n}} (full)",
+    "revisionDayThen": "After a good rating, the sabaq resumes at {{portion}}.",
+    "paraBreakNote": "Para {{n}} finished — tomorrow will be the full-para revision first; this portion resumes after it is rated good. Edit the fields above to skip the break.",
     "extMiddleHalf": "Middle half (ruba ¼ → salasa ¾)",
     "extLastThreeQuarters": "Last three quarters (ruba ¼ → end)",
     "extShortMiddleHalf": "ruba → salasa (¼–¾)",
