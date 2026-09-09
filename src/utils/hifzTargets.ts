@@ -183,17 +183,46 @@ export function nextManzilAfter(
   return { juz: (juz % 30) + 1, extent: NEXT_JUZ_START[extent] ?? "full" };
 }
 
-/** "Manzil: Para 6 (to ¾ — salasa)" → { juz: 6, extent: "three_quarters" }.
- *  Unknown extent text falls back to "full" rather than dropping the juz. */
+/** One slice of a manzil sitting. A sitting can straddle paras —
+ *  "second half of Para 16 + first half of Para 17" (Muneeb, 10 Sep) —
+ *  so targets serialize as " + "-joined parts. */
+export interface ManzilPart {
+  juz: number;
+  extent: AssignExtent;
+}
+
+export function serializeNextManzilParts(parts: ManzilPart[]): string {
+  return `Manzil: ${parts
+    .map((p) => `Para ${p.juz} (${EXTENT_SUFFIX[p.extent]})`)
+    .join(" + ")}`;
+}
+
+/** "Manzil: Para 16 (second ½ — nisf → end) + Para 17 (first ½ — nisf)"
+ *  → both parts. Single-part strings (the pre-existing format) parse to
+ *  a one-element array. Unknown extent text falls back to "full". */
+export function parseNextManzilParts(text: string): ManzilPart[] | null {
+  const t = text.trim();
+  if (!/^Manzil:/i.test(t)) return null;
+  const segs = t.replace(/^Manzil:\s*/i, "").split(/\s*\+\s*/);
+  const out: ManzilPart[] = [];
+  for (const seg of segs) {
+    const m = /^Para\s+(\d{1,2})(?:\s*\((.+)\))?$/i.exec(seg.trim());
+    if (!m) return null;
+    const juz = Number(m[1]);
+    if (juz < 1 || juz > 30) return null;
+    const suffix = (m[2] ?? "").trim();
+    const found = (Object.entries(EXTENT_SUFFIX) as Array<[AssignExtent, string]>)
+      .find(([, s]) => s === suffix);
+    out.push({ juz, extent: found ? found[0] : "full" });
+  }
+  return out.length ? out : null;
+}
+
+/** First part of the target — kept for single-slot consumers (the Log
+ *  dialog's manzil seed). */
 export function parseNextManzil(
   text: string,
 ): { juz: number; extent: AssignExtent } | null {
-  const m = /^Manzil:\s*Para\s+(\d{1,2})(?:\s*\((.+)\))?\s*$/i.exec(text.trim());
-  if (!m) return null;
-  const juz = Number(m[1]);
-  if (juz < 1 || juz > 30) return null;
-  const suffix = (m[2] ?? "").trim();
-  const found = (Object.entries(EXTENT_SUFFIX) as Array<[AssignExtent, string]>)
-    .find(([, s]) => s === suffix);
-  return { juz, extent: found ? found[0] : "full" };
+  const parts = parseNextManzilParts(text);
+  return parts ? parts[0] : null;
 }

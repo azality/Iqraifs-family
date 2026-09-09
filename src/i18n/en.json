@@ -749,6 +749,9 @@
     "saving": "Saving…"
   },
   "hifzRound": {
+    "addSecondPara": "second para in this sitting",
+    "plusPara": "also heard:",
+    "removePara": "remove",
     "tomorrowManzilRepeat": "{{portion}} again (repeat)",
     "tomorrowManzilNext": "{{portion}} (next slice of the juz)",
     "tomorrowManzilRotate": "{{portion}} (automatic rotation)",

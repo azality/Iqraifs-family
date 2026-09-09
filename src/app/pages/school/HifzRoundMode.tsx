@@ -55,8 +55,10 @@ import {
   serializeNextSabaq,
   parseNextSabaq,
   parseNextSabqiPara,
-  parseNextManzil,
+  parseNextManzilParts,
+  serializeNextManzilParts,
   nextManzilAfter,
+  type ManzilPart,
   JUZ_STARTS,
   juzOfPosition,
   nextSabaqAfter,
@@ -248,6 +250,10 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
   const [ovSabaq, setOvSabaq] = useState<{ surah: number; from: number; to: number } | null>(null);
   const [ovSabqi, setOvSabqi] = useState<{ unit: "surah" | "para"; parts: SabqiPart[]; juz: number } | null>(null);
   const [ovManzil, setOvManzil] = useState<{ juz: number; extent: AssignExtent } | null>(null);
+  // Second manzil slice — a sitting that straddles paras ("second half
+  // of 16 + first half of 17", Muneeb 10 Sep). Saved as its own entry;
+  // null = single-para sitting like before.
+  const [manzilPart2, setManzilPart2] = useState<ManzilPart | null>(null);
   const [nextOpen, setNextOpen] = useState<KindKey | null>(null);
   const [saving, setSaving] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
@@ -261,6 +267,7 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
     setOvSabaq(null);
     setOvSabqi(null);
     setOvManzil(null);
+    setManzilPart2(null);
     setNextOpen(null);
     setParentNote("");
     setNoteTouched(false);
@@ -334,15 +341,16 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
         // manzil override ("Manzil: Para N (…)") beats the rotation,
         // consumed the same way as the sabqi one.
         const manzilTargetIdx = entries.findIndex(
-          (e) => parseNextManzil((e.nextTarget ?? "").trim()) !== null,
+          (e) => parseNextManzilParts((e.nextTarget ?? "").trim()) !== null,
         );
         const lastManzilIdx = entries.findIndex((e) => e.kind === "manzil");
         const lastManzil = lastManzilIdx >= 0 ? entries[lastManzilIdx] : null;
         if (manzilTargetIdx >= 0 && (lastManzilIdx === -1 || lastManzilIdx >= manzilTargetIdx)) {
-          const mv = parseNextManzil(entries[manzilTargetIdx].nextTarget!.trim())!;
+          const mvParts = parseNextManzilParts(entries[manzilTargetIdx].nextTarget!.trim())!;
           next.manzil.portion = {
-            ...emptyPortion(), mode: "para", juz: mv.juz, extent: mv.extent,
+            ...emptyPortion(), mode: "para", juz: mvParts[0].juz, extent: mvParts[0].extent,
           };
+          setManzilPart2(mvParts[1] ?? null);
         } else {
           const lastJuz = lastManzil?.juzNumber ?? null;
           const rotJuz = lastJuz ? (lastJuz % 30) + 1 : 1;
@@ -518,6 +526,25 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
       return { text: t("hifzRound.tomorrowManzilAuto", { n: nextJuz }), auto: true };
     }
     const mRepeat = k.quality === "weak" || k.quality === "repeat";
+    // A two-slice sitting is a sliding window: repeat keeps both slices,
+    // advance moves each slice one juz forward (16 second-half + 17
+    // first-half → 17 second-half + 18 first-half).
+    if (manzilPart2) {
+      const parts: ManzilPart[] = [
+        { juz: mp.juz, extent: mp.extent as AssignExtent },
+        manzilPart2,
+      ];
+      const nextParts = mRepeat
+        ? parts
+        : parts.map((x) => ({ juz: (x.juz % 30) + 1, extent: x.extent }));
+      const portion = nextParts
+        .map((x) => `${t("hifzTeach.juzN", { n: x.juz })}${formatJuzExtent(x.extent)}`)
+        .join(" + ");
+      return {
+        text: t(mRepeat ? "hifzRound.tomorrowManzilRepeat" : "hifzRound.tomorrowManzilRotate", { portion }),
+        auto: true,
+      };
+    }
     const d = nextManzilAfter(mp.juz, mp.extent as AssignExtent, mRepeat);
     const portion = `${t("hifzTeach.juzN", { n: d.juz })}${formatJuzExtent(d.extent)}`;
     if (mRepeat) return { text: t("hifzRound.tomorrowManzilRepeat", { portion }), auto: true };
@@ -581,18 +608,31 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
             : serializeNextSabqiSurahs(ovSabqi.parts);
           if (target) input.nextTarget = target;
         }
+        // Manzil target — mirror of tomorrowText's derivation. With a
+        // two-slice sitting the target must ride the LAST-saved manzil
+        // entry (prefill reads the newest one), so it's held back here
+        // and attached to the part-2 insert below.
+        let manzilTarget: string | undefined;
+        const manzilTwoSlices = meta.key === "manzil" && manzilPart2 !== null &&
+          p.mode === "para" && p.extent !== "to_surah";
         if (meta.key === "manzil") {
           if (ovManzil) {
-            input.nextTarget = serializeNextManzil(ovManzil.juz, ovManzil.extent);
+            manzilTarget = serializeNextManzil(ovManzil.juz, ovManzil.extent);
+          } else if (manzilTwoSlices) {
+            const mRepeat = k.quality === "weak" || k.quality === "repeat";
+            const parts: ManzilPart[] = [
+              { juz: p.juz, extent: p.extent as AssignExtent },
+              manzilPart2!,
+            ];
+            manzilTarget = serializeNextManzilParts(
+              mRepeat ? parts : parts.map((x) => ({ juz: (x.juz % 30) + 1, extent: x.extent })),
+            );
           } else if (p.mode === "para" && p.extent !== "to_surah") {
-            // Mirror of tomorrowText's manzil derivation — repeat on
-            // weak/repeat, next segment of the same juz on good/
-            // excellent, rotate only when the juz is finished. Stored
-            // so tomorrow's round (and the dialog) prefill it.
             const mRepeat = k.quality === "weak" || k.quality === "repeat";
             const d = nextManzilAfter(p.juz, p.extent as AssignExtent, mRepeat);
-            input.nextTarget = serializeNextManzil(d.juz, d.extent);
+            manzilTarget = serializeNextManzil(d.juz, d.extent);
           }
+          if (!manzilTwoSlices) input.nextTarget = manzilTarget;
         }
         if (first) {
           // Note + advanced fields ride on the first saved entry.
@@ -605,6 +645,22 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
           first = false;
         }
         await postHifzEntry(orgId, input);
+        if (manzilTwoSlices) {
+          // The second slice is its own entry; it carries the derived
+          // target so it sits on the newest manzil row for prefill.
+          const start2 = JUZ_STARTS[manzilPart2!.juz - 1];
+          await postHifzEntry(orgId, {
+            studentId: currentId,
+            surahNumber: start2.surah,
+            ayahFrom: start2.ayah,
+            ayahTo: start2.ayah,
+            kind: "manzil",
+            quality: STORED_QUALITY[k.quality],
+            juzNumber: manzilPart2!.juz,
+            juzExtent: manzilPart2!.extent,
+            nextTarget: manzilTarget,
+          });
+        }
       }
       toast.success(
         nextName
@@ -875,6 +931,52 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
                       </button>
                     </span>
                   </div>
+                  {/* Straddling sitting — a second manzil slice in another
+                      para ("second half of 16 + first half of 17"). */}
+                  {meta.key === "manzil" && (
+                    manzilPart2 ? (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <span className="text-[11px] font-semibold text-slate-500">{t("hifzRound.plusPara")}</span>
+                        <Select
+                          value={String(manzilPart2.juz)}
+                          onValueChange={(v) => setManzilPart2({ ...manzilPart2, juz: Number(v) })}
+                        >
+                          <SelectTrigger className="h-8 w-28 bg-white text-[12px]"><SelectValue /></SelectTrigger>
+                          <SelectContent className="max-h-64">
+                            {Array.from({ length: 30 }, (_, i) => i + 1).map((j) => (
+                              <SelectItem key={j} value={String(j)}>{t("hifzTeach.juzN", { n: j })}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Select
+                          value={manzilPart2.extent}
+                          onValueChange={(v) => setManzilPart2({ ...manzilPart2, extent: v as AssignExtent })}
+                        >
+                          <SelectTrigger className="h-8 w-56 bg-white text-[12px]"><SelectValue /></SelectTrigger>
+                          <SelectContent className="max-h-64">
+                            {PARA_EXTENT_OPTIONS.map((o) => (
+                              <SelectItem key={o.value} value={o.value}>{t(o.labelKey)}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <button
+                          type="button"
+                          onClick={() => setManzilPart2(null)}
+                          className="text-[11px] text-slate-400 underline hover:text-slate-600"
+                        >
+                          {t("hifzRound.removePara")}
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setManzilPart2({ juz: (k.portion.juz % 30) + 1, extent: "half" })}
+                        className="mt-1.5 text-[11px] font-semibold text-indigo-600 hover:underline"
+                      >
+                        + {t("hifzRound.addSecondPara")}
+                      </button>
+                    )
+                  )}
                   <div className="mt-1.5 hidden text-[11px] text-slate-400 sm:block">
                     {alreadyHeard ? t("hifzRound.alreadyLogged") : t(meta.noteKey)}
                   </div>
