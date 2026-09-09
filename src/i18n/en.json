@@ -749,6 +749,9 @@
     "saving": "Saving…"
   },
   "hifzRound": {
+    "tomorrowManzilRepeat": "{{portion}} again (repeat)",
+    "tomorrowManzilNext": "{{portion}} (next slice of the juz)",
+    "tomorrowManzilRotate": "{{portion}} (automatic rotation)",
     "title": "Today's round · {{label}}",
     "roundShort": "Round · {{done}}/{{total}}",
     "heardOf": "{{done}} of {{total}} heard · started {{time}}",
