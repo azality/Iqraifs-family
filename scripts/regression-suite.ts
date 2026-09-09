@@ -1167,7 +1167,7 @@ await check("31. incharge role: wing-scoped access, no org powers", async () => 
   }
 });
 
-await check("32. parent phone change: PIN login identifier follows, same PIN works", async () => {
+await check("32. parent phone change: PIN identifier AND student card follow", async () => {
   // pin_credential snapshots the phone at set time; the parents PATCH
   // must re-point it when the phone changes (pilot Sep 3) — same PIN,
   // new username, must_change untouched.
@@ -1198,6 +1198,17 @@ await check("32. parent phone change: PIN login identifier follows, same PIN wor
     assert(login.status === 200, `pin login with new phone ${login.status}`);
     const oldLogin = await pinLogin(oldPhone, "7311");
     assert(oldLogin.status !== 200, `old phone should no longer log in, got ${oldLogin.status}`);
+    // The Students list renders the denormalised student.guardian_phone,
+    // not the parent record (11 Sep: a whole class's phone load looked
+    // missing). The PATCH must sync linked students' cards too — filling
+    // empty ones and replacing ones that held the OLD number.
+    const { data: kid } = await admin.from("student_parent").select("student_id")
+      .eq("parent_id", qaParent.id).limit(1).maybeSingle();
+    assert(kid, "QA Portal Parent has no linked student");
+    const { data: stuRow } = await admin.from("student").select("guardian_phone")
+      .eq("id", kid.student_id).maybeSingle();
+    assert(stuRow?.guardian_phone === newPhone,
+      `student card did not follow the phone: ${JSON.stringify(stuRow)}`);
   } finally {
     // Restore phone (PATCH re-syncs the credential back) and re-seed the
     // canonical QA pin so later runs/checks keep their assumptions.
