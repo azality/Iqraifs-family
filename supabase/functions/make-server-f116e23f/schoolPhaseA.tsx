@@ -1786,6 +1786,14 @@ export function installPhaseA(school: Hono) {
       if (k in body) patch[col] = body[k] ?? null;
     }
     if (Object.keys(patch).length === 0) return c.json({ error: "no fields to update" }, 400);
+    // Remember the pre-update phone so the guardian_phone sync below can
+    // also replace student cards that held the OLD number.
+    let prevPhone: string | null = null;
+    if ("phone" in patch) {
+      const { data: prev } = await serviceRoleClient
+        .from("parent").select("phone").eq("id", parentId).maybeSingle();
+      prevPhone = ((prev as any)?.phone ?? "").trim() || null;
+    }
     const { data, error } = await serviceRoleClient
       .from("parent").update(patch).eq("id", parentId).eq("org_id", orgId)
       .select().single();
@@ -1807,6 +1815,37 @@ export function installPhaseA(school: Hono) {
         // Non-fatal: the profile update succeeded; surface the mismatch
         // so the operator re-issues a PIN instead of silently stranding it.
         console.error("[parents PATCH] pin_credential sync failed:", pinErr.message);
+      }
+      // The Students list shows the denormalised student.guardian_phone
+      // (admission-import column), NOT the parent record — so a phone
+      // saved on the parent never appeared there ("I already provided
+      // this earlier today so why is this not showing up", Muneeb,
+      // 11 Sep). Same follows-the-phone rule as the PIN: fill linked
+      // students' guardian_phone when it's empty or held this parent's
+      // old number. A different number typed on the student card wins.
+      try {
+        const { data: kids } = await serviceRoleClient
+          .from("student_parent")
+          .select("student_id")
+          .eq("parent_id", parentId);
+        const kidIds = ((kids ?? []) as any[]).map((k) => k.student_id);
+        if (kidIds.length) {
+          const { data: stus } = await serviceRoleClient
+            .from("student")
+            .select("id, guardian_phone")
+            .in("id", kidIds);
+          for (const st of ((stus ?? []) as any[])) {
+            const cur = (st.guardian_phone ?? "").trim();
+            if (cur === "" || (prevPhone !== null && cur === prevPhone)) {
+              await serviceRoleClient
+                .from("student")
+                .update({ guardian_phone: patch.phone })
+                .eq("id", st.id);
+            }
+          }
+        }
+      } catch (e) {
+        console.error("[parents PATCH] guardian_phone sync failed:", e);
       }
     }
     return c.json(data);
