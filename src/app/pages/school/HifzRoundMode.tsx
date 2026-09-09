@@ -54,6 +54,8 @@ import { PARA_EXTENT_OPTIONS, juzExtentShortKey } from "../../../utils/hifzExten
 import {
   serializeNextSabaq,
   parseNextSabaq,
+  parseNextSabqiPara,
+  parseNextManzil,
   JUZ_STARTS,
   juzOfPosition,
   nextSabaqAfter,
@@ -271,9 +273,15 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
         const next: Record<KindKey, KindState> = {
           sabaq: emptyKind("surah"), sabqi: emptyKind("surah"), manzil: emptyKind("para"),
         };
-        // Sabaq: standing assignment from the most recent entry that has
-        // one; else continue at the last heard sabaq.
-        const withTarget = entries.find((e) => (e.nextTarget ?? "").trim().length > 0);
+        // Sabaq: standing assignment from the most recent SABAQ target
+        // ("Sabaq: …"); else continue at the last heard sabaq. Targets
+        // are kind-prefixed — grabbing the newest of ANY kind meant a
+        // sabqi assignment hijacked the sabaq slot and the real sabaq
+        // target was silently dropped (Muneeb, 9 Sep — Abdullah Rafiq
+        // showed a 3-day-old 32–40 instead of the assigned 51–57).
+        const withTarget = entries.find(
+          (e) => parseNextSabaq((e.nextTarget ?? "").trim()) !== null,
+        );
         const parsed = withTarget?.nextTarget ? parseNextSabaq(withTarget.nextTarget) : null;
         const lastSabaq = entries.find((e) => e.kind === "sabaq" && !e.missed);
         const sabaqPos = parsed
@@ -305,16 +313,44 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
             pretty: t("hifzRound.prettySabqi", { juz: j }),
           };
         }
+        // A stored sabqi override ("Sabqi: Para N") beats the derived
+        // bridge — but only until it's consumed: a sabqi entry NEWER
+        // than the one carrying the target means the override was for
+        // a day that already happened. (Entries are newest-first, so
+        // "newer" = smaller index.)
+        const sabqiTargetIdx = entries.findIndex(
+          (e) => parseNextSabqiPara((e.nextTarget ?? "").trim()) !== null,
+        );
+        const lastSabqiIdx = entries.findIndex((e) => e.kind === "sabqi" && !e.missed);
+        if (sabqiTargetIdx >= 0 && (lastSabqiIdx === -1 || lastSabqiIdx >= sabqiTargetIdx)) {
+          const j = parseNextSabqiPara(entries[sabqiTargetIdx].nextTarget!.trim())!;
+          next.sabqi.portion = {
+            ...emptyPortion(), mode: "para", juz: j, extent: "full",
+          };
+        }
         // Manzil: the daily cycle over older memorized juz — last
-        // manzil's juz + 1, wrapping after 30. Logged per juz.
-        const lastManzil = entries.find((e) => e.kind === "manzil");
-        const lastJuz = lastManzil?.juzNumber ?? null;
-        const rotJuz = lastJuz ? (lastJuz % 30) + 1 : 1;
-        next.manzil.portion = {
-          ...next.manzil.portion,
-          juz: rotJuz,
-          pretty: lastJuz ? t("hifzRound.prettyManzil", { juz: rotJuz }) : undefined,
-        };
+        // manzil's juz + 1, wrapping after 30. Logged per juz. A stored
+        // manzil override ("Manzil: Para N (…)") beats the rotation,
+        // consumed the same way as the sabqi one.
+        const manzilTargetIdx = entries.findIndex(
+          (e) => parseNextManzil((e.nextTarget ?? "").trim()) !== null,
+        );
+        const lastManzilIdx = entries.findIndex((e) => e.kind === "manzil");
+        const lastManzil = lastManzilIdx >= 0 ? entries[lastManzilIdx] : null;
+        if (manzilTargetIdx >= 0 && (lastManzilIdx === -1 || lastManzilIdx >= manzilTargetIdx)) {
+          const mv = parseNextManzil(entries[manzilTargetIdx].nextTarget!.trim())!;
+          next.manzil.portion = {
+            ...emptyPortion(), mode: "para", juz: mv.juz, extent: mv.extent,
+          };
+        } else {
+          const lastJuz = lastManzil?.juzNumber ?? null;
+          const rotJuz = lastJuz ? (lastJuz % 30) + 1 : 1;
+          next.manzil.portion = {
+            ...next.manzil.portion,
+            juz: rotJuz,
+            pretty: lastJuz ? t("hifzRound.prettyManzil", { juz: rotJuz }) : undefined,
+          };
+        }
         setKinds(next);
         // "Yesterday: sabaq Al-Fatiha 1–7 · good" header line.
         const latest = entries.find((e) => !e.missed) ?? entries[0] ?? null;
