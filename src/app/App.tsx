@@ -1,6 +1,8 @@
 import { useEffect } from 'react';
 import { RouterProvider } from 'react-router';
+import { DirectionProvider } from '@radix-ui/react-direction';
 import { router } from './routes';
+import { getCurrentLang } from '../i18n';
 import { AuthProvider } from './contexts/AuthContext';
 import { FamilyProvider } from './contexts/FamilyContext';
 import { Toaster } from './components/ui/sonner';
@@ -148,14 +150,22 @@ function App() {
     validateKidSession();
   }, []);
 
+  // Radix primitives (RadioGroup, Select, dropdowns…) default to their
+  // own internal ltr and IGNORE <html dir> — in Urdu the page flipped
+  // but the Log-Hifz kind cards stayed left-to-right (Muneeb, 10 Sep).
+  // Language changes reload the page, so reading once at render is safe.
+  const dir = getCurrentLang() === 'ur' ? 'rtl' : 'ltr';
+
   return (
-    <AuthProvider>
-      <FamilyProvider>
-        <AuthErrorBanner />
-        <RouterProvider router={router} />
-        <Toaster />
-      </FamilyProvider>
-    </AuthProvider>
+    <DirectionProvider dir={dir}>
+      <AuthProvider>
+        <FamilyProvider>
+          <AuthErrorBanner />
+          <RouterProvider router={router} />
+          <Toaster />
+        </FamilyProvider>
+      </AuthProvider>
+    </DirectionProvider>
   );
 }
 

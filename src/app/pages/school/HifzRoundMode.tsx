@@ -49,7 +49,7 @@ import {
   type HifzQuality,
   type SectionHifzSummaryRow,
 } from "../../../utils/schoolApi";
-import { SURAHS, getSurah } from "../../../utils/quranSurahs";
+import { SURAHS, getSurah, surahDisplayName } from "../../../utils/quranSurahs";
 import { PARA_EXTENT_OPTIONS, juzExtentShortKey } from "../../../utils/hifzExtent";
 import {
   serializeNextSabaq,
@@ -116,18 +116,17 @@ const emptyKind = (mode: "surah" | "para" = "surah"): KindState => ({
   editorOpen: false,
 });
 
-function portionLabel(p: PortionState, t: TFn): string {
+function portionLabel(p: PortionState, t: TFn, lang: string): string {
   if (p.pretty) return p.pretty;
   if (p.mode === "para") {
     const juz = t("hifzTeach.juzN", { n: p.juz });
     if (p.extent === "full") return juz;
     if (p.extent === "to_surah") {
-      return `${juz} · ${t("hifzTeach.extShortToSurah", { name: getSurah(p.toSurah)?.nameTransliterated ?? p.toSurah })}`;
+      return `${juz} · ${t("hifzTeach.extShortToSurah", { name: surahDisplayName(p.toSurah, lang) })}`;
     }
     return `${juz} · ${t(juzExtentShortKey(p.extent) ?? "hifzTeach.extShortFull")}`;
   }
-  const s = getSurah(p.surah);
-  return `${s?.nameTransliterated ?? p.surah} ${p.from}–${p.to}`;
+  return `${surahDisplayName(p.surah, lang)} ${p.from}–${p.to}`;
 }
 
 function initials(name: string): string {
@@ -167,7 +166,8 @@ const SCOPE_KINDS: Record<RoundScope, KindKey[]> = {
 type HeardFlags = { sabaq: boolean; sabqi: boolean; manzil: boolean };
 
 export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: Props) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language ?? "en";
   const [queue, setQueue] = useState<string[]>(() => roster.map((r) => r.studentId));
   // What each student has already been heard for today — seeded from the
   // summary's S/Sq/M flags, updated locally on save (so scope switches
@@ -295,7 +295,7 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
             surah: sabaqPos.surah, from: sabaqPos.from, to: sabaqPos.to,
             pretty: parsed
               ? t("hifzRound.prettySabaq", {
-                  portion: `${getSurah(sabaqPos.surah)?.nameTransliterated ?? sabaqPos.surah} ${sabaqPos.from}–${sabaqPos.to}`,
+                  portion: `${surahDisplayName(sabaqPos.surah, lang)} ${sabaqPos.from}–${sabaqPos.to}`,
                 })
               : undefined,
           };
@@ -378,7 +378,7 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
               }[latest.quality] ?? latest.quality
             : null;
           setLastLine(
-            `${when}: ${kindWord} ${s?.nameTransliterated ?? latest.surahNumber} ${latest.ayahFrom}–${latest.ayahTo}` +
+            `${when}: ${kindWord} ${surahDisplayName(latest.surahNumber, lang)} ${latest.ayahFrom}–${latest.ayahTo}` +
             (qualityWord ? ` · ${qualityWord}` : ""),
           );
         }
@@ -404,7 +404,7 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
       if (!k.quality) continue;
       const label = meta.key === "sabqi" && k.portion.pretty
         ? t("hifzRound.noteSabqiPortion", { juz: k.portion.juz })
-        : portionLabel(k.portion, t);
+        : portionLabel(k.portion, t, lang);
       const mistakes = k.mistakes === 1
         ? t("hifzRound.noteMistake")
         : k.mistakes > 1
@@ -806,7 +806,7 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
                       className="min-w-0 flex-1 truncate rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-[13px] font-semibold text-slate-900 hover:border-indigo-300"
                       title={t("hifzRound.tapPortion")}
                     >
-                      {portionLabel(k.portion, t)} <span className="text-slate-400">▾</span>
+                      {portionLabel(k.portion, t, lang)} <span className="text-slate-400">▾</span>
                     </button>
                     <span className="flex w-full gap-1.5 sm:w-auto">
                       {QUALITY_CHIPS.map((q) => (
@@ -902,7 +902,7 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
                           <SelectContent className="max-h-64">
                             {SURAHS.map((sx) => (
                               <SelectItem key={sx.number} value={String(sx.number)}>
-                                {sx.number}. {sx.nameTransliterated} ({sx.ayahCount})
+                                {sx.number}. {surahDisplayName(sx, lang)} ({sx.ayahCount})
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -956,7 +956,7 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
                                     <SelectContent className="max-h-64">
                                       {SURAHS.map((sx) => (
                                         <SelectItem key={sx.number} value={String(sx.number)}>
-                                          {sx.number}. {sx.nameTransliterated}
+                                          {sx.number}. {surahDisplayName(sx, lang)}
                                         </SelectItem>
                                       ))}
                                     </SelectContent>
@@ -1068,7 +1068,7 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
                               <SelectContent className="max-h-64">
                                 {SURAHS.map((s) => (
                                   <SelectItem key={s.number} value={String(s.number)}>
-                                    {s.number}. {s.nameTransliterated} ({s.ayahCount})
+                                    {s.number}. {surahDisplayName(s, lang)} ({s.ayahCount})
                                   </SelectItem>
                                 ))}
                               </SelectContent>
@@ -1137,7 +1137,7 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
                                 <SelectContent className="max-h-64">
                                   {SURAHS.map((su) => (
                                     <SelectItem key={su.number} value={String(su.number)}>
-                                      {su.number}. {su.nameTransliterated}
+                                      {su.number}. {surahDisplayName(su, lang)}
                                     </SelectItem>
                                   ))}
                                 </SelectContent>

@@ -42,7 +42,8 @@ import {
   type HifzKind,
   type HifzQuality,
 } from "../../../utils/schoolApi";
-import { SURAHS, getSurah } from "../../../utils/quranSurahs";
+import { SURAHS, getSurah, surahDisplayName } from "../../../utils/quranSurahs";
+import { formatJuzExtent } from "../../../utils/hifzExtent";
 import { PARA_EXTENT_OPTIONS } from "../../../utils/hifzExtent";
 import {
   serializeNextSabaq,
@@ -127,7 +128,8 @@ export function HifzLogEntry({
   onNextStudent = null,
   positionLabel = null,
 }: Props) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language ?? "en";
   const [surahNumber, setSurahNumber] = useState<number>(1);
   const [ayahFrom, setAyahFrom] = useState<number | "">(1);
   const [ayahTo, setAyahTo] = useState<number | "">(1);
@@ -573,8 +575,15 @@ export function HifzLogEntry({
               // row ("An-Nur 57–51") displays healed, matching the
               // prefill under it.
               const sabaqParsed = isSabaq ? parseNextSabaq(current) : null;
+              // Parseable targets display localized (and healed): Arabic
+              // surah names + Urdu kind word in the Urdu UI, instead of
+              // the stored English serialization.
               const display = sabaqParsed
-                ? serializeNextSabaq(sabaqParsed.surahNumber, sabaqParsed.from, sabaqParsed.to)
+                ? `${t("hifzTeach.sabaq")}: ${surahDisplayName(sabaqParsed.surahNumber, lang)} ${sabaqParsed.from}–${sabaqParsed.to}`
+                : kind === "sabqi" && kindSeed.sabqi
+                ? `${t("hifzTeach.sabqi")}: ${t("hifzTeach.juzN", { n: kindSeed.sabqi.juz })}`
+                : kind === "manzil" && kindSeed.manzil?.source === "assigned"
+                ? `${t("hifzTeach.manzil")}: ${t("hifzTeach.juzN", { n: kindSeed.manzil.juz })}${formatJuzExtent(kindSeed.manzil.extent)}`
                 : current;
               const prefilled =
                 (isSabaq && sabaqParsed) ||
@@ -687,7 +696,7 @@ export function HifzLogEntry({
                     <SelectContent className="max-h-64">
                       {SURAHS.map((su) => (
                         <SelectItem key={su.number} value={String(su.number)}>
-                          {su.number}. {su.nameTransliterated}
+                          {su.number}. {surahDisplayName(su, lang)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -715,7 +724,7 @@ export function HifzLogEntry({
                     <SelectContent className="max-h-64">
                       {SURAHS.map((s) => (
                         <SelectItem key={s.number} value={String(s.number)}>
-                          {s.number}. {s.nameTransliterated} ({s.ayahCount})
+                          {s.number}. {surahDisplayName(s, lang)} ({s.ayahCount})
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -943,7 +952,7 @@ export function HifzLogEntry({
                                 <SelectContent className="max-h-64">
                                   {SURAHS.map((sx) => (
                                     <SelectItem key={sx.number} value={String(sx.number)}>
-                                      {sx.number}. {sx.nameTransliterated} ({sx.ayahCount})
+                                      {sx.number}. {surahDisplayName(sx, lang)} ({sx.ayahCount})
                                     </SelectItem>
                                   ))}
                                 </SelectContent>
@@ -1025,7 +1034,7 @@ export function HifzLogEntry({
                     <SelectContent className="max-h-64">
                       {SURAHS.map((s) => (
                         <SelectItem key={s.number} value={String(s.number)}>
-                          {s.number}. {s.nameTransliterated} ({s.ayahCount})
+                          {s.number}. {surahDisplayName(s, lang)} ({s.ayahCount})
                         </SelectItem>
                       ))}
                     </SelectContent>
