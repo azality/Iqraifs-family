@@ -631,6 +631,10 @@
       "openLesson": "Open lesson"
   },
   "hifzTeach": {
+    "extMiddleHalf": "Middle half (ruba ¼ → salasa ¾)",
+    "extLastThreeQuarters": "Last three quarters (ruba ¼ → end)",
+    "extShortMiddleHalf": "ruba → salasa (¼–¾)",
+    "extShortLastThreeQuarters": "ruba → end (¼–end)",
     "noSabqiAssigned": "No sabqi assigned last time.",
     "manzilRotationHint": "No manzil assigned last time — rotation suggests Juz {{n}} (prefilled below).",
     "noManzilYet": "No manzil logged yet.",
