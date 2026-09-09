@@ -631,6 +631,9 @@
       "openLesson": "سبق کھولیں"
   },
   "hifzTeach": {
+    "manzilSkipToday": "آج منزل چھوڑیں",
+    "manzilSkipHint": "— وجہ درج کریں؛ کل ترتیب وہی پارہ دوبارہ تجویز کرے گی",
+    "manzilSkipReasonRequired": "آج منزل چھوڑنے کی وجہ لکھیں۔",
     "revisionDayTitle": "پختگی کا دن — پارہ {{n}} کی مکمل دہرائی",
     "revisionDayThen": "اچھے درجے کے بعد سبق {{portion}} سے دوبارہ شروع ہوگا۔",
     "paraBreakNote": "پارہ {{n}} مکمل — کل پہلے پورے پارے کی دہرائی ہوگی؛ اچھے درجے کے بعد یہی حصہ دوبارہ شروع ہوگا۔ وقفہ نہ چاہیں تو اوپر کے خانے بدل دیں۔",
@@ -752,6 +755,14 @@
     "saving": "محفوظ ہو رہا ہے…"
   },
   "hifzRound": {
+    "scopeSabqi": "سماعت: صرف سبقی",
+    "scopeManzil": "سماعت: صرف منزل",
+    "manzilSkipLink": "آج منزل چھوڑیں",
+    "manzilSkipReasonPh": "آج منزل کیوں چھوڑی جا رہی ہے؟",
+    "manzilSkipConfirm": "منزل چھوڑیں",
+    "manzilSkippedChip": "آج منزل نہیں سنی گئی — {{reason}}",
+    "manzilSkipUndo": "واپس لیں",
+    "manzilSkipTomorrow": "کل پھر پارہ {{n}} (آج چھوڑی گئی)",
     "paraRevisionLabel": "پارہ {{n}} کی مکمل دہرائی",
     "thenResume": "پھر {{portion}}",
     "addSecondPara": "اسی نشست میں دوسرا پارہ",

@@ -1200,6 +1200,10 @@ export function installPortal(school: Hono): void {
       // be overridden by an even-more-recent miss / log; loop semantics
       // already guarantee we win on first match.
       if (cell.logged || cell.missed) continue;
+      // A red square means "missed SABAQ" to the family. A skipped
+      // manzil/sabqi (teacher's opt-out marker with a reason, 11 Sep)
+      // must neither claim the cell nor paint the day missed.
+      if (e.missed && e.kind !== "sabaq") continue;
       cell.logged = !e.missed;
       cell.missed = !!e.missed;
       cell.quality = e.quality ?? null;

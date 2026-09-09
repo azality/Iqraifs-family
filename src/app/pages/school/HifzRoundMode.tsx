@@ -83,7 +83,7 @@ interface Props {
 }
 
 type KindKey = "sabaq" | "sabqi" | "manzil";
-type RoundScope = "all" | "sabaq" | "revision";
+type RoundScope = "all" | "sabaq" | "revision" | "sabqi" | "manzil";
 
 // Same juz-start convention as HifzLogEntry — the stored position marker
 
@@ -168,6 +168,8 @@ const SCOPE_KINDS: Record<RoundScope, KindKey[]> = {
   all: ["sabaq", "sabqi", "manzil"],
   sabaq: ["sabaq"],
   revision: ["sabqi", "manzil"],
+  sabqi: ["sabqi"],
+  manzil: ["manzil"],
 };
 
 type HeardFlags = { sabaq: boolean; sabqi: boolean; manzil: boolean };
@@ -227,6 +229,8 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
     if (!h) return false;
     if (scope === "sabaq") return h.sabaq;
     if (scope === "revision") return h.sabqi || h.manzil;
+    if (scope === "sabqi") return h.sabqi;
+    if (scope === "manzil") return h.manzil;
     return h.sabaq || h.sabqi || h.manzil;
   };
 
@@ -262,6 +266,12 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
   // para revision, this is where normal sabaq continues once it's rated
   // good. Parsed out of the stored revision target.
   const [sabaqResume, setSabaqResume] = useState<{ surahNumber: number; from: number; to: number } | null>(null);
+  // Manzil opt-out (teacher feedback, 11 Sep): skip today's manzil for
+  // this student WITH a reason. Saves a missed-manzil marker; prefill
+  // ignores missed rows, so tomorrow re-suggests the same juz.
+  const [manzilSkipOpen, setManzilSkipOpen] = useState(false);
+  const [manzilSkipReason, setManzilSkipReason] = useState<string | null>(null);
+  const [manzilSkipDraft, setManzilSkipDraft] = useState("");
   // Org setting (default ON): end-of-para consolidation break. Gates
   // only NEW derivations - already-stored revision targets are honored
   // regardless, so flipping the setting never strands a student.
@@ -286,6 +296,9 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
     setOvManzil(null);
     setManzilPart2(null);
     setSabaqResume(null);
+    setManzilSkipOpen(false);
+    setManzilSkipReason(null);
+    setManzilSkipDraft("");
     setNextOpen(null);
     setParentNote("");
     setNoteTouched(false);
@@ -374,7 +387,7 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
         const manzilTargetIdx = entries.findIndex(
           (e) => parseNextManzilParts((e.nextTarget ?? "").trim()) !== null,
         );
-        const lastManzilIdx = entries.findIndex((e) => e.kind === "manzil");
+        const lastManzilIdx = entries.findIndex((e) => e.kind === "manzil" && !e.missed);
         const lastManzil = lastManzilIdx >= 0 ? entries[lastManzilIdx] : null;
         if (manzilTargetIdx >= 0 && (lastManzilIdx === -1 || lastManzilIdx >= manzilTargetIdx)) {
           const mvParts = parseNextManzilParts(entries[manzilTargetIdx].nextTarget!.trim())!;
@@ -514,6 +527,13 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
     // but an invisible line read as a missing feature (pilot, Sep 6).
     // Show WHERE tomorrow will appear, muted, without the change button
     // (an override on an unsaved kind would be silently dropped).
+    if (key === "manzil" && manzilSkipReason !== null) {
+      return {
+        text: t("hifzRound.manzilSkipTomorrow", { n: k.portion.juz }),
+        auto: true,
+        hint: true,
+      };
+    }
     if (k.quality === "" && !(key === "sabaq" ? ovSabaq : key === "sabqi" ? ovSabqi : ovManzil)) {
       return { text: t("hifzRound.tomorrowAfterRate"), auto: true, hint: true };
     }
@@ -611,8 +631,12 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
   const saveAndNext = async () => {
     if (!currentId || !current) return;
     const scoped = KIND_META.filter((m) => SCOPE_KINDS[scope].includes(m.key));
-    const touched = scoped.filter((m) => kinds[m.key].quality !== "");
-    if (touched.length === 0) {
+    const skipActive = manzilSkipReason !== null && scoped.some((m) => m.key === "manzil");
+    // A skipped manzil overrides any quality accidentally tapped on it.
+    const touched = scoped.filter(
+      (m) => kinds[m.key].quality !== "" && !(m.key === "manzil" && skipActive),
+    );
+    if (touched.length === 0 && !skipActive) {
       toast.error(t("hifzRound.tapQualityFirst"));
       return;
     }
@@ -730,6 +754,25 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
           });
         }
       }
+      if (skipActive) {
+        // The opt-out marker: a missed manzil entry carrying the reason.
+        // Prefill ignores missed rows, so the rotation re-suggests the
+        // same juz tomorrow, and the parent grid never paints the day
+        // red for it (server keeps red squares sabaq-only).
+        const mp = kinds.manzil.portion;
+        const para = mp.mode === "para" && mp.juz >= 1 && mp.juz <= 30;
+        const start = para ? JUZ_STARTS[mp.juz - 1] : null;
+        await postHifzEntry(orgId, {
+          studentId: currentId,
+          surahNumber: para ? start!.surah : mp.surah,
+          ayahFrom: para ? start!.ayah : 1,
+          ayahTo: para ? start!.ayah : 1,
+          kind: "manzil",
+          juzNumber: para ? mp.juz : undefined,
+          missed: true,
+          missedTargetReason: manzilSkipReason!.trim() || undefined,
+        });
+      }
       toast.success(
         nextName
           ? t("hifzRound.savedToastNext", { name: current.studentName, next: nextName })
@@ -741,7 +784,7 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
         [currentId]: {
           sabaq: m[currentId]?.sabaq || touched.some((t) => t.key === "sabaq"),
           sabqi: m[currentId]?.sabqi || touched.some((t) => t.key === "sabqi"),
-          manzil: m[currentId]?.manzil || touched.some((t) => t.key === "manzil"),
+          manzil: m[currentId]?.manzil || skipActive || touched.some((t) => t.key === "manzil"),
         },
       }));
       setCurrentOverride(null);
@@ -775,6 +818,8 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
       <option value="all">{t("hifzRound.scopeAll")}</option>
       <option value="sabaq">{t("hifzRound.scopeSabaq")}</option>
       <option value="revision">{t("hifzRound.scopeRevision")}</option>
+      <option value="sabqi">{t("hifzRound.scopeSabqi")}</option>
+      <option value="manzil">{t("hifzRound.scopeManzil")}</option>
     </select>
   );
 
@@ -999,9 +1044,60 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
                       </button>
                     </span>
                   </div>
+                  {/* Manzil opt-out with a reason (teacher feedback, 11 Sep). */}
+                  {meta.key === "manzil" && (
+                    manzilSkipReason !== null ? (
+                      <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5">
+                        <span className="text-[11.5px] font-medium text-amber-900">
+                          {t("hifzRound.manzilSkippedChip", { reason: manzilSkipReason })}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => { setManzilSkipReason(null); setManzilSkipDraft(""); }}
+                          className="text-[11px] text-amber-700 underline hover:text-amber-900"
+                        >
+                          {t("hifzRound.manzilSkipUndo")}
+                        </button>
+                      </div>
+                    ) : manzilSkipOpen ? (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <Input
+                          value={manzilSkipDraft}
+                          onChange={(e) => setManzilSkipDraft(e.target.value)}
+                          placeholder={t("hifzRound.manzilSkipReasonPh")}
+                          className="h-8 w-72 bg-white text-[12px]"
+                          maxLength={200}
+                        />
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 border-amber-300 text-amber-900"
+                          disabled={!manzilSkipDraft.trim()}
+                          onClick={() => { setManzilSkipReason(manzilSkipDraft.trim()); setManzilSkipOpen(false); }}
+                        >
+                          {t("hifzRound.manzilSkipConfirm")}
+                        </Button>
+                        <button
+                          type="button"
+                          onClick={() => { setManzilSkipOpen(false); setManzilSkipDraft(""); }}
+                          className="text-[11px] text-slate-400 underline hover:text-slate-600"
+                        >
+                          {t("common.cancel")}
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setManzilSkipOpen(true)}
+                        className="mt-1.5 mr-3 text-[11px] font-semibold text-amber-700 hover:underline"
+                      >
+                        {t("hifzRound.manzilSkipLink")}
+                      </button>
+                    )
+                  )}
                   {/* Straddling sitting — a second manzil slice in another
                       para ("second half of 16 + first half of 17"). */}
-                  {meta.key === "manzil" && (
+                  {meta.key === "manzil" && manzilSkipReason === null && (
                     manzilPart2 ? (
                       <div className="mt-2 flex flex-wrap items-center gap-2">
                         <span className="text-[11px] font-semibold text-slate-500">{t("hifzRound.plusPara")}</span>

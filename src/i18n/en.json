@@ -631,6 +631,9 @@
       "openLesson": "Open lesson"
   },
   "hifzTeach": {
+    "manzilSkipToday": "Skip manzil today",
+    "manzilSkipHint": "— record the reason; the rotation re-suggests the same juz tomorrow",
+    "manzilSkipReasonRequired": "Enter why manzil is skipped today.",
     "revisionDayTitle": "Consolidation day — Revise Para {{n}} (full)",
     "revisionDayThen": "After a good rating, the sabaq resumes at {{portion}}.",
     "paraBreakNote": "Para {{n}} finished — tomorrow will be the full-para revision first; this portion resumes after it is rated good. Edit the fields above to skip the break.",
@@ -752,6 +755,14 @@
     "saving": "Saving…"
   },
   "hifzRound": {
+    "scopeSabqi": "Hearing: sabqi only",
+    "scopeManzil": "Hearing: manzil only",
+    "manzilSkipLink": "Skip manzil today",
+    "manzilSkipReasonPh": "Why is manzil skipped today?",
+    "manzilSkipConfirm": "Skip manzil",
+    "manzilSkippedChip": "Manzil skipped today — {{reason}}",
+    "manzilSkipUndo": "undo",
+    "manzilSkipTomorrow": "Juz {{n}} again tomorrow (skipped today)",
     "paraRevisionLabel": "Revise Para {{n}} (full)",
     "thenResume": "then {{portion}}",
     "addSecondPara": "second para in this sitting",
