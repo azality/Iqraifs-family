@@ -1781,11 +1781,12 @@ export function installPortal(school: Hono): void {
       ayahFrom: number; ayahTo: number; quality: string | null;
       missed: boolean; parentAction: string | null; nextTarget: string | null;
       teacherRemarks: string | null;
+      juzNumber: number | null; juzExtent: string | null;
     } | null = null;
     {
       const { data: hifz } = await serviceRoleClient
         .from("hifz_progress")
-        .select("recorded_at, kind, surah_number, ayah_from, ayah_to, quality, missed, parent_action, next_target, teacher_remarks")
+        .select("recorded_at, kind, surah_number, ayah_from, ayah_to, quality, missed, parent_action, next_target, teacher_remarks, juz_number, juz_extent")
         .eq("student_id", studentId)
         .order("recorded_at", { ascending: false })
         .limit(20);
@@ -1802,6 +1803,12 @@ export function installPortal(school: Hono): void {
           parentAction: latest.parent_action ?? null,
           nextTarget: latest.next_target ?? null,
           teacherRemarks: latest.teacher_remarks ?? null,
+          // Para-mode entries keep the juz-start marker in surah/ayah;
+          // without these two fields the parent line rendered a para
+          // sabqi as a one-ayah recitation ("Al-Mu'minun 1–1" — Muneeb,
+          // 10 Sep). Clients show "Juz 18 — …" when juzNumber is set.
+          juzNumber: latest.juz_number ?? null,
+          juzExtent: latest.juz_extent ?? null,
         };
       }
       const lastRevision = ((hifz ?? []) as any[]).find(
