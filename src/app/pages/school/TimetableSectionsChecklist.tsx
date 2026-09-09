@@ -93,12 +93,12 @@ export function TimetableSectionsChecklist() {
   }
 
   const allItems = [
-    ...data.sections.map((s) => ({ kind: "section" as const, id: s.id, name: `${s.className ?? ""} · ${s.name}`.replace(/^ · /, ""), filled: s.filledSlots })),
-    ...data.hifzGroups.map((g) => ({ kind: "group" as const, id: g.id, name: g.name, filled: g.filledSlots })),
+    ...data.sections.map((s) => ({ kind: "section" as const, id: s.id, name: `${s.className ?? ""} · ${s.name}`.replace(/^ · /, ""), filled: s.filledSlots, expected: s.expectedSlots ?? total })),
+    ...data.hifzGroups.map((g) => ({ kind: "group" as const, id: g.id, name: g.name, filled: g.filledSlots, expected: g.expectedSlots ?? total })),
   ];
-  const completeCount = allItems.filter((i) => i.filled >= total).length;
-  const totalFilled = allItems.reduce((sum, i) => sum + Math.min(i.filled, total), 0);
-  const grandTotal = allItems.length * total;
+  const completeCount = allItems.filter((i) => i.expected > 0 && i.filled >= i.expected).length;
+  const totalFilled = allItems.reduce((sum, i) => sum + Math.min(i.filled, i.expected), 0);
+  const grandTotal = allItems.reduce((sum, i) => sum + i.expected, 0);
   const grandPct = grandTotal > 0 ? Math.round((totalFilled / grandTotal) * 100) : 0;
 
   return (
@@ -135,7 +135,7 @@ export function TimetableSectionsChecklist() {
               to={`/school/orgs/${orgId}/admin/timetable?scope=section&id=${s.id}`}
               primary={`${s.className ?? "Class"} · ${s.name}`}
               filled={s.filledSlots}
-              total={total}
+              total={s.expectedSlots ?? total}
             />
           ))}
         </section>
@@ -153,7 +153,7 @@ export function TimetableSectionsChecklist() {
               to={`/school/orgs/${orgId}/admin/timetable?scope=group&id=${g.id}`}
               primary={g.name}
               filled={g.filledSlots}
-              total={total}
+              total={g.expectedSlots ?? total}
             />
           ))}
         </section>

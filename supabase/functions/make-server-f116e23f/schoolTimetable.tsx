@@ -125,13 +125,13 @@ export function installTimetable(school: Hono): void {
     const [slotsRes, sectionsRes, groupsRes, entriesRes] = await Promise.all([
       serviceRoleClient
         .from("timetable_slot")
-        .select("id, kind")
+        .select("id, kind, schedule_key")
         .eq("org_id", orgId)
         .is("archived_at", null),
       classIds.length > 0
         ? serviceRoleClient
             .from("class_section")
-            .select("id, name, class_id")
+            .select("id, name, class_id, schedule_key")
             .in("class_id", classIds)
         : Promise.resolve({ data: [] as any[] }),
       serviceRoleClient
@@ -150,6 +150,24 @@ export function installTimetable(school: Hono): void {
     // assign teachers to Break / Prayer). Total stays in the response
     // for transparency.
     const academicSlots = slots.filter((s: any) => s.kind === "academic").length;
+    // Each section follows ONE bell schedule — its denominator must be
+    // that schedule's academic slots, not the whole school's combined
+    // list ("34 of 168", Muneeb 11 Sep: 168 was every wing's schedules
+    // summed once the wings got their own timings).
+    // "Assignable" = a teacher gets planned into it. The hifz wing's
+    // schedule uses kind 'hifz' for its teaching slots, so counting
+    // only 'academic' would give hifz sections a denominator of zero.
+    const NON_ASSIGNABLE = new Set(["assembly", "break", "prayer"]);
+    const academicBySchedule = new Map<string, number>();
+    for (const sl of slots as any[]) {
+      if (NON_ASSIGNABLE.has(sl.kind)) continue;
+      const k = sl.schedule_key ?? "default";
+      academicBySchedule.set(k, (academicBySchedule.get(k) ?? 0) + 1);
+    }
+    const expectedFor = (scheduleKey: string | null | undefined): number =>
+      academicBySchedule.get(scheduleKey ?? "default") ??
+      academicBySchedule.get("default") ??
+      academicSlots;
 
     const filledBySection = new Map<string, number>();
     const filledByGroup = new Map<string, number>();
@@ -167,11 +185,13 @@ export function installTimetable(school: Hono): void {
       classId: s.class_id ?? null,
       className: s.class_id ? classNameById.get(s.class_id) ?? null : null,
       filledSlots: filledBySection.get(s.id) ?? 0,
+      expectedSlots: expectedFor(s.schedule_key),
     }));
     const hifzGroups = (groupsRes.data ?? []).map((g: any) => ({
       id: g.id,
       name: g.name,
       filledSlots: filledByGroup.get(g.id) ?? 0,
+      expectedSlots: expectedFor(null),
     }));
 
     return c.json({ totalSlots, academicSlots, sections, hifzGroups });
