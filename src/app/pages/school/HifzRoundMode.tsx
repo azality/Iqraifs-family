@@ -56,6 +56,7 @@ import {
   parseNextSabaq,
   parseNextSabqiPara,
   parseNextManzil,
+  nextManzilAfter,
   JUZ_STARTS,
   juzOfPosition,
   nextSabaqAfter,
@@ -508,8 +509,22 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
       return { text: serializeNextManzil(ovManzil.juz, ovManzil.extent), auto: false };
     }
     if (k.quality === "") return null;
-    const nextJuz = (k.portion.juz % 30) + 1;
-    return { text: t("hifzRound.tomorrowManzilAuto", { n: nextJuz }), auto: true };
+    // Manzil follows the rating like the sabaq does (Muneeb, 10 Sep):
+    // weak/repeat repeats the same portion; good/excellent moves to the
+    // next segment of the SAME juz until it's finished, then rotates.
+    const mp = k.portion;
+    if (mp.mode !== "para" || mp.extent === "to_surah") {
+      const nextJuz = (mp.juz % 30) + 1;
+      return { text: t("hifzRound.tomorrowManzilAuto", { n: nextJuz }), auto: true };
+    }
+    const mRepeat = k.quality === "weak" || k.quality === "repeat";
+    const d = nextManzilAfter(mp.juz, mp.extent as AssignExtent, mRepeat);
+    const portion = `${t("hifzTeach.juzN", { n: d.juz })}${formatJuzExtent(d.extent)}`;
+    if (mRepeat) return { text: t("hifzRound.tomorrowManzilRepeat", { portion }), auto: true };
+    if (d.juz === mp.juz) return { text: t("hifzRound.tomorrowManzilNext", { portion }), auto: true };
+    return d.extent === "full"
+      ? { text: t("hifzRound.tomorrowManzilAuto", { n: d.juz }), auto: true }
+      : { text: t("hifzRound.tomorrowManzilRotate", { portion }), auto: true };
   };
 
   const saveAndNext = async () => {
@@ -566,8 +581,18 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
             : serializeNextSabqiSurahs(ovSabqi.parts);
           if (target) input.nextTarget = target;
         }
-        if (meta.key === "manzil" && ovManzil) {
-          input.nextTarget = serializeNextManzil(ovManzil.juz, ovManzil.extent);
+        if (meta.key === "manzil") {
+          if (ovManzil) {
+            input.nextTarget = serializeNextManzil(ovManzil.juz, ovManzil.extent);
+          } else if (p.mode === "para" && p.extent !== "to_surah") {
+            // Mirror of tomorrowText's manzil derivation — repeat on
+            // weak/repeat, next segment of the same juz on good/
+            // excellent, rotate only when the juz is finished. Stored
+            // so tomorrow's round (and the dialog) prefill it.
+            const mRepeat = k.quality === "weak" || k.quality === "repeat";
+            const d = nextManzilAfter(p.juz, p.extent as AssignExtent, mRepeat);
+            input.nextTarget = serializeNextManzil(d.juz, d.extent);
+          }
         }
         if (first) {
           // Note + advanced fields ride on the first saved entry.

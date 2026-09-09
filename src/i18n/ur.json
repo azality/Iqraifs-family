@@ -749,6 +749,9 @@
     "saving": "محفوظ ہو رہا ہے…"
   },
   "hifzRound": {
+    "tomorrowManzilRepeat": "{{portion}} دوبارہ (اعادہ)",
+    "tomorrowManzilNext": "{{portion}} (پارے کا اگلا حصہ)",
+    "tomorrowManzilRotate": "{{portion}} (خودکار ترتیب)",
     "title": "آج کا دور · {{label}}",
     "roundShort": "دور · {{done}}/{{total}}",
     "heardOf": "{{total}} میں سے {{done}} کی سماعت · آغاز {{time}}",

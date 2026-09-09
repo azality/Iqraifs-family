@@ -145,6 +145,44 @@ export function serializeNextManzil(juz: number, extent: AssignExtent): string {
   return `Manzil: Para ${juz} (${EXTENT_SUFFIX[extent]})`;
 }
 
+/** Tomorrow's manzil, following the rating like the sabaq does
+ *  (Muneeb, 10 Sep — "second quarter of Juz 24 rated repeat still
+ *  rotated to Juz 25"):
+ *
+ *    weak/repeat      → the SAME portion again.
+ *    good/excellent   → the next SEGMENT of the same juz while one
+ *                       remains (second quarter → third quarter);
+ *                       once the juz is finished, rotate to the next
+ *                       juz at the same granularity (after the last
+ *                       quarter → next juz's first quarter; after a
+ *                       full para → next juz full).
+ */
+const NEXT_SEGMENT: Partial<Record<AssignExtent, AssignExtent>> = {
+  quarter: "second_quarter",
+  second_quarter: "third_quarter",
+  third_quarter: "last_quarter",
+  half: "second_half",
+  three_quarters: "last_quarter",
+  middle_half: "last_quarter",
+};
+const NEXT_JUZ_START: Partial<Record<AssignExtent, AssignExtent>> = {
+  full: "full",
+  last_quarter: "quarter",
+  second_half: "half",
+  last_three_quarters: "quarter",
+};
+
+export function nextManzilAfter(
+  juz: number,
+  extent: AssignExtent,
+  repeat: boolean,
+): { juz: number; extent: AssignExtent } {
+  if (repeat) return { juz, extent };
+  const seg = NEXT_SEGMENT[extent];
+  if (seg) return { juz, extent: seg };
+  return { juz: (juz % 30) + 1, extent: NEXT_JUZ_START[extent] ?? "full" };
+}
+
 /** "Manzil: Para 6 (to ¾ — salasa)" → { juz: 6, extent: "three_quarters" }.
  *  Unknown extent text falls back to "full" rather than dropping the juz. */
 export function parseNextManzil(
