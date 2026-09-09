@@ -631,6 +631,8 @@
       "openLesson": "سبق کھولیں"
   },
   "hifzTeach": {
+    "startNazraRound": "ناظرہ راؤنڈ ({{n}})",
+    "startHifzRound": "حفظ راؤنڈ ({{n}})",
     "manzilSkipToday": "آج منزل چھوڑیں",
     "manzilSkipHint": "— وجہ درج کریں؛ کل ترتیب وہی پارہ دوبارہ تجویز کرے گی",
     "manzilSkipReasonRequired": "آج منزل چھوڑنے کی وجہ لکھیں۔",

@@ -631,6 +631,8 @@
       "openLesson": "Open lesson"
   },
   "hifzTeach": {
+    "startNazraRound": "Nazra round ({{n}})",
+    "startHifzRound": "Hifz round ({{n}})",
     "manzilSkipToday": "Skip manzil today",
     "manzilSkipHint": "— record the reason; the rotation re-suggests the same juz tomorrow",
     "manzilSkipReasonRequired": "Enter why manzil is skipped today.",

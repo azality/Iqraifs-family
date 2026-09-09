@@ -77,6 +77,12 @@ export function SectionHifzOverview() {
   // Round Mode (design 6a/6b): the focused screen replaces the table
   // while a round is running. The modal stays for one-off Log buttons.
   const [roundActive, setRoundActive] = useState(false);
+  // Mixed (intake) rosters run two separate sittings (Muneeb, 11 Sep):
+  // the nazra round for readers, the FULL hifz round — assignments,
+  // para break, manzil skip — for hifz/revision students. Which one the
+  // teacher started; null on non-mixed rosters and ?round=1 deep links
+  // (those keep the old combined behavior).
+  const [roundKind, setRoundKind] = useState<"nazra" | "hifz" | null>(null);
   // One-off logging for a nazra-track child in a hifz intake class:
   // the HifzLogEntry dialog has no nazra kinds, so their Log button
   // runs the per-child round screen for JUST that child instead.
@@ -203,14 +209,28 @@ export function SectionHifzOverview() {
     // A MIXED hifz roster (intake class) also takes the per-child round:
     // QuranRoundMode already picks each child's card by track — the
     // nazra loop for readers, the full trio for hifz/revision.
-    return isNazraGroup || mixedRoster ? (
+    // Mixed roster + "Start hifz round": the hifz/revision students get
+    // the same full HifzRoundMode as a pure hifz class, so every hifz
+    // feature exists in exactly one place. "Start nazra round" hears
+    // only the readers. A ?round=1 deep link (roundKind null) keeps the
+    // old combined per-child screen.
+    const useNazraRound =
+      roundQueue !== null || isNazraGroup || (mixedRoster && roundKind !== "hifz");
+    const nazraSubset =
+      mixedRoster && roundKind === "nazra"
+        ? sorted.filter((s) => s.quranTrack === "nazra")
+        : sorted;
+    const hifzSubset = mixedRoster
+      ? sorted.filter((s) => s.quranTrack === "hifz" || s.quranTrack === "revision")
+      : sorted;
+    return useNazraRound ? (
       <QuranRoundMode
         orgId={orgId}
         groupLabel={sectionLabel || "Nazra"}
-        roster={(roundQueue ?? sorted).map((r) =>
+        roster={(roundQueue ?? nazraSubset).map((r) =>
           dismissedHafiz.has(r.studentId) ? { ...r, needsHafizConfirmation: false } : r,
         )}
-        onClose={() => { setRoundActive(false); setRoundQueue(null); }}
+        onClose={() => { setRoundActive(false); setRoundQueue(null); setRoundKind(null); }}
         onSaved={() => setReloadKey((k) => k + 1)}
         onConfirmHafiz={confirmHafiz}
         onDismissHafiz={(row) => setDismissedHafiz((p) => new Set(p).add(row.studentId))}
@@ -219,8 +239,8 @@ export function SectionHifzOverview() {
       <HifzRoundMode
         orgId={orgId}
         sectionLabel={sectionLabel || t("hifzTeach.progressTitle")}
-        roster={sorted}
-        onExit={() => setRoundActive(false)}
+        roster={hifzSubset}
+        onExit={() => { setRoundActive(false); setRoundKind(null); }}
         onSaved={() => setReloadKey((k) => k + 1)}
       />
     );
@@ -504,13 +524,32 @@ export function SectionHifzOverview() {
             {/* Pilot (hifz teachers): one tap starts the daily round —
                 the dialog opens on the first student and "Save · next
                 student" walks the whole class. */}
-            {sorted.length > 0 && (
+            {sorted.length > 0 && !mixedRoster && (
               <Button
                 size="sm"
                 className="bg-emerald-600 text-white hover:bg-emerald-700"
                 onClick={() => setRoundActive(true)}
               >
                 {isNazraGroup ? "Start today's Nazra round" : t("hifzTeach.startRound")}
+              </Button>
+            )}
+            {/* Mixed (intake) roster: two sittings, one button each. */}
+            {sorted.length > 0 && mixedRoster && nazraCount > 0 && (
+              <Button
+                size="sm"
+                className="bg-emerald-600 text-white hover:bg-emerald-700"
+                onClick={() => { setRoundKind("nazra"); setRoundActive(true); }}
+              >
+                {t("hifzTeach.startNazraRound", { n: nazraCount })}
+              </Button>
+            )}
+            {sorted.length > 0 && mixedRoster && sorted.length - nazraCount > 0 && (
+              <Button
+                size="sm"
+                className="bg-emerald-700 text-white hover:bg-emerald-800"
+                onClick={() => { setRoundKind("hifz"); setRoundActive(true); }}
+              >
+                {t("hifzTeach.startHifzRound", { n: sorted.length - nazraCount })}
               </Button>
             )}
             <Link to={`/school/orgs/${orgId}/admin/classes`}>
