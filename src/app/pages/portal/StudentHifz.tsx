@@ -382,7 +382,7 @@ export function StudentHifz() {
                 cell: (r) => (
                   <span className="tabular-nums text-sm">
                     {r.juzExtent
-                      ? formatJuzExtent(r.juzExtent).replace(/^ — /, "")
+                      ? formatJuzExtent(r.juzExtent, r.juzNumber).replace(/^ — /, "")
                       : `${r.ayahFrom}–${r.ayahTo}`}
                   </span>
                 ),

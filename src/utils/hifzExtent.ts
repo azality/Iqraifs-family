@@ -53,15 +53,36 @@ export function juzExtentShortKey(extent: string): string | null {
 }
 
 /** Returns a leading " — …" suffix to append after "Juz N", or ""
- *  when absent/unknown. */
-export function formatJuzExtent(extent: string | null | undefined): string {
+ *  when absent/unknown.
+ *
+ *  Pass `juzNumber` when known: a `to_surah:<n>` whose surah falls
+ *  outside that juz is a stored default artifact (early rows saved
+ *  "up to Al-Fatiha" on Juz 18 — the picker's untouched default), and
+ *  showing it reads as nonsense, so the suffix is dropped. */
+export function formatJuzExtent(
+  extent: string | null | undefined,
+  juzNumber?: number | null,
+): string {
   if (!extent) return '';
   if (SHORT_KEY[extent]) return ` — ${i18n.t(SHORT_KEY[extent])}`;
   const m = extent.match(/^to_surah:(\d{1,3})$/);
   if (m) {
-    const su = getSurah(Number(m[1]));
+    const n = Number(m[1]);
+    if (juzNumber && juzNumber >= 1 && juzNumber <= 30) {
+      const startSurah = JUZ_START_SURAHS[juzNumber - 1];
+      const endSurah = JUZ_START_SURAHS[juzNumber] ?? 114;
+      if (n < startSurah || n > endSurah) return '';
+    }
+    const su = getSurah(n);
     const name = su ? su.nameTransliterated : `#${m[1]}`;
     return ` — ${i18n.t('hifzTeach.extShortToSurah', { name })}`;
   }
   return '';
 }
+
+// First surah of each juz (Hafs) — mirrors JUZ_STARTS in hifzTargets;
+// only the surah component is needed for the sanity check above.
+const JUZ_START_SURAHS: ReadonlyArray<number> = [
+  1, 2, 2, 3, 4, 4, 5, 6, 7, 8, 9, 11, 12, 15, 17,
+  18, 21, 23, 25, 27, 29, 33, 36, 39, 41, 46, 51, 58, 67, 78,
+];

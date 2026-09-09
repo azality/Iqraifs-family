@@ -584,6 +584,11 @@ export interface TodaySnapshot {
     parentAction: string | null;
     nextTarget: string | null;
     teacherRemarks: string | null;
+    /** Para-mode entries (sabqi/manzil by juz): surah/ayah hold only the
+     *  juz-start marker — render by juz when these are set. Absent on
+     *  old server payloads. */
+    juzNumber?: number | null;
+    juzExtent?: string | null;
   } | null;
   latestTeacherNote: { kind: "positive" | "concern"; summary: string; observedAt: string } | null;
   publishedReportCardTermName: string | null;

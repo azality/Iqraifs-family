@@ -13,6 +13,7 @@ import { Navigate, Link } from "react-router";
 import { useTranslation } from "react-i18next";
 import { ChevronRight, AlertCircle } from "lucide-react";
 import { HeroCard } from "../../components/school-ui";
+import { formatJuzExtent } from "../../../utils/hifzExtent";
 import { usePinAuth } from "../../contexts/PinAuthContext";
 import {
   getTodaySnapshot,
@@ -171,7 +172,15 @@ export function PortalHome() {
                     <span className="flex-1">{t("portal.home.hifzMissed", { when })}</span>
                   ) : (
                     <span className="flex-1">
-                      {t("portal.home.hifzLine", { when, kind: kindWord, portion: `${surah} ${lh.ayahFrom}–${lh.ayahTo}` })}
+                      {t("portal.home.hifzLine", {
+                        when,
+                        kind: kindWord,
+                        // Para-mode entries (sabqi/manzil by juz) store only
+                        // the juz-start marker in surah/ayah — show the juz.
+                        portion: lh.juzNumber
+                          ? `${t("hifzTeach.juzN", { n: lh.juzNumber })}${formatJuzExtent(lh.juzExtent, lh.juzNumber)}`
+                          : `${surah} ${lh.ayahFrom}–${lh.ayahTo}`,
+                      })}
                       {lh.quality ? <> · <strong>{qualityWord(lh.quality)}</strong></> : null}
                       {lh.parentAction ? <> — {lh.parentAction}</> : lh.teacherRemarks ? <> — {lh.teacherRemarks}</> : null}
                     </span>

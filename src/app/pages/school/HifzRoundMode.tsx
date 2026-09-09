@@ -50,7 +50,7 @@ import {
   type SectionHifzSummaryRow,
 } from "../../../utils/schoolApi";
 import { SURAHS, getSurah, surahDisplayName } from "../../../utils/quranSurahs";
-import { PARA_EXTENT_OPTIONS, juzExtentShortKey } from "../../../utils/hifzExtent";
+import { PARA_EXTENT_OPTIONS, juzExtentShortKey, formatJuzExtent } from "../../../utils/hifzExtent";
 import {
   serializeNextSabaq,
   parseNextSabaq,
@@ -377,8 +377,14 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
                 not_learned: t("hifzTeach.qNotLearned"),
               }[latest.quality] ?? latest.quality
             : null;
+          // Para-mode entries carry the juz-start marker in surah/ayah —
+          // rendering that read as a one-ayah recitation ("Sabqi
+          // Al-Mu'minun 1–1"; Muneeb, 10 Sep). Show the juz instead.
+          const portionText = latest.juzNumber
+            ? `${t("hifzTeach.juzN", { n: latest.juzNumber })}${formatJuzExtent(latest.juzExtent, latest.juzNumber)}`
+            : `${surahDisplayName(latest.surahNumber, lang)} ${latest.ayahFrom}–${latest.ayahTo}`;
           setLastLine(
-            `${when}: ${kindWord} ${surahDisplayName(latest.surahNumber, lang)} ${latest.ayahFrom}–${latest.ayahTo}` +
+            `${when}: ${kindWord} ${portionText}` +
             (qualityWord ? ` · ${qualityWord}` : ""),
           );
         }
