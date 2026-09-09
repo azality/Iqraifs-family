@@ -29,20 +29,23 @@ import {
   type MyThread, type MyThreadMessage,
 } from "../../../utils/schoolPortalApi";
 
-function relTime(iso: string): string {
+type TFn = (k: string, o?: Record<string, unknown>) => string;
+
+function relTime(iso: string, t: TFn, lang: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const mins = Math.round(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 1) return t("portal.ann.justNow");
+  if (mins < 60) return t("behavior.minsAgo", { n: mins });
   const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
+  if (hrs < 24) return t("behavior.hoursAgo", { n: hrs });
   const days = Math.round(hrs / 24);
-  if (days < 7) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString();
+  if (days < 7) return t("behavior.daysAgo", { n: days });
+  return new Date(iso).toLocaleDateString(lang.startsWith("ur") ? "ur-PK" : undefined);
 }
 
 export function ContactSchool() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language ?? "en";
   const { subject } = usePinAuth();
   const [search, setSearch] = useSearchParams();
   const activeThreadId = search.get("thread") || "";
@@ -124,15 +127,15 @@ export function ContactSchool() {
   return (
     <div className="space-y-4">
       <HeroCard
-        title="Contact school"
-        subtitle="Message the office or your child's class teacher"
+        title={t("portal.nav.contactSchool")}
+        subtitle={t("portal.contact.subtitle")}
         rightSlot={
           <Button
             size="sm"
             onClick={() => setComposeOpen(true)}
             className="bg-white/10 border border-white/20 text-white hover:bg-white/20"
           >
-            <MessageSquarePlus className="h-4 w-4 mr-1" /> New message
+            <MessageSquarePlus className="h-4 w-4 mr-1" /> {t("portal.contact.newMessage")}
           </Button>
         }
       />
@@ -156,7 +159,7 @@ export function ContactSchool() {
                 {activeThread.subject}
               </div>
               <div className="text-[11px] text-slate-500">
-                {activeThread.messageCount} message{activeThread.messageCount === 1 ? "" : "s"}
+                {t("portal.contact.msgCount", { n: activeThread.messageCount })}
               </div>
             </div>
           </div>
@@ -176,7 +179,7 @@ export function ContactSchool() {
                     )}
                     {m.body}
                     <div className={"text-[10px] mt-1 " + (mine ? "text-indigo-100" : "text-slate-500")}>
-                      {relTime(m.createdAt)}
+                      {relTime(m.createdAt, t, lang)}
                     </div>
                   </div>
                 </div>
@@ -187,7 +190,7 @@ export function ContactSchool() {
             <Textarea
               value={replyBody}
               onChange={(e) => setReplyBody(e.target.value)}
-              placeholder="Type your reply…"
+              placeholder={t("portal.contact.typeReply")}
               className="text-sm min-h-[60px]"
               maxLength={4000}
             />
@@ -204,7 +207,7 @@ export function ContactSchool() {
           ) : threads.length === 0 ? (
             <div className="p-6 text-center text-sm text-slate-500">
               <MessageSquare className="h-6 w-6 mx-auto text-slate-300 mb-2" />
-              No messages yet. Tap <strong>New message</strong> to start a conversation.
+              {t("portal.contact.emptyPrefix")} <strong>{t("portal.contact.newMessage")}</strong> {t("portal.contact.emptySuffix")}
             </div>
           ) : (
             <ul className="divide-y divide-slate-100">
@@ -227,10 +230,10 @@ export function ContactSchool() {
                         }>
                           {thr.subject}
                         </span>
-                        <span className="text-[11px] text-slate-500 shrink-0">{relTime(thr.latestAt)}</span>
+                        <span className="text-[11px] text-slate-500 shrink-0">{relTime(thr.latestAt, t, lang)}</span>
                       </div>
                       <div className="text-xs text-slate-500 truncate mt-0.5">
-                        {thr.latestSentByRole === "school" ? "School: " : "You: "}{thr.latestBody}
+                        {thr.latestSentByRole === "school" ? t("portal.contact.schoolPrefix") : t("portal.contact.youPrefix")}{thr.latestBody}
                       </div>
                     </div>
                     {thr.unreadCount > 0 && (
@@ -248,20 +251,20 @@ export function ContactSchool() {
 
       <Dialog open={composeOpen} onOpenChange={setComposeOpen}>
         <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>New message to the school</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{t("portal.contact.dialogTitle")}</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div>
-              <Label className="text-xs">Subject</Label>
+              <Label className="text-xs">{t("portal.contact.subjectLabel")}</Label>
               <Input value={composeSubject} onChange={(e) => setComposeSubject(e.target.value)}
-                placeholder="Late tomorrow, fee receipt, ..." maxLength={200} className="text-sm" />
+                placeholder={t("portal.contact.subjectPh")} maxLength={200} className="text-sm" />
             </div>
             {subject?.students && subject.students.length > 0 && (
               <div>
-                <Label className="text-xs">About which child? (optional)</Label>
+                <Label className="text-xs">{t("portal.contact.aboutChild")}</Label>
                 <Select value={composeStudentId || "__none__"} onValueChange={(v) => setComposeStudentId(v === "__none__" ? "" : v)}>
-                  <SelectTrigger className="text-sm"><SelectValue placeholder="— General enquiry —" /></SelectTrigger>
+                  <SelectTrigger className="text-sm"><SelectValue placeholder={t("portal.contact.generalEnquiry")} /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="__none__">— General enquiry —</SelectItem>
+                    <SelectItem value="__none__">{t("portal.contact.generalEnquiry")}</SelectItem>
                     {subject.students.map((s) => (
                       <SelectItem key={s.id} value={s.id}>{s.fullName}</SelectItem>
                     ))}
@@ -270,16 +273,16 @@ export function ContactSchool() {
               </div>
             )}
             <div>
-              <Label className="text-xs">Message</Label>
+              <Label className="text-xs">{t("portal.contact.messageLabel")}</Label>
               <Textarea value={composeBody} onChange={(e) => setComposeBody(e.target.value)}
-                placeholder="Type your message…" maxLength={4000}
+                placeholder={t("portal.contact.typeMessage")} maxLength={4000}
                 className="text-sm min-h-[120px]" />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setComposeOpen(false)} disabled={sending}>Cancel</Button>
+            <Button variant="outline" onClick={() => setComposeOpen(false)} disabled={sending}>{t("common.cancel")}</Button>
             <Button onClick={handleSendNew} disabled={sending || !composeSubject.trim() || !composeBody.trim()}>
-              <Send className="h-4 w-4 mr-1" /> {sending ? "Sending…" : "Send"}
+              <Send className="h-4 w-4 mr-1" /> {sending ? t("portal.contact.sending") : t("portal.contact.send")}
             </Button>
           </DialogFooter>
         </DialogContent>

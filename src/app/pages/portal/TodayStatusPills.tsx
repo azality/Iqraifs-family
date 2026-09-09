@@ -5,6 +5,7 @@
 // Same data source (TodaySnapshot). Each pill links to its detail page
 // so parents can drill in with one tap.
 
+import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 import {
   CheckCircle2, XCircle, Clock, Wallet, BookOpen, Award,
@@ -20,11 +21,11 @@ interface Props {
   variant: "compact" | "expanded";
 }
 
-const ATT_LABEL: Record<string, { text: string; tone: string; icon: any }> = {
-  present: { text: "Present today", tone: "emerald", icon: CheckCircle2 },
-  late:    { text: "Late today",    tone: "amber",   icon: Clock },
-  absent:  { text: "Absent today",  tone: "rose",    icon: XCircle },
-  excused: { text: "Excused today", tone: "slate",   icon: CheckCircle2 },
+const ATT_LABEL: Record<string, { textKey: string; tone: string; icon: any }> = {
+  present: { textKey: "portal.today.attPresent", tone: "emerald", icon: CheckCircle2 },
+  late:    { textKey: "portal.today.attLate",    tone: "amber",   icon: Clock },
+  absent:  { textKey: "portal.today.attAbsent",  tone: "rose",    icon: XCircle },
+  excused: { textKey: "portal.today.attExcused", tone: "slate",   icon: CheckCircle2 },
 };
 
 function toneClasses(tone: string, variant: "compact" | "expanded") {
@@ -76,6 +77,8 @@ function fmtPkr(n: number): string {
 }
 
 export function TodayStatusPills({ studentId, snapshot, variant }: Props) {
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language ?? "en";
   const base = `/school-portal/students/${studentId}`;
   const att = snapshot.attendanceToday;
   const items: Array<{
@@ -88,18 +91,23 @@ export function TodayStatusPills({ studentId, snapshot, variant }: Props) {
     if (lbl) {
       items.push({
         tone: lbl.tone, icon: lbl.icon,
-        title: lbl.text,
+        title: t(lbl.textKey),
         detail: att.takenAt
-          ? `Marked at ${new Date(att.takenAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
-          : "Today",
+          ? t("portal.today.markedAt", {
+              time: new Date(att.takenAt).toLocaleTimeString(
+                lang.startsWith("ur") ? "ur-PK" : [],
+                { hour: "2-digit", minute: "2-digit" },
+              ),
+            })
+          : t("portal.today.today"),
         to: `${base}/attendance`,
       });
     }
   } else {
     items.push({
       tone: "slate", icon: Clock,
-      title: "Attendance not taken yet",
-      detail: "School hasn't marked the roll yet",
+      title: t("portal.today.attNotTaken"),
+      detail: t("portal.today.attNotTakenDetail"),
       to: `${base}/attendance`,
     });
   }
@@ -109,8 +117,8 @@ export function TodayStatusPills({ studentId, snapshot, variant }: Props) {
     const due = snapshot.homeworkPending.soonestDueDate;
     items.push({
       tone: "amber", icon: BookOpen,
-      title: `${snapshot.homeworkPending.count} homework pending`,
-      detail: due ? `Next due ${due}` : "Open homework",
+      title: t("portal.today.homeworkPending", { n: snapshot.homeworkPending.count }),
+      detail: due ? t("portal.today.nextDue", { date: due }) : t("portal.today.openHomework"),
       to: `${base}/grades`,
     });
   }
@@ -119,15 +127,15 @@ export function TodayStatusPills({ studentId, snapshot, variant }: Props) {
   if (snapshot.feesDueNow) {
     items.push({
       tone: "rose", icon: Wallet,
-      title: `Fee due: ${fmtPkr(snapshot.feesDueNow.amount)}`,
-      detail: snapshot.feesDueNow.periodLabel || "View invoice",
+      title: t("portal.today.feeDue", { amount: fmtPkr(snapshot.feesDueNow.amount) }),
+      detail: snapshot.feesDueNow.periodLabel || t("portal.today.viewInvoice"),
       to: `${base}/fees`,
     });
   } else if (variant === "expanded") {
     items.push({
       tone: "emerald", icon: Wallet,
-      title: "Fees up to date",
-      detail: "Nothing due right now",
+      title: t("portal.today.feesUpToDate"),
+      detail: t("portal.today.nothingDue"),
       to: `${base}/fees`,
     });
   }
@@ -136,8 +144,8 @@ export function TodayStatusPills({ studentId, snapshot, variant }: Props) {
   if (snapshot.hifzRevisionNeeded) {
     items.push({
       tone: "amber", icon: Award,
-      title: "Hifz revision needed",
-      detail: `Last revision ${snapshot.hifzRevisionNeeded.daysSince} day${snapshot.hifzRevisionNeeded.daysSince === 1 ? "" : "s"} ago`,
+      title: t("portal.today.hifzRevisionNeeded"),
+      detail: t("portal.today.lastRevision", { n: snapshot.hifzRevisionNeeded.daysSince }),
       to: `${base}/hifz`,
     });
   }
@@ -152,8 +160,8 @@ export function TodayStatusPills({ studentId, snapshot, variant }: Props) {
   if (snapshot.publishedReportCardTermName) {
     items.push({
       tone: "indigo", icon: FileText,
-      title: `${snapshot.publishedReportCardTermName} report card`,
-      detail: "Published — tap to view",
+      title: t("portal.today.reportCard", { term: snapshot.publishedReportCardTermName }),
+      detail: t("portal.today.publishedTap"),
       to: `${base}/report-card`,
     });
   }
@@ -164,8 +172,8 @@ export function TodayStatusPills({ studentId, snapshot, variant }: Props) {
     items.push({
       tone: isPositive ? "emerald" : "amber",
       icon: isPositive ? MessageSquare : AlertCircle,
-      title: isPositive ? "Teacher praise" : "Teacher concern",
-      detail: snapshot.latestTeacherNote.summary || "View note",
+      title: isPositive ? t("portal.today.teacherPraise") : t("portal.today.teacherConcern"),
+      detail: snapshot.latestTeacherNote.summary || t("portal.today.viewNote"),
       to: `${base}/behavior`,
     });
   }

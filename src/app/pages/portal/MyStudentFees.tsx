@@ -1,6 +1,7 @@
 // MyStudentFees — parent-facing read-only fee history for a single student.
 
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useParams } from "react-router";
 import { Wallet, CheckCircle2, AlertCircle, Clock } from "lucide-react";
 import {
@@ -25,17 +26,27 @@ const STATUS_BADGE: Record<Status, string> = {
   waived: "bg-slate-100 text-slate-700 border-slate-200",
 };
 
+const STATUS_LABEL_KEY: Record<Status, string> = {
+  paid: "portal.fees.stPaid",
+  pending: "portal.fees.stPending",
+  partial: "portal.fees.stPartial",
+  overdue: "portal.fees.stOverdue",
+  waived: "portal.fees.stWaived",
+};
+
 function FeeStatusPill({ status }: { status: Status }) {
+  const { t } = useTranslation();
   return (
     <span
       className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium border ${STATUS_BADGE[status]}`}
     >
-      {status[0].toUpperCase() + status.slice(1)}
+      {t(STATUS_LABEL_KEY[status])}
     </span>
   );
 }
 
 export function MyStudentFees() {
+  const { t } = useTranslation();
   const { studentId = "" } = useParams<{ studentId: string }>();
   const { subject } = usePinAuth();
   const [fees, setFees] = useState<FeeStatus[] | null>(null);
@@ -81,19 +92,19 @@ export function MyStudentFees() {
   const columns: Array<DataTableColumn<FeeStatus>> = [
     {
       key: "period",
-      header: "Period",
+      header: t("portal.fees.colPeriod"),
       width: "w-28",
       cell: (f) => <span className="font-mono text-xs">{f.period}</span>,
     },
     {
       key: "status",
-      header: "Status",
+      header: t("portal.fees.colStatus"),
       width: "w-24",
       cell: (f) => <FeeStatusPill status={f.status} />,
     },
     {
       key: "due",
-      header: "Amount due",
+      header: t("portal.fees.colDue"),
       align: "right",
       cell: (f) => (
         <span className="tabular-nums">
@@ -103,7 +114,7 @@ export function MyStudentFees() {
     },
     {
       key: "paid",
-      header: "Amount paid",
+      header: t("portal.fees.colPaid"),
       align: "right",
       cell: (f) => (
         <span className="tabular-nums">
@@ -113,7 +124,7 @@ export function MyStudentFees() {
     },
     {
       key: "dueDate",
-      header: "Due date",
+      header: t("portal.fees.colDueDate"),
       cell: (f) => (
         <span className="text-xs text-slate-600 tabular-nums">
           {f.due_date ?? "—"}
@@ -122,7 +133,7 @@ export function MyStudentFees() {
     },
     {
       key: "receipt",
-      header: "Receipt",
+      header: t("portal.fees.colReceipt"),
       cell: (f) =>
         f.receipt_url ? (
           <a
@@ -131,7 +142,7 @@ export function MyStudentFees() {
             rel="noreferrer"
             className="text-indigo-600 text-xs underline"
           >
-            View
+            {t("portal.fees.view")}
           </a>
         ) : (
           <span className="text-xs text-slate-400">—</span>
@@ -143,7 +154,7 @@ export function MyStudentFees() {
     <div className="space-y-5">
       <HeroCard
         eyebrow={student ? `GR# ${student.grNumber}` : undefined}
-        title={student ? `${student.fullName} – Fees` : "Fees"}
+        title={student ? `${student.fullName} – ${t("portal.fees.title")}` : t("portal.fees.title")}
       />
 
       {error && (
@@ -155,31 +166,31 @@ export function MyStudentFees() {
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <KpiTile
           variant="light"
-          label="Paid"
+          label={t("portal.fees.stPaid")}
           icon={CheckCircle2}
           value={summary.paid}
-          hint="periods"
+          hint={t("portal.fees.hintPeriods")}
         />
         <KpiTile
           variant="light"
-          label="Unpaid"
+          label={t("portal.fees.unpaid")}
           icon={AlertCircle}
           value={summary.unpaid}
-          hint="periods"
+          hint={t("portal.fees.hintPeriods")}
         />
         <KpiTile
           variant="light"
-          label="Total due"
+          label={t("portal.fees.totalDue")}
           icon={Wallet}
           value={`Rs. ${summary.totalDue.toLocaleString("en-PK")}`}
-          hint="across all periods"
+          hint={t("portal.fees.hintAllPeriods")}
         />
         <KpiTile
           variant="light"
-          label="Total paid"
+          label={t("portal.fees.totalPaid")}
           icon={Clock}
           value={`Rs. ${summary.totalPaid.toLocaleString("en-PK")}`}
-          hint="across all periods"
+          hint={t("portal.fees.hintAllPeriods")}
         />
       </div>
 
@@ -187,7 +198,7 @@ export function MyStudentFees() {
         columns={columns}
         rows={fees ?? []}
         rowKey={(f) => f.id}
-        emptyMessage={fees === null ? "Loading…" : "No fee records."}
+        emptyMessage={fees === null ? t("common.loading") : t("portal.fees.noRecords")}
       />
     </div>
   );

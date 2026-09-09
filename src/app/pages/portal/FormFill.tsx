@@ -47,16 +47,20 @@ function deadlinePassed(deadline: string | null): boolean {
   return !Number.isNaN(d) && d < Date.now();
 }
 
-function deadlineLabel(deadline: string | null): string | null {
+type TFn = (k: string, o?: Record<string, unknown>) => string;
+
+function deadlineLabel(deadline: string | null, t: TFn, lang: string): string | null {
   if (!deadline) return null;
   const d = new Date(deadline).getTime();
   if (Number.isNaN(d)) return null;
-  if (d < Date.now()) return "Closed";
-  return `Due ${new Date(deadline).toLocaleString()}`;
+  if (d < Date.now()) return t("portal.formFill.closed");
+  return t("portal.formFill.due", {
+    date: new Date(deadline).toLocaleString(lang.startsWith("ur") ? "ur-PK" : undefined),
+  });
 }
 
 export function FormFill() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { formId = "" } = useParams<{ formId: string }>();
   const { subject } = usePinAuth();
   const navigate = useNavigate();
@@ -146,14 +150,14 @@ export function FormFill() {
           to="/school-portal/forms"
           className="inline-flex items-center gap-1 text-sm text-indigo-700 hover:underline"
         >
-          <ArrowLeft className="h-4 w-4" /> Back to forms
+          <ArrowLeft className="h-4 w-4" /> {t("portal.formFill.backToForms")}
         </Link>
       </div>
     );
   }
 
   if (!form) {
-    return <div className="text-slate-500 text-sm">Loading…</div>;
+    return <div className="text-slate-500 text-sm">{t("common.loading")}</div>;
   }
 
   const closed = form.status !== "published" || deadlinePassed(form.deadline);
@@ -164,11 +168,11 @@ export function FormFill() {
 
   const validate = (): string | null => {
     if (eligibleStudents.length > 0 && !selectedStudentId) {
-      return "Please pick which child this is about.";
+      return t("portal.formFill.pickChild");
     }
     for (const f of fields) {
       if (f.required && isEmpty(f.kind, values[f.id] ?? emptyFor(f.kind))) {
-        return `Please fill in: ${f.label}`;
+        return t("portal.formFill.fillIn", { label: f.label });
       }
     }
     return null;
@@ -216,9 +220,9 @@ export function FormFill() {
         title={form.title}
         subtitle={form.description ?? undefined}
         rightSlot={
-          deadlineLabel(form.deadline) ? (
+          deadlineLabel(form.deadline, t, i18n.language ?? "en") ? (
             <span className="inline-flex items-center rounded-full bg-white/10 text-white border border-white/20 text-xs px-2.5 py-1">
-              {deadlineLabel(form.deadline)}
+              {deadlineLabel(form.deadline, t, i18n.language ?? "en")}
             </span>
           ) : undefined
         }
@@ -229,22 +233,22 @@ export function FormFill() {
           to="/school-portal/forms"
           className="inline-flex items-center gap-1 text-sm text-indigo-700 hover:underline"
         >
-          <ArrowLeft className="h-4 w-4" /> Back to forms
+          <ArrowLeft className="h-4 w-4" /> {t("portal.formFill.backToForms")}
         </Link>
       </div>
 
       {alreadyDone && (
         <div className={`${cardBase} ${cardElev} p-6 text-sm text-slate-700`}>
-          You&rsquo;ve already responded to this form. Thanks!{" "}
+          {t("portal.formFill.alreadyDone")}{" "}
           <Link to="/school-portal/forms" className="text-indigo-700 hover:underline">
-            Back to forms
+            {t("portal.formFill.backToForms")}
           </Link>
         </div>
       )}
 
       {!alreadyDone && closed && (
         <div className={`${cardBase} ${cardElev} p-6 text-sm text-slate-700`}>
-          This form is closed and no longer accepting responses.
+          {t("portal.formFill.closedBanner")}
         </div>
       )}
 
@@ -252,7 +256,7 @@ export function FormFill() {
         <form onSubmit={handleSubmit} className="space-y-5">
           {eligibleStudents.length > 1 && (
             <section className={`${cardBase} ${cardElev} p-5`}>
-              <h2 className={sectionTitleClasses}>Which child is this about?</h2>
+              <h2 className={sectionTitleClasses}>{t("portal.formFill.whichChild")}</h2>
               <div className="mt-3 grid sm:grid-cols-2 gap-2">
                 {eligibleStudents.map((s) => {
                   const active = selectedStudentId === s.id;
@@ -279,7 +283,7 @@ export function FormFill() {
 
           <section className={`${cardBase} ${cardElev} p-5 space-y-5`}>
             {fields.length === 0 && (
-              <p className="text-sm text-slate-500">This form has no fields.</p>
+              <p className="text-sm text-slate-500">{t("portal.formFill.noFields")}</p>
             )}
             {fields.map((field) => {
               const v = values[field.id] ?? emptyFor(field.kind);
@@ -388,7 +392,7 @@ export function FormFill() {
                     <p className="text-xs text-slate-500">{field.helpText}</p>
                   )}
                   {showError && (
-                    <p className="text-xs text-rose-600">This field is required.</p>
+                    <p className="text-xs text-rose-600">{t("portal.formFill.fieldRequired")}</p>
                   )}
                 </div>
               );
@@ -403,7 +407,7 @@ export function FormFill() {
               Cancel
             </Link>
             <Button type="submit" disabled={submitting}>
-              {submitting ? "Submitting…" : "Submit"}
+              {submitting ? t("portal.formFill.submitting") : t("portal.formFill.submit")}
             </Button>
           </div>
         </form>

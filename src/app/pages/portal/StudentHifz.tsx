@@ -345,7 +345,7 @@ export function StudentHifz() {
           <DataTable<HifzEntry>
             rows={data.entries}
             rowKey={(r) => r.id}
-            emptyMessage="No hifz entries yet."
+            emptyMessage={t("portal.hifz.noEntries")}
             columns={[
               {
                 key: "recordedAt",

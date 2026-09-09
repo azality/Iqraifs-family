@@ -4,6 +4,7 @@
 // /school-portal/forms/:formId where the parent can fill or review it.
 
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 import { Mailbox } from "lucide-react";
 import { HeroCard, cardBase, cardElev } from "../../components/school-ui";
@@ -35,39 +36,48 @@ function statusBadgeClasses(status: DerivedStatus): string {
   }
 }
 
-function statusLabel(status: DerivedStatus): string {
-  if (status === "submitted") return "Submitted";
-  if (status === "expired") return "Closed";
-  return "Not submitted";
+function statusLabelKey(status: DerivedStatus): string {
+  if (status === "submitted") return "portal.forms.stSubmitted";
+  if (status === "expired") return "portal.forms.stClosed";
+  return "portal.forms.stNotSubmitted";
 }
 
-function deadlineLabel(deadline: string | null): string | null {
+// Deadline as a structured hint so the label can be translated at render
+// time; `tone` drives the color (urgent = closing today/tomorrow).
+type DeadlineHint = { key: string; opts?: Record<string, unknown>; tone: "closed" | "urgent" | "normal" };
+
+function deadlineHint(deadline: string | null, lang: string): DeadlineHint | null {
   if (!deadline) return null;
   const d = new Date(deadline).getTime();
   if (Number.isNaN(d)) return null;
   const diffMs = d - Date.now();
-  if (diffMs < 0) return "Closed";
+  if (diffMs < 0) return { key: "portal.forms.stClosed", tone: "closed" };
   const days = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-  if (days <= 0) return "Closes today";
-  if (days === 1) return "Closes tomorrow";
-  if (days <= 7) return `Closes in ${days} days`;
-  return `Closes ${new Date(deadline).toLocaleDateString()}`;
+  if (days <= 0) return { key: "portal.forms.closesToday", tone: "urgent" };
+  if (days === 1) return { key: "portal.forms.closesTomorrow", tone: "urgent" };
+  if (days <= 7) return { key: "portal.forms.closesInDays", opts: { n: days }, tone: "normal" };
+  return {
+    key: "portal.forms.closesOn",
+    opts: { date: new Date(deadline).toLocaleDateString(lang.startsWith("ur") ? "ur-PK" : undefined) },
+    tone: "normal",
+  };
 }
 
-function audienceHint(form: MyFormSummary["form"]): string {
+function audienceHintKey(form: MyFormSummary["form"]): string | null {
   switch (form.audienceKind) {
     case "whole_school":
-      return "Whole school";
+      return "portal.forms.audWholeSchool";
     case "class_section":
-      return "Class / section";
+      return "portal.forms.audClassSection";
     case "specific_students":
-      return "Specific students";
+      return "portal.forms.audSpecificStudents";
     default:
-      return "";
+      return null;
   }
 }
 
 export function MyForms() {
+  const { t, i18n } = useTranslation();
   const { subject } = usePinAuth();
   const orgId = subject?.orgId ?? "";
   const [items, setItems] = useState<MyFormSummary[] | null>(null);
@@ -99,11 +109,11 @@ export function MyForms() {
   const rightSlot = items ? (
     unansweredCount > 0 ? (
       <span className="inline-flex items-center rounded-full bg-indigo-100 text-indigo-700 text-xs font-medium px-2.5 py-1">
-        {unansweredCount} unanswered
+        {t("portal.forms.unanswered", { n: unansweredCount })}
       </span>
     ) : (
       <span className="inline-flex items-center rounded-full bg-emerald-100 text-emerald-700 text-xs font-medium px-2.5 py-1">
-        All caught up
+        {t("portal.forms.allCaughtUp")}
       </span>
     )
   ) : undefined;
@@ -111,8 +121,8 @@ export function MyForms() {
   return (
     <div className="space-y-5">
       <HeroCard
-        title="Forms"
-        subtitle="Surveys, consent forms, and other requests from your school."
+        title={t("portal.forms.title")}
+        subtitle={t("portal.forms.subtitle")}
         rightSlot={rightSlot}
       />
 
@@ -139,9 +149,9 @@ export function MyForms() {
           className={`${cardBase} ${cardElev} p-10 flex flex-col items-center text-center`}
         >
           <Mailbox className="h-10 w-10 text-slate-400 mb-3" />
-          <div className="text-slate-700 font-medium">No forms right now</div>
+          <div className="text-slate-700 font-medium">{t("portal.forms.emptyTitle")}</div>
           <div className="text-slate-500 text-sm mt-1">
-            When your school sends a form, it will show up here.
+            {t("portal.forms.emptyBody")}
           </div>
         </div>
       )}
@@ -150,7 +160,8 @@ export function MyForms() {
         <div className="space-y-3">
           {items.map((item) => {
             const status = deriveStatus(item);
-            const deadline = deadlineLabel(item.form.deadline);
+            const deadline = deadlineHint(item.form.deadline, i18n.language ?? "en");
+            const audKey = audienceHintKey(item.form);
             return (
               <Link
                 key={item.form.id}
@@ -173,25 +184,25 @@ export function MyForms() {
                       status,
                     )}`}
                   >
-                    {statusLabel(status)}
+                    {t(statusLabelKey(status))}
                   </span>
                 </div>
                 <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                   {deadline && (
                     <span
                       className={
-                        deadline === "Closed"
+                        deadline.tone === "closed"
                           ? "text-slate-500"
-                          : deadline === "Closes today" || deadline === "Closes tomorrow"
+                          : deadline.tone === "urgent"
                             ? "text-amber-700 font-medium"
                             : "text-slate-600"
                       }
                     >
-                      {deadline}
+                      {t(deadline.key, deadline.opts)}
                     </span>
                   )}
                   <span className="text-slate-400">·</span>
-                  <span className="text-slate-500">{audienceHint(item.form)}</span>
+                  <span className="text-slate-500">{audKey ? t(audKey) : ""}</span>
                 </div>
               </Link>
             );

@@ -3,6 +3,7 @@
 // shows the same TermReportCardResponse shape the admin sees (read-only).
 
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useParams, useSearchParams } from "react-router";
 import { Printer, FileText, Award, BookOpen, Calendar, TrendingUp } from "lucide-react";
 import { HeroCard } from "../../components/school-ui";
@@ -18,6 +19,7 @@ function fmtPct(n: number | null): string {
 }
 
 export function StudentTermReportCard() {
+  const { t } = useTranslation();
   const { studentId = "" } = useParams<{ studentId: string }>();
   const [search, setSearch] = useSearchParams();
   const termId = search.get("term") || "";
@@ -55,14 +57,14 @@ export function StudentTermReportCard() {
       });
   }, [studentId, termId]);
 
-  if (loading) return <div className="text-sm text-slate-500">Loading…</div>;
+  if (loading) return <div className="text-sm text-slate-500">{t("common.loading")}</div>;
   if (cards.length === 0) {
     return (
       <div className="space-y-5">
-        <HeroCard title="Report cards" subtitle="Published per term" />
+        <HeroCard title={t("portal.rc.title")} subtitle={t("portal.rc.subtitle")} />
         <div className="bg-white border border-slate-200 rounded-xl p-6 text-center text-sm text-slate-500 italic">
           <FileText className="h-6 w-6 mx-auto text-slate-300 mb-2" />
-          No report cards have been published yet. They'll appear here at the end of each term.
+          {t("portal.rc.empty")}
         </div>
       </div>
     );
@@ -78,8 +80,8 @@ export function StudentTermReportCard() {
       `}</style>
 
       <HeroCard
-        title="Report cards"
-        subtitle="Published per term"
+        title={t("portal.rc.title")}
+        subtitle={t("portal.rc.subtitle")}
         rightSlot={
           <div className="flex items-center gap-2 no-print">
             <select
@@ -99,7 +101,7 @@ export function StudentTermReportCard() {
               onClick={() => window.print()}
               disabled={!card}
             >
-              <Printer className="h-3.5 w-3.5 mr-1" /> Print
+              <Printer className="h-3.5 w-3.5 mr-1" /> {t("portal.rc.print")}
             </Button>
           </div>
         }
@@ -120,37 +122,37 @@ export function StudentTermReportCard() {
               </div>
             </div>
             <div className="text-right">
-              <div className="text-xs font-semibold uppercase tracking-wider text-indigo-700">Report Card</div>
+              <div className="text-xs font-semibold uppercase tracking-wider text-indigo-700">{t("portal.rc.docTitle")}</div>
               <div className="text-sm font-medium text-slate-900">{card.term.name}</div>
               <div className="text-[11px] text-slate-500">{card.term.startDate} → {card.term.endDate}</div>
             </div>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-            <div><div className="text-slate-500">Name</div><div className="font-medium">{card.student.fullName}</div></div>
-            <div><div className="text-slate-500">GR No</div><div className="font-medium">{card.student.grNumber}</div></div>
-            <div><div className="text-slate-500">Class</div>
+            <div><div className="text-slate-500">{t("portal.rc.name")}</div><div className="font-medium">{card.student.fullName}</div></div>
+            <div><div className="text-slate-500">{t("portal.rc.grNo")}</div><div className="font-medium">{card.student.grNumber}</div></div>
+            <div><div className="text-slate-500">{t("portal.rc.class")}</div>
               <div className="font-medium">{card.placement.className ?? "—"}{card.placement.sectionName ? ` — ${card.placement.sectionName}` : ""}</div></div>
-            <div><div className="text-slate-500">Class teacher</div><div className="font-medium">{card.placement.classTeacherName ?? "—"}</div></div>
+            <div><div className="text-slate-500">{t("portal.rc.classTeacher")}</div><div className="font-medium">{card.placement.classTeacherName ?? "—"}</div></div>
           </div>
 
           <section>
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-2 flex items-center gap-1">
-              <BookOpen className="h-3.5 w-3.5 text-indigo-500" /> Academic performance
+              <BookOpen className="h-3.5 w-3.5 text-indigo-500" /> {t("portal.rc.academic")}
             </h3>
             {card.academic.subjects.length === 0 ? (
-              <div className="text-xs text-slate-500 italic">No marks recorded.</div>
+              <div className="text-xs text-slate-500 italic">{t("portal.rc.noMarks")}</div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead className="bg-slate-50 text-slate-700">
                     <tr>
-                      <th className="text-left px-2 py-1.5">Subject</th>
+                      <th className="text-left px-2 py-1.5">{t("portal.rc.colSubject")}</th>
                       {card.exams.map((e) => <th key={e.id} className="text-center px-2 py-1.5">{e.name}</th>)}
-                      <th className="text-right px-2 py-1.5">Total</th>
+                      <th className="text-right px-2 py-1.5">{t("portal.rc.colTotal")}</th>
                       <th className="text-right px-2 py-1.5">%</th>
-                      <th className="text-center px-2 py-1.5">Grade</th>
-                      <th className="text-left px-2 py-1.5">Remarks</th>
+                      <th className="text-center px-2 py-1.5">{t("portal.rc.colGrade")}</th>
+                      <th className="text-left px-2 py-1.5">{t("portal.rc.colRemarks")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -161,7 +163,7 @@ export function StudentTermReportCard() {
                           const pe = s.perExam.find((x) => x.examId === e.id);
                           return (
                             <td key={e.id} className="px-2 py-1.5 text-center">
-                              {!pe ? "—" : pe.absent ? <span className="text-rose-600">Abs</span> :
+                              {!pe ? "—" : pe.absent ? <span className="text-rose-600">{t("portal.rc.abs")}</span> :
                                 pe.obtained === null ? "—" :
                                 <>{pe.obtained}<span className="text-slate-400">/{pe.max}</span></>}
                             </td>
@@ -174,7 +176,7 @@ export function StudentTermReportCard() {
                       </tr>
                     ))}
                     <tr className="border-t-2 border-slate-300 bg-slate-50/60 font-semibold">
-                      <td className="px-2 py-1.5">Overall</td>
+                      <td className="px-2 py-1.5">{t("portal.rc.overall")}</td>
                       <td colSpan={card.exams.length}></td>
                       <td className="px-2 py-1.5 text-right">
                         {card.academic.overall.max > 0 ? `${card.academic.overall.obtained}/${card.academic.overall.max}` : "—"}
@@ -192,35 +194,35 @@ export function StudentTermReportCard() {
           <section className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="rounded-md border border-slate-200 bg-white p-3">
               <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 flex items-center gap-1">
-                <Calendar className="h-3.5 w-3.5 text-indigo-500" /> Attendance
+                <Calendar className="h-3.5 w-3.5 text-indigo-500" /> {t("portal.rc.attendance")}
               </div>
               <div className="text-xs space-y-0.5">
-                <div>Present: <span className="font-medium">{card.attendance.present}</span></div>
-                <div>Late: <span className="font-medium">{card.attendance.late}</span></div>
-                <div>Absent: <span className="font-medium">{card.attendance.absent}</span></div>
+                <div>{t("portal.rc.present")}: <span className="font-medium">{card.attendance.present}</span></div>
+                <div>{t("portal.rc.late")}: <span className="font-medium">{card.attendance.late}</span></div>
+                <div>{t("portal.rc.absent")}: <span className="font-medium">{card.attendance.absent}</span></div>
                 <div className="pt-1 border-t border-slate-100 mt-1">
-                  <span className="font-semibold">{fmtPct(card.attendance.attendancePct)}</span> attendance
+                  <span className="font-semibold">{fmtPct(card.attendance.attendancePct)}</span> {t("portal.rc.attendanceWord")}
                 </div>
               </div>
             </div>
             <div className="rounded-md border border-slate-200 bg-white p-3">
               <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 flex items-center gap-1">
-                <TrendingUp className="h-3.5 w-3.5 text-emerald-500" /> Behavior
+                <TrendingUp className="h-3.5 w-3.5 text-emerald-500" /> {t("portal.rc.behavior")}
               </div>
               <div className="text-xs space-y-0.5">
-                <div>Positive notes: <span className="font-medium text-emerald-700">{card.behavior.positive}</span></div>
-                <div>Concerns: <span className="font-medium text-amber-700">{card.behavior.concern}</span></div>
-                <div>Net points: <span className="font-semibold">{card.behavior.netPoints}</span></div>
+                <div>{t("portal.rc.positiveNotes")}: <span className="font-medium text-emerald-700">{card.behavior.positive}</span></div>
+                <div>{t("portal.rc.concerns")}: <span className="font-medium text-amber-700">{card.behavior.concern}</span></div>
+                <div>{t("portal.beh.netPoints")} <span className="font-semibold">{card.behavior.netPoints}</span></div>
               </div>
             </div>
             <div className="rounded-md border border-slate-200 bg-white p-3">
               <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 flex items-center gap-1">
-                <Award className="h-3.5 w-3.5 text-amber-500" /> Hifz progress
+                <Award className="h-3.5 w-3.5 text-amber-500" /> {t("portal.rc.hifzProgress")}
               </div>
               <div className="text-xs space-y-0.5">
-                <div>Ayahs memorized: <span className="font-medium">{card.hifz.ayahsMemorized}</span></div>
-                <div>Surahs touched: <span className="font-medium">{card.hifz.surahsCompleted}</span></div>
-                <div>Entries: {card.hifz.totalEntries} (missed {card.hifz.missedCount})</div>
+                <div>{t("portal.rc.ayahsMemorized")}: <span className="font-medium">{card.hifz.ayahsMemorized}</span></div>
+                <div>{t("portal.rc.surahsTouched")}: <span className="font-medium">{card.hifz.surahsCompleted}</span></div>
+                <div>{t("portal.rc.entriesLine", { n: card.hifz.totalEntries, missed: card.hifz.missedCount })}</div>
               </div>
             </div>
           </section>
@@ -229,13 +231,13 @@ export function StudentTermReportCard() {
             <section className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
               {card.comments.classTeacher && (
                 <div>
-                  <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">Class teacher's remark</div>
+                  <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">{t("portal.rc.ctRemark")}</div>
                   <div className="text-slate-800 whitespace-pre-wrap">{card.comments.classTeacher}</div>
                 </div>
               )}
               {card.comments.principal && (
                 <div>
-                  <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">Principal's remark</div>
+                  <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">{t("portal.rc.principalRemark")}</div>
                   <div className="text-slate-800 whitespace-pre-wrap">{card.comments.principal}</div>
                 </div>
               )}
