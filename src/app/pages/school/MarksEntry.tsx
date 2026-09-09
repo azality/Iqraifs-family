@@ -360,6 +360,12 @@ export function MarksEntry() {
           No subjects defined for this class — add them under class settings first.
         </CardContent></Card>
       ) : (
+        <>
+        {sheet.editableSubjectIds && (
+          <div className="rounded-md border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs text-indigo-800">
+            Showing only the subjects you teach in this section — other columns are entered by their own teachers.
+          </div>
+        )}
         <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
           <table className="w-full text-xs">
             <thead className="bg-slate-50 text-slate-700">
@@ -456,6 +462,7 @@ export function MarksEntry() {
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );

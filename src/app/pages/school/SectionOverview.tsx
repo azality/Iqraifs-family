@@ -29,6 +29,8 @@ import {
   getSectionAssignments,
   getSectionHifzSummary,
   getExamSchedule,
+  listTerms,
+  listExams,
   postAttendanceFlag,
   viewerRoleForOrg,
   type Assignment,
@@ -127,17 +129,43 @@ export function SectionOverview() {
   // Exam day (Muneeb, 8 Sep): if this class sits a paper today, the
   // Today panel says so instead of implying the timetable was skipped.
   const [examsToday, setExamsToday] = useState<string[]>([]);
+  // Exam window (Muneeb, 11 Sep): from a couple of days before this
+  // class's first scheduled paper until a few days after the last, the
+  // Today panel links straight to the term's marks sheets — teachers
+  // enter oral/written marks from the class page, not via Admin.
+  const [examMarksLinks, setExamMarksLinks] = useState<Array<{ id: string; name: string }>>([]);
   useEffect(() => {
     if (!orgId || !row?.classId) return;
     getExamSchedule(orgId)
-      .then((r) => {
+      .then(async (r) => {
         const today = todayIsoLocal();
         const cls = r.classes.find((c) => c.classId === row.classId);
         setExamsToday(
           (cls?.papers ?? []).filter((p) => p.examDate === today).map((p) => p.subjectLabel),
         );
+        const shift = (iso: string, days: number) => {
+          const d = new Date(`${iso}T00:00:00`);
+          d.setDate(d.getDate() + days);
+          const pad = (n: number) => String(n).padStart(2, "0");
+          return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+        };
+        const lo = shift(today, -3);
+        const hi = shift(today, 2);
+        const inWindow = (cls?.papers ?? []).some(
+          (p) => p.examDate >= lo && p.examDate <= hi,
+        );
+        if (!inWindow) { setExamMarksLinks([]); return; }
+        try {
+          const { terms } = await listTerms(orgId);
+          const current = terms.find((t) => t.isCurrent);
+          if (!current) { setExamMarksLinks([]); return; }
+          const { exams } = await listExams(orgId, current.id);
+          setExamMarksLinks(exams.map((e) => ({ id: e.id, name: e.name })));
+        } catch {
+          setExamMarksLinks([]);
+        }
       })
-      .catch(() => setExamsToday([]));
+      .catch(() => { setExamsToday([]); setExamMarksLinks([]); });
   }, [orgId, row?.classId]);
 
   // Today panel data — each piece independent and best-effort.
@@ -455,6 +483,22 @@ export function SectionOverview() {
                   <span className="font-semibold text-indigo-900">📝 Exam day</span>
                   <span className="min-w-0 text-right font-semibold text-indigo-900">
                     {examsToday.join(", ")}
+                  </span>
+                </div>
+              )}
+              {examMarksLinks.length > 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 rounded-md bg-violet-50 px-2 py-1 -mx-2">
+                  <span className="font-semibold text-violet-900">Enter exam marks</span>
+                  <span className="min-w-0 text-right">
+                    {examMarksLinks.map((e, i) => (
+                      <Link
+                        key={e.id}
+                        to={`/school/orgs/${orgId}/admin/assessment/exams/${e.id}/marks?sectionId=${sectionId}`}
+                        className="ml-2 font-semibold text-violet-700 hover:underline"
+                      >
+                        {e.name.replace(/^.*?—\s*/, "") || e.name} →
+                      </Link>
+                    ))}
                   </span>
                 </div>
               )}
