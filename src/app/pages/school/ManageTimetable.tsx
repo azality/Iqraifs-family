@@ -142,6 +142,12 @@ export function ManageTimetable() {
   const [slotDialogOpen, setSlotDialogOpen] = useState(false);
   // Null = adding. Set = editing that period.
   const [editingSlotId, setEditingSlotId] = useState<string | null>(null);
+  // The periods panel is set-once config (bell times) — rendered
+  // COLLAPSED by default so the class fill-in grid isn't buried under
+  // 44 rows of Mon/Tue/Wed period definitions ("why is it showing so
+  // many mondays — is this a bug?", Muneeb, 11 Sep). Auto-opens only
+  // when the schedule has no periods yet (first-time setup).
+  const [periodsOpen, setPeriodsOpen] = useState(false);
   // Which bell schedule the periods panel is showing.
   const [panelKey, setPanelKey] = useState<string>("default");
   const [slotForm, setSlotForm] = useState<SlotFormState>(emptySlotForm);
@@ -544,11 +550,28 @@ export function ManageTimetable() {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700">
             Periods
+            {!periodsOpen && panelSlots.length > 0 && (
+              <span className="ml-2 font-normal normal-case tracking-normal text-slate-400">
+                {panelSlots.length} per week on “{panelKey}” — bell times, set once
+              </span>
+            )}
           </h2>
-          <Button size="sm" variant="outline" onClick={() => openAddSlot(panelKey)}>
-            <Plus className="mr-1 h-3.5 w-3.5" /> Add period
-          </Button>
+          <div className="flex items-center gap-2">
+            {(periodsOpen || panelSlots.length === 0) && (
+              <Button size="sm" variant="outline" onClick={() => openAddSlot(panelKey)}>
+                <Plus className="mr-1 h-3.5 w-3.5" /> Add period
+              </Button>
+            )}
+            {panelSlots.length > 0 && (
+              <Button size="sm" variant="ghost" onClick={() => setPeriodsOpen((o) => !o)}>
+                {periodsOpen ? "Hide bell times" : "Show / edit bell times"}
+              </Button>
+            )}
+          </div>
         </div>
+
+        {(periodsOpen || panelSlots.length === 0) && (
+        <>
 
         {/* One rhythm for the whole school is the common case, so this
             row stays quiet until a second schedule exists. */}
@@ -637,6 +660,8 @@ export function ManageTimetable() {
             {panelSections.length > 8 ? ` +${panelSections.length - 8} more` : ""}
             {" — change a section's schedule under Classes."}
           </p>
+        )}
+      </>
         )}
       </section>
 
