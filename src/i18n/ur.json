@@ -631,6 +631,10 @@
       "openLesson": "سبق کھولیں"
   },
   "hifzTeach": {
+    "extMiddleHalf": "درمیانی نصف (ربع سے ثلاثہ تک)",
+    "extLastThreeQuarters": "آخری تین چوتھائیاں (ربع سے آخر تک)",
+    "extShortMiddleHalf": "ربع سے ثلاثہ تک",
+    "extShortLastThreeQuarters": "ربع سے آخر تک",
     "noSabqiAssigned": "پچھلی بار کوئی سبقی نہیں دی گئی۔",
     "manzilRotationHint": "پچھلی بار کوئی منزل نہیں دی گئی — ترتیب کے مطابق اگلا پارہ {{n}} ہے (نیچے بھر دیا گیا ہے)۔",
     "noManzilYet": "ابھی تک کوئی منزل درج نہیں ہوئی۔",

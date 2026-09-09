@@ -34,6 +34,9 @@ export const PARA_EXTENT_OPTIONS: ReadonlyArray<{ value: string; labelKey: strin
   { value: 'half', labelKey: 'hifzTeach.extHalf' },
   { value: 'second_half', labelKey: 'hifzTeach.extSecondHalf' },
   { value: 'three_quarters', labelKey: 'hifzTeach.extThreeQuarters' },
+  // Ranges starting at ruba (Muneeb, 10 Sep): ¼ → ¾ and ¼ → end.
+  { value: 'middle_half', labelKey: 'hifzTeach.extMiddleHalf' },
+  { value: 'last_three_quarters', labelKey: 'hifzTeach.extLastThreeQuarters' },
 ];
 
 const SHORT_KEY: Record<string, string> = {
@@ -45,6 +48,8 @@ const SHORT_KEY: Record<string, string> = {
   half: 'hifzTeach.extShortHalf',
   second_half: 'hifzTeach.extShortSecondHalf',
   three_quarters: 'hifzTeach.extShortThreeQuarters',
+  middle_half: 'hifzTeach.extShortMiddleHalf',
+  last_three_quarters: 'hifzTeach.extShortLastThreeQuarters',
 };
 
 /** Short display key for one extent value, or null when unknown. */

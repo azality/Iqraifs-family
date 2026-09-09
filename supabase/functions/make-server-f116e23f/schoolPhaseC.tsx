@@ -693,6 +693,7 @@ export function installPhaseC(school: Hono): void {
       if ([
         "quarter", "half", "three_quarters", "full",
         "second_quarter", "third_quarter", "last_quarter", "second_half",
+        "middle_half", "last_three_quarters",
       ].includes(v)) return v;
       const m = v.match(/^to_surah:([1-9][0-9]{0,2})$/);
       if (m && Number(m[1]) >= 1 && Number(m[1]) <= 114) return v;
