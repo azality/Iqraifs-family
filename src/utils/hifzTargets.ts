@@ -81,7 +81,11 @@ export function nextSabaqAfter(
 
 export function serializeNextSabaq(surahNumber: number, from: number, to: number): string {
   const s = getSurah(surahNumber);
-  return `Sabaq: ${s?.nameTransliterated ?? surahNumber} ${from}–${to}`;
+  // Normalize a reversed range — a teacher typing "to" before "from"
+  // produced stored targets like "An-Nur 57–51" (pilot, 8 Sep).
+  const lo = Math.min(from, to);
+  const hi = Math.max(from, to);
+  return `Sabaq: ${s?.nameTransliterated ?? surahNumber} ${lo}–${hi}`;
 }
 
 export function parseNextSabaq(
@@ -92,7 +96,20 @@ export function parseNextSabaq(
   const name = m[1].toLowerCase();
   const surah = SURAHS.find((s) => s.nameTransliterated.toLowerCase() === name);
   if (!surah) return null;
-  return { surahNumber: surah.number, from: Number(m[2]), to: Number(m[3]) };
+  // Heal already-stored reversed ranges the same way the serializer
+  // now prevents them.
+  const a = Number(m[2]);
+  const b = Number(m[3]);
+  return { surahNumber: surah.number, from: Math.min(a, b), to: Math.max(a, b) };
+}
+
+/** "Sabqi: Para 5" → 5. Surah-list sabqi targets return null (they
+ *  don't fit the round's single-range portion model). */
+export function parseNextSabqiPara(text: string): number | null {
+  const m = /^Sabqi:\s*Para\s+(\d{1,2})\s*$/i.exec(text.trim());
+  if (!m) return null;
+  const juz = Number(m[1]);
+  return juz >= 1 && juz <= 30 ? juz : null;
 }
 
 export function serializeNextSabqiSurahs(parts: SabqiPart[]): string {
@@ -122,4 +139,19 @@ const EXTENT_SUFFIX: Record<AssignExtent, string> = {
 
 export function serializeNextManzil(juz: number, extent: AssignExtent): string {
   return `Manzil: Para ${juz} (${EXTENT_SUFFIX[extent]})`;
+}
+
+/** "Manzil: Para 6 (to ¾ — salasa)" → { juz: 6, extent: "three_quarters" }.
+ *  Unknown extent text falls back to "full" rather than dropping the juz. */
+export function parseNextManzil(
+  text: string,
+): { juz: number; extent: AssignExtent } | null {
+  const m = /^Manzil:\s*Para\s+(\d{1,2})(?:\s*\((.+)\))?\s*$/i.exec(text.trim());
+  if (!m) return null;
+  const juz = Number(m[1]);
+  if (juz < 1 || juz > 30) return null;
+  const suffix = (m[2] ?? "").trim();
+  const found = (Object.entries(EXTENT_SUFFIX) as Array<[AssignExtent, string]>)
+    .find(([, s]) => s === suffix);
+  return { juz, extent: found ? found[0] : "full" };
 }
