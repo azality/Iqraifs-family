@@ -37,6 +37,7 @@ import {
 } from "../../components/ui/radio-group";
 import { toast } from "sonner";
 import {
+  getOrganization,
   getStudentHifz,
   postHifzEntry,
   type HifzKind,
@@ -48,6 +49,8 @@ import { PARA_EXTENT_OPTIONS } from "../../../utils/hifzExtent";
 import {
   serializeNextSabaq,
   parseNextSabaq,
+  paraFinishedBySabaq,
+  serializeSabaqParaRevision,
   parseNextSabqiPara,
   parseNextManzil,
   nextSabaqAfter,
@@ -185,6 +188,15 @@ export function HifzLogEntry({
     sabqi: { juz: number } | null;
     manzil: { juz: number; extent: AssignExtent; source: "assigned" | "rotation" } | null;
   }>({ sabqi: null, manzil: null });
+  // Org setting (default ON): end-of-para consolidation break — when the
+  // auto-assigned next sabaq crosses a juz boundary, the stored target
+  // becomes a full-para revision with the continuation stashed inside.
+  const [paraBreak, setParaBreak] = useState(true);
+  useEffect(() => {
+    getOrganization(orgId)
+      .then((o: any) => setParaBreak(((o?.organization?.settings as any)?.sabaq_para_break) !== false))
+      .catch(() => {});
+  }, [orgId]);
   // Smart next-sabaq suggestion (pilot: "system khud samajh jaye ke ayah
   // 11 se shuru hona chahiye"). Once the teacher edits an assign FIELD
   // the suggestion never overwrites their input; unchecking the box is
@@ -442,6 +454,17 @@ export function HifzLogEntry({
         if (!structuredNext) structuredNext = undefined;
       } else {
         structuredNext = serializeNextSabaq(assignSurah, aFrom, aTo);
+        // Untouched auto-advance that finishes a para becomes the
+        // consolidation target (para break, 10 Sep). A teacher who
+        // edited the assign fields is deciding herself — respected.
+        if (!assignTouched && suggestion === "advance" && paraBreak && kind === "sabaq") {
+          const doneJuz = paraFinishedBySabaq(surahNumber, num(ayahFrom), num(ayahTo));
+          if (doneJuz) {
+            structuredNext = serializeSabaqParaRevision(doneJuz, {
+              surahNumber: assignSurah, from: aFrom, to: aTo,
+            });
+          }
+        }
       }
     }
     setSubmitting(true);

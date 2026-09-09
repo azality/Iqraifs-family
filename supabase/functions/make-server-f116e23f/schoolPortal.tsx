@@ -1088,7 +1088,7 @@ export function installPortal(school: Hono): void {
     // correct regardless of pagination params.
     const { data: allRows } = await serviceRoleClient
       .from("hifz_progress")
-      .select("surah_number, ayah_from, ayah_to, kind, recorded_at")
+      .select("surah_number, ayah_from, ayah_to, kind, recorded_at, juz_number")
       .eq("student_id", studentId)
       .order("recorded_at", { ascending: false });
 
@@ -1501,7 +1501,7 @@ export function installPortal(school: Hono): void {
     try {
       const { data: hifz } = await serviceRoleClient
         .from("hifz_progress")
-        .select("surah_number, ayah_from, ayah_to, kind, recorded_at")
+        .select("surah_number, ayah_from, ayah_to, kind, recorded_at, juz_number")
         .eq("student_id", studentId);
       const totals = computeMemorizedTotals((hifz ?? []) as any);
       ayahsMemorized = totals.ayahsMemorized;

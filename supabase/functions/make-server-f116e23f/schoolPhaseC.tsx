@@ -748,7 +748,7 @@ export function installPhaseC(school: Hono): void {
     ) {
       const { data: allRows } = await serviceRoleClient
         .from("hifz_progress")
-        .select("surah_number, ayah_from, ayah_to, kind, missed")
+        .select("surah_number, ayah_from, ayah_to, kind, missed, juz_number")
         .eq("student_id", stu.id);
       const { ayahsMemorized } = computeMemorizedTotals((allRows ?? []) as any[]);
       if (ayahsMemorized >= QURAN_AYAH_TOTAL) {
@@ -860,7 +860,7 @@ export function installPhaseC(school: Hono): void {
 
     const { data, error } = await serviceRoleClient
       .from("hifz_progress")
-      .select("surah_number, ayah_from, ayah_to, kind, recorded_at")
+      .select("surah_number, ayah_from, ayah_to, kind, recorded_at, juz_number")
       .eq("student_id", studentId)
       .order("recorded_at", { ascending: false });
     if (error) return c.json({ error: error.message }, 500);
@@ -1256,6 +1256,7 @@ export function computeMemorizedTotals(
     ayah_to: number;
     kind: string;
     missed?: boolean;
+    juz_number?: number | null;
   }>,
 ): { ayahsMemorized: number; surahsCompleted: number } {
   const surahsWithMem = new Set<number>();
@@ -1266,6 +1267,11 @@ export function computeMemorizedTotals(
     // trend grid only. Skip them BEFORE the kind check so an accidental
     // "missed memorized" row can't inflate the count.
     if (r.missed) continue;
+    // Para-mode rows carry only the juz-start marker in surah/ayah —
+    // an end-of-para consolidation day logged as sabaq-by-para must not
+    // add its marker ayah to the memorized count (sabaq para break,
+    // 10 Sep 2026).
+    if (r.juz_number) continue;
     // Both explicit 'memorized' rows AND daily 'sabaq' entries count:
     // sabaq IS the newly-memorized portion in the classic sabaq/sabqi/
     // manzil system, and it's what hifz teachers actually log day-to-day

@@ -749,6 +749,8 @@
     "saving": "محفوظ ہو رہا ہے…"
   },
   "hifzRound": {
+    "paraRevisionLabel": "پارہ {{n}} کی مکمل دہرائی",
+    "thenResume": "پھر {{portion}}",
     "addSecondPara": "اسی نشست میں دوسرا پارہ",
     "plusPara": "ساتھ سنا:",
     "removePara": "ہٹائیں",

@@ -56,6 +56,8 @@ interface OrgFormState {
   parent_reply_sla_days: string;
   /** Whether children see the class points league on their own login. */
   student_points_league: boolean;
+  /** Hifz method: full-para consolidation revision when a sabaq finishes a para. */
+  sabaq_para_break: boolean;
   logo_url: string;
   theme_color: string;
   school_motto: string;
@@ -90,6 +92,7 @@ export function OrgSettings() {
     timezone: "",
     parent_reply_sla_days: "",
     student_points_league: true,
+    sabaq_para_break: true,
     logo_url: "",
     theme_color: "",
     school_motto: "",
@@ -175,6 +178,8 @@ export function OrgSettings() {
               : "",
           student_points_league:
             (o.organization.settings as any)?.student_points_league !== false,
+          sabaq_para_break:
+            (o.organization.settings as any)?.sabaq_para_break !== false,
           student_sees_concerns: (o.organization.settings?.student_sees_concerns as boolean | undefined) === true,
           pass_mark_pct: String((o.organization.settings?.pass_mark_pct as number | undefined) ?? 40),
           logo_url: (o.organization.settings?.logo_url as string | undefined) ?? "",
@@ -220,6 +225,7 @@ export function OrgSettings() {
           ? { parent_reply_sla_days: Number(orgForm.parent_reply_sla_days) }
           : {}),
         student_points_league: orgForm.student_points_league,
+        sabaq_para_break: orgForm.sabaq_para_break,
         logo_url: orgForm.logo_url,
         theme_color: orgForm.theme_color,
         school_motto: orgForm.school_motto,
@@ -550,6 +556,26 @@ export function OrgSettings() {
                 Children see their class&apos;s top five and their own rank on
                 their login. Teachers always see the full board either way.
                 Untick if your school doesn&apos;t want ranking shown to students.
+              </span>
+            </label>
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="org-para-break">Hifz: para-completion revision break</Label>
+            <label className="flex items-start gap-2 text-sm text-slate-700">
+              <input
+                id="org-para-break"
+                type="checkbox"
+                className="mt-0.5"
+                checked={orgForm.sabaq_para_break}
+                onChange={(e) =>
+                  setOrgForm((s) => ({ ...s, sabaq_para_break: e.target.checked }))
+                }
+              />
+              <span>
+                When a sabaq finishes a para, the next lesson becomes a
+                full-para revision before the next para starts. A good rating
+                resumes the normal sabaq; weak repeats the revision. Untick if
+                your hifz program moves straight to the next para.
               </span>
             </label>
           </div>
