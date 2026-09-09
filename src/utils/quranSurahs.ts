@@ -8,6 +8,18 @@ export interface SurahInfo {
   ayahCount: number;
 }
 
+/** Display name for a surah: Arabic script in the Urdu UI (teachers read
+ *  سورہ names in Arabic, not Latin transliteration — Muneeb, 10 Sep),
+ *  the transliteration everywhere else. */
+export function surahDisplayName(
+  s: SurahInfo | number | undefined,
+  lang?: string,
+): string {
+  const info = typeof s === "number" ? SURAHS.find((x) => x.number === s) : s;
+  if (!info) return typeof s === "number" ? String(s) : "";
+  return lang && lang.startsWith("ur") ? info.nameArabic : info.nameTransliterated;
+}
+
 export const SURAHS: ReadonlyArray<SurahInfo> = [
   { number: 1, nameTransliterated: "Al-Fatiha", nameArabic: "الفاتحة", ayahCount: 7 },
   { number: 2, nameTransliterated: "Al-Baqarah", nameArabic: "البقرة", ayahCount: 286 },
