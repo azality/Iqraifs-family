@@ -19,7 +19,7 @@
 //   - Auto-save: 1500 ms after the last edit; visible status pill.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useParams, useSearchParams } from "react-router";
 import { ArrowLeft, Save, ClipboardList, Loader2 } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -52,10 +52,16 @@ type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "error";
 
 export function MarksEntry() {
   const { orgId = "", examId = "" } = useParams<{ orgId: string; examId: string }>();
+  // ?sectionId= — the teacher-facing front door: the Homework & tests
+  // page links each report-card exam straight to its sheet, section
+  // preset. Teachers land here without the admin pickers; the save
+  // endpoint enforces per-section/subject rights server-side.
+  const [searchParams] = useSearchParams();
+  const presetSectionId = searchParams.get("sectionId") ?? "";
   const [me, setMe] = useState<SchoolMeResponse | null>(null);
   const [meLoading, setMeLoading] = useState(true);
   const [classes, setClasses] = useState<AdminClass[]>([]);
-  const [sectionId, setSectionId] = useState<string>("");
+  const [sectionId, setSectionId] = useState<string>(presetSectionId);
   const [sheet, setSheet] = useState<MarksSheetResponse | null>(null);
   const [defaultMax, setDefaultMax] = useState<string>("100");
   // Map of `${studentId}:${classSubjectId}` → cell.
@@ -267,7 +273,11 @@ export function MarksEntry() {
   }, [sheet, cells, defaultMax]);
 
   if (meLoading) return null;
-  if (!isOrgAdmin(me, orgId)) return <NoAccessRedirect to={`/school/orgs/${orgId}`} />;
+  // Admins browse any section; teachers arrive via the section deep
+  // link (the marks-sheet write endpoint checks their rights).
+  if (!isOrgAdmin(me, orgId) && !presetSectionId) {
+    return <NoAccessRedirect to={`/school/orgs/${orgId}`} />;
+  }
 
   const statusPill = () => {
     if (saveStatus === "saving") {
@@ -356,7 +366,14 @@ export function MarksEntry() {
               <tr>
                 <th className="text-left px-2 py-2 sticky left-0 bg-slate-50 z-10">Student</th>
                 {sheet.subjects.map((s) => (
-                  <th key={s.id} className="text-center px-2 py-2 min-w-[120px]">{s.name}</th>
+                  <th key={s.id} className="text-center px-2 py-2 min-w-[120px]">
+                    {s.name}
+                    {(s.assessmentWeights?.length ?? 0) > 0 && (
+                      <div className="mt-0.5 text-[10px] font-normal normal-case text-slate-400">
+                        {s.assessmentWeights!.map((w) => `${w.label} ${w.pct}%`).join(" · ")}
+                      </div>
+                    )}
+                  </th>
                 ))}
                 <th className="text-right px-2 py-2 bg-slate-100">Total · %</th>
               </tr>

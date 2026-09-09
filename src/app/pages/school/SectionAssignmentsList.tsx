@@ -31,6 +31,8 @@ import {
 import {
   listStudents,
   deleteAssignment,
+  listTerms,
+  listExams,
   getAssignmentGrades,
   getSchoolMe,
   getSectionAssignments,
@@ -40,6 +42,7 @@ import {
   type AssignmentKind,
   type GradeEntry,
   type SchoolMeResponse,
+  type Exam,
   type SectionSubject,
 } from "../../../utils/schoolApi";
 import { BookOpen, ListChecks } from "lucide-react";
@@ -100,6 +103,29 @@ export function SectionAssignmentsList() {
   const withFocus = (path: string) =>
     focusStudentId ? `${path}${path.includes("?") ? "&" : "?"}studentId=${focusStudentId}` : path;
   const [subjects, setSubjects] = useState<SectionSubject[]>([]);
+  // Report-card exams for the current term — surfaced HERE because this
+  // page is where teachers live. Marks entered on these sheets are what
+  // the report card reads; a gradebook "test" never is (Muneeb, 11 Sep:
+  // teachers were logging orals as Viva assignments).
+  const [termExams, setTermExams] = useState<{ termName: string; exams: Exam[] } | null>(null);
+  useEffect(() => {
+    if (!orgId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { terms } = await listTerms(orgId);
+        const current = terms.find((t) => t.isCurrent) ?? null;
+        if (!current) return;
+        const { exams } = await listExams(orgId, current.id);
+        if (!cancelled && exams.length > 0) {
+          setTermExams({ termName: current.name, exams });
+        }
+      } catch {
+        /* strip is optional decoration */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [orgId]);
   // per-assignment grade summary cache: { graded, total, avgPct }
   const [summary, setSummary] = useState<Record<string, { graded: number; total: number; avgPct: number | null }>>({});
 
@@ -307,6 +333,37 @@ export function SectionAssignmentsList() {
         <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm text-indigo-900">
           Viewing for <span className="font-semibold">{focusStudentName}</span> — open any
           assignment to see their row highlighted.
+        </div>
+      )}
+
+      {/* Report-card exams — the ONE place formal exam marks belong.
+          A gradebook "test" never reaches the report card; teachers were
+          logging orals as Viva assignments (Muneeb, 11 Sep). */}
+      {termExams && (
+        <div className="rounded-xl border border-violet-200 bg-violet-50/50 p-3">
+          <div className="flex items-baseline justify-between gap-2 flex-wrap">
+            <div>
+              <span className="text-sm font-bold text-violet-900">
+                Exams — report card marks · {termExams.termName}
+              </span>
+              <p className="text-xs text-violet-700 mt-0.5">
+                Marks entered on these sheets build the report card. A quiz or test
+                posted below stays in the gradebook only.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              {termExams.exams.map((ex) => (
+                <Link
+                  key={ex.id}
+                  to={`/school/orgs/${orgId}/admin/assessment/exams/${ex.id}/marks?sectionId=${sectionId}`}
+                >
+                  <Button size="sm" variant="outline" className="border-violet-300 bg-white text-violet-900 hover:bg-violet-100">
+                    {ex.name} — enter marks
+                  </Button>
+                </Link>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 

@@ -541,7 +541,7 @@ export function installAssessment(school: Hono): void {
     // with an error, which we then silently coerce to [] downstream.
     const { data: subjects } = await serviceRoleClient
       .from("class_subject")
-      .select("id, name, sort_order")
+      .select("id, name, sort_order, assessment_weights")
       .eq("class_id", classId)
       .order("sort_order", { ascending: true });
 
@@ -572,7 +572,11 @@ export function installAssessment(school: Hono): void {
 
     return c.json({
       section: { id: section.id, name: (section as any).name, className: (section as any).class.name },
-      subjects: ((subjects ?? []) as any[]).map((s) => ({ id: s.id, name: s.name })),
+      subjects: ((subjects ?? []) as any[]).map((s) => ({
+        id: s.id,
+        name: s.name,
+        assessmentWeights: s.assessment_weights ?? null,
+      })),
       students: ((students ?? []) as any[]).map((s) => ({
         id: s.id,
         fullName: s.full_name,
