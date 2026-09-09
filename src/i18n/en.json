@@ -631,6 +631,9 @@
       "openLesson": "Open lesson"
   },
   "hifzTeach": {
+    "noSabqiAssigned": "No sabqi assigned last time.",
+    "manzilRotationHint": "No manzil assigned last time — rotation suggests Juz {{n}} (prefilled below).",
+    "noManzilYet": "No manzil logged yet.",
     "banner": "{{label}} — today's sabaq: {{heard}} of {{total}} students heard",
     "bannerHint": "Sabaq · sabqi · manzil — one student at a time, \"Save · next student\" walks the class.",
     "startRound": "Start today's round →",

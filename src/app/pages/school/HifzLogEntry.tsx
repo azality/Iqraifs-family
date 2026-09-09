@@ -47,6 +47,8 @@ import { PARA_EXTENT_OPTIONS } from "../../../utils/hifzExtent";
 import {
   serializeNextSabaq,
   parseNextSabaq,
+  parseNextSabqiPara,
+  parseNextManzil,
   nextSabaqAfter,
   serializeNextSabqiSurahs,
   serializeNextSabqiPara,
@@ -172,6 +174,15 @@ export function HifzLogEntry({
   const [lastAssignedByKind, setLastAssignedByKind] = useState<
     Record<"sabaq" | "sabqi" | "manzil", string | null>
   >({ sabaq: null, sabqi: null, manzil: null });
+  // What each revision tab should open on (Muneeb, 9 Sep): an assigned
+  // "Sabqi: Para 18" makes the sabqi tab default to BY PARA with juz 18
+  // picked; manzil follows its assignment, else the rotation (last
+  // manzil's juz + 1). Applied every time the teacher enters the tab so
+  // the shared juz field never leaks between kinds.
+  const [kindSeed, setKindSeed] = useState<{
+    sabqi: { juz: number } | null;
+    manzil: { juz: number; extent: AssignExtent; source: "assigned" | "rotation" } | null;
+  }>({ sabqi: null, manzil: null });
   // Smart next-sabaq suggestion (pilot: "system khud samajh jaye ke ayah
   // 11 se shuru hona chahiye"). Once the teacher edits an assign FIELD
   // the suggestion never overwrites their input; unchecking the box is
@@ -232,6 +243,9 @@ export function HifzLogEntry({
     setAssignFrom(1);
     setAssignTo(1);
     setLastAssignedByKind({ sabaq: null, sabqi: null, manzil: null });
+    setKindSeed({ sabqi: null, manzil: null });
+    setSabqiMode("surah");
+    setManzilMode("para");
     setAssignTouched(false);
     setAssignOptOut(false);
     setSuggestion("none");
@@ -270,10 +284,59 @@ export function HifzLogEntry({
           setAyahFrom(parsed.from);
           setAyahTo(parsed.to);
         }
+        // Revision-tab seeds. An assignment is consumed once a NEWER
+        // entry of its kind exists (entries are newest-first) — same
+        // rule as Round Mode, so the two surfaces stay in step.
+        const entries = r.entries;
+        const sabqiTargetIdx = entries.findIndex(
+          (e) => parseNextSabqiPara((e.nextTarget ?? "").trim()) !== null,
+        );
+        const lastSabqiIdx = entries.findIndex((e) => e.kind === "sabqi" && !e.missed);
+        const sabqiSeed =
+          sabqiTargetIdx >= 0 && (lastSabqiIdx === -1 || lastSabqiIdx >= sabqiTargetIdx)
+            ? { juz: parseNextSabqiPara(entries[sabqiTargetIdx].nextTarget!.trim())! }
+            : null;
+        const manzilTargetIdx = entries.findIndex(
+          (e) => parseNextManzil((e.nextTarget ?? "").trim()) !== null,
+        );
+        const lastManzilIdx = entries.findIndex((e) => e.kind === "manzil");
+        let manzilSeed: { juz: number; extent: AssignExtent; source: "assigned" | "rotation" } | null = null;
+        if (manzilTargetIdx >= 0 && (lastManzilIdx === -1 || lastManzilIdx >= manzilTargetIdx)) {
+          const mv = parseNextManzil(entries[manzilTargetIdx].nextTarget!.trim())!;
+          manzilSeed = { juz: mv.juz, extent: mv.extent, source: "assigned" };
+        } else if (lastManzilIdx >= 0 && entries[lastManzilIdx].juzNumber) {
+          const rot = ((entries[lastManzilIdx].juzNumber! % 30) + 1) as number;
+          manzilSeed = { juz: rot, extent: "full", source: "rotation" };
+        }
+        setKindSeed({ sabqi: sabqiSeed, manzil: manzilSeed });
       })
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, orgId, studentId]);
+
+  // Seed the revision tabs from their standing assignment / rotation.
+  // Runs on every tab entry (and when the fetch lands) so the SHARED
+  // juz/extent fields always show the entered tab's own seed instead of
+  // leaking whatever the previous tab held.
+  useEffect(() => {
+    if (kind === "sabqi") {
+      if (kindSeed.sabqi) {
+        setSabqiMode("para");
+        setRevJuz(kindSeed.sabqi.juz);
+        setRevExtent("full");
+      }
+    } else if (kind === "manzil") {
+      if (kindSeed.manzil) {
+        setManzilMode("para");
+        setRevJuz(kindSeed.manzil.juz);
+        setRevExtent(kindSeed.manzil.extent);
+      } else {
+        setRevJuz("");
+        setRevExtent("full");
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kind, kindSeed]);
 
   // Clamp ayah range when surah changes
   useEffect(() => {
@@ -496,19 +559,51 @@ export function HifzLogEntry({
           )}
 
           {/* Standing assignment — matches the tab: the sabaq tab shows
-              the last assigned sabaq, sabqi shows sabqi, manzil manzil. */}
+              the last assigned sabaq, sabqi shows sabqi, manzil manzil.
+              A missing manzil assignment says so instead of showing
+              nothing (Muneeb, 9 Sep) — silence read as a broken fetch. */}
           {(() => {
+            if (isSabaq && missed) return null;
             const current =
               kind === "sabaq" || kind === "sabqi" || kind === "manzil"
                 ? lastAssignedByKind[kind]
                 : null;
-            if (!current || (isSabaq && missed)) return null;
-            return (
-              <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 px-3 py-2 text-sm text-indigo-900">
-                {t("hifzTeach.assignedLastTime")} <span className="font-medium">{current}</span>
-                {isSabaq && parseNextSabaq(current) ? ` ${t("hifzTeach.prefilledBelow")}` : ""}
-              </div>
-            );
+            if (current) {
+              // Re-serialize a parseable sabaq target so an old reversed
+              // row ("An-Nur 57–51") displays healed, matching the
+              // prefill under it.
+              const sabaqParsed = isSabaq ? parseNextSabaq(current) : null;
+              const display = sabaqParsed
+                ? serializeNextSabaq(sabaqParsed.surahNumber, sabaqParsed.from, sabaqParsed.to)
+                : current;
+              const prefilled =
+                (isSabaq && sabaqParsed) ||
+                (kind === "sabqi" && kindSeed.sabqi) ||
+                (kind === "manzil" && kindSeed.manzil?.source === "assigned");
+              return (
+                <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 px-3 py-2 text-sm text-indigo-900">
+                  {t("hifzTeach.assignedLastTime")} <span className="font-medium">{display}</span>
+                  {prefilled ? ` ${t("hifzTeach.prefilledBelow")}` : ""}
+                </div>
+              );
+            }
+            if (kind === "manzil") {
+              return (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                  {kindSeed.manzil?.source === "rotation"
+                    ? t("hifzTeach.manzilRotationHint", { n: kindSeed.manzil.juz })
+                    : t("hifzTeach.noManzilYet")}
+                </div>
+              );
+            }
+            if (kind === "sabqi") {
+              return (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                  {t("hifzTeach.noSabqiAssigned")}
+                </div>
+              );
+            }
+            return null;
           })()}
 
           {/* Revision position mode — by surah or by para. Sabqi opens
