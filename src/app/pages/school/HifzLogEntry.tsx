@@ -51,6 +51,8 @@ import {
   parseNextSabaq,
   paraFinishedBySabaq,
   serializeSabaqParaRevision,
+  parseSabaqParaRevision,
+  nextManzilAfter,
   parseNextSabqiPara,
   parseNextManzil,
   nextSabaqAfter,
@@ -192,6 +194,14 @@ export function HifzLogEntry({
   // auto-assigned next sabaq crosses a juz boundary, the stored target
   // becomes a full-para revision with the continuation stashed inside.
   const [paraBreak, setParaBreak] = useState(true);
+  // Consolidation day (para break): the standing sabaq assignment is a
+  // full-para revision — the sabaq form swaps its surah/ayah fields for
+  // the revision chip, saves as sabaq-by-para, and the ratings decide
+  // whether the stashed continuation resumes. Mirrors Round Mode.
+  const [sabaqRevisionDay, setSabaqRevisionDay] = useState<{
+    juz: number;
+    then: { surahNumber: number; from: number; to: number } | null;
+  } | null>(null);
   useEffect(() => {
     getOrganization(orgId)
       .then((o: any) => setParaBreak(((o?.organization?.settings as any)?.sabaq_para_break) !== false))
@@ -258,6 +268,7 @@ export function HifzLogEntry({
     setAssignTo(1);
     setLastAssignedByKind({ sabaq: null, sabqi: null, manzil: null });
     setKindSeed({ sabqi: null, manzil: null });
+    setSabaqRevisionDay(null);
     setSabqiMode("surah");
     setManzilMode("para");
     setAssignTouched(false);
@@ -292,7 +303,9 @@ export function HifzLogEntry({
         setLastAssignedByKind(byKind);
         // Today's sabaq prefills from the last SABAQ assignment — a newer
         // sabqi/manzil target must not block it (it used to).
-        const parsed = byKind.sabaq ? parseNextSabaq(byKind.sabaq) : null;
+        const rev = byKind.sabaq ? parseSabaqParaRevision(byKind.sabaq) : null;
+        setSabaqRevisionDay(rev);
+        const parsed = rev ? null : (byKind.sabaq ? parseNextSabaq(byKind.sabaq) : null);
         if (parsed) {
           setSurahNumber(parsed.surahNumber);
           setAyahFrom(parsed.from);
@@ -375,7 +388,7 @@ export function HifzLogEntry({
   //                      99–109 → Hud 1–11; principal's call, 7 Sep).
   //   weak / not learned / missed → repeat the same sabaq tomorrow.
   useEffect(() => {
-    if (kind !== "sabaq" || assignTouched || assignOptOut) return;
+    if (kind !== "sabaq" || assignTouched || assignOptOut || sabaqRevisionDay !== null) return;
     if (ayahFrom === "" || ayahTo === "" || ayahTo < ayahFrom) return;
     const repeat = missed ||
       quality === "needs_practice" || quality === "weak" || quality === "not_learned";
@@ -401,7 +414,7 @@ export function HifzLogEntry({
       setSuggestion("advance");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind, quality, missed, surahNumber, ayahFrom, ayahTo, maxAyah, assignTouched, assignOptOut]);
+  }, [kind, quality, missed, surahNumber, ayahFrom, ayahTo, maxAyah, assignTouched, assignOptOut, sabaqRevisionDay]);
 
   const isManzil = kind === "manzil";
   const isSabaq = kind === "sabaq";
@@ -418,7 +431,13 @@ export function HifzLogEntry({
     let sendSurah = surahNumber;
     let sendFrom = num(ayahFrom);
     let sendTo = num(ayahTo);
-    if (isParaMode) {
+    const revDay = isSabaq && !missed ? sabaqRevisionDay : null;
+    if (revDay) {
+      const start = JUZ_STARTS[revDay.juz - 1];
+      sendSurah = start.surah;
+      sendFrom = start.ayah;
+      sendTo = start.ayah;
+    } else if (isParaMode) {
       if (typeof revJuz !== "number") {
         toast.error(t("hifzTeach.pickParaFirst"));
         return;
@@ -467,6 +486,28 @@ export function HifzLogEntry({
         }
       }
     }
+    if (revDay) {
+      // Consolidation day: mirrors Round Mode — weak/unrated keeps the
+      // revision standing, good/excellent resumes the stashed sabaq.
+      const repeatRev = quality === "" || quality === "needs_practice" ||
+        quality === "weak" || quality === "not_learned";
+      structuredNext = repeatRev
+        ? serializeSabaqParaRevision(revDay.juz, revDay.then)
+        : revDay.then
+        ? serializeNextSabaq(revDay.then.surahNumber, revDay.then.from, revDay.then.to)
+        : undefined;
+    } else if (
+      !assignOn && isParaManzil && typeof revJuz === "number" &&
+      revExtent !== "to_surah" && quality
+    ) {
+      // Manzil parity with Round Mode (#516): the rated manzil derives
+      // and STORES tomorrow — repeat repeats, segments advance, a
+      // finished juz rotates. Manual assignment above still wins.
+      const repeatRev = quality === "needs_practice" || quality === "weak" ||
+        quality === "not_learned";
+      const d = nextManzilAfter(revJuz, revExtent as AssignExtent, repeatRev);
+      structuredNext = serializeNextManzil(d.juz, d.extent);
+    }
     setSubmitting(true);
     try {
       await postHifzEntry(orgId, {
@@ -477,10 +518,14 @@ export function HifzLogEntry({
         kind,
         quality: quality || undefined,
         notes: notes.trim() || undefined,
-        juzNumber: isParaMode
+        juzNumber: revDay
+          ? revDay.juz
+          : isParaMode
           ? (revJuz as number)
           : typeof juzNumber === "number" ? juzNumber : undefined,
-        juzExtent: isParaMode
+        juzExtent: revDay
+          ? "full"
+          : isParaMode
           ? (revExtent === "to_surah" ? `to_surah:${revToSurah}` : revExtent)
           : undefined,
         pageNumber: typeof pageNumber === "number" ? pageNumber : undefined,
@@ -609,7 +654,7 @@ export function HifzLogEntry({
                 ? `${t("hifzTeach.manzil")}: ${t("hifzTeach.juzN", { n: kindSeed.manzil.juz })}${formatJuzExtent(kindSeed.manzil.extent)}`
                 : current;
               const prefilled =
-                (isSabaq && sabaqParsed) ||
+                (isSabaq && (sabaqParsed || sabaqRevisionDay !== null)) ||
                 (kind === "sabqi" && kindSeed.sabqi) ||
                 (kind === "manzil" && kindSeed.manzil?.source === "assigned");
               return (
@@ -672,7 +717,20 @@ export function HifzLogEntry({
             );
           })()}
 
-          {isParaMode ? (
+          {isSabaq && sabaqRevisionDay && !missed ? (
+            <div className="rounded-lg border border-violet-200 bg-violet-50/60 p-3 space-y-1">
+              <p className="text-sm font-semibold text-violet-900">
+                {t("hifzTeach.revisionDayTitle", { n: sabaqRevisionDay.juz })}
+              </p>
+              {sabaqRevisionDay.then && (
+                <p className="text-xs text-violet-700">
+                  {t("hifzTeach.revisionDayThen", {
+                    portion: `${surahDisplayName(sabaqRevisionDay.then.surahNumber, lang)} ${sabaqRevisionDay.then.from}–${sabaqRevisionDay.then.to}`,
+                  })}
+                </p>
+              )}
+            </div>
+          ) : isParaMode ? (
             <div className="space-y-2">
               <div className="space-y-1">
                 <Label>{t("hifzTeach.whichPara")}</Label>
@@ -821,7 +879,7 @@ export function HifzLogEntry({
               "give lesson to an individual student". Always available in
               hifz classes (pilot: Muneeb looked for it on the sabqi form
               and couldn't find it); sabaq-only elsewhere. */}
-          {(isSabaq || hifzOnly) && (
+          {(isSabaq || hifzOnly) && !(isSabaq && sabaqRevisionDay) && (
             <div className="rounded-lg border border-indigo-200 bg-indigo-50/40 p-3 space-y-2">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
@@ -1112,6 +1170,19 @@ export function HifzLogEntry({
                   <p className="text-[11px] text-indigo-800">
                     {t("hifzTeach.assignHint")}
                   </p>
+                  {(() => {
+                    // Para break: the untouched auto-advance crossing a juz
+                    // boundary is stored as the consolidation revision - say
+                    // so instead of silently substituting (Muneeb, 10 Sep).
+                    if (kind !== "sabaq" || assignTouched || suggestion !== "advance" || !paraBreak) return null;
+                    const doneJuz = paraFinishedBySabaq(surahNumber, num(ayahFrom), num(ayahTo));
+                    if (!doneJuz) return null;
+                    return (
+                      <p className="rounded-md border border-violet-200 bg-violet-50 px-2 py-1.5 text-[11px] font-medium text-violet-800">
+                        {t("hifzTeach.paraBreakNote", { n: doneJuz })}
+                      </p>
+                    );
+                  })()}
                 </div>
               )}
             </div>
