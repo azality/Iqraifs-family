@@ -4827,6 +4827,9 @@ export interface MarksSheetStudent {
 export interface MarksSheetResponse {
   section: { id: string; name: string; className: string };
   subjects: { id: string; name: string; assessmentWeights?: AssessmentWeight[] | null }[];
+  /** null = caller may edit every column; otherwise the subject ids
+   *  they teach (the subjects list is already filtered to these). */
+  editableSubjectIds?: string[] | null;
   students: MarksSheetStudent[];
 }
 

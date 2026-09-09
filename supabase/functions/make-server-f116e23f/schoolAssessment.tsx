@@ -44,6 +44,34 @@ async function isTeacherOfSection(userId: string, sectionId: string): Promise<bo
   return false;
 }
 
+// Which subject columns this caller may edit in this section.
+// null = ALL (admin/principal/class teacher — they own the section);
+// otherwise the class_subject_ids they teach here. A subject teacher
+// sees and writes only their own columns (Muneeb, 11 Sep: Rizwana
+// enters Sindhi and cannot see the rest).
+async function editableSubjects(
+  userId: string,
+  orgId: string,
+  sectionId: string,
+): Promise<Set<string> | null> {
+  if (await isAdminOrPrincipal(userId, orgId)) return null;
+  const { data: sec } = await serviceRoleClient
+    .from("class_section")
+    .select("class_teacher_user_id, class:class_id(class_teacher_user_id)")
+    .eq("id", sectionId).maybeSingle();
+  if ((sec as any)?.class_teacher_user_id === userId) return null;
+  if ((sec as any)?.class?.class_teacher_user_id === userId) return null;
+  const { data } = await serviceRoleClient
+    .from("section_subject")
+    .select("class_subject_id")
+    .eq("class_section_id", sectionId)
+    .eq("teacher_user_id", userId)
+    .is("archived_at", null);
+  return new Set(
+    ((data ?? []) as any[]).map((r) => r.class_subject_id).filter(Boolean),
+  );
+}
+
 function termToJson(r: any) {
   return {
     id: r.id, orgId: r.org_id,
@@ -545,6 +573,16 @@ export function installAssessment(school: Hono): void {
       .eq("class_id", classId)
       .order("sort_order", { ascending: true });
 
+    // Subject teachers get ONLY their own columns — fewer mistakes, no
+    // peeking at colleagues' marks. Admin/class teacher see everything.
+    const editable = await editableSubjects(userId, orgId, sectionId);
+    if (editable !== null && editable.size === 0) {
+      return c.json({ error: "you don't teach a subject in this section" }, 403);
+    }
+    const visibleSubjects = editable === null
+      ? ((subjects ?? []) as any[])
+      : ((subjects ?? []) as any[]).filter((s) => editable.has(s.id));
+
     // Students in this section. The student table has no roll_number
     // column in this codebase (the original 0007 migration never added
     // it); ordering by it silently emptied the array. Sort by name only.
@@ -555,7 +593,7 @@ export function installAssessment(school: Hono): void {
       .order("full_name", { ascending: true });
 
     const studentIds = ((students ?? []) as any[]).map((s) => s.id);
-    const subjectIds = ((subjects ?? []) as any[]).map((s) => s.id);
+    const subjectIds = visibleSubjects.map((s) => s.id);
 
     const { data: scores } = studentIds.length && subjectIds.length
       ? await serviceRoleClient
@@ -572,11 +610,12 @@ export function installAssessment(school: Hono): void {
 
     return c.json({
       section: { id: section.id, name: (section as any).name, className: (section as any).class.name },
-      subjects: ((subjects ?? []) as any[]).map((s) => ({
+      subjects: visibleSubjects.map((s) => ({
         id: s.id,
         name: s.name,
         assessmentWeights: s.assessment_weights ?? null,
       })),
+      editableSubjectIds: editable === null ? null : Array.from(editable),
       students: ((students ?? []) as any[]).map((s) => ({
         id: s.id,
         fullName: s.full_name,
@@ -610,6 +649,12 @@ export function installAssessment(school: Hono): void {
     if (!isAdmin && !(await isTeacherOfSection(userId, sectionId))) {
       return c.json({ error: "forbidden" }, 403);
     }
+    // Per-subject enforcement: a subject teacher may only write the
+    // columns they teach (the sheet only shows them those anyway).
+    const editableForWrite = await editableSubjects(userId, orgId, sectionId);
+    if (editableForWrite !== null && editableForWrite.size === 0) {
+      return c.json({ error: "you don't teach a subject in this section" }, 403);
+    }
 
     const { data: exam } = await serviceRoleClient
       .from("exam").select("org_id").eq("id", examId).maybeSingle();
@@ -629,6 +674,9 @@ export function installAssessment(school: Hono): void {
       const studentId = String(r.studentId ?? "");
       const subjectId = String(r.classSubjectId ?? "");
       if (!studentId || !subjectId) continue;
+      if (editableForWrite !== null && !editableForWrite.has(subjectId)) {
+        return c.json({ error: "you can only enter marks for your own subject" }, 403);
+      }
       const absent = r.absent === true;
       const obtained = r.obtainedMarks === null || r.obtainedMarks === undefined || r.obtainedMarks === ""
         ? null : Number(r.obtainedMarks);
