@@ -30,16 +30,21 @@ import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { hasAnyRoleInOrg as hasAnyOrgRole, hasAdminOrPrincipal as isAdminOrPrincipal, teachesSubjectInSection } from "./schoolAuth.ts";
 
 async function isTeacherOfSection(userId: string, sectionId: string): Promise<boolean> {
-  // Class teacher of the section's class OR section's class_teacher_user_id,
-  // OR subject teacher of the section (marks entry is per subject — the
-  // specialist who teaches it must be able to enter them).
+  // Section's class teacher OR subject teacher of the section (marks
+  // entry is per subject — the specialist who teaches it must be able
+  // to enter them).
+  //
+  // NB: the old version embedded class(class_teacher_user_id) — a column
+  // that does NOT exist on class — which errored the whole select and
+  // made this return false for EVERY teacher. Latent since MarksEntry
+  // was admin-gated; surfaced the day teachers got the front door
+  // (11 Sep — the real reason orals were logged as gradebook tests).
   const { data: sec } = await serviceRoleClient
     .from("class_section")
-    .select("class_teacher_user_id, class:class_id(class_teacher_user_id)")
+    .select("class_teacher_user_id")
     .eq("id", sectionId).maybeSingle();
   if (!sec) return false;
   if ((sec as any).class_teacher_user_id === userId) return true;
-  if ((sec as any).class?.class_teacher_user_id === userId) return true;
   if (await teachesSubjectInSection(userId, sectionId)) return true;
   return false;
 }
@@ -57,10 +62,9 @@ async function editableSubjects(
   if (await isAdminOrPrincipal(userId, orgId)) return null;
   const { data: sec } = await serviceRoleClient
     .from("class_section")
-    .select("class_teacher_user_id, class:class_id(class_teacher_user_id)")
+    .select("class_teacher_user_id")
     .eq("id", sectionId).maybeSingle();
   if ((sec as any)?.class_teacher_user_id === userId) return null;
-  if ((sec as any)?.class?.class_teacher_user_id === userId) return null;
   const { data } = await serviceRoleClient
     .from("section_subject")
     .select("class_subject_id")
