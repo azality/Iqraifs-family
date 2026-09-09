@@ -326,7 +326,7 @@ export function HifzLogEntry({
         const manzilTargetIdx = entries.findIndex(
           (e) => parseNextManzil((e.nextTarget ?? "").trim()) !== null,
         );
-        const lastManzilIdx = entries.findIndex((e) => e.kind === "manzil");
+        const lastManzilIdx = entries.findIndex((e) => e.kind === "manzil" && !e.missed);
         let manzilSeed: { juz: number; extent: AssignExtent; source: "assigned" | "rotation" } | null = null;
         if (manzilTargetIdx >= 0 && (lastManzilIdx === -1 || lastManzilIdx >= manzilTargetIdx)) {
           const mv = parseNextManzil(entries[manzilTargetIdx].nextTarget!.trim())!;
@@ -432,6 +432,10 @@ export function HifzLogEntry({
     let sendFrom = num(ayahFrom);
     let sendTo = num(ayahTo);
     const revDay = isSabaq && !missed ? sabaqRevisionDay : null;
+    if (isManzil && missed && !missedTargetReason.trim()) {
+      toast.error(t("hifzTeach.manzilSkipReasonRequired"));
+      return;
+    }
     if (revDay) {
       const start = JUZ_STARTS[revDay.juz - 1];
       sendSurah = start.surah;
@@ -439,13 +443,20 @@ export function HifzLogEntry({
       sendTo = start.ayah;
     } else if (isParaMode) {
       if (typeof revJuz !== "number") {
-        toast.error(t("hifzTeach.pickParaFirst"));
-        return;
+        if (isManzil && missed) {
+          // Skipped without picking a juz — a marker-only entry is fine;
+          // prefill ignores missed rows entirely.
+          sendSurah = 1; sendFrom = 1; sendTo = 1;
+        } else {
+          toast.error(t("hifzTeach.pickParaFirst"));
+          return;
+        }
+      } else {
+        const start = JUZ_STARTS[revJuz - 1];
+        sendSurah = start.surah;
+        sendFrom = start.ayah;
+        sendTo = start.ayah;
       }
-      const start = JUZ_STARTS[revJuz - 1];
-      sendSurah = start.surah;
-      sendFrom = start.ayah;
-      sendTo = start.ayah;
     } else if (!missed) {
       if (sendFrom < 1 || sendFrom > maxAyah) {
         toast.error(`Ayah from must be 1–${maxAyah}`);
@@ -498,7 +509,7 @@ export function HifzLogEntry({
         : undefined;
     } else if (
       !assignOn && isParaManzil && typeof revJuz === "number" &&
-      revExtent !== "to_surah" && quality
+      revExtent !== "to_surah" && quality && !missed
     ) {
       // Manzil parity with Round Mode (#516): the rated manzil derives
       // and STORES tomorrow — repeat repeats, segments advance, a
@@ -521,7 +532,7 @@ export function HifzLogEntry({
         juzNumber: revDay
           ? revDay.juz
           : isParaMode
-          ? (revJuz as number)
+          ? (typeof revJuz === "number" ? revJuz : undefined)
           : typeof juzNumber === "number" ? juzNumber : undefined,
         juzExtent: revDay
           ? "full"
@@ -611,6 +622,33 @@ export function HifzLogEntry({
             </RadioGroup>
           </div>
 
+          {/* Missed-manzil opt-out (teacher feedback, 11 Sep): skip with a
+              reason. Saved as a missed marker; prefill ignores it, so
+              the rotation re-suggests the same juz tomorrow. */}
+          {isManzil && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2 space-y-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={missed}
+                  onChange={(e) => setMissed(e.target.checked)}
+                />
+                <span className="text-sm text-amber-900">
+                  <span className="font-medium">{t("hifzTeach.manzilSkipToday")}</span>
+                  <span className="ml-1 text-xs text-amber-700">{t("hifzTeach.manzilSkipHint")}</span>
+                </span>
+              </label>
+              {missed && (
+                <Input
+                  value={missedTargetReason}
+                  onChange={(e) => setMissedTargetReason(e.target.value)}
+                  placeholder={t("hifzRound.manzilSkipReasonPh")}
+                  maxLength={200}
+                  className="bg-white"
+                />
+              )}
+            </div>
+          )}
           {/* Missed-sabaq quick switch — only meaningful on sabaq. */}
           {isSabaq && (
             <label className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50/60 px-3 py-2 cursor-pointer">
