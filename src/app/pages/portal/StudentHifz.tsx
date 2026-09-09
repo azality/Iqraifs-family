@@ -59,22 +59,25 @@ const SURAH_NAMES: Record<number, string> = {
 const surahLabel = (n: number) =>
   SURAH_NAMES[n] ? `Surah ${SURAH_NAMES[n]}` : `Surah ${n}`;
 
-const QUALITY_STYLES: Record<string, { label: string; cls: string; Icon: typeof Sparkles }> = {
-  excellent: { label: "Excellent", cls: "bg-emerald-100 text-emerald-800 border-emerald-200", Icon: Sparkles },
-  good:      { label: "Good",      cls: "bg-sky-100 text-sky-800 border-sky-200", Icon: CheckCircle2 },
-  needs_practice: { label: "Needs practice", cls: "bg-amber-100 text-amber-800 border-amber-200", Icon: AlertCircle },
-  weak:      { label: "Weak",      cls: "bg-rose-100 text-rose-800 border-rose-200", Icon: AlertCircle },
-  not_learned: { label: "Not learned today", cls: "bg-slate-200 text-slate-700 border-slate-300", Icon: AlertCircle },
+// Labels come from the hifzTeach.q* keys — already translated for the
+// staff surfaces, so the parent sees the same word the teacher picked.
+const QUALITY_STYLES: Record<string, { labelKey: string; cls: string; Icon: typeof Sparkles }> = {
+  excellent: { labelKey: "hifzTeach.qExcellent", cls: "bg-emerald-100 text-emerald-800 border-emerald-200", Icon: Sparkles },
+  good:      { labelKey: "hifzTeach.qGood",      cls: "bg-sky-100 text-sky-800 border-sky-200", Icon: CheckCircle2 },
+  needs_practice: { labelKey: "hifzTeach.qNeedsPractice", cls: "bg-amber-100 text-amber-800 border-amber-200", Icon: AlertCircle },
+  weak:      { labelKey: "hifzTeach.qWeak",      cls: "bg-rose-100 text-rose-800 border-rose-200", Icon: AlertCircle },
+  not_learned: { labelKey: "hifzTeach.qNotLearned", cls: "bg-slate-200 text-slate-700 border-slate-300", Icon: AlertCircle },
 };
 
 function QualityBadge({ quality }: { quality: string | null | undefined }) {
+  const { t } = useTranslation();
   if (!quality) return null;
   const meta = QUALITY_STYLES[quality];
   if (!meta) return <span className="text-slate-500 text-xs capitalize">{quality}</span>;
   return (
     <span className={"inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium " + meta.cls}>
       <meta.Icon className="h-3 w-3" />
-      {meta.label}
+      {t(meta.labelKey)}
     </span>
   );
 }
@@ -142,16 +145,16 @@ function MonthGrid({ days }: { days: MyStudentHifzDayCell[] }) {
  *  Renders only the fields the backend filled in; nothing else is
  *  spec'd to appear, so we don't leak empty rows. */
 function TodayCard({ today }: { today: MyStudentHifzToday }) {
-  const date = new Date(today.recordedAt).toLocaleDateString(undefined, {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
+  const { t, i18n } = useTranslation();
+  // The date reads in the parent's own calendar language.
+  const date = new Date(today.recordedAt).toLocaleDateString(
+    i18n.language?.startsWith("ur") ? "ur-PK" : undefined,
+    { weekday: "long", year: "numeric", month: "long", day: "numeric" },
+  );
   return (
     <div className="bg-white border border-indigo-200 rounded-2xl shadow-sm overflow-hidden">
       <div className="bg-gradient-to-br from-indigo-50 to-white px-5 py-3 border-b border-indigo-100">
-        <div className="text-xs font-medium uppercase tracking-wide text-indigo-700">Latest update</div>
+        <div className="text-xs font-medium uppercase tracking-wide text-indigo-700">{t("portal.hifz.latestUpdate")}</div>
         <div className="text-sm text-slate-700">{date}</div>
       </div>
 
@@ -163,10 +166,10 @@ function TodayCard({ today }: { today: MyStudentHifzToday }) {
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Today's Sabaq
+                {t("portal.hifz.todaysSabaq")}
               </div>
               <div className="text-sm text-slate-900 mt-0.5">
-                {surahLabel(today.sabaq.surahNumber)}, ayah {today.sabaq.ayahFrom}
+                {surahLabel(today.sabaq.surahNumber)}, {t("portal.hifz.ayahWord")} {today.sabaq.ayahFrom}
                 {today.sabaq.ayahTo !== today.sabaq.ayahFrom && ` – ${today.sabaq.ayahTo}`}
               </div>
               <div className="mt-1.5"><QualityBadge quality={today.sabaq.quality} /></div>
@@ -181,10 +184,12 @@ function TodayCard({ today }: { today: MyStudentHifzToday }) {
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Revision ({today.revision.kind === "sabqi" ? "recent" : "older"})
+                {today.revision.kind === "sabqi"
+                  ? t("portal.hifz.revisionRecent")
+                  : t("portal.hifz.revisionOlder")}
               </div>
               <div className="text-sm text-slate-900 mt-0.5">
-                {surahLabel(today.revision.surahNumber)}, ayah {today.revision.ayahFrom}
+                {surahLabel(today.revision.surahNumber)}, {t("portal.hifz.ayahWord")} {today.revision.ayahFrom}
                 {today.revision.ayahTo !== today.revision.ayahFrom && ` – ${today.revision.ayahTo}`}
               </div>
               <div className="mt-1.5"><QualityBadge quality={today.revision.quality} /></div>
@@ -194,7 +199,7 @@ function TodayCard({ today }: { today: MyStudentHifzToday }) {
 
         {today.teacherNote && (
           <div className="rounded-lg bg-slate-50 border border-slate-200 p-3">
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Teacher note</div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("portal.hifz.teacherNote")}</div>
             <div className="mt-1 text-sm text-slate-800">{today.teacherNote}</div>
           </div>
         )}
@@ -206,12 +211,12 @@ function TodayCard({ today }: { today: MyStudentHifzToday }) {
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600 pt-2 border-t border-slate-100">
             {today.nextTarget && (
               <span>
-                <span className="font-medium text-slate-700">Next target:</span> {today.nextTarget}
+                <span className="font-medium text-slate-700">{t("portal.hifz.nextTarget")}</span> {today.nextTarget}
               </span>
             )}
             {today.mistakesCount != null && (
               <span>
-                <span className="font-medium text-slate-700">Mistakes:</span> {today.mistakesCount}
+                <span className="font-medium text-slate-700">{t("portal.hifz.mistakes")}</span> {today.mistakesCount}
               </span>
             )}
           </div>
@@ -222,7 +227,7 @@ function TodayCard({ today }: { today: MyStudentHifzToday }) {
 }
 
 export function StudentHifz() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { studentId = "" } = useParams<{ studentId: string }>();
   const [data, setData] = useState<MyStudentHifzResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -250,24 +255,26 @@ export function StudentHifz() {
       </div>
     );
   }
-  if (!data) return <div className="text-slate-500 text-sm">Loading…</div>;
+  if (!data) return <div className="text-slate-500 text-sm">{t("common.loading")}</div>;
 
   const last = data.summary.lastEntry
-    ? new Date(data.summary.lastEntry).toLocaleDateString()
+    ? new Date(data.summary.lastEntry).toLocaleDateString(
+        i18n.language?.startsWith("ur") ? "ur-PK" : undefined,
+      )
     : "—";
 
   return (
     <div className="space-y-5">
       <HeroCard
-        title="Hifz Progress"
-        subtitle="Quran memorization log"
+        title={t("portal.hifz.title")}
+        subtitle={t("portal.hifz.subtitle")}
         rightSlot={
           <div className="text-right text-xs text-indigo-200">
             <div className="text-2xl text-white font-semibold tabular-nums">
               {data.summary.ayahsMemorized}
             </div>
-            <div>ayahs · {data.summary.surahsCompleted} surahs</div>
-            <div>last entry · {last}</div>
+            <div>{t("portal.hifz.ayahsLine", { s: data.summary.surahsCompleted })}</div>
+            <div>{t("portal.hifz.lastEntry")} · {last}</div>
           </div>
         }
       />
@@ -291,7 +298,7 @@ export function StudentHifz() {
         <TodayCard today={data.today} />
       ) : (
         <div className="rounded-xl border border-slate-200 bg-white p-5 text-center text-sm text-slate-500">
-          No Hifz entries yet. The teacher will start logging soon.
+          {t("portal.hifz.noEntries")}
         </div>
       )}
 
@@ -301,17 +308,17 @@ export function StudentHifz() {
         <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4">
           <div className="flex items-baseline justify-between mb-3">
             <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
-              Last 30 days
+              {t("portal.hifz.last30")}
             </div>
             <div className="text-[11px] text-slate-500">
-              {data.last30Days.filter((d) => d.logged).length} logged ·{" "}
+              {t("portal.hifz.loggedCount", { n: data.last30Days.filter((d) => d.logged).length })} ·{" "}
               <span className={data.last30Days.some((d) => d.missed) ? "font-semibold text-rose-600" : ""}>
-                {data.last30Days.filter((d) => d.missed).length} missed
+                {t("portal.hifz.missedCount", { n: data.last30Days.filter((d) => d.missed).length })}
               </span>
               {(() => {
                 const wk = (data.last14Days ?? []).slice(-7);
                 const mistakes = wk.reduce((s, d) => s + ((d as any).mistakes ?? 0), 0);
-                return mistakes > 0 ? <> · {mistakes} mistakes this week</> : null;
+                return mistakes > 0 ? <> · {t("portal.hifz.weekMistakes", { n: mistakes })}</> : null;
               })()}
             </div>
           </div>
@@ -331,7 +338,7 @@ export function StudentHifz() {
           onClick={() => setLogOpen((v) => !v)}
           className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
         >
-          <span>Full Hifz log ({data.entries.length} entries)</span>
+          <span>{t("portal.hifz.fullLog", { n: data.entries.length })}</span>
           {logOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
         </button>
         {logOpen && (
@@ -342,13 +349,13 @@ export function StudentHifz() {
             columns={[
               {
                 key: "recordedAt",
-                header: "Date",
+                header: t("portal.hifz.colDate"),
                 width: "w-28",
                 cell: (r) => new Date(r.recordedAt).toLocaleDateString(),
               },
               {
                 key: "kind",
-                header: "Kind",
+                header: t("portal.hifz.colKind"),
                 width: "w-28",
                 cell: (r) => (
                   <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-indigo-50 text-indigo-700 capitalize">
@@ -358,7 +365,7 @@ export function StudentHifz() {
               },
               {
                 key: "surahNumber",
-                header: "Surah",
+                header: t("portal.hifz.colSurah"),
                 cell: (r) =>
                   r.juzExtent && r.juzNumber ? (
                     <span className="text-sm">
@@ -370,7 +377,7 @@ export function StudentHifz() {
               },
               {
                 key: "ayahs",
-                header: "Ayahs",
+                header: t("portal.hifz.colAyahs"),
                 width: "w-24",
                 cell: (r) => (
                   <span className="tabular-nums text-sm">
@@ -382,13 +389,13 @@ export function StudentHifz() {
               },
               {
                 key: "quality",
-                header: "Quality",
+                header: t("portal.hifz.colQuality"),
                 width: "w-36",
                 cell: (r) => <QualityBadge quality={r.quality} />,
               },
               {
                 key: "comments",
-                header: "Note",
+                header: t("portal.hifz.colNote"),
                 cell: (r) => {
                   // Prefer the parent-facing comment field; fall back to
                   // the legacy notes column so older entries keep value.
