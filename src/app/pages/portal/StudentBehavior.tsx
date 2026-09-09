@@ -1,6 +1,7 @@
 // StudentBehavior — timeline of behavior notes for a student.
 
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useParams } from "react-router";
 import { HeroCard, cardBase, cardElev } from "../../components/school-ui";
 import {
@@ -11,15 +12,19 @@ import {
   type PointsLeagueResponse,
 } from "../../../utils/schoolPortalApi";
 
-function relativeTime(iso: string): string {
+type LeaguePeriod = "week" | "month" | "term" | "all";
+
+type TFn = (k: string, o?: Record<string, unknown>) => string;
+
+function relativeTime(iso: string, t: TFn, lang: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const mins = Math.round(diff / 60000);
-  if (mins < 60) return `${Math.max(mins, 0)}m ago`;
+  if (mins < 60) return t("behavior.minsAgo", { n: Math.max(mins, 0) });
   const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
+  if (hrs < 24) return t("behavior.hoursAgo", { n: hrs });
   const days = Math.round(hrs / 24);
-  if (days < 7) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString();
+  if (days < 7) return t("behavior.daysAgo", { n: days });
+  return new Date(iso).toLocaleDateString(lang.startsWith("ur") ? "ur-PK" : undefined);
 }
 
 function pointsColor(points: number): string {
@@ -29,9 +34,13 @@ function pointsColor(points: number): string {
 }
 
 export function StudentBehavior() {
+  const { t, i18n } = useTranslation();
   const { studentId = "" } = useParams<{ studentId: string }>();
   const [data, setData] = useState<MyStudentBehaviorResponse | null>(null);
   const [league, setLeague] = useState<PointsLeagueResponse | null>(null);
+  // Window chips like the staff leaderboard (Muneeb, 9 Sep). Month is
+  // the winnable default everywhere the league appears.
+  const [period, setPeriod] = useState<LeaguePeriod>("month");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -40,10 +49,6 @@ export function StudentBehavior() {
       try {
         const res = await getMyStudentBehavior(studentId);
         if (!cancelled) setData(res);
-        // The league is optional decoration - it must never block the page.
-        getMyPointsLeague(studentId)
-          .then((l) => { if (!cancelled) setLeague(l); })
-          .catch(() => {});
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load");
       }
@@ -53,6 +58,17 @@ export function StudentBehavior() {
     };
   }, [studentId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    // The league is optional decoration — it must never block the page.
+    // A window the school hasn't set up (no current term) keeps the
+    // previous data rather than blanking the card.
+    getMyPointsLeague(studentId, period)
+      .then((l) => { if (!cancelled) setLeague(l); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [studentId, period]);
+
   if (error) {
     return (
       <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 text-sm text-rose-700">
@@ -60,24 +76,31 @@ export function StudentBehavior() {
       </div>
     );
   }
-  if (!data) return <div className="text-slate-500 text-sm">Loading…</div>;
+  if (!data) return <div className="text-slate-500 text-sm">{t("common.loading")}</div>;
 
   const sortedEntries = [...data.entries].sort(
     (a, b) => new Date(b.observedAt).getTime() - new Date(a.observedAt).getTime(),
   );
 
+  const PERIODS: Array<{ key: LeaguePeriod; label: string }> = [
+    { key: "week", label: t("portal.beh.week") },
+    { key: "month", label: t("portal.beh.month") },
+    { key: "term", label: t("portal.beh.term") },
+    { key: "all", label: t("portal.beh.allTime") },
+  ];
+
   return (
     <div className="space-y-5">
       <HeroCard
-        title="Behavior"
-        subtitle="Notes and observations"
+        title={t("portal.nav.behavior")}
+        subtitle={t("portal.beh.subtitle")}
         rightSlot={
           <div className="text-right text-xs text-indigo-200">
             <div className="text-lg text-white font-semibold tabular-nums">
-              {data.summary.positiveCount} positive · {data.summary.concernCount} concern
+              {t("portal.beh.counts", { p: data.summary.positiveCount, c: data.summary.concernCount })}
             </div>
             <div>
-              Net points:{" "}
+              {t("portal.beh.netPoints")}{" "}
               <span className="text-white tabular-nums font-medium">
                 {data.summary.netPoints >= 0 ? "+" : ""}
                 {data.summary.netPoints}
@@ -95,15 +118,31 @@ export function StudentBehavior() {
           classmates appear as name + points only, never their concerns. */}
       {league?.enabled && league.league && (
         <div className={`${cardBase} ${cardElev} p-4 space-y-3`}>
-          <div className="flex items-baseline justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-sm font-bold text-slate-900">
-              \ud83c\udfc6 Class league · this {league.league.period === "all" ? "year" : league.league.period}
+              🏆 {t("portal.beh.leagueTitle")}
             </h2>
             {league.league.me && (
               <span className="text-xs text-slate-500">
-                You are <b className="text-slate-900">#{league.league.me.rank}</b> of {league.league.classSize}
+                {t("portal.beh.youAre")} <b className="text-slate-900">#{league.league.me.rank}</b> / {league.league.classSize}
               </span>
             )}
+          </div>
+          {/* Same windows as the classroom board - Month is the default. */}
+          <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+            {PERIODS.map((p) => (
+              <button
+                key={p.key}
+                type="button"
+                onClick={() => setPeriod(p.key)}
+                className={
+                  "rounded-md px-2.5 py-0.5 text-[11px] font-medium " +
+                  (period === p.key ? "bg-white shadow-sm text-slate-900" : "text-slate-500")
+                }
+              >
+                {p.label}
+              </button>
+            ))}
           </div>
           <ul className="space-y-1.5">
             {league.league.top.map((r) => (
@@ -115,10 +154,10 @@ export function StudentBehavior() {
                 }
               >
                 <span className="w-7 text-center">
-                  {r.rank === 1 ? "\ud83e\udd47" : r.rank === 2 ? "\ud83e\udd48" : r.rank === 3 ? "\ud83e\udd49" : `#${r.rank}`}
+                  {r.rank === 1 ? "🥇" : r.rank === 2 ? "🥈" : r.rank === 3 ? "🥉" : `#${r.rank}`}
                 </span>
                 <span className="min-w-0 flex-1 truncate">
-                  {r.name}{r.isMe ? " (you)" : ""}
+                  {r.name}{r.isMe ? ` ${t("portal.beh.you")}` : ""}
                 </span>
                 <span className="font-bold tabular-nums text-emerald-700">
                   {r.points > 0 ? `+${r.points}` : r.points}
@@ -128,7 +167,7 @@ export function StudentBehavior() {
             {league.league.me && !league.league.top.some((r) => r.isMe) && (
               <li className="flex items-center gap-2 rounded-lg bg-indigo-50 px-2.5 py-1.5 text-sm font-semibold ring-1 ring-indigo-200">
                 <span className="w-7 text-center">#{league.league.me.rank}</span>
-                <span className="min-w-0 flex-1 truncate">You</span>
+                <span className="min-w-0 flex-1 truncate">{t("portal.beh.you")}</span>
                 <span className="font-bold tabular-nums text-emerald-700">
                   {league.league.me.points > 0 ? `+${league.league.me.points}` : league.league.me.points}
                 </span>
@@ -142,7 +181,7 @@ export function StudentBehavior() {
           what teachers actually award. */}
       {league?.enabled && (league.earn?.length ?? 0) > 0 && (
         <div className={`${cardBase} ${cardElev} p-4`}>
-          <h2 className="text-sm font-bold text-slate-900">How to earn points</h2>
+          <h2 className="text-sm font-bold text-slate-900">{t("portal.beh.howToEarn")}</h2>
           <ul className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
             {league!.earn!.map((e) => (
               <li key={e.label} className="flex items-baseline justify-between gap-2 text-sm">
@@ -156,7 +195,7 @@ export function StudentBehavior() {
 
       {sortedEntries.length === 0 ? (
         <div className={`${cardBase} ${cardElev} p-6 text-sm text-slate-500 text-center`}>
-          No behavior notes yet.
+          {t("portal.beh.noNotes")}
         </div>
       ) : (
         <ul className="space-y-3">
@@ -172,7 +211,7 @@ export function StudentBehavior() {
                         : "bg-rose-50 text-rose-700")
                     }
                   >
-                    {n.kind}
+                    {t(`behavior.${n.kind}`)}
                   </span>
                   {n.category && (
                     <span className="text-xs text-slate-500 capitalize truncate">
@@ -185,7 +224,7 @@ export function StudentBehavior() {
                     {n.points > 0 ? "+" : ""}
                     {n.points}
                   </div>
-                  <div className="text-[11px] text-slate-400">{relativeTime(n.observedAt)}</div>
+                  <div className="text-[11px] text-slate-400">{relativeTime(n.observedAt, t, i18n.language ?? "en")}</div>
                 </div>
               </div>
               {n.notes && <p className="mt-2 text-sm text-slate-700">{n.notes}</p>}
