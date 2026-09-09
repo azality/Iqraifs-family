@@ -5684,9 +5684,12 @@ export interface TimetableSectionProgressSection {
   id: string; name: string;
   classId: string | null; className: string | null;
   filledSlots: number;
+  /** Academic slots of THIS section's bell schedule (absent on old servers). */
+  expectedSlots?: number;
 }
 export interface TimetableSectionProgressGroup {
   id: string; name: string; filledSlots: number;
+  expectedSlots?: number;
 }
 export interface TimetableSectionProgress {
   totalSlots: number;
