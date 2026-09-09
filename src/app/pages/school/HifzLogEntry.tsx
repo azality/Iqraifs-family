@@ -164,7 +164,14 @@ export function HifzLogEntry({
   ]);
   const [assignManzilJuz, setAssignManzilJuz] = useState<number>(1);
   const [assignManzilExtent, setAssignManzilExtent] = useState<AssignExtent>("full");
-  const [lastAssigned, setLastAssigned] = useState<string | null>(null);
+  // Per-kind standing assignments: "Assigned last time" must match the
+  // tab the teacher is on (Muneeb, 9 Sep) — a sabqi target showing on
+  // the sabaq tab reads as the wrong lesson. Targets are prefixed by
+  // their serializers ("Sabaq:", "Sabqi:", "Manzil:"); free-text targets
+  // without a prefix count as sabaq, matching the old behavior.
+  const [lastAssignedByKind, setLastAssignedByKind] = useState<
+    Record<"sabaq" | "sabqi" | "manzil", string | null>
+  >({ sabaq: null, sabqi: null, manzil: null });
   // Smart next-sabaq suggestion (pilot: "system khud samajh jaye ke ayah
   // 11 se shuru hona chahiye"). Once the teacher edits an assign FIELD
   // the suggestion never overwrites their input; unchecking the box is
@@ -224,7 +231,7 @@ export function HifzLogEntry({
     setAssignSurah(1);
     setAssignFrom(1);
     setAssignTo(1);
-    setLastAssigned(null);
+    setLastAssignedByKind({ sabaq: null, sabqi: null, manzil: null });
     setAssignTouched(false);
     setAssignOptOut(false);
     setSuggestion("none");
@@ -242,12 +249,22 @@ export function HifzLogEntry({
     setAdvancedOpen(false);
     setMissed(false);
 
-    getStudentHifz(orgId, studentId, { limit: 10 })
+    getStudentHifz(orgId, studentId, { limit: 20 })
       .then((r) => {
-        const withTarget = r.entries.find((e) => (e.nextTarget ?? "").trim().length > 0);
-        if (!withTarget?.nextTarget) return;
-        setLastAssigned(withTarget.nextTarget);
-        const parsed = parseNextSabaq(withTarget.nextTarget);
+        // Entries come newest-first; keep the most recent target per kind.
+        const byKind: Record<"sabaq" | "sabqi" | "manzil", string | null> = {
+          sabaq: null, sabqi: null, manzil: null,
+        };
+        for (const e of r.entries) {
+          const txt = (e.nextTarget ?? "").trim();
+          if (!txt) continue;
+          const bucket = /^Sabqi:/i.test(txt) ? "sabqi" : /^Manzil:/i.test(txt) ? "manzil" : "sabaq";
+          if (!byKind[bucket]) byKind[bucket] = txt;
+        }
+        setLastAssignedByKind(byKind);
+        // Today's sabaq prefills from the last SABAQ assignment — a newer
+        // sabqi/manzil target must not block it (it used to).
+        const parsed = byKind.sabaq ? parseNextSabaq(byKind.sabaq) : null;
         if (parsed) {
           setSurahNumber(parsed.surahNumber);
           setAyahFrom(parsed.from);
@@ -478,13 +495,21 @@ export function HifzLogEntry({
             </label>
           )}
 
-          {/* Standing assignment (from the previous sabaq log). */}
-          {isSabaq && lastAssigned && !missed && (
-            <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 px-3 py-2 text-sm text-indigo-900">
-              {t("hifzTeach.assignedLastTime")} <span className="font-medium">{lastAssigned}</span>
-              {parseNextSabaq(lastAssigned) ? ` ${t("hifzTeach.prefilledBelow")}` : ""}
-            </div>
-          )}
+          {/* Standing assignment — matches the tab: the sabaq tab shows
+              the last assigned sabaq, sabqi shows sabqi, manzil manzil. */}
+          {(() => {
+            const current =
+              kind === "sabaq" || kind === "sabqi" || kind === "manzil"
+                ? lastAssignedByKind[kind]
+                : null;
+            if (!current || (isSabaq && missed)) return null;
+            return (
+              <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 px-3 py-2 text-sm text-indigo-900">
+                {t("hifzTeach.assignedLastTime")} <span className="font-medium">{current}</span>
+                {isSabaq && parseNextSabaq(current) ? ` ${t("hifzTeach.prefilledBelow")}` : ""}
+              </div>
+            );
+          })()}
 
           {/* Revision position mode — by surah or by para. Sabqi opens
               on surah, manzil on para; both can switch. */}
