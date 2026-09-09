@@ -633,6 +633,7 @@ export function installSubjects(school: Hono) {
         classId: t.class_id,
         name: t.name,
         sortOrder: t.sort_order,
+        assessmentWeights: t.assessment_weights ?? null,
         createdAt: t.created_at,
         updatedAt: t.updated_at,
         sections: (assignments ?? [])
@@ -739,6 +740,28 @@ export function installSubjects(school: Hono) {
     }
     if (typeof body?.sortOrder === "number") {
       patch.sort_order = Math.trunc(body.sortOrder);
+    }
+    // School-defined assessment weightage: [{ label, pct }] or null to
+    // clear. Guidance for marks entry (marks-as-weight); pct sanity-
+    // checked, sum left to the school (some schools keep a 5% buffer).
+    if ("assessmentWeights" in body) {
+      const aw = body.assessmentWeights;
+      if (aw === null) {
+        patch.assessment_weights = null;
+      } else if (Array.isArray(aw) && aw.length <= 10) {
+        const clean: Array<{ label: string; pct: number }> = [];
+        for (const it of aw) {
+          const label = typeof it?.label === "string" ? it.label.trim().slice(0, 40) : "";
+          const pct = Number(it?.pct);
+          if (!label || !Number.isFinite(pct) || pct <= 0 || pct > 100) {
+            return c.json({ error: "each weight needs a label and a pct in 1..100" }, 400);
+          }
+          clean.push({ label, pct });
+        }
+        patch.assessment_weights = clean.length ? clean : null;
+      } else {
+        return c.json({ error: "assessmentWeights must be null or an array of up to 10 items" }, 400);
+      }
     }
     if (Object.keys(patch).length === 0) {
       return c.json({ error: "nothing to update" }, 400);

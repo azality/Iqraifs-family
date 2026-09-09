@@ -404,12 +404,19 @@ export interface ClassDetail {
 // 3-B). See migrations 0018 + 0019.
 
 /** A subject template at the class level, plus its per-section assignments. */
+export interface AssessmentWeight {
+  label: string;
+  pct: number;
+}
+
 export interface ClassSubject {
   id: string;
   orgId: string;
   classId: string;
   name: string;
   sortOrder: number;
+  /** School-defined weightage split, e.g. Oral 40 / Written 60. */
+  assessmentWeights?: AssessmentWeight[] | null;
   createdAt: string;
   updatedAt: string;
   sections: Array<{
@@ -449,7 +456,7 @@ export const createClassSubject = (
 
 export const updateClassSubject = (
   classSubjectId: string,
-  body: { name?: string; sortOrder?: number },
+  body: { name?: string; sortOrder?: number; assessmentWeights?: AssessmentWeight[] | null },
 ): Promise<{ subject: ClassSubject }> =>
   apiCall(`/school/class-subjects/${classSubjectId}`, {
     method: "PATCH",
@@ -4819,7 +4826,7 @@ export interface MarksSheetStudent {
 }
 export interface MarksSheetResponse {
   section: { id: string; name: string; className: string };
-  subjects: { id: string; name: string }[];
+  subjects: { id: string; name: string; assessmentWeights?: AssessmentWeight[] | null }[];
   students: MarksSheetStudent[];
 }
 

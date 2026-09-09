@@ -17,6 +17,7 @@ import {
   Check,
   X,
   BookOpen,
+  Percent,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "../../../components/ui/button";
@@ -29,7 +30,11 @@ import {
   setSectionSubjectTeacher,
   type ClassSubject,
   type AdminTeacher,
+  type AssessmentWeight,
 } from "../../../../utils/schoolApi";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from "../../../components/ui/dialog";
 import { SubjectCurriculumPanel } from "./SubjectCurriculumPanel";
 
 interface Props {
@@ -62,6 +67,12 @@ export function ClassSubjectsManager({ classId, orgId, teachers }: Props) {
 
   // Rename inline
   const [editingId, setEditingId] = useState<string | null>(null);
+  // Assessment weightage editor — the school declares each subject's
+  // split (Oral 40 / Written 60; Science adds Practical 15, …). Shown
+  // as guidance on the marks sheet; marks-as-weight does the math.
+  const [weightsFor, setWeightsFor] = useState<ClassSubject | null>(null);
+  const [weightRows, setWeightRows] = useState<Array<{ label: string; pct: string }>>([]);
+  const [weightSaving, setWeightSaving] = useState(false);
   const [editName, setEditName] = useState("");
 
   const refresh = () => {
@@ -123,6 +134,41 @@ export function ClassSubjectsManager({ classId, orgId, teachers }: Props) {
       toast.error(e?.message || "Could not rename");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const openWeights = (subj: ClassSubject) => {
+    setWeightsFor(subj);
+    setWeightRows(
+      (subj.assessmentWeights ?? []).length > 0
+        ? subj.assessmentWeights!.map((w) => ({ label: w.label, pct: String(w.pct) }))
+        : [{ label: "Written", pct: "" }, { label: "Oral", pct: "" }],
+    );
+  };
+
+  const saveWeights = async () => {
+    if (!weightsFor) return;
+    const rows = weightRows
+      .map((r) => ({ label: r.label.trim(), pct: Number(r.pct) }))
+      .filter((r) => r.label || r.pct);
+    for (const r of rows) {
+      if (!r.label || !Number.isFinite(r.pct) || r.pct <= 0 || r.pct > 100) {
+        toast.error("Each row needs a name and a percentage between 1 and 100.");
+        return;
+      }
+    }
+    setWeightSaving(true);
+    try {
+      await updateClassSubject(weightsFor.id, {
+        assessmentWeights: rows.length ? (rows as AssessmentWeight[]) : null,
+      });
+      toast.success(rows.length ? "Weightage saved" : "Weightage cleared");
+      setWeightsFor(null);
+      refresh();
+    } catch (e: any) {
+      toast.error(e?.message || "Could not save weightage");
+    } finally {
+      setWeightSaving(false);
     }
   };
 
@@ -288,6 +334,17 @@ export function ClassSubjectsManager({ classId, orgId, teachers }: Props) {
                         </button>
                         <button
                           type="button"
+                          onClick={() => openWeights(s)}
+                          className={
+                            "rounded-md p-1 hover:bg-violet-50 hover:text-violet-700 " +
+                            ((s.assessmentWeights?.length ?? 0) > 0 ? "text-violet-600" : "text-slate-400")
+                          }
+                          title="Assessment weightage (oral / written / …)"
+                        >
+                          <Percent className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => handleDelete(s)}
                           className="rounded-md p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
                           title="Remove"
@@ -352,6 +409,74 @@ export function ClassSubjectsManager({ classId, orgId, teachers }: Props) {
           })}
         </div>
       )}
+      <Dialog open={weightsFor !== null} onOpenChange={(o) => { if (!o) setWeightsFor(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Weightage — {weightsFor?.name}</DialogTitle>
+          </DialogHeader>
+          <p className="text-xs text-slate-500 -mt-2">
+            The school&apos;s split for this subject (e.g. Oral 40 · Written 60).
+            Shown on the marks sheet so max marks are set to match — the
+            report card then weighs itself.
+          </p>
+          <div className="space-y-2">
+            {weightRows.map((r, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <Input
+                  value={r.label}
+                  placeholder="Component (Oral, Written, Practical…)"
+                  className="flex-1"
+                  maxLength={40}
+                  onChange={(e) =>
+                    setWeightRows((rows) => rows.map((x, xi) => (xi === i ? { ...x, label: e.target.value } : x)))
+                  }
+                />
+                <Input
+                  value={r.pct}
+                  placeholder="%"
+                  inputMode="numeric"
+                  className="w-16 text-right"
+                  onChange={(e) =>
+                    setWeightRows((rows) => rows.map((x, xi) => (xi === i ? { ...x, pct: e.target.value.replace(/[^0-9]/g, "") } : x)))
+                  }
+                />
+                <button
+                  type="button"
+                  onClick={() => setWeightRows((rows) => rows.filter((_, xi) => xi !== i))}
+                  className="rounded-md p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setWeightRows((rows) => [...rows, { label: "", pct: "" }])}
+                className="text-xs font-semibold text-violet-700 hover:underline"
+              >
+                + add component
+              </button>
+              {(() => {
+                const sum = weightRows.reduce((a, r) => a + (Number(r.pct) || 0), 0);
+                return (
+                  <span className={"text-xs font-semibold " + (sum === 100 ? "text-emerald-700" : "text-amber-700")}>
+                    total {sum}%
+                  </span>
+                );
+              })()}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setWeightsFor(null)} disabled={weightSaving}>
+              Cancel
+            </Button>
+            <Button onClick={() => void saveWeights()} disabled={weightSaving}>
+              {weightSaving ? "Saving…" : "Save weightage"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
