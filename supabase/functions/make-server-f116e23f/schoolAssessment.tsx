@@ -552,15 +552,34 @@ export function installAssessment(school: Hono): void {
       .order("exam_date", { ascending: true });
     const { data: students } = await serviceRoleClient
       .from("student")
-      .select("id")
+      .select("id, class_section_id")
       .eq("class_section_id", sectionId);
     const studentIds = ((students ?? []) as any[]).map((s) => s.id);
     const examIds = ((exams ?? []) as any[]).map((e) => e.id);
+
+    // The class's subject columns — the same columns the marks sheet
+    // shows. Completion is judged per SUBJECT (a subject is done when
+    // every student has a mark or an absence in it), not per student:
+    // "any row per student" hid the Enter-marks link as soon as ONE
+    // subject teacher finished, with eight columns still empty
+    // (Class VI A, 10 Sep — 9/9 students "marked" from Quran alone).
+    const { data: secRow } = await serviceRoleClient
+      .from("class_section")
+      .select("class_id")
+      .eq("id", sectionId).maybeSingle();
+    const { data: subjects } = await serviceRoleClient
+      .from("class_subject")
+      .select("id")
+      .eq("class_id", (secRow as any)?.class_id ?? "")
+      .is("archived_at", null);
+    const subjectIds = ((subjects ?? []) as any[]).map((s) => s.id);
+
     const markedByExam = new Map<string, Set<string>>();
+    const cellsByExam = new Map<string, Map<string, Set<string>>>();
     if (studentIds.length && examIds.length) {
       const { data: scores } = await serviceRoleClient
         .from("exam_subject_score")
-        .select("exam_id, student_id, obtained_marks, absent")
+        .select("exam_id, student_id, class_subject_id, obtained_marks, absent")
         .in("exam_id", examIds)
         .in("student_id", studentIds);
       for (const sc of ((scores ?? []) as any[])) {
@@ -568,16 +587,29 @@ export function installAssessment(school: Hono): void {
         let set = markedByExam.get(sc.exam_id);
         if (!set) { set = new Set(); markedByExam.set(sc.exam_id, set); }
         set.add(sc.student_id);
+        let bySub = cellsByExam.get(sc.exam_id);
+        if (!bySub) { bySub = new Map(); cellsByExam.set(sc.exam_id, bySub); }
+        let subSet = bySub.get(sc.class_subject_id);
+        if (!subSet) { subSet = new Set(); bySub.set(sc.class_subject_id, subSet); }
+        subSet.add(sc.student_id);
       }
     }
     return c.json({
       termName: (term as any).name,
-      exams: ((exams ?? []) as any[]).map((e) => ({
-        id: e.id,
-        name: e.name,
-        studentsMarked: markedByExam.get(e.id)?.size ?? 0,
-        studentCount: studentIds.length,
-      })),
+      exams: ((exams ?? []) as any[]).map((e) => {
+        const bySub = cellsByExam.get(e.id);
+        const subjectsDone = subjectIds.filter(
+          (sid) => (bySub?.get(sid)?.size ?? 0) >= studentIds.length && studentIds.length > 0,
+        ).length;
+        return {
+          id: e.id,
+          name: e.name,
+          studentsMarked: markedByExam.get(e.id)?.size ?? 0,
+          studentCount: studentIds.length,
+          subjectsDone,
+          subjectCount: subjectIds.length,
+        };
+      }),
     });
   });
 
