@@ -35,7 +35,7 @@ import {
   loadSection,
   requireTeacherOfSection,
 } from "./schoolAuth.ts";
-import { todayInOrgTz, orgTimezone, tzOffsetMinutes } from "./tz.ts";
+import { todayInOrgTz, orgTimezone, tzOffsetMinutes, zonedDayRangeUtc } from "./tz.ts";
 
 // -----------------------------------------------------------------------------
 // Validation helpers
@@ -772,13 +772,19 @@ export function installPhaseC(school: Hono): void {
       try {
         const tz = await orgTimezone(orgId);
         const today = todayInOrgTz(tz);
+        // "Today" is the SCHOOL's day. Pinning the org-tz date to a
+        // +00:00 offset put the bound 5 hours late for Karachi, so
+        // between local midnight and 05:00 the gate saw no note and a
+        // re-save praised the child again (caught by check 73 running
+        // at 01:11 Karachi, 11 Sep).
+        const { startUtc } = zonedDayRangeUtc(today, tz);
         const { data: already } = await serviceRoleClient
           .from("behavior_note")
           .select("id")
           .eq("org_id", orgId)
           .eq("student_id", stu.id)
           .eq("category", EXTRA_LESSON_CATEGORY)
-          .gte("observed_at", `${today}T00:00:00+00:00`)
+          .gte("observed_at", startUtc)
           .limit(1);
         if (!already?.length) {
           const surahName = body.extraLabel && typeof body.extraLabel === "string"
