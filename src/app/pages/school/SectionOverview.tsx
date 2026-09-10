@@ -132,7 +132,7 @@ export function SectionOverview() {
   // class's first scheduled paper until a few days after the last, the
   // Today panel links straight to the term's marks sheets — teachers
   // enter oral/written marks from the class page, not via Admin.
-  const [examMarksLinks, setExamMarksLinks] = useState<Array<{ id: string; name: string; studentsMarked: number; studentCount: number }>>([]);
+  const [examMarksLinks, setExamMarksLinks] = useState<Array<{ id: string; name: string; studentsMarked: number; studentCount: number; subjectsDone?: number; subjectCount?: number }>>([]);
   useEffect(() => {
     if (!orgId || !row?.classId) return;
     getExamSchedule(orgId)
@@ -158,7 +158,15 @@ export function SectionOverview() {
         try {
           const prog = await getSectionExamMarksProgress(orgId, sectionId);
           setExamMarksLinks(
-            prog.exams.filter((e) => e.studentCount > 0 && e.studentsMarked < e.studentCount),
+            // Complete means every SUBJECT column is fully entered — one
+            // finished subject teacher must not hide the link for the other
+            // eight. Older servers don't send subject counts; fall back to
+            // the per-student rule until the deploy lands.
+            prog.exams.filter((e) =>
+              e.studentCount > 0 &&
+              (typeof e.subjectsDone === "number" && typeof e.subjectCount === "number"
+                ? e.subjectsDone < e.subjectCount
+                : e.studentsMarked < e.studentCount)),
           );
         } catch {
           setExamMarksLinks([]);
@@ -497,7 +505,9 @@ export function SectionOverview() {
                       >
                         {e.name.replace(/^.*?—\s*/, "") || e.name}{" "}
                         <span className="font-normal text-violet-500">
-                          {e.studentsMarked}/{e.studentCount}
+                          {typeof e.subjectsDone === "number" && typeof e.subjectCount === "number"
+                            ? `${e.subjectsDone}/${e.subjectCount} subjects`
+                            : `${e.studentsMarked}/${e.studentCount}`}
                         </span>{" "}→
                       </Link>
                     ))}

@@ -4854,7 +4854,12 @@ export const archiveTerm = (orgId: string, termId: string): Promise<{ ok: true }
 
 export interface SectionExamMarksProgress {
   termName: string | null;
-  exams: Array<{ id: string; name: string; studentsMarked: number; studentCount: number }>;
+  exams: Array<{
+    id: string; name: string;
+    studentsMarked: number; studentCount: number;
+    /** Subjects with a mark/absence for EVERY student (server >= v1.1.45). */
+    subjectsDone?: number; subjectCount?: number;
+  }>;
 }
 export const getSectionExamMarksProgress = (
   orgId: string,

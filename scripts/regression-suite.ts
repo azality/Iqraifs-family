@@ -3137,6 +3137,68 @@ await check("67. merging duplicate parents carries the phone to the kept record"
   }
 });
 
+await check("68. exam-marks progress counts SUBJECT columns, not students-with-any-row", async () => {
+  // Class VI A, 10 Sep: one subject teacher finished her oral column and
+  // the Enter-marks link vanished for the whole class — every student
+  // had "a row", with eight subject columns still empty. Progress must
+  // judge completion per subject (a subject is done when EVERY student
+  // has a mark/absence in it).
+  const { data: term } = await admin.from("academic_term").select("id")
+    .eq("org_id", ORG).eq("is_current", true).is("archived_at", null).maybeSingle();
+  assert(term, "no current term");
+  const { data: sbStudents } = await admin.from("student").select("id")
+    .eq("class_section_id", sandboxSec.id);
+  assert((sbStudents ?? []).length >= 2, "need >=2 sandbox students");
+  const cleanup: Array<() => Promise<unknown>> = [];
+  try {
+    const { data: exam, error: exErr } = await admin.from("exam").insert({
+      org_id: ORG, term_id: term.id, name: "QA Progress Probe",
+      exam_type: "oral", weight: 1,
+      exam_date: new Date().toISOString().slice(0, 10),
+    }).select("id").single();
+    if (exErr) throw new Error(`exam: ${exErr.message}`);
+    cleanup.push(() => admin.from("exam").delete().eq("id", exam.id));
+
+    const subIds: string[] = [];
+    for (const nm of ["QA Prog Sub A", "QA Prog Sub B"]) {
+      const { data: cs, error } = await admin.from("class_subject").insert({
+        class_id: sandboxClass.id, name: nm, sort_order: 900 + subIds.length,
+      }).select("id").single();
+      if (error) throw new Error(`subject ${nm}: ${error.message}`);
+      subIds.push(cs.id);
+      cleanup.push(() => admin.from("class_subject").delete().eq("id", cs.id));
+    }
+
+    // Fill ONE subject for EVERY student — the old per-student counter
+    // called this "complete".
+    for (const s of sbStudents!) {
+      const { error } = await admin.from("exam_subject_score").insert({
+        org_id: ORG, exam_id: exam.id, class_subject_id: subIds[0],
+        student_id: s.id, obtained_marks: 5, max_marks: 10, recorded_by: office.id,
+      });
+      if (error) throw new Error(`score: ${error.message}`);
+    }
+    cleanup.push(() => admin.from("exam_subject_score").delete().eq("exam_id", exam.id));
+
+    const o = await ensureUser("qa-office@azality.com", "QA Office", "office_staff");
+    const r = await api(o.token, `/school/orgs/${ORG}/sections/${sandboxSec.id}/exam-marks-progress`);
+    const j = await r.json();
+    assert(r.status === 200, `progress ${r.status}`);
+    const row = (j.exams ?? []).find((e: any) => e.id === exam.id);
+    assert(row, "probe exam missing from progress");
+    assert(row.studentCount === sbStudents!.length, `studentCount ${row.studentCount}`);
+    assert(row.studentsMarked === sbStudents!.length,
+      "every student has a row — the old counter's blind spot, kept for context");
+    assert(typeof row.subjectsDone === "number" && typeof row.subjectCount === "number",
+      "progress must carry subjectsDone/subjectCount");
+    assert(row.subjectCount >= 2, `subjectCount ${row.subjectCount}`);
+    assert(row.subjectsDone >= 1 && row.subjectsDone < row.subjectCount,
+      `one filled column of ${row.subjectCount} must read incomplete, got ${row.subjectsDone}`);
+  } finally {
+    for (const fn of cleanup.reverse()) await fn();
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
