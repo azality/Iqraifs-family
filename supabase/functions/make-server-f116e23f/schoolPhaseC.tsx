@@ -1011,7 +1011,10 @@ export function installPhaseC(school: Hono): void {
     const studentIds = studentList.map((s) => s.id);
     const { data: entries, error: entryErr } = await serviceRoleClient
       .from("hifz_progress")
-      .select("student_id, surah_number, ayah_from, ayah_to, juz_number, kind, quality, recorded_at")
+      // `missed` matters: a skip marker must never become a reader's
+      // "position" — without it in the select the !r.missed guard below
+      // saw undefined and waved every marker through (check 75).
+      .select("student_id, surah_number, ayah_from, ayah_to, juz_number, kind, quality, missed, recorded_at")
       .in("student_id", studentIds);
     if (entryErr) return c.json({ error: entryErr.message }, 500);
 
@@ -1022,6 +1025,7 @@ export function installPhaseC(school: Hono): void {
       juz_number: number | null;
       kind: string;
       quality: string | null;
+      missed: boolean | null;
       recorded_at: string;
     }>>();
     for (const e of (entries ?? []) as any[]) {
