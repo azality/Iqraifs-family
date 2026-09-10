@@ -28,6 +28,7 @@
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { hasAnyRoleInOrg as hasAnyOrgRole, hasAdminOrPrincipal as isAdminOrPrincipal } from "./schoolAuth.ts";
+import { orgTimezone, todayInOrgTz } from "./tz.ts";
 
 // Which subject columns this caller may edit in this section.
 // null = ALL (admin/principal/class teacher — they own the section);
@@ -611,6 +612,99 @@ export function installAssessment(school: Hono): void {
         };
       }),
     });
+  });
+
+  // ─── My exam-marks to-do (teacher subject cards) ────────────────────
+  // The calling teacher's OWN incomplete exam columns: for every
+  // section_subject they teach, every current-term exam whose window
+  // has opened (exam_date <= today+3, school tz) and whose column
+  // still misses students. Powers the nudge on TeacherHome's subject
+  // cards — scoped to exactly what this teacher teaches, nothing else.
+  school.get("/orgs/:orgId/me/exam-marks-todo", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await hasAnyOrgRole(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const { data: term } = await serviceRoleClient
+      .from("academic_term")
+      .select("id")
+      .eq("org_id", orgId).eq("is_current", true)
+      .is("archived_at", null)
+      .maybeSingle();
+    if (!term) return c.json({ todos: [] });
+
+    const tz = await orgTimezone(orgId);
+    const windowEdge = todayInOrgTz(tz, new Date(Date.now() + 3 * 86400000));
+    const { data: exams } = await serviceRoleClient
+      .from("exam")
+      .select("id, name, exam_date")
+      .eq("term_id", (term as any).id)
+      .is("archived_at", null)
+      .lte("exam_date", windowEdge)
+      .order("exam_date", { ascending: true });
+    if (!exams?.length) return c.json({ todos: [] });
+
+    const { data: taught } = await serviceRoleClient
+      .from("section_subject")
+      .select("id, class_section_id, class_subject_id, class_subject:class_subject_id(name, archived_at, class:class_id(org_id))")
+      .eq("teacher_user_id", userId)
+      .is("archived_at", null);
+    // Archived subjects keep their section_subject rows — never nag for
+    // a column the marks sheet no longer shows.
+    const mine = ((taught ?? []) as any[]).filter(
+      (r) => r.class_subject?.class?.org_id === orgId && !r.class_subject?.archived_at,
+    );
+    if (!mine.length) return c.json({ todos: [] });
+
+    const sectionIds = [...new Set(mine.map((r) => r.class_section_id))];
+    const { data: students } = await serviceRoleClient
+      .from("student")
+      .select("id, class_section_id")
+      .in("class_section_id", sectionIds);
+    const bySection = new Map<string, string[]>();
+    for (const s of ((students ?? []) as any[])) {
+      const arr = bySection.get(s.class_section_id) ?? [];
+      arr.push(s.id);
+      bySection.set(s.class_section_id, arr);
+    }
+
+    const subjectIds = [...new Set(mine.map((r) => r.class_subject_id))];
+    const { data: scores } = await serviceRoleClient
+      .from("exam_subject_score")
+      .select("exam_id, student_id, class_subject_id, obtained_marks, absent")
+      .in("exam_id", (exams as any[]).map((e) => e.id))
+      .in("class_subject_id", subjectIds);
+    const marked = new Map<string, Set<string>>(); // examId|subjectId -> student ids
+    for (const sc of ((scores ?? []) as any[])) {
+      if (sc.obtained_marks === null && sc.absent !== true) continue;
+      const key = `${sc.exam_id}|${sc.class_subject_id}`;
+      let set = marked.get(key);
+      if (!set) { set = new Set(); marked.set(key, set); }
+      set.add(sc.student_id);
+    }
+
+    const todos: any[] = [];
+    for (const row of mine) {
+      const stuIds = bySection.get(row.class_section_id) ?? [];
+      if (stuIds.length === 0) continue;
+      for (const e of (exams as any[])) {
+        const done = stuIds.filter(
+          (id) => marked.get(`${e.id}|${row.class_subject_id}`)?.has(id),
+        ).length;
+        if (done >= stuIds.length) continue;
+        todos.push({
+          examId: e.id,
+          examName: e.name,
+          classSectionId: row.class_section_id,
+          classSubjectId: row.class_subject_id,
+          subjectName: row.class_subject?.name ?? "",
+          marked: done,
+          studentCount: stuIds.length,
+        });
+      }
+    }
+    return c.json({ todos });
   });
 
   // ─── Marks sheet ────────────────────────────────────────────────────

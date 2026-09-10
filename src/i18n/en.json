@@ -567,6 +567,7 @@
       "overview": "Overview",
       "mySubjects": "My subjects",
       "curriculumProgress": "Curriculum progress · this academic year",
+      "enterMarks": "enter marks",
       "topicsCount": "{{done}}/{{total}} topics",
       "noCurriculum": "No curriculum defined yet — ask your admin to set up the syllabus for {{subject}}.",
       "assignments": "Homework & tests",
