@@ -39,6 +39,15 @@ def W(written, oral, dictation=None, labels=("Written", "Oral", "Dictation")):
     out.append({"label": labels[1], "marks": oral, "paper": "oral"})
     return out
 
+# Some subjects sit on ONE paper only - pre-primary Senior is examined as
+# six oral components and three short written papers, with no subject
+# carrying both.
+def ORAL(marks, label="Oral"):
+    return [{"label": label, "marks": marks, "paper": "oral"}]
+
+def WRITTEN(marks, label="Written"):
+    return [{"label": label, "marks": marks, "paper": "written"}]
+
 URDU_47 = [
     {"label": "تحریری", "marks": 65, "paper": "written"},
     {"label": "املا",   "marks": 5,  "paper": "written"},
@@ -64,12 +73,58 @@ PLAN = {
         "Computer":       W(70, 5),
         "Social Studies": W(70, 5),
     },
-    # Classes IV-VII spell it "Islamiyat"; I-III use "Islamiat".
-    # Social Studies IV-VII: written 65 + oral 10 = 75.
-    "Class IV":  {"Urdu": URDU_47, "Islamiyat": W(65, 10), "Social Studies": W(65, 10)},
-    "Class V":   {"Urdu": URDU_47, "Islamiyat": W(65, 10), "Social Studies": W(65, 10)},
-    "Class VI":  {"Urdu": URDU_47, "Islamiyat": W(65, 10), "Social Studies": W(65, 10)},
-    "Class VII": {"Urdu": URDU_47, "Islamiyat": W(65, 10), "Social Studies": W(65, 10)},
+    # Every Class II subject is out of 75: the two languages carry a
+    # 10-mark dictation inside the written paper, the rest do not.
+    "Class II": {
+        "English":        W(55, 10, dictation=10),
+        "Urdu":           W(60, 5,  dictation=10),
+        "Maths":          W(65, 10),
+        "Islamiat":       W(65, 10),
+        "Science":        W(70, 5),
+        "Computer":       W(70, 5),
+        "Social Studies": W(70, 5),
+    },
+}
+
+# ---------------------------------------------------------------- IV-VII
+# Classes IV-VII spell it "Islamiyat"; I-III use "Islamiat". Every subject
+# here totals 75.
+#   Social Studies : written 65 + oral 10
+#   Islamiyat      : written 65 + oral 10
+#   English        : written 60 + dictation 5 + oral 10 ("reading and
+#                    conversation")
+#   Sindhi         : written 65 + dictation 5 + oral 5 - the same shape as
+#                    Urdu, which the school describes with the same words
+#   Science        : written 70 + oral 5, the oral being a presentation chart
+SINDHI_47 = W(65, 5, dictation=5)
+ENGLISH_47 = W(60, 10, dictation=5)
+SCIENCE_47 = W(70, 5, labels=("Written", "Oral (presentation chart)", "Dictation"))
+for _cls in ["Class IV", "Class V", "Class VI", "Class VII"]:
+    PLAN.setdefault(_cls, {}).update({
+        "Urdu": URDU_47, "Islamiyat": W(65, 10), "Social Studies": W(65, 10),
+        "English": ENGLISH_47, "Sindhi": SINDHI_47, "Science": SCIENCE_47,
+    })
+
+# ---------------------------------------------------------------- Senior
+# Pre-primary Senior is examined differently from the graded classes: six
+# ORAL components (90 marks in total) and three short WRITTEN papers of 25.
+# No Senior subject carries both papers, so each one is single-sided.
+# Deeniyat and Material Activity are taught but the school gave no marks
+# for them - deliberately left unset rather than guessed.
+PLAN["Senior"] = {
+    "Radiant Way Reading":                          ORAL(10),
+    "Ufaq Zakhera (Urdu Reading) and Urdu Core Reader Books": ORAL(10),
+    # The school's sheet splits this subject's oral in two, matching how
+    # its syllabus is already written ("G.K (oral): ..." / "1000 Pictures: ...").
+    "1000 Picture Reading (G.K)": [
+        {"label": "G.K",          "marks": 10, "paper": "oral"},
+        {"label": "1000 Pictures", "marks": 10, "paper": "oral"},
+    ],
+    "Norani Qaidah":                                ORAL(30),
+    "Islamic Studies / English Core readers":       ORAL(20),
+    "English Writing":                              WRITTEN(25),
+    "Maths Writing":                                WRITTEN(25),
+    "Urdu Writing":                                 WRITTEN(25),
 }
 
 # Quran carries 50 marks in Classes I-VIII. It is recited, not written,
