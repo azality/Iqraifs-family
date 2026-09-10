@@ -154,7 +154,16 @@ export function AssignmentForm() {
     const sid = resolvedSectionId || sectionId;
     if (!sid) return;
     listSectionSubjects(sid)
-      .then((r) => setSubjects(r.subjects))
+      .then((r) => {
+        setSubjects(r.subjects);
+        // A section with exactly one subject needs no choice — preselect
+        // (subject is required on save now).
+        setForm((f) =>
+          f.sectionSubjectId || r.subjects.length !== 1
+            ? f
+            : { ...f, sectionSubjectId: r.subjects[0].id },
+        );
+      })
       .catch(() => setSubjects([]));
   }, [resolvedSectionId, sectionId]);
 
@@ -258,6 +267,12 @@ export function AssignmentForm() {
     }
     if (!form.maxScore || form.maxScore <= 0) {
       setError("Max score must be greater than 0.");
+      return;
+    }
+    // Untagged content skips coverage and the gradebook (Muneeb, 10
+    // Sep: ask right here). Only sections with subjects require one.
+    if (!form.sectionSubjectId && subjects.length > 0) {
+      setError("Pick a subject — without one this entry is not counted in any subject's coverage or gradebook.");
       return;
     }
     setSaving(true);

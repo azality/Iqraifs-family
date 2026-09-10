@@ -195,8 +195,28 @@ export function installPhaseC(school: Hono): void {
     const gate = await requireTeacherOfSection(userId, orgId, sectionId);
     if (!gate.ok) return c.json({ error: gate.error }, gate.status);
 
-    // Phase 2: optional section_subject + curriculum_topic links. If
-    // provided, validate they belong to THIS section / THIS subject — a
+    // A subject is REQUIRED wherever the section has live subjects
+    // (Muneeb, 10 Sep: "they should be asked to fill out information
+    // right there" — untagged content silently skips coverage and the
+    // gradebook). Sections with no live subjects (Sandbox, unconfigured)
+    // stay legal so nothing blocks setup flows.
+    if (!(typeof body?.sectionSubjectId === "string" && body.sectionSubjectId.length > 0)) {
+      const { data: liveSubs } = await serviceRoleClient
+        .from("section_subject")
+        .select("id, class_subject:class_subject_id(archived_at)")
+        .eq("class_section_id", sectionId)
+        .is("archived_at", null);
+      const hasLive = ((liveSubs ?? []) as any[]).some((r) => !r.class_subject?.archived_at);
+      if (hasLive) {
+        return c.json({
+          error: "Pick a subject — without one this entry is not counted in any subject's coverage or gradebook.",
+          code: "SUBJECT_REQUIRED",
+        }, 400);
+      }
+    }
+
+    // Phase 2: section_subject + curriculum_topic links. If provided,
+    // validate they belong to THIS section / THIS subject — a
     // teacher must not be able to tag a lesson with another section's
     // subject id or a topic from a different subject's syllabus.
     let sectionSubjectId: string | null = null;
