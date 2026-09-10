@@ -793,6 +793,10 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
             ayahTo: sabaqPart2.to,
             kind: "sabaq",
             quality: STORED_QUALITY[k.quality],
+            // Heard beyond the assigned sabaq -> the school's
+            // "Memorized extra lesson" praise, written server-side.
+            extraSabaq: true,
+            extraLabel: `${surahDisplayName(sabaqPart2.surahNumber, lang)} ${sabaqPart2.from}–${sabaqPart2.to}`,
           });
         }
         if (manzilTwoSlices) {

@@ -46,6 +46,12 @@ import { todayInOrgTz, orgTimezone, tzOffsetMinutes } from "./tz.ts";
 // hears it, and the child advances. `nazra` is a heard reading portion;
 // `nazra_revision` is the same act for a hafiz child sitting in a nazra
 // group (Class IV+), who is revising rather than progressing.
+// The school's own positive-behaviour category for a child who recites
+// beyond the assigned sabaq. It already existed in their feed before
+// this was automated, so the wording matches theirs exactly — a new
+// spelling would split the category in the behaviour reports.
+const EXTRA_LESSON_CATEGORY = "Memorized extra lesson";
+
 const HIFZ_KINDS = new Set([
   "memorized",
   "revised",
@@ -752,6 +758,50 @@ export function installPhaseC(school: Hono): void {
       .single();
     if (insErr) return c.json({ error: insErr.message }, 500);
 
+    // Extra sabaq earns the child a positive note, automatically
+    // (Muneeb, 10 Sep): "if the student sunai extra surah it should
+    // automatically be considered positive behavior for the extra
+    // lesson". `extraSabaq` is set by the surfaces' "also heard" row —
+    // the portion the qari listened to BEYOND what was assigned.
+    //
+    // Deliberately at most one note per student per day: a teacher who
+    // saves the round twice, or hears two extra portions in one
+    // sitting, should not flood the child's behaviour feed.
+    let extraPraise = false;
+    if (body.extraSabaq === true && body.kind === "sabaq" && body.missed !== true) {
+      try {
+        const tz = await orgTimezone(orgId);
+        const today = todayInOrgTz(tz);
+        const { data: already } = await serviceRoleClient
+          .from("behavior_note")
+          .select("id")
+          .eq("org_id", orgId)
+          .eq("student_id", stu.id)
+          .eq("category", EXTRA_LESSON_CATEGORY)
+          .gte("observed_at", `${today}T00:00:00+00:00`)
+          .limit(1);
+        if (!already?.length) {
+          const surahName = body.extraLabel && typeof body.extraLabel === "string"
+            ? body.extraLabel.trim().slice(0, 80)
+            : `${surah}:${ayahFrom}–${ayahTo}`;
+          await serviceRoleClient.from("behavior_note").insert({
+            org_id: orgId,
+            student_id: stu.id,
+            class_section_id: stu.class_section_id,
+            kind: "positive",
+            category: EXTRA_LESSON_CATEGORY,
+            points: 1,
+            notes: `Recited extra sabaq beyond today's lesson (${surahName}).`,
+            recorded_by: userId,
+          });
+          extraPraise = true;
+        }
+      } catch (e) {
+        // Never fail the hifz save over the praise note.
+        console.error("[hifz-progress] extra-sabaq praise failed:", e);
+      }
+    }
+
     // "The student who finishes hifz with us — so we will know."
     //
     // The moment logged coverage reaches the whole Quran we record that
@@ -786,6 +836,9 @@ export function installPhaseC(school: Hono): void {
       // True on the entry that completed the Quran — the caller should
       // put the confirmation in front of the teacher there and then.
       hifzCoverageComplete: coverageJustCompleted,
+      // True when this save also wrote the "Memorized extra lesson"
+      // praise, so the surface can say so in its toast.
+      extraLessonPraised: extraPraise,
     }, 201);
   });
 

@@ -208,6 +208,11 @@ export function HifzLogEntry({
   // Second surah in the same sabaq: the tail of one surah plus the start
   // of the next (Muneeb, 10 Sep). Null = single-surah assignment.
   const [assign2, setAssign2] = useState<SabaqPart | null>(null);
+  // A portion heard TODAY beyond the assigned sabaq — the child
+  // memorised ahead. Saved as its own entry and rewarded with the
+  // school's "Memorized extra lesson" note. Mirrors Round Mode's
+  // "also heard" row.
+  const [heardExtra, setHeardExtra] = useState<SabaqPart | null>(null);
   const [assignOptOut, setAssignOptOut] = useState(false);
   const [suggestion, setSuggestion] = useState<"none" | "advance" | "repeat">("none");
 
@@ -241,7 +246,10 @@ export function HifzLogEntry({
   const maxAyah = surah?.ayahCount ?? 1;
   const assignMaxAyah = getSurah(assignSurah)?.ayahCount ?? 1;
   useEffect(() => {
-    if (kind !== "sabaq") setAssign2(null);
+    if (kind !== "sabaq") {
+      setAssign2(null);
+      setHeardExtra(null);
+    }
   }, [kind]);
 
   const kindOptions = hifzOnly ? TRIO : [...TRIO, ...EXTRA_KINDS];
@@ -551,6 +559,20 @@ export function HifzLogEntry({
         parentAction: parentAction.trim() || undefined,
         missed: missed || undefined,
       });
+      if (heardExtra && kind === "sabaq" && !missed) {
+        // Its own entry so the memorised total counts it, flagged so the
+        // server writes the positive note once for today.
+        await postHifzEntry(orgId, {
+          studentId,
+          surahNumber: heardExtra.surahNumber,
+          ayahFrom: heardExtra.from,
+          ayahTo: heardExtra.to,
+          kind: "sabaq",
+          quality: quality || undefined,
+          extraSabaq: true,
+          extraLabel: `${surahDisplayName(heardExtra.surahNumber, lang)} ${heardExtra.from}–${heardExtra.to}`,
+        });
+      }
       onSuccess?.();
       if (after === "kind") {
         const idx = KIND_SEQUENCE.indexOf(kind);
@@ -1139,6 +1161,68 @@ export function HifzLogEntry({
                 </div>
               )}
 
+              {/* Heard beyond today's sabaq — the child memorised ahead.
+                  Same row Round Mode carries; earns the school's
+                  "Memorized extra lesson" note on save. */}
+              {kind === "sabaq" && !missed && (heardExtra ? (
+                <div className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50/50 p-2">
+                  <div className="text-[11px] font-semibold text-emerald-800">
+                    {t("hifzRound.plusSurah")}
+                  </div>
+                  <Select
+                    value={String(heardExtra.surahNumber)}
+                    onValueChange={(v) => setHeardExtra({ surahNumber: Number(v), from: 1, to: 5 })}
+                  >
+                    <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
+                    <SelectContent className="max-h-64">
+                      {SURAHS.map((sx) => (
+                        <SelectItem key={sx.number} value={String(sx.number)}>
+                          {sx.number}. {surahDisplayName(sx, lang)} ({sx.ayahCount})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs">{t("hifzTeach.ayahFrom")}</Label>
+                      <Input type="number" inputMode="numeric" min={1}
+                        max={getSurah(heardExtra.surahNumber)?.ayahCount ?? 1}
+                        value={heardExtra.from}
+                        onChange={(e) =>
+                          setHeardExtra({ ...heardExtra, from: num(typed(e.target.value)) || 1 })}
+                        className="bg-white" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">{t("hifzTeach.ayahTo")}</Label>
+                      <Input type="number" inputMode="numeric" min={heardExtra.from}
+                        max={getSurah(heardExtra.surahNumber)?.ayahCount ?? 1}
+                        value={heardExtra.to}
+                        onChange={(e) =>
+                          setHeardExtra({ ...heardExtra, to: num(typed(e.target.value)) || heardExtra.from })}
+                        className="bg-white" />
+                    </div>
+                  </div>
+                  <button type="button" onClick={() => setHeardExtra(null)}
+                    className="text-[11px] text-slate-500 underline hover:text-slate-700">
+                    {t("hifzRound.removeSurah")}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const after = nextSabaqAfter(surahNumber, num(ayahFrom) || 1, num(ayahTo) || 1);
+                    setHeardExtra(
+                      after
+                        ? { surahNumber: after.surahNumber, from: after.from, to: after.to }
+                        : { surahNumber: Math.min(114, surahNumber + 1), from: 1, to: 5 },
+                    );
+                  }}
+                  className="text-[11px] font-semibold text-emerald-700 hover:underline"
+                >
+                  + {t("hifzTeach.heardExtra")}
+                </button>
+              ))}
               {assignOn && kind !== "manzil" && kind !== "sabqi" && (
                 <div className="space-y-2">
                   <Select
