@@ -546,6 +546,7 @@ function AttendanceDonut({ data }: { data: InsightsResponse["attendanceDistribut
                   <Pie
                     data={entries}
                     dataKey="value"
+                    nameKey="label"
                     cx="50%"
                     cy="50%"
                     innerRadius={36}
@@ -556,7 +557,12 @@ function AttendanceDonut({ data }: { data: InsightsResponse["attendanceDistribut
                       <Cell key={e.key} fill={e.color} />
                     ))}
                   </Pie>
-                  <Tooltip />
+                  <Tooltip
+                    formatter={(value: number, name: string) => [
+                      `${value} (${total ? Math.round((value / total) * 100) : 0}%)`,
+                      name,
+                    ]}
+                  />
                 </PieChart>
               </ResponsiveContainer>
             </div>
