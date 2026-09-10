@@ -55,6 +55,10 @@ import { PARA_EXTENT_OPTIONS, juzExtentShortKey, formatJuzExtent } from "../../.
 import {
   serializeNextSabaq,
   parseNextSabaq,
+  parseNextSabaqParts,
+  serializeNextSabaqParts,
+  nextSabaqPartsAfter,
+  type SabaqPart,
   paraFinishedBySabaq,
   serializeSabaqParaRevision,
   parseSabaqParaRevision,
@@ -263,6 +267,13 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
   // of 16 + first half of 17", Muneeb 10 Sep). Saved as its own entry;
   // null = single-para sitting like before.
   const [manzilPart2, setManzilPart2] = useState<ManzilPart | null>(null);
+  // Second sabaq segment — a lesson that closes one surah and opens the
+  // next ("Yunus 107–109 + Hud 1–5", Muneeb 10 Sep). sabaqPart2 is what
+  // was HEARD today (prefilled from a two-part target, saved as its own
+  // entry); ovSabaq2 is the teacher naming a second segment for
+  // TOMORROW in the override panel. Null = single-surah lesson.
+  const [sabaqPart2, setSabaqPart2] = useState<SabaqPart | null>(null);
+  const [ovSabaq2, setOvSabaq2] = useState<SabaqPart | null>(null);
   // Consolidation-day resume point: when the sabaq slot holds a full-
   // para revision, this is where normal sabaq continues once it's rated
   // good. Parsed out of the stored revision target.
@@ -296,6 +307,8 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
     setOvSabqi(null);
     setOvManzil(null);
     setManzilPart2(null);
+    setSabaqPart2(null);
+    setOvSabaq2(null);
     setSabaqResume(null);
     setManzilSkipOpen(false);
     setManzilSkipReason(null);
@@ -335,7 +348,9 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
             pretty: t("hifzRound.paraRevisionLabel", { n: revParsed.juz }),
           };
         }
-        const parsed = revParsed ? null : (targetTxt ? parseNextSabaq(targetTxt) : null);
+        const parsedParts = revParsed ? null : (targetTxt ? parseNextSabaqParts(targetTxt) : null);
+        setSabaqPart2(parsedParts?.[1] ?? null);
+        const parsed = parsedParts?.[0] ?? null;
         const lastSabaq = entries.find((e) => e.kind === "sabaq" && !e.missed);
         const sabaqPos = parsed
           ? { surah: parsed.surahNumber, from: parsed.from, to: parsed.to }
@@ -540,7 +555,11 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
     }
     if (key === "sabaq") {
       if (ovSabaq) {
-        return { text: serializeNextSabaq(ovSabaq.surah, ovSabaq.from, ovSabaq.to), auto: false };
+        const ovParts: SabaqPart[] = [
+          { surahNumber: ovSabaq.surah, from: ovSabaq.from, to: ovSabaq.to },
+          ...(ovSabaq2 ? [ovSabaq2] : []),
+        ];
+        return { text: serializeNextSabaqParts(ovParts), auto: false };
       }
       if (k.quality === "") return null;
       const pn = k.portion;
@@ -558,6 +577,20 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
         return sabaqResume
           ? { text: serializeNextSabaq(sabaqResume.surahNumber, sabaqResume.from, sabaqResume.to), auto: true }
           : { text: t("hifzRound.tomorrowPick"), auto: true };
+      }
+      // A two-surah lesson derives over BOTH segments: repeat keeps
+      // them, advance closes the finished surah and continues the rest.
+      // The end-of-para consolidation stays a single-segment affair —
+      // with two surahs in play there is no one para that "finished".
+      if (sabaqPart2) {
+        const todayParts: SabaqPart[] = [
+          { surahNumber: pn.surah, from: pn.from, to: pn.to },
+          sabaqPart2,
+        ];
+        const nextParts = nextSabaqPartsAfter(todayParts, isRepeatRating(k.quality));
+        return nextParts
+          ? { text: serializeNextSabaqParts(nextParts), auto: true }
+          : { text: t("hifzRound.tomorrowBoundary"), auto: true };
       }
       if (isRepeatRating(k.quality)) {
         return { text: serializeNextSabaq(pn.surah, pn.from, pn.to), auto: true };
@@ -662,8 +695,19 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
         };
         if (meta.key === "sabaq") {
           if (ovSabaq) {
-            // The teacher named tomorrow's sabaq herself.
-            input.nextTarget = serializeNextSabaq(ovSabaq.surah, ovSabaq.from, ovSabaq.to);
+            // The teacher named tomorrow's sabaq herself — possibly two
+            // surahs ("repeat Yunus + start Hud").
+            input.nextTarget = serializeNextSabaqParts([
+              { surahNumber: ovSabaq.surah, from: ovSabaq.from, to: ovSabaq.to },
+              ...(ovSabaq2 ? [ovSabaq2] : []),
+            ]);
+          } else if (p.mode === "surah" && sabaqPart2) {
+            // Mirror of tomorrowText for a two-surah lesson.
+            const nextParts = nextSabaqPartsAfter(
+              [{ surahNumber: p.surah, from: p.from, to: p.to }, sabaqPart2],
+              isRepeatRating(k.quality),
+            );
+            if (nextParts) input.nextTarget = serializeNextSabaqParts(nextParts);
           } else if (p.mode === "surah") {
             // Auto-assign the next sabaq (default in Round Mode): advance
             // on excellent/good (same length; rolls into the next surah
@@ -738,6 +782,19 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
           first = false;
         }
         await postHifzEntry(orgId, input);
+        if (meta.key === "sabaq" && sabaqPart2 && p.mode === "surah") {
+          // The second surah is its own entry so the memorized record
+          // covers both segments; the target rides the first row, which
+          // is the one prefill reads.
+          await postHifzEntry(orgId, {
+            studentId: currentId,
+            surahNumber: sabaqPart2.surahNumber,
+            ayahFrom: sabaqPart2.from,
+            ayahTo: sabaqPart2.to,
+            kind: "sabaq",
+            quality: STORED_QUALITY[k.quality],
+          });
+        }
         if (manzilTwoSlices) {
           // The second slice is its own entry; it carries the derived
           // target so it sits on the newest manzil row for prefill.
@@ -1096,7 +1153,55 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
                       </button>
                     )
                   )}
-                  {/* Straddling sitting — a second manzil slice in another
+                                    {/* Two-surah lesson: the tail of one surah plus the
+                      start of the next, heard in the same sabaq. */}
+                  {meta.key === "sabaq" && kinds.sabaq.portion.mode === "surah" && (
+                    sabaqPart2 ? (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <span className="text-[11px] font-semibold text-slate-500">{t("hifzRound.plusSurah")}</span>
+                        <Select
+                          value={String(sabaqPart2.surahNumber)}
+                          onValueChange={(v) => setSabaqPart2({ surahNumber: Number(v), from: 1, to: 5 })}
+                        >
+                          <SelectTrigger className="h-8 w-44 bg-white text-[12px]"><SelectValue /></SelectTrigger>
+                          <SelectContent className="max-h-64">
+                            {SURAHS.map((sx) => (
+                              <SelectItem key={sx.number} value={String(sx.number)}>
+                                {sx.number}. {surahDisplayName(sx, lang)} ({sx.ayahCount})
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Input type="number" inputMode="numeric" min={1} value={sabaqPart2.from}
+                          onChange={(e) => setSabaqPart2({ ...sabaqPart2, from: Number(e.target.value) || 1 })}
+                          className="h-8 w-20 bg-white text-[12px]" />
+                        <Input type="number" inputMode="numeric" min={sabaqPart2.from} value={sabaqPart2.to}
+                          onChange={(e) => setSabaqPart2({ ...sabaqPart2, to: Number(e.target.value) || sabaqPart2.from })}
+                          className="h-8 w-20 bg-white text-[12px]" />
+                        <button type="button" onClick={() => setSabaqPart2(null)}
+                          className="text-[11px] text-slate-400 underline hover:text-slate-600">
+                          {t("hifzRound.removeSurah")}
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const pn = kinds.sabaq.portion;
+                          const after = nextSabaqAfter(pn.surah, pn.from, pn.to);
+                          setSabaqPart2(
+                            after && after.surahNumber !== pn.surah
+                              ? { surahNumber: after.surahNumber, from: after.from, to: after.to }
+                              : { surahNumber: Math.min(114, pn.surah + 1), from: 1, to: 5 },
+                          );
+                        }}
+                        className="mt-1.5 text-[11px] font-semibold text-indigo-600 hover:underline"
+                      >
+                        + {t("hifzRound.addSecondSurah")}
+                      </button>
+                    )
+                  )}
+{/* Straddling sitting — a second manzil slice in another
                       para ("second half of 16 + first half of 17"). */}
                   {meta.key === "manzil" && manzilSkipReason === null && (
                     manzilPart2 ? (
@@ -1193,22 +1298,68 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
                     })();
                     const set = (patch: Partial<typeof cur>) => setOvSabaq({ ...cur, ...patch });
                     const maxA = getSurah(cur.surah)?.ayahCount ?? 286;
+                    const max2 = ovSabaq2 ? (getSurah(ovSabaq2.surahNumber)?.ayahCount ?? 286) : 286;
+                    const set2 = (patch: Partial<SabaqPart>) =>
+                      setOvSabaq2({ ...(ovSabaq2 as SabaqPart), ...patch });
                     return (
-                      <div className="mt-2 grid grid-cols-2 gap-2 rounded-lg border border-indigo-100 bg-indigo-50/40 p-2 sm:grid-cols-4">
-                        <Select value={String(cur.surah)} onValueChange={(v) => set({ surah: Number(v) })}>
-                          <SelectTrigger className="col-span-2 bg-white"><SelectValue /></SelectTrigger>
-                          <SelectContent className="max-h-64">
-                            {SURAHS.map((sx) => (
-                              <SelectItem key={sx.number} value={String(sx.number)}>
-                                {sx.number}. {surahDisplayName(sx, lang)} ({sx.ayahCount})
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <Input type="number" inputMode="numeric" min={1} max={maxA} value={cur.from}
-                          onChange={(e) => set({ from: Number(e.target.value) || 1 })} className="bg-white" />
-                        <Input type="number" inputMode="numeric" min={cur.from} max={maxA} value={cur.to}
-                          onChange={(e) => set({ to: Number(e.target.value) || cur.from })} className="bg-white" />
+                      <div className="mt-2 space-y-2 rounded-lg border border-indigo-100 bg-indigo-50/40 p-2">
+                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                          <Select value={String(cur.surah)} onValueChange={(v) => set({ surah: Number(v) })}>
+                            <SelectTrigger className="col-span-2 bg-white"><SelectValue /></SelectTrigger>
+                            <SelectContent className="max-h-64">
+                              {SURAHS.map((sx) => (
+                                <SelectItem key={sx.number} value={String(sx.number)}>
+                                  {sx.number}. {surahDisplayName(sx, lang)} ({sx.ayahCount})
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Input type="number" inputMode="numeric" min={1} max={maxA} value={cur.from}
+                            onChange={(e) => set({ from: Number(e.target.value) || 1 })} className="bg-white" />
+                          <Input type="number" inputMode="numeric" min={cur.from} max={maxA} value={cur.to}
+                            onChange={(e) => set({ to: Number(e.target.value) || cur.from })} className="bg-white" />
+                        </div>
+                        {/* A lesson can close one surah and open the next:
+                            repeat Yunus AND start Hud (Muneeb, 10 Sep). */}
+                        {ovSabaq2 ? (
+                          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                            <Select value={String(ovSabaq2.surahNumber)}
+                              onValueChange={(v) => set2({ surahNumber: Number(v), from: 1, to: 5 })}>
+                              <SelectTrigger className="col-span-2 bg-white"><SelectValue /></SelectTrigger>
+                              <SelectContent className="max-h-64">
+                                {SURAHS.map((sx) => (
+                                  <SelectItem key={sx.number} value={String(sx.number)}>
+                                    {sx.number}. {surahDisplayName(sx, lang)} ({sx.ayahCount})
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <Input type="number" inputMode="numeric" min={1} max={max2} value={ovSabaq2.from}
+                              onChange={(e) => set2({ from: Number(e.target.value) || 1 })} className="bg-white" />
+                            <Input type="number" inputMode="numeric" min={ovSabaq2.from} max={max2} value={ovSabaq2.to}
+                              onChange={(e) => set2({ to: Number(e.target.value) || ovSabaq2.from })} className="bg-white" />
+                            <button type="button" onClick={() => setOvSabaq2(null)}
+                              className="col-span-2 text-left text-[11px] text-slate-400 underline hover:text-slate-600 sm:col-span-4">
+                              {t("hifzRound.removeSurah")}
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const after = nextSabaqAfter(cur.surah, cur.from, cur.to);
+                              setOvSabaq(cur);
+                              setOvSabaq2(
+                                after && after.surahNumber !== cur.surah
+                                  ? { surahNumber: after.surahNumber, from: after.from, to: after.to }
+                                  : { surahNumber: Math.min(114, cur.surah + 1), from: 1, to: 5 },
+                              );
+                            }}
+                            className="text-[11px] font-semibold text-indigo-600 hover:underline"
+                          >
+                            + {t("hifzRound.assignSecondSurah")}
+                          </button>
+                        )}
                       </div>
                     );
                   })()}

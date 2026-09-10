@@ -89,28 +89,93 @@ export function isRepeatRating(q: string | null | undefined): boolean {
   return q === "weak" || q === "repeat" || q === "needs_practice" || q === "not_learned";
 }
 
-export function serializeNextSabaq(surahNumber: number, from: number, to: number): string {
-  const s = getSurah(surahNumber);
-  // Normalize a reversed range — a teacher typing "to" before "from"
-  // produced stored targets like "An-Nur 57–51" (pilot, 8 Sep).
-  const lo = Math.min(from, to);
-  const hi = Math.max(from, to);
-  return `Sabaq: ${s?.nameTransliterated ?? surahNumber} ${lo}–${hi}`;
+/** One segment of a sabaq. A lesson can span two surahs — the tail of
+ *  the one being finished plus the start of the next (Muneeb, 10 Sep:
+ *  "part of a surah (last part) that's finishing up and give a new
+ *  surah that's starting") — so targets serialize as " + "-joined
+ *  parts, exactly like a straddling manzil sitting. */
+export interface SabaqPart {
+  surahNumber: number;
+  from: number;
+  to: number;
 }
 
+export function serializeNextSabaqParts(parts: SabaqPart[]): string {
+  return `Sabaq: ${parts
+    .map((p) => {
+      const s = getSurah(p.surahNumber);
+      // Normalize a reversed range — a teacher typing "to" before "from"
+      // produced stored targets like "An-Nur 57–51" (pilot, 8 Sep).
+      const lo = Math.min(p.from, p.to);
+      const hi = Math.max(p.from, p.to);
+      return `${s?.nameTransliterated ?? p.surahNumber} ${lo}–${hi}`;
+    })
+    .join(" + ")}`;
+}
+
+/** "Sabaq: Yunus 98–109 + Hud 1–5" → both segments. Single-segment
+ *  strings (the pre-existing format) parse to a one-element array.
+ *  Returns null for the para-revision shape, which owns its own
+ *  parser, and for anything unrecognised. */
+export function parseNextSabaqParts(text: string): SabaqPart[] | null {
+  const t = text.trim();
+  if (!/^Sabaq:/i.test(t)) return null;
+  if (/Revise\s+Para/i.test(t)) return null;
+  const segs = t.replace(/^Sabaq:\s*/i, "").split(/\s*\+\s*/);
+  const out: SabaqPart[] = [];
+  for (const seg of segs) {
+    const m = /^(.+?)\s+(\d+)\s*[–-]\s*(\d+)$/.exec(seg.trim());
+    if (!m) return null;
+    const name = m[1].trim().toLowerCase();
+    const surah = SURAHS.find((s) => s.nameTransliterated.toLowerCase() === name);
+    if (!surah) return null;
+    // Heal already-stored reversed ranges the same way the serializer
+    // now prevents them.
+    const a = Number(m[2]);
+    const b = Number(m[3]);
+    out.push({ surahNumber: surah.number, from: Math.min(a, b), to: Math.max(a, b) });
+  }
+  return out.length ? out : null;
+}
+
+/** Tomorrow's sabaq for a lesson that may span two surahs.
+ *
+ *  Repeat keeps every segment as-is. On advance, a segment that ended
+ *  on its surah's LAST ayah is finished and drops out — the point of a
+ *  two-part lesson is to close one surah while opening the next, so
+ *  the closed one must not roll forward and duplicate the other. What
+ *  remains continues by the same length. If every segment finished,
+ *  the lesson rolls into whatever follows the last one, which is
+ *  exactly the single-segment behaviour. */
+export function nextSabaqPartsAfter(
+  parts: SabaqPart[],
+  repeat: boolean,
+): SabaqPart[] | null {
+  if (parts.length === 0) return null;
+  if (repeat) return parts.map((p) => ({ ...p }));
+  const kept: SabaqPart[] = [];
+  for (const p of parts) {
+    const max = getSurah(p.surahNumber)?.ayahCount ?? p.to;
+    if (p.to >= max) continue; // this surah is done
+    const nxt = nextSabaqAfter(p.surahNumber, p.from, p.to);
+    if (nxt) kept.push({ surahNumber: nxt.surahNumber, from: nxt.from, to: nxt.to });
+  }
+  if (kept.length > 0) return kept;
+  const last = parts[parts.length - 1];
+  const nxt = nextSabaqAfter(last.surahNumber, last.from, last.to);
+  return nxt ? [{ surahNumber: nxt.surahNumber, from: nxt.from, to: nxt.to }] : null;
+}
+
+export function serializeNextSabaq(surahNumber: number, from: number, to: number): string {
+  return serializeNextSabaqParts([{ surahNumber, from, to }]);
+}
+
+/** First segment of the target — kept for single-slot consumers (the
+ *  round's portion, the dialog's seed). */
 export function parseNextSabaq(
   text: string,
 ): { surahNumber: number; from: number; to: number } | null {
-  const m = /^Sabaq:\s*(.+?)\s+(\d+)\s*[–-]\s*(\d+)\s*$/.exec(text.trim());
-  if (!m) return null;
-  const name = m[1].toLowerCase();
-  const surah = SURAHS.find((s) => s.nameTransliterated.toLowerCase() === name);
-  if (!surah) return null;
-  // Heal already-stored reversed ranges the same way the serializer
-  // now prevents them.
-  const a = Number(m[2]);
-  const b = Number(m[3]);
-  return { surahNumber: surah.number, from: Math.min(a, b), to: Math.max(a, b) };
+  return parseNextSabaqParts(text)?.[0] ?? null;
 }
 
 /** "Sabqi: Para 5" → 5. Surah-list sabqi targets return null (they
