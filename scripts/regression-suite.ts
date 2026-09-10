@@ -3162,7 +3162,7 @@ await check("68. exam-marks progress counts SUBJECT columns, not students-with-a
     const subIds: string[] = [];
     for (const nm of ["QA Prog Sub A", "QA Prog Sub B"]) {
       const { data: cs, error } = await admin.from("class_subject").insert({
-        class_id: sandboxClass.id, name: nm, sort_order: 900 + subIds.length,
+        org_id: ORG, class_id: sandboxClass.id, name: nm, sort_order: 900 + subIds.length,
       }).select("id").single();
       if (error) throw new Error(`subject ${nm}: ${error.message}`);
       subIds.push(cs.id);
