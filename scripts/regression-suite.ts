@@ -3461,6 +3461,88 @@ await check("72. marks distribution: components carry marks + paper, and the she
   }
 });
 
+await check("73. extra sabaq earns the school's 'Memorized extra lesson' note, once a day", async () => {
+  // Muneeb (10 Sep): "if the student sunai extra surah it should
+  // automatically be considered positive behavior for the extra
+  // lesson". Both hifz surfaces flag the beyond-the-lesson portion
+  // with extraSabaq; the server writes the praise — and writes it at
+  // most once per child per day, so a re-saved round doesn't flood the
+  // behaviour feed.
+  const t = await ensureUser("qa-teacher@azality.com", "QA Teacher", "class_teacher");
+  const CATEGORY = "Memorized extra lesson";
+  const cleanup: Array<() => Promise<unknown>> = [];
+  try {
+    // Start from a clean slate for today.
+    const todayKhi = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Karachi" }).format(new Date());
+    await admin.from("behavior_note").delete()
+      .eq("student_id", pStu1).eq("category", CATEGORY)
+      .gte("observed_at", `${todayKhi}T00:00:00+00:00`);
+    cleanup.push(() => admin.from("behavior_note").delete()
+      .eq("student_id", pStu1).eq("category", CATEGORY));
+    cleanup.push(() => admin.from("hifz_progress").delete().eq("student_id", pStu1));
+
+    const post = (extra: boolean) => api(t.token, `/school/orgs/${ORG}/hifz-progress`, {
+      method: "POST",
+      body: JSON.stringify({
+        studentId: pStu1, surahNumber: 78, ayahFrom: 1, ayahTo: 5,
+        kind: "sabaq", quality: "excellent",
+        ...(extra ? { extraSabaq: true, extraLabel: "An-Naba 1–5" } : {}),
+      }),
+    });
+
+    // A plain sabaq earns nothing.
+    const plain = await post(false);
+    const plainJ = await plain.json();
+    assert(plain.status === 201, `plain sabaq ${plain.status}`);
+    assert(plainJ.extraLessonPraised !== true, "a normal sabaq must not be praised");
+
+    // The extra portion does.
+    const first = await post(true);
+    const firstJ = await first.json();
+    assert(first.status === 201, `extra sabaq ${first.status}`);
+    assert(firstJ.extraLessonPraised === true, "extra sabaq must earn the note");
+    const { data: notes } = await admin.from("behavior_note")
+      .select("kind, category, points, notes")
+      .eq("student_id", pStu1).eq("category", CATEGORY)
+      .gte("observed_at", `${todayKhi}T00:00:00+00:00`);
+    assert((notes ?? []).length === 1, `expected 1 note, got ${(notes ?? []).length}`);
+    assert(notes![0].kind === "positive", `note must be positive, got ${notes![0].kind}`);
+    assert(String(notes![0].notes).includes("An-Naba"), "note should name the portion");
+
+    // Saving again the same day must NOT add a second note.
+    const second = await post(true);
+    const secondJ = await second.json();
+    assert(second.status === 201, `second extra sabaq ${second.status}`);
+    assert(secondJ.extraLessonPraised === false, "second save must not praise again");
+    const { data: after } = await admin.from("behavior_note")
+      .select("id").eq("student_id", pStu1).eq("category", CATEGORY)
+      .gte("observed_at", `${todayKhi}T00:00:00+00:00`);
+    assert((after ?? []).length === 1, `still expected 1 note, got ${(after ?? []).length}`);
+
+    // The extra portion carries its OWN rating (the lesson may be
+    // excellent while what the child ran ahead with was weak), and a
+    // weak extra is still praised — the note is for doing extra work,
+    // not for how well it went.
+    const weak = await api(t.token, `/school/orgs/${ORG}/hifz-progress`, {
+      method: "POST",
+      body: JSON.stringify({
+        studentId: pStu2, surahNumber: 78, ayahFrom: 6, ayahTo: 10,
+        kind: "sabaq", quality: "weak", extraSabaq: true, extraLabel: "An-Naba 6–10",
+      }),
+    });
+    const weakJ = await weak.json();
+    assert(weak.status === 201, `weak extra ${weak.status}`);
+    assert(weakJ.extraLessonPraised === true, "a weak extra portion is still extra work");
+    assert(weakJ.entry?.quality === "weak",
+      `the extra entry keeps its own rating, got ${weakJ.entry?.quality}`);
+    cleanup.push(() => admin.from("behavior_note").delete()
+      .eq("student_id", pStu2).eq("category", CATEGORY));
+    cleanup.push(() => admin.from("hifz_progress").delete().eq("student_id", pStu2));
+  } finally {
+    for (const fn of cleanup.reverse()) await fn();
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

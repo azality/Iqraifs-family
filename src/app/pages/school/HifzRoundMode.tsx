@@ -273,6 +273,10 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
   // entry); ovSabaq2 is the teacher naming a second segment for
   // TOMORROW in the override panel. Null = single-surah lesson.
   const [sabaqPart2, setSabaqPart2] = useState<SabaqPart | null>(null);
+  // The extra portion carries its OWN rating: the assigned lesson may
+  // be excellent while what the child ran ahead with was weak
+  // (Muneeb, 10 Sep). "" = rate it the same as the lesson.
+  const [sabaqPart2Quality, setSabaqPart2Quality] = useState<KindState["quality"]>("");
   const [ovSabaq2, setOvSabaq2] = useState<SabaqPart | null>(null);
   // Consolidation-day resume point: when the sabaq slot holds a full-
   // para revision, this is where normal sabaq continues once it's rated
@@ -308,6 +312,7 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
     setOvManzil(null);
     setManzilPart2(null);
     setSabaqPart2(null);
+    setSabaqPart2Quality("");
     setOvSabaq2(null);
     setSabaqResume(null);
     setManzilSkipOpen(false);
@@ -587,7 +592,10 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
           { surahNumber: pn.surah, from: pn.from, to: pn.to },
           sabaqPart2,
         ];
-        const nextParts = nextSabaqPartsAfter(todayParts, isRepeatRating(k.quality));
+        const nextParts = nextSabaqPartsAfter(todayParts, [
+          isRepeatRating(k.quality),
+          isRepeatRating(sabaqPart2Quality || k.quality),
+        ]);
         return nextParts
           ? { text: serializeNextSabaqParts(nextParts), auto: true }
           : { text: t("hifzRound.tomorrowBoundary"), auto: true };
@@ -705,7 +713,10 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
             // Mirror of tomorrowText for a two-surah lesson.
             const nextParts = nextSabaqPartsAfter(
               [{ surahNumber: p.surah, from: p.from, to: p.to }, sabaqPart2],
-              isRepeatRating(k.quality),
+              [
+                isRepeatRating(k.quality),
+                isRepeatRating(sabaqPart2Quality || k.quality),
+              ],
             );
             if (nextParts) input.nextTarget = serializeNextSabaqParts(nextParts);
           } else if (p.mode === "surah") {
@@ -792,7 +803,11 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
             ayahFrom: sabaqPart2.from,
             ayahTo: sabaqPart2.to,
             kind: "sabaq",
-            quality: STORED_QUALITY[k.quality],
+            quality: STORED_QUALITY[sabaqPart2Quality || k.quality],
+            // Heard beyond the assigned sabaq -> the school's
+            // "Memorized extra lesson" praise, written server-side.
+            extraSabaq: true,
+            extraLabel: `${surahDisplayName(sabaqPart2.surahNumber, lang)} ${sabaqPart2.from}–${sabaqPart2.to}`,
           });
         }
         if (manzilTwoSlices) {
@@ -1178,6 +1193,19 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
                         <Input type="number" inputMode="numeric" min={sabaqPart2.from} value={sabaqPart2.to}
                           onChange={(e) => setSabaqPart2({ ...sabaqPart2, to: Number(e.target.value) || sabaqPart2.from })}
                           className="h-8 w-20 bg-white text-[12px]" />
+                        <Select
+                          value={sabaqPart2Quality || "same"}
+                          onValueChange={(v) =>
+                            setSabaqPart2Quality(v === "same" ? "" : (v as KindState["quality"]))}
+                        >
+                          <SelectTrigger className="h-8 w-36 bg-white text-[12px]"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="same">{t("hifzRound.sameAsLesson")}</SelectItem>
+                            {QUALITY_CHIPS.map((qc) => (
+                              <SelectItem key={qc.key} value={qc.key}>{t(qc.labelKey)}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                         <button type="button" onClick={() => setSabaqPart2(null)}
                           className="text-[11px] text-slate-400 underline hover:text-slate-600">
                           {t("hifzRound.removeSurah")}

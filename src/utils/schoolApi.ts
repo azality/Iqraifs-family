@@ -3885,6 +3885,13 @@ export interface HifzEntryInput {
   nextTarget?: string;
   missedTargetReason?: string;
   parentAction?: string;
+  /** This portion was heard BEYOND the assigned sabaq — the child
+   *  memorised extra. The server logs the school's "Memorized extra
+   *  lesson" positive note for it, at most once per child per day
+   *  (server >= v1.1.50). */
+  extraSabaq?: boolean;
+  /** Human label for that portion, used in the praise note's text. */
+  extraLabel?: string;
 }
 
 export const postHifzEntry = (

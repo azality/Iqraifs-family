@@ -90,6 +90,38 @@ describe("sabaq progression across two surahs", () => {
       .toEqual([{ surahNumber: 10, from: 107, to: 109 }]);
   });
 
+  it("rates each segment on its own: lesson excellent, extra weak", () => {
+    // An-Nur (24) has 64 ayahs. Assigned 53–61 passed; the extra 62–64
+    // the child ran ahead with was weak, so it stands again tomorrow
+    // while the assigned part moves on — and moving on lands on the
+    // same portion, which must not appear twice.
+    expect(
+      nextSabaqPartsAfter(
+        [{ surahNumber: 24, from: 53, to: 61 }, { surahNumber: 24, from: 62, to: 64 }],
+        [false, true],
+      ),
+    ).toEqual([{ surahNumber: 24, from: 62, to: 64 }]);
+  });
+
+  it("keeps two distinct segments when only one is repeated", () => {
+    // Yunus finished (dropped on advance); Hud 1–5 was weak, so it stays.
+    expect(
+      nextSabaqPartsAfter([YUNUS_TAIL, HUD_START], [false, true]),
+    ).toEqual([HUD_START]);
+  });
+
+  it("advances the extra but repeats the lesson when the ratings flip", () => {
+    expect(
+      nextSabaqPartsAfter(
+        [{ surahNumber: 24, from: 53, to: 61 }, { surahNumber: 11, from: 1, to: 5 }],
+        [true, false],
+      ),
+    ).toEqual([
+      { surahNumber: 24, from: 53, to: 61 },
+      { surahNumber: 11, from: 6, to: 10 },
+    ]);
+  });
+
   it("returns null past the end of the Quran", () => {
     // An-Nas (114) has 6 ayahs — nothing follows it.
     expect(nextSabaqPartsAfter([{ surahNumber: 114, from: 1, to: 6 }], false))
