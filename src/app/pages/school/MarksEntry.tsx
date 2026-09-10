@@ -32,6 +32,7 @@ import {
   getSchoolMe, isOrgAdmin,
   listClasses,
   getMarksSheet, saveMarksSheet,
+  subjectMaxForPaper, paperOfExamName,
   type AdminClass, type MarksSheetResponse, type SchoolMeResponse,
 } from "../../../utils/schoolApi";
 import { sectionTitleClasses, NoAccessRedirect } from "../../components/school-ui";
@@ -45,6 +46,21 @@ type CellState = {
 function pct(obt: number | null, max: number | null): number | null {
   if (obt === null || max === null || max === 0) return null;
   return (obt / max) * 100;
+}
+
+/** The max for one cell. A subject's own total for THIS paper wins over
+ *  the sheet-wide default — Class I oral is English 15, Maths 20,
+ *  Islamiat 25, so one number for the whole sheet cannot be right
+ *  (Ambreen's marks distribution, 10 Sep). A per-cell override still
+ *  beats everything, for the odd student who sat a shorter paper. */
+function cellMax(
+  override: string,
+  subjectTotal: number | null,
+  sheetDefault: string,
+): number {
+  if (override) return Number(override);
+  if (subjectTotal !== null) return subjectTotal;
+  return Number(sheetDefault);
 }
 
 const AUTOSAVE_DELAY_MS = 1500;
@@ -64,6 +80,17 @@ export function MarksEntry() {
   const [sectionId, setSectionId] = useState<string>(presetSectionId);
   const [sheet, setSheet] = useState<MarksSheetResponse | null>(null);
   const [defaultMax, setDefaultMax] = useState<string>("100");
+  // subjectId → total marks the school gives this subject on THIS paper.
+  // Empty when the school hasn't entered a distribution, in which case
+  // the sheet-wide default applies exactly as before.
+  const subjectMax = useMemo(() => {
+    const m = new Map<string, number | null>();
+    const paper = paperOfExamName(sheet?.exam?.name);
+    for (const s of sheet?.subjects ?? []) {
+      m.set(s.id, subjectMaxForPaper(s.assessmentWeights, paper));
+    }
+    return m;
+  }, [sheet]);
   // Map of `${studentId}:${classSubjectId}` → cell.
   const [cells, setCells] = useState<Map<string, CellState>>(new Map());
   const [loading, setLoading] = useState(false);
@@ -135,14 +162,19 @@ export function MarksEntry() {
     setError(null);
     try {
       const rows: any[] = [];
+      // Store the max the teacher actually saw: their own override, else
+      // the school's total for this subject on this paper, else the
+      // sheet default (sent separately as `defaults`).
+      const paper = paperOfExamName(s.exam?.name);
       for (const stu of s.students) {
         for (const subj of s.subjects) {
           const key = `${stu.id}:${subj.id}`;
           const c = cs.get(key) ?? { obtained: "", maxOverride: "", absent: false };
+          const subjTotal = subjectMaxForPaper(subj.assessmentWeights, paper);
           rows.push({
             studentId: stu.id,
             classSubjectId: subj.id,
-            maxMarks: c.maxOverride || null,
+            maxMarks: c.maxOverride || (subjTotal !== null ? String(subjTotal) : null),
             obtainedMarks: c.absent ? null : (c.obtained || null),
             absent: c.absent,
           });
@@ -263,14 +295,14 @@ export function MarksEntry() {
         const c = cells.get(`${stu.id}:${subj.id}`);
         if (!c || c.absent || !c.obtained) continue;
         const o = Number(c.obtained);
-        const mx = Number(c.maxOverride || defaultMax);
+        const mx = cellMax(c.maxOverride, subjectMax.get(subj.id) ?? null, defaultMax);
         if (!Number.isFinite(o) || !Number.isFinite(mx) || mx <= 0) continue;
         obt += o; max += mx; any = true;
       }
       m.set(stu.id, { obtained: obt, max, pct: any && max > 0 ? (obt / max) * 100 : null });
     }
     return m;
-  }, [sheet, cells, defaultMax]);
+  }, [sheet, cells, defaultMax, subjectMax]);
 
   if (meLoading) return null;
   // Admins browse any section; teachers arrive via the section deep
@@ -374,11 +406,25 @@ export function MarksEntry() {
                 {sheet.subjects.map((s) => (
                   <th key={s.id} className="text-center px-2 py-2 min-w-[120px]">
                     {s.name}
-                    {(s.assessmentWeights?.length ?? 0) > 0 && (
-                      <div className="mt-0.5 text-[10px] font-normal normal-case text-slate-400">
-                        {s.assessmentWeights!.map((w) => `${w.label} ${w.pct}%`).join(" · ")}
-                      </div>
-                    )}
+                    {(() => {
+                      // Column header shows this paper's components and the
+                      // total the school gives them, so the teacher can see
+                      // what the /max means: "Written 50 · Dictation 10 — /60".
+                      const paper = paperOfExamName(sheet.exam?.name);
+                      const mine = (s.assessmentWeights ?? []).filter(
+                        (w) => !paper || !w.paper || w.paper === paper,
+                      );
+                      if (mine.length === 0) return null;
+                      const total = subjectMax.get(s.id) ?? null;
+                      return (
+                        <div className="mt-0.5 text-[10px] font-normal normal-case text-slate-400">
+                          {mine
+                            .map((w) => `${w.label} ${w.marks ?? `${w.pct}%`}`)
+                            .join(" · ")}
+                          {total !== null ? ` — /${total}` : ""}
+                        </div>
+                      );
+                    })()}
                   </th>
                 ))}
                 <th className="text-right px-2 py-2 bg-slate-100">Total · %</th>
@@ -398,7 +444,7 @@ export function MarksEntry() {
                     {sheet.subjects.map((subj, colIdx) => {
                       const key = `${stu.id}:${subj.id}`;
                       const c = cells.get(key) ?? { obtained: "", maxOverride: "", absent: false };
-                      const mx = Number(c.maxOverride || defaultMax);
+                      const mx = cellMax(c.maxOverride, subjectMax.get(subj.id) ?? null, defaultMax);
                       const ob = c.obtained ? Number(c.obtained) : null;
                       const cellPct = !c.absent ? pct(ob, mx) : null;
                       return (

@@ -765,22 +765,40 @@ export function installSubjects(school: Hono) {
     if (typeof body?.sortOrder === "number") {
       patch.sort_order = Math.trunc(body.sortOrder);
     }
-    // School-defined assessment weightage: [{ label, pct }] or null to
-    // clear. Guidance for marks entry (marks-as-weight); pct sanity-
-    // checked, sum left to the school (some schools keep a 5% buffer).
+    // The school's marks distribution for this subject: components with
+    // the MARKS each carries and which paper it belongs to, e.g. Class I
+    // English = Written 50 + Dictation 10 (written paper) + Oral 15.
+    // Marks, not percentages — that is how the school actually writes it
+    // (Ambreen's sheet, 10 Sep), and the marks sheet uses the per-paper
+    // total as each subject column's max.
+    //
+    // Older rows stored { label, pct }; those still parse and display, so
+    // nothing written before this change is lost.
     if ("assessmentWeights" in body) {
       const aw = body.assessmentWeights;
       if (aw === null) {
         patch.assessment_weights = null;
       } else if (Array.isArray(aw) && aw.length <= 10) {
-        const clean: Array<{ label: string; pct: number }> = [];
+        const clean: Array<Record<string, unknown>> = [];
         for (const it of aw) {
           const label = typeof it?.label === "string" ? it.label.trim().slice(0, 40) : "";
-          const pct = Number(it?.pct);
-          if (!label || !Number.isFinite(pct) || pct <= 0 || pct > 100) {
-            return c.json({ error: "each weight needs a label and a pct in 1..100" }, 400);
+          if (!label) {
+            return c.json({ error: "each component needs a label" }, 400);
           }
-          clean.push({ label, pct });
+          const paper = it?.paper === "oral" || it?.paper === "written" ? it.paper : null;
+          if (it?.marks !== undefined && it?.marks !== null) {
+            const marks = Number(it.marks);
+            if (!Number.isFinite(marks) || marks <= 0 || marks > 1000) {
+              return c.json({ error: "each component needs marks in 1..1000" }, 400);
+            }
+            clean.push(paper ? { label, marks, paper } : { label, marks });
+            continue;
+          }
+          const pct = Number(it?.pct);
+          if (!Number.isFinite(pct) || pct <= 0 || pct > 100) {
+            return c.json({ error: "each component needs marks (1..1000) or a pct (1..100)" }, 400);
+          }
+          clean.push(paper ? { label, pct, paper } : { label, pct });
         }
         patch.assessment_weights = clean.length ? clean : null;
       } else {

@@ -407,10 +407,40 @@ export interface ClassDetail {
 // 3-B). See migrations 0018 + 0019.
 
 /** A subject template at the class level, plus its per-section assignments. */
+/** One component of a subject's marks distribution, as the school
+ *  writes it: "Written 50", "Dictation 10", "Oral 15". `paper` says
+ *  which exam it belongs to so the marks sheet can total it. Rows
+ *  written before 10 Sep 2026 carry `pct` instead of `marks`. */
 export interface AssessmentWeight {
   label: string;
-  pct: number;
+  marks?: number;
+  pct?: number;
+  paper?: "oral" | "written" | null;
 }
+
+/** Total marks a subject carries on one paper — the max for its column
+ *  on that exam's marks sheet. Null when the school hasn't said. */
+export const subjectMaxForPaper = (
+  weights: AssessmentWeight[] | null | undefined,
+  paper: "oral" | "written" | null,
+): number | null => {
+  if (!weights?.length || !paper) return null;
+  const total = weights
+    .filter((w) => w.paper === paper && typeof w.marks === "number")
+    .reduce((sum, w) => sum + (w.marks ?? 0), 0);
+  return total > 0 ? total : null;
+};
+
+/** Which paper an exam is, read from its name ("1st Assessment — Oral").
+ *  The school names every exam this way; anything else returns null and
+ *  the sheet keeps its single default max. */
+export const paperOfExamName = (name: string | null | undefined):
+  "oral" | "written" | null => {
+  const n = (name ?? "").toLowerCase();
+  if (/\boral\b/.test(n)) return "oral";
+  if (/\bwritten\b/.test(n)) return "written";
+  return null;
+};
 
 export interface ClassSubject {
   id: string;
@@ -4854,6 +4884,9 @@ export interface MarksSheetStudent {
   scores: ExamSubjectScore[];
 }
 export interface MarksSheetResponse {
+  /** Which exam this sheet is for — its name says oral vs written
+   *  (server >= v1.1.49). */
+  exam?: { id: string; name: string; examType: string } | null;
   section: { id: string; name: string; className: string };
   subjects: { id: string; name: string; assessmentWeights?: AssessmentWeight[] | null }[];
   /** null = caller may edit every column; otherwise the subject ids

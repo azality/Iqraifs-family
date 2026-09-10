@@ -775,7 +775,16 @@ export function installAssessment(school: Hono): void {
       scoreMap.set(`${s.student_id}:${s.class_subject_id}`, s);
     }
 
+    // The sheet needs to know WHICH paper it is: the marks distribution
+    // stores a per-paper total ("English oral 15, written 60"), and the
+    // client uses it as each column's max.
+    const { data: examRow } = await serviceRoleClient
+      .from("exam").select("id, name, exam_type").eq("id", examId).maybeSingle();
+
     return c.json({
+      exam: examRow
+        ? { id: (examRow as any).id, name: (examRow as any).name, examType: (examRow as any).exam_type }
+        : null,
       section: { id: section.id, name: (section as any).name, className: (section as any).class.name },
       subjects: visibleSubjects.map((s) => ({
         id: s.id,
