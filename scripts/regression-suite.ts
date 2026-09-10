@@ -3472,11 +3472,16 @@ await check("73. extra sabaq earns the school's 'Memorized extra lesson' note, o
   const CATEGORY = "Memorized extra lesson";
   const cleanup: Array<() => Promise<unknown>> = [];
   try {
-    // Start from a clean slate for today.
+    // Start from a clean slate for today. "Today" is the school's day:
+    // the bound is Karachi midnight (+05:00, no DST), NOT UTC midnight —
+    // with +00:00 the bound sits 5 hours late, and between 00:00 and
+    // 05:00 Karachi the freshly written note fell outside it (this
+    // check failed at 01:11 Karachi while the note existed).
     const todayKhi = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Karachi" }).format(new Date());
+    const khiDayStart = `${todayKhi}T00:00:00+05:00`;
     await admin.from("behavior_note").delete()
       .eq("student_id", pStu1).eq("category", CATEGORY)
-      .gte("observed_at", `${todayKhi}T00:00:00+00:00`);
+      .gte("observed_at", khiDayStart);
     cleanup.push(() => admin.from("behavior_note").delete()
       .eq("student_id", pStu1).eq("category", CATEGORY));
     cleanup.push(() => admin.from("hifz_progress").delete().eq("student_id", pStu1));
@@ -3504,7 +3509,7 @@ await check("73. extra sabaq earns the school's 'Memorized extra lesson' note, o
     const { data: notes } = await admin.from("behavior_note")
       .select("kind, category, points, notes")
       .eq("student_id", pStu1).eq("category", CATEGORY)
-      .gte("observed_at", `${todayKhi}T00:00:00+00:00`);
+      .gte("observed_at", khiDayStart);
     assert((notes ?? []).length === 1, `expected 1 note, got ${(notes ?? []).length}`);
     assert(notes![0].kind === "positive", `note must be positive, got ${notes![0].kind}`);
     assert(String(notes![0].notes).includes("An-Naba"), "note should name the portion");
@@ -3516,7 +3521,7 @@ await check("73. extra sabaq earns the school's 'Memorized extra lesson' note, o
     assert(secondJ.extraLessonPraised === false, "second save must not praise again");
     const { data: after } = await admin.from("behavior_note")
       .select("id").eq("student_id", pStu1).eq("category", CATEGORY)
-      .gte("observed_at", `${todayKhi}T00:00:00+00:00`);
+      .gte("observed_at", khiDayStart);
     assert((after ?? []).length === 1, `still expected 1 note, got ${(after ?? []).length}`);
 
     // The extra portion carries its OWN rating (the lesson may be
