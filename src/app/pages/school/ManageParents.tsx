@@ -176,6 +176,14 @@ export function ManageParents() {
     for (const ids of parentsOfChild.values()) {
       for (let i = 1; i < ids.length; i++) union(ids[0], ids[i]);
     }
+    // Fold canonical aliases into their root: a merged parent IS the
+    // same person, so their children join the root's family card and
+    // the alias row itself is hidden from the list (it still shows
+    // under "Already merged" in the duplicates panel). Without this a
+    // merged father kept appearing as a second family.
+    for (const p of parents) {
+      if (p.canonical_id && parent[p.canonical_id] !== undefined) union(p.id, p.canonical_id);
+    }
     const groups = new Map<string, AdminParent[]>();
     for (const p of parents) {
       const r = find(p.id);
@@ -183,17 +191,21 @@ export function ManageParents() {
       arr.push(p);
       groups.set(r, arr);
     }
-    return Array.from(groups.values()).map((groupParents) => {
+    return Array.from(groups.values()).map((all) => {
       const seenKids = new Set<string>();
       const kids: NonNullable<AdminParent["children"]> = [];
-      for (const p of groupParents) {
+      for (const p of all) {
         for (const c of p.children ?? []) {
           if (seenKids.has(c.id)) continue;
           seenKids.add(c.id);
           kids.push(c);
         }
       }
-      return { parents: groupParents, children: kids };
+      // Alias rows hidden — unless the root lives outside this org's
+      // list (cross-campus merge), in which case show the alias rather
+      // than an empty card.
+      const groupParents = all.filter((p) => !p.canonical_id);
+      return { parents: groupParents.length > 0 ? groupParents : all, children: kids };
     });
   }, [parents]);
 
@@ -438,11 +450,13 @@ export function ManageParents() {
     <div className="space-y-4">
       <HeroCard
         title="Parents"
-        subtitle={
-          families.length === parents.length
-            ? `${parents.length} parent${parents.length === 1 ? "" : "s"}`
-            : `${families.length} famil${families.length === 1 ? "y" : "ies"} · ${parents.length} parents`
-        }
+        subtitle={(() => {
+          // Merged alias rows are the same person — count people, not rows.
+          const n = parents.filter((p) => !p.canonical_id).length;
+          return families.length === n
+            ? `${n} parent${n === 1 ? "" : "s"}`
+            : `${families.length} famil${families.length === 1 ? "y" : "ies"} · ${n} parents`;
+        })()}
         rightSlot={
           <div className="flex gap-2">
             <Link to={`/school/orgs/${orgId}/admin`}>
