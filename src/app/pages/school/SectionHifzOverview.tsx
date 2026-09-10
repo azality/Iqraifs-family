@@ -378,7 +378,11 @@ export function SectionHifzOverview() {
       key: "ayahs",
       header: (
         <button type="button" onClick={() => toggleSort("ayahs")} className="inline-flex items-center gap-1">
-          {t("hifzTeach.colAyahs")} <ArrowUpDown className="h-3 w-3" />
+          {/* An intake roster mixes both meanings: hifz rows count ayahs
+              memorized, reader rows show where they've read up to — the
+              header must not promise "memorized" over a reading position
+              (Ambreen read "Not started" as the wrong title, 11 Sep). */}
+          {t(mixedRoster ? "hifzTeach.colAyahsMixed" : "hifzTeach.colAyahs")} <ArrowUpDown className="h-3 w-3" />
         </button>
       ),
       cell: (s) => {

@@ -3640,6 +3640,77 @@ await check("74. marks sheet: empty cells are never stamped with a max, and stal
   }
 });
 
+await check("75. an intake reader's sabaq/sabqi count as their reading pair", async () => {
+  // Hifz IV intake (Muneeb, 11 Sep): teachers hear their nazra readers
+  // through the hifz surfaces — the school's own words for the reading
+  // routine ARE sabaq and sabqi — so the whole intake sat at grey chips
+  // and "Not started" while every child had been heard. For a student
+  // whose track is nazra, kind sabaq flags nazraSabaq and moves the
+  // reading position, and kind sabqi flags nazraSabqi; a hifz-track
+  // student's identical entries change neither nazra flag.
+  const t = await ensureUser("qa-teacher@azality.com", "QA Teacher", "class_teacher");
+  const ids: string[] = [];
+  const mk = async (studentId: string, kind: string, extra: Record<string, unknown> = {}) => {
+    const r = await api(t.token, `/school/orgs/${ORG}/hifz-progress`, {
+      method: "POST",
+      body: JSON.stringify({ studentId, surahNumber: 110, ayahFrom: 1, ayahTo: 3, kind, ...extra }),
+    });
+    const j = await r.json();
+    assert(r.status === 201, `${kind} create ${r.status}`);
+    ids.push(j.entry.id);
+  };
+  const summaryRow = async (studentId: string) => {
+    const s = await (await api(t.token,
+      `/school/orgs/${ORG}/sections/${sandboxSec.id}/hifz-progress/summary`)).json();
+    return (s.students ?? []).find((x: any) => x.studentId === studentId);
+  };
+  try {
+    // Clean slate: the position asserts depend on exactly the entries
+    // this check writes (QA portal students, safe to sweep).
+    await admin.from("hifz_progress").delete().eq("student_id", pStu1);
+    await admin.from("hifz_progress").delete().eq("student_id", pStu2);
+    await admin.from("student").update({ quran_track: "nazra" }).eq("id", pStu1);
+    await admin.from("student").update({ quran_track: "hifz" }).eq("id", pStu2);
+
+    // Reader heard as sabaq: chip lights, position moves.
+    await mk(pStu1, "sabaq");
+    const r1 = await summaryRow(pStu1);
+    assert(r1?.today?.nazraSabaq === true,
+      `reader's sabaq should flag nazraSabaq: ${JSON.stringify(r1?.today)}`);
+    assert(r1?.today?.nazraSabqi === false, "sabqi must not be flagged yet");
+    assert(r1?.nazraPosition?.surahNumber === 110 && r1?.nazraPosition?.ayahTo === 3,
+      `reader's sabaq should set the reading position, got ${JSON.stringify(r1?.nazraPosition)}`);
+
+    // Reader's sabqi: the revision half.
+    await mk(pStu1, "sabqi");
+    const r2 = await summaryRow(pStu1);
+    assert(r2?.today?.nazraSabqi === true,
+      `reader's sabqi should flag nazraSabqi: ${JSON.stringify(r2?.today)}`);
+    // Sabqi is revision — it must NOT move the reading position.
+    assert(r2?.nazraPosition?.surahNumber === 110 && r2?.nazraPosition?.ayahTo === 3,
+      "sabqi must not move the reading position");
+
+    // A missed sabaq (skip marker) never moves the position.
+    await mk(pStu1, "sabaq", { surahNumber: 1, ayahFrom: 1, ayahTo: 1, missed: true });
+    const r3 = await summaryRow(pStu1);
+    assert(r3?.nazraPosition?.surahNumber === 110,
+      `a missed sabaq must not move the position, got ${JSON.stringify(r3?.nazraPosition)}`);
+
+    // A hifz-track student's sabaq stays a hifz sabaq: trio flag only.
+    await mk(pStu2, "sabaq");
+    const h = await summaryRow(pStu2);
+    assert(h?.today?.sabaq === true, "hifz sabaq flags the trio");
+    assert(h?.today?.nazraSabaq === false,
+      `hifz sabaq must not flag the nazra pair: ${JSON.stringify(h?.today)}`);
+    assert(h?.nazraPosition === null,
+      "a hifz student's sabaq is not a reading position");
+  } finally {
+    for (const id of ids) await admin.from("hifz_progress").delete().eq("id", id);
+    await admin.from("student").update({ quran_track: null }).eq("id", pStu1);
+    await admin.from("student").update({ quran_track: null }).eq("id", pStu2);
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
