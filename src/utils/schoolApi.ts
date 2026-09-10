@@ -645,6 +645,22 @@ export const getMySectionSubjects = (): Promise<{
   sectionSubjects: MySectionSubject[];
 }> => apiCall(`/school/me/section-subjects`);
 
+/** One incomplete exam column the calling teacher still owes marks for
+ *  (current-term exam whose window opened; their subject, their section). */
+export interface MyExamMarksTodo {
+  examId: string;
+  examName: string;
+  classSectionId: string;
+  classSubjectId: string;
+  subjectName: string;
+  marked: number;
+  studentCount: number;
+}
+export const getMyExamMarksTodo = (
+  orgId: string,
+): Promise<{ todos: MyExamMarksTodo[] }> =>
+  apiCall(`/school/orgs/${orgId}/me/exam-marks-todo`);
+
 // --- Teacher snapshot (Phase 6b) ----------------------------------------
 
 export interface TeacherSnapshot {

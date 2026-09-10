@@ -3199,6 +3199,76 @@ await check("68. exam-marks progress counts SUBJECT columns, not students-with-a
   }
 });
 
+await check("69. teacher's own exam-marks to-do: their incomplete columns, nothing else", async () => {
+  // TeacherHome subject cards nudge (Muneeb, 10 Sep): each subject
+  // teacher is prompted for exactly the columns THEY teach that are
+  // still incomplete while an exam window is open — and the nudge
+  // disappears once their column is fully entered.
+  const { data: term } = await admin.from("academic_term").select("id")
+    .eq("org_id", ORG).eq("is_current", true).is("archived_at", null).maybeSingle();
+  assert(term, "no current term");
+  const { data: sbStudents } = await admin.from("student").select("id")
+    .eq("class_section_id", sandboxSec.id);
+  assert((sbStudents ?? []).length >= 1, "need sandbox students");
+  const cleanup: Array<() => Promise<unknown>> = [];
+  try {
+    const { data: exam, error: exErr } = await admin.from("exam").insert({
+      org_id: ORG, term_id: term.id, name: "QA Todo Probe",
+      exam_type: "other", weight: 1,
+      exam_date: new Date().toISOString().slice(0, 10),
+    }).select("id").single();
+    if (exErr) throw new Error(`exam: ${exErr.message}`);
+    cleanup.push(() => admin.from("exam").delete().eq("id", exam.id));
+
+    const mk = async (nm: string) => {
+      const { data: cs, error } = await admin.from("class_subject").insert({
+        org_id: ORG, class_id: sandboxClass.id, name: nm, sort_order: 910,
+      }).select("id").single();
+      if (error) throw new Error(`subject ${nm}: ${error.message}`);
+      cleanup.push(() => admin.from("class_subject").delete().eq("id", cs.id));
+      return cs.id;
+    };
+    const mineSub = await mk("QA Todo Mine");
+    const otherSub = await mk("QA Todo Other");
+
+    const t = await ensureUser("qa-teacher@azality.com", "QA Teacher", "class_teacher");
+    const { data: ss, error: ssErr } = await admin.from("section_subject").insert({
+      org_id: ORG, class_section_id: sandboxSec.id, class_subject_id: mineSub,
+      teacher_user_id: t.id, name: "QA Todo Mine",
+    }).select("id").single();
+    if (ssErr) throw new Error(`section_subject: ${ssErr.message}`);
+    cleanup.push(() => admin.from("section_subject").delete().eq("id", ss.id));
+
+    // 1. Empty column + open window → exactly one todo, for MY subject.
+    const r1 = await api(t.token, `/school/orgs/${ORG}/me/exam-marks-todo`);
+    const j1 = await r1.json();
+    assert(r1.status === 200, `todo ${r1.status}`);
+    const probe1 = (j1.todos ?? []).filter((x: any) => x.examId === exam.id);
+    assert(probe1.length === 1, `expected 1 todo for probe exam, got ${probe1.length}`);
+    assert(probe1[0].classSubjectId === mineSub, "todo must be MY subject");
+    assert(!((j1.todos ?? []).some((x: any) => x.classSubjectId === otherSub)),
+      "someone else's column must never appear in my to-do");
+    assert(probe1[0].marked === 0 && probe1[0].studentCount === sbStudents!.length,
+      `counts ${probe1[0].marked}/${probe1[0].studentCount}`);
+
+    // 2. Fill my column → the nudge goes away.
+    for (const s of sbStudents!) {
+      const { error } = await admin.from("exam_subject_score").insert({
+        org_id: ORG, exam_id: exam.id, class_subject_id: mineSub,
+        student_id: s.id, obtained_marks: 7, max_marks: 10, recorded_by: t.id,
+      });
+      if (error) throw new Error(`score: ${error.message}`);
+    }
+    cleanup.push(() => admin.from("exam_subject_score").delete().eq("exam_id", exam.id));
+    const r2 = await api(t.token, `/school/orgs/${ORG}/me/exam-marks-todo`);
+    const j2 = await r2.json();
+    assert(!((j2.todos ?? []).some((x: any) => x.examId === exam.id)),
+      "a fully entered column must drop off the to-do");
+  } finally {
+    for (const fn of cleanup.reverse()) await fn();
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

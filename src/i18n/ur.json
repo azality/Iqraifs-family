@@ -567,6 +567,7 @@
       "overview": "جائزہ",
       "mySubjects": "میرے مضامین",
       "curriculumProgress": "نصاب کی پیش رفت · اس تعلیمی سال",
+      "enterMarks": "نمبر درج کریں",
       "topicsCount": "{{done}}/{{total}} موضوعات",
       "noCurriculum": "ابھی نصاب مقرر نہیں — {{subject}} کا نصاب ترتیب دینے کے لیے اپنے ایڈمن سے کہیں۔",
       "assignments": "ہوم ورک اور ٹیسٹ",

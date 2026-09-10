@@ -32,6 +32,7 @@ import {
 import {
   getSectionsLeaderboard,
   getMySectionSubjects,
+  getMyExamMarksTodo,
   listHifzGroups,
   listStudents,
   type HifzGroup,
@@ -40,6 +41,7 @@ import {
   getMyTeacherTimetable,
   getMyUpcoming,
   type MySectionSubject,
+  type MyExamMarksTodo,
   type MyTimetableCell,
   type TeacherSnapshot,
   getSectionBehaviorNotes,
@@ -141,6 +143,9 @@ export function TeacherHome({ orgId, me }: Props) {
   }, [orgId, sections]);
   const [notes, setNotes] = useState<BehaviorNote[]>([]);
   const [mySubjects, setMySubjects] = useState<MySectionSubject[]>([]);
+  // Exam columns this teacher still owes marks for (window open,
+  // column incomplete) — the nudge chips on the subject cards below.
+  const [marksTodos, setMarksTodos] = useState<MyExamMarksTodo[]>([]);
   const [snapshot, setSnapshot] = useState<TeacherSnapshot | null>(null);
   const [todayCells, setTodayCells] = useState<MyTimetableCell[]>([]);
   const [upcoming, setUpcoming] = useState<import("../../../utils/schoolApi").LessonPrepItem[] | null>(null);
@@ -212,10 +217,17 @@ export function TeacherHome({ orgId, me }: Props) {
       .catch(() => {
         /* non-fatal — widget just stays empty */
       });
+    getMyExamMarksTodo(orgId)
+      .then((r) => {
+        if (!cancelled) setMarksTodos(r.todos ?? []);
+      })
+      .catch(() => {
+        /* older server / no exams — chips just don't show */
+      });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [orgId]);
 
   // Phase 6b: teacher-snapshot (topics due, untagged, grades to enter,
   // recent grades). Non-blocking — widgets hide if the call errors.
@@ -859,6 +871,19 @@ export function TeacherHome({ orgId, me }: Props) {
                   )}
 
                   <div className="mt-3 flex flex-wrap gap-2">
+                    {marksTodos
+                      .filter((td) => td.classSectionId === s.classSectionId && td.classSubjectId === s.classSubjectId)
+                      .map((td) => (
+                        <Link
+                          key={td.examId}
+                          to={`/school/orgs/${s.orgId}/admin/assessment/exams/${td.examId}/marks?sectionId=${s.classSectionId}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center gap-1 rounded-md border border-violet-300 bg-violet-50 px-2 py-1 text-[10px] font-semibold text-violet-800 hover:bg-violet-100"
+                        >
+                          {td.examName.replace(/^.*?—\s*/, "") || td.examName}{" "}
+                          {td.marked}/{td.studentCount} · {t("teacherHome.enterMarks")} →
+                        </Link>
+                      ))}
                     <Link
                       to={`/school/orgs/${s.orgId}/sections/${s.classSectionId}/assignments?subjectId=${encodeURIComponent(s.id)}`}
                       onClick={(e) => e.stopPropagation()}
