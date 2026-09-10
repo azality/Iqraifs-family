@@ -65,11 +65,24 @@ PLAN = {
         "Social Studies": W(70, 5),
     },
     # Classes IV-VII spell it "Islamiyat"; I-III use "Islamiat".
-    "Class IV":  {"Urdu": URDU_47, "Islamiyat": W(65, 10)},
-    "Class V":   {"Urdu": URDU_47, "Islamiyat": W(65, 10)},
-    "Class VI":  {"Urdu": URDU_47, "Islamiyat": W(65, 10)},
-    "Class VII": {"Urdu": URDU_47, "Islamiyat": W(65, 10)},
+    # Social Studies IV-VII: written 65 + oral 10 = 75.
+    "Class IV":  {"Urdu": URDU_47, "Islamiyat": W(65, 10), "Social Studies": W(65, 10)},
+    "Class V":   {"Urdu": URDU_47, "Islamiyat": W(65, 10), "Social Studies": W(65, 10)},
+    "Class VI":  {"Urdu": URDU_47, "Islamiyat": W(65, 10), "Social Studies": W(65, 10)},
+    "Class VII": {"Urdu": URDU_47, "Islamiyat": W(65, 10), "Social Studies": W(65, 10)},
 }
+
+# Quran carries 50 marks in Classes I-VIII. It is recited, not written,
+# so the 50 sits on the ORAL paper - flagged to Muneeb (10 Sep) in case
+# the school sets a written Quran paper instead. Classes I and II call
+# the subject "Nazra"; III upward call it "Quran".
+QURAN = [{"label": "Quran", "marks": 50, "paper": "oral"}]
+for _cls, _name in [
+    ("Class I", "Nazra"), ("Class II", "Nazra"), ("Class III", "Quran"),
+    ("Class IV", "Quran"), ("Class V", "Quran"), ("Class VI", "Quran"),
+    ("Class VII", "Quran"), ("Class VIII", "Quran"),
+]:
+    PLAN.setdefault(_cls, {})[_name] = QURAN
 
 changed = missing = same = 0
 for cls_name, subjects in PLAN.items():
