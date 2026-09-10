@@ -1,0 +1,22 @@
+{
+  // Cloudflare Workers deploy config (10 Sep 2026 — moving off Netlify,
+  // whose credits ran out on 198 production deploys this cycle).
+  //
+  // This project ships NO Worker code: it is the Vite build in ./dist
+  // served as static assets, so there is no "main" entry. The backend
+  // lives in the Supabase Edge Function and is deployed separately.
+  //
+  // "name" MUST match the Cloudflare project name, or `wrangler deploy`
+  // publishes to a differently-named Worker than the dashboard shows.
+  "name": "iqraifs",
+  "compatibility_date": "2026-09-10",
+
+  "assets": {
+    "directory": "./dist",
+    // The app is a client-routed SPA: any unmatched path must serve
+    // index.html with a 200 so deep links like
+    // /school/orgs/:orgId/admin/parents load the app instead of 404ing.
+    // This replaces netlify.toml's `/* -> /index.html 200` redirect.
+    "not_found_handling": "single-page-application"
+  }
+}
