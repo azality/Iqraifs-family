@@ -43,7 +43,9 @@ def req(method, path, body=None, prefer=None):
 
 def q(s): return urllib.parse.quote(str(s), safe='')
 
-FORMATION_RHYMES = "\n".join([
+# The 26 letter formation rhymes, in the sheet's TEACHING order (c, o, a,
+# l, d ...), which is pedagogical and deliberately not alphabetical.
+FORMATION_RHYME_LINES = [
     'c is curvy "c".', 'o is round and round.',
     'a is make a "c", go up and come down.', 'l is down and down.',
     'd is make a "c", go up up and come down.',
@@ -61,7 +63,18 @@ FORMATION_RHYMES = "\n".join([
     'y make a "v". come down down.', 'v is for victory.',
     'q is make a "c" go up, come down down and give it a kick.',
     'w is like a zig zag.', 'x is make a cross.', 'z is like a zebra crossing.',
-])
+]
+assert len(FORMATION_RHYME_LINES) == 26, len(FORMATION_RHYME_LINES)
+
+# ONE TOPIC PER LETTER. These first went in as a single "Formation rhymes"
+# topic carrying all 26 lines in its description; Ambreen (10 Sep): "Jo 26
+# letters hain woh add nahi hoe, bus Formation rhymes ke naam se add
+# hogaye hain". A syllabus is a tick-off list, so a teacher has to be able
+# to mark each letter as it is taught - the description of one row can't be
+# ticked. The letter leads the name so the list reads as the alphabet.
+FORMATION_RHYME_TOPICS = [
+    f"Formation rhyme: {line.rstrip('.')}" for line in FORMATION_RHYME_LINES
+]
 
 # (class, subject, term-name or None, [topic names])
 PLAN = [
@@ -153,11 +166,7 @@ PLAN = [
     ]),
 ]
 
-# Topics that carry a long reference text in their description.
-DESCRIPTIONS = {
-    ("Junior", "English Writing", "Formation rhymes (letter formation)"): FORMATION_RHYMES,
-}
-PLAN.append(("Junior", "English Writing", None, ["Formation rhymes (letter formation)"]))
+PLAN.append(("Junior", "English Writing", None, FORMATION_RHYME_TOPICS))
 
 users = json.load(urllib.request.urlopen(urllib.request.Request(
     URL + '/auth/v1/admin/users?per_page=1000', headers=H)))
@@ -206,7 +215,6 @@ for cls_name, sub_name, term_name, topics in PLAN:
         if APPLY and cur['id']:
             req('POST', 'curriculum_topic', {
                 'curriculum_id': cur['id'], 'name': name,
-                'description': DESCRIPTIONS.get((cls_name, sub_name, name)),
                 'display_order': order,
                 'academic_term_id': term_id,
             }, prefer='return=minimal')
