@@ -1703,6 +1703,36 @@ export function installPhaseA(school: Hono) {
       }
     }
 
+    // Same-person guard for name+phone (the email guard's sibling). The
+    // 7 Sep bulk loads created one father row per student — siblings
+    // never reused a row — and the Parents page drowned in "possible
+    // duplicates". Same case-insensitive name + same last-10-digit phone
+    // in this org IS the same person: hand back the existing row. Name
+    // alone never blocks (many families share Muhammad Adnan).
+    const phoneDigits = String(v.row.phone ?? "").replace(/\D/g, "").slice(-10);
+    if (phoneDigits.length >= 7) {
+      const esc = v.row.fullName.trim().replace(/([%_\\])/g, "\\$1");
+      const { data: sameName } = await serviceRoleClient
+        .from("parent")
+        .select("id, full_name, phone")
+        .eq("org_id", orgId)
+        .is("canonical_id", null)
+        .ilike("full_name", esc);
+      const dup = ((sameName ?? []) as any[]).find(
+        (p) => String(p.phone ?? "").replace(/\D/g, "").slice(-10) === phoneDigits,
+      );
+      if (dup) {
+        return c.json(
+          {
+            error: `${dup.full_name} with this phone number already exists in this school. Add the new student to that existing parent record instead.`,
+            code: "PARENT_PHONE_EXISTS",
+            existingParentId: dup.id,
+          },
+          409,
+        );
+      }
+    }
+
     const { data, error } = await serviceRoleClient
       .from("parent")
       .insert({

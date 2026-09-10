@@ -3042,6 +3042,46 @@ await check("65. behavior date filter runs on the school's day; recorder can und
   }
 });
 
+await check("66. adding a parent twice (same name + phone) reuses the row instead of duplicating", async () => {
+  // The 7 Sep bulk loads created one father row per student, so a
+  // father with three kids appeared three times on the Parents page.
+  // The create endpoint now refuses a same-name+same-phone twin and
+  // points at the existing row; a shared NAME alone must still be
+  // allowed (different families share Muhammad Adnan).
+  // Fresh token — this check runs last and the suite-start office token
+  // can be past the project's JWT expiry by now.
+  const o = await ensureUser("qa-office@azality.com", "QA Office", "office_staff");
+  const mk = (fullName: string, phone: string) =>
+    api(o.token, `/school/orgs/${ORG}/parents`, {
+      method: "POST", body: JSON.stringify({ fullName, phone }),
+    });
+  const created: string[] = [];
+  try {
+    const first = await mk("QA Dup Guard Father", "+920000000977");
+    const firstJ = await first.json();
+    assert(first.status === 201, `first create ${first.status}`);
+    created.push(firstJ.id);
+
+    // Same person again — different case, same digits (0-prefixed local
+    // format vs +92): must be refused with a pointer to the row.
+    const twin = await mk("qa dup guard FATHER", "0920000000977");
+    const twinJ = await twin.json();
+    assert(twin.status === 409, `twin create should 409, got ${twin.status}`);
+    assert(twinJ.code === "PARENT_PHONE_EXISTS", `code ${twinJ.code}`);
+    assert(twinJ.existingParentId === firstJ.id, "409 must point at the existing row");
+
+    // Same name, different phone — a DIFFERENT family, must be allowed.
+    const namesake = await mk("QA Dup Guard Father", "+920000000978");
+    const namesakeJ = await namesake.json();
+    assert(namesake.status === 201, `namesake create ${namesake.status}`);
+    created.push(namesakeJ.id);
+  } finally {
+    for (const id of created) {
+      if (id) await admin.from("parent").delete().eq("id", id);
+    }
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
