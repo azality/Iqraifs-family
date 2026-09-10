@@ -3153,7 +3153,7 @@ await check("68. exam-marks progress counts SUBJECT columns, not students-with-a
   try {
     const { data: exam, error: exErr } = await admin.from("exam").insert({
       org_id: ORG, term_id: term.id, name: "QA Progress Probe",
-      exam_type: "oral", weight: 1,
+      exam_type: "other", weight: 1, // allowed types: final/midterm/other/test
       exam_date: new Date().toISOString().slice(0, 10),
     }).select("id").single();
     if (exErr) throw new Error(`exam: ${exErr.message}`);
@@ -3162,7 +3162,7 @@ await check("68. exam-marks progress counts SUBJECT columns, not students-with-a
     const subIds: string[] = [];
     for (const nm of ["QA Prog Sub A", "QA Prog Sub B"]) {
       const { data: cs, error } = await admin.from("class_subject").insert({
-        class_id: sandboxClass.id, name: nm, sort_order: 900 + subIds.length,
+        org_id: ORG, class_id: sandboxClass.id, name: nm, sort_order: 900 + subIds.length,
       }).select("id").single();
       if (error) throw new Error(`subject ${nm}: ${error.message}`);
       subIds.push(cs.id);
