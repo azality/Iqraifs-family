@@ -213,6 +213,8 @@ export function HifzLogEntry({
   // school's "Memorized extra lesson" note. Mirrors Round Mode's
   // "also heard" row.
   const [heardExtra, setHeardExtra] = useState<SabaqPart | null>(null);
+  // Its own rating - "" means rate it the same as today's sabaq.
+  const [heardExtraQuality, setHeardExtraQuality] = useState<HifzQuality | "">("");
   const [assignOptOut, setAssignOptOut] = useState(false);
   const [suggestion, setSuggestion] = useState<"none" | "advance" | "repeat">("none");
 
@@ -249,6 +251,7 @@ export function HifzLogEntry({
     if (kind !== "sabaq") {
       setAssign2(null);
       setHeardExtra(null);
+      setHeardExtraQuality("");
     }
   }, [kind]);
 
@@ -568,7 +571,7 @@ export function HifzLogEntry({
           ayahFrom: heardExtra.from,
           ayahTo: heardExtra.to,
           kind: "sabaq",
-          quality: quality || undefined,
+          quality: heardExtraQuality || quality || undefined,
           extraSabaq: true,
           extraLabel: `${surahDisplayName(heardExtra.surahNumber, lang)} ${heardExtra.from}–${heardExtra.to}`,
         });
@@ -1201,6 +1204,22 @@ export function HifzLogEntry({
                           setHeardExtra({ ...heardExtra, to: num(typed(e.target.value)) || heardExtra.from })}
                         className="bg-white" />
                     </div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">{t("hifzTeach.quality")}</Label>
+                    <Select
+                      value={heardExtraQuality || "same"}
+                      onValueChange={(v) =>
+                        setHeardExtraQuality(v === "same" ? "" : (v as HifzQuality))}
+                    >
+                      <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="same">{t("hifzRound.sameAsLesson")}</SelectItem>
+                        {QUALITY_OPTIONS.map((q) => (
+                          <SelectItem key={q.value} value={q.value}>{t(q.labelKey)}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <button type="button" onClick={() => setHeardExtra(null)}
                     className="text-[11px] text-slate-500 underline hover:text-slate-700">

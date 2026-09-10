@@ -3518,6 +3518,26 @@ await check("73. extra sabaq earns the school's 'Memorized extra lesson' note, o
       .select("id").eq("student_id", pStu1).eq("category", CATEGORY)
       .gte("observed_at", `${todayKhi}T00:00:00+00:00`);
     assert((after ?? []).length === 1, `still expected 1 note, got ${(after ?? []).length}`);
+
+    // The extra portion carries its OWN rating (the lesson may be
+    // excellent while what the child ran ahead with was weak), and a
+    // weak extra is still praised — the note is for doing extra work,
+    // not for how well it went.
+    const weak = await api(t.token, `/school/orgs/${ORG}/hifz-progress`, {
+      method: "POST",
+      body: JSON.stringify({
+        studentId: pStu2, surahNumber: 78, ayahFrom: 6, ayahTo: 10,
+        kind: "sabaq", quality: "weak", extraSabaq: true, extraLabel: "An-Naba 6–10",
+      }),
+    });
+    const weakJ = await weak.json();
+    assert(weak.status === 201, `weak extra ${weak.status}`);
+    assert(weakJ.extraLessonPraised === true, "a weak extra portion is still extra work");
+    assert(weakJ.entry?.quality === "weak",
+      `the extra entry keeps its own rating, got ${weakJ.entry?.quality}`);
+    cleanup.push(() => admin.from("behavior_note").delete()
+      .eq("student_id", pStu2).eq("category", CATEGORY));
+    cleanup.push(() => admin.from("hifz_progress").delete().eq("student_id", pStu2));
   } finally {
     for (const fn of cleanup.reverse()) await fn();
   }

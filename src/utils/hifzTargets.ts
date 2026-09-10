@@ -149,21 +149,44 @@ export function parseNextSabaqParts(text: string): SabaqPart[] | null {
  *  exactly the single-segment behaviour. */
 export function nextSabaqPartsAfter(
   parts: SabaqPart[],
-  repeat: boolean,
+  repeat: boolean | boolean[],
 ): SabaqPart[] | null {
   if (parts.length === 0) return null;
-  if (repeat) return parts.map((p) => ({ ...p }));
+  // Each segment can be rated on its own — the qari may pass the
+  // assigned lesson as excellent but the extra portion the child ran
+  // ahead with as weak (Muneeb, 10 Sep). Pass an array to say so; a
+  // single boolean still means "all of them".
+  const repeats = (i: number) => (Array.isArray(repeat) ? repeat[i] === true : repeat);
   const kept: SabaqPart[] = [];
-  for (const p of parts) {
+  parts.forEach((p, i) => {
+    if (repeats(i)) {
+      kept.push({ ...p });
+      return;
+    }
     const max = getSurah(p.surahNumber)?.ayahCount ?? p.to;
-    if (p.to >= max) continue; // this surah is done
+    if (p.to >= max) return; // this surah is done
     const nxt = nextSabaqAfter(p.surahNumber, p.from, p.to);
     if (nxt) kept.push({ surahNumber: nxt.surahNumber, from: nxt.from, to: nxt.to });
-  }
-  if (kept.length > 0) return kept;
+  });
+  if (kept.length > 0) return dedupeParts(kept);
   const last = parts[parts.length - 1];
   const nxt = nextSabaqAfter(last.surahNumber, last.from, last.to);
   return nxt ? [{ surahNumber: nxt.surahNumber, from: nxt.from, to: nxt.to }] : null;
+}
+
+/** Two segments can land on the same portion — the commonest case is a
+ *  lesson whose extra part IS the continuation, so advancing the first
+ *  and repeating the second both point at the same ayahs. Collapse
+ *  those so tomorrow doesn't read "An-Nur 62–70 + An-Nur 62–70". */
+function dedupeParts(parts: SabaqPart[]): SabaqPart[] {
+  const out: SabaqPart[] = [];
+  for (const p of parts) {
+    if (out.some((x) => x.surahNumber === p.surahNumber && x.from === p.from && x.to === p.to)) {
+      continue;
+    }
+    out.push(p);
+  }
+  return out;
 }
 
 export function serializeNextSabaq(surahNumber: number, from: number, to: number): string {
