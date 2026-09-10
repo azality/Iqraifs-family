@@ -3284,7 +3284,7 @@ await check("70. untagged content reaches its author's home, and Sandbox never a
   try {
     const { data: asg, error } = await admin.from("assignment").insert({
       org_id: ORG, class_section_id: sandboxSec.id, created_by: t.id,
-      title: "QA Untagged Probe", kind: "test",
+      title: "QA Untagged Probe", kind: "test", max_score: 10,
       assigned_date: new Date().toISOString().slice(0, 10),
       section_subject_id: null,
     }).select("id").single();
