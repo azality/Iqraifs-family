@@ -582,6 +582,7 @@
       "generalSubject": "عمومی",
       "dueOn": "آخری تاریخ {{date}}",
       "ungraded": "{{missing}}/{{total}} بغیر نمبر",
+      "untaggedAssignments": "{{count}} اسائنمنٹ بغیر مضمون کے",
       "untaggedLessons": "آپ کے {{count}} اسباق (پچھلے 30 دن) پر مضمون کا ٹیگ نہیں",
       "untaggedHint": "انہیں مضامین سے منسلک کریں تاکہ نصاب کی پیش رفت اپڈیٹ ہو اور والدین کو تعلیمی تناظر نظر آئے۔",
       "recentGrades": "حال ہی میں درج کردہ نمبر",

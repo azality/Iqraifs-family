@@ -2130,40 +2130,9 @@ export function PerformanceDashboard() {
         </div>
       </div>
 
-      {/* Phase 6a: data-hygiene nudge. Shown only if there's something
-          to nudge about — keeps the dashboard tidy for healthy orgs. */}
-      {academics &&
-        (academics.hygiene.untaggedLessonsLast30 > 0 ||
-          academics.hygiene.untaggedAssignmentsLast30 > 0) && (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            <div className="flex items-start gap-2">
-              <Info className="h-4 w-4 mt-0.5 flex-shrink-0" />
-              <div>
-                <span className="font-medium">Untagged content this month — </span>
-                {academics.hygiene.untaggedLessonsLast30 > 0 && (
-                  <>
-                    {academics.hygiene.untaggedLessonsLast30} lesson
-                    {academics.hygiene.untaggedLessonsLast30 === 1 ? "" : "s"}
-                  </>
-                )}
-                {academics.hygiene.untaggedLessonsLast30 > 0 &&
-                  academics.hygiene.untaggedAssignmentsLast30 > 0 &&
-                  " · "}
-                {academics.hygiene.untaggedAssignmentsLast30 > 0 && (
-                  <>
-                    {academics.hygiene.untaggedAssignmentsLast30} assignment
-                    {academics.hygiene.untaggedAssignmentsLast30 === 1 ? "" : "s"}
-                  </>
-                )}
-                {" "}
-                (last 30 days) saved without a subject selected — so they are not
-                counted under any subject&apos;s coverage or gradebook. The teacher
-                (or an admin) can fix it by editing the entry and picking its
-                subject from the dropdown.
-              </div>
-            </div>
-          </div>
-        )}      {/* Footer link back to legacy view while we transition */}
+      {/* Untagged-content hygiene now surfaces as a Needs-attention
+          alert (server v1.1.47) — the bottom-of-page banner nobody saw is
+          gone (Muneeb, 10 Sep). */}
       {org && (
         <div className="text-right">
           <Link

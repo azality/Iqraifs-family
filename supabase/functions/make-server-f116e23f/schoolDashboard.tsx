@@ -799,7 +799,8 @@ export function installDashboard(school: Hono): void {
         | "pending_approvals"
         | "attendance_gap"
         | "roster_stale"
-        | "no_assignment";
+        | "no_assignment"
+        | "untagged_content";
       title: string;
       body: string;
       actionLabel?: string;
@@ -885,6 +886,64 @@ export function installDashboard(school: Hono): void {
           actionLabel: "Open roster",
           actionPath: `/school/orgs/${orgId}/admin/classes`,
         });
+      }
+
+      // Untagged content (Muneeb, 10 Sep): this lived as a banner at the
+      // very bottom of the dashboard where nobody scrolled — content
+      // saved without a subject silently skips coverage and gradebook,
+      // so it belongs in Needs attention with the other alerts.
+      {
+        const cutoff = new Date();
+        cutoff.setUTCDate(cutoff.getUTCDate() - 30);
+        const cutoffStr = cutoff.toISOString().slice(0, 10);
+        const { data: badLessons } = await serviceRoleClient
+          .from("lesson")
+          .select("class_section:class_section_id(id, name, class:class_id(name))")
+          .eq("org_id", orgId)
+          .gte("lesson_date", cutoffStr)
+          .is("section_subject_id", null)
+          .limit(50);
+        const { data: badAssignments } = await serviceRoleClient
+          .from("assignment")
+          .select("class_section:class_section_id(id, name, class:class_id(name))")
+          .eq("org_id", orgId)
+          .gte("assigned_date", cutoffStr)
+          .is("section_subject_id", null)
+          .limit(50);
+        // Sandbox/QA content never reaches the principal's rollups —
+        // same convention as insights and academics (checks 49/53).
+        const notSandbox = (r: any) => r.class_section?.class?.name !== "Sandbox";
+        const goodLessons = ((badLessons ?? []) as any[]).filter(notSandbox);
+        const goodAssignments = ((badAssignments ?? []) as any[]).filter(notSandbox);
+        const nLessons = goodLessons.length;
+        const nAssignments = goodAssignments.length;
+        if (nLessons + nAssignments > 0) {
+          const secs = new Map<string, string>();
+          for (const r of [...goodLessons, ...goodAssignments] as any[]) {
+            const cs = r.class_section;
+            if (cs?.id) secs.set(cs.id, `${cs.class?.name ?? "?"} ${cs.name ?? ""}`.trim());
+          }
+          const names = [...secs.values()];
+          const parts: string[] = [];
+          if (nLessons > 0) parts.push(`${nLessons} lesson${nLessons === 1 ? "" : "s"}`);
+          if (nAssignments > 0) parts.push(`${nAssignments} assignment${nAssignments === 1 ? "" : "s"}`);
+          alerts.push({
+            id: "untagged_content",
+            severity: "warning",
+            kind: "untagged_content",
+            title: `${parts.join(" · ")} saved without a subject`,
+            body:
+              `Not counted in any subject's coverage or gradebook (last 30 days` +
+              (names.length ? ` — ${names.slice(0, 3).join(", ")}${names.length > 3 ? ", …" : ""}` : "") +
+              `). Edit the entry and pick its subject.`,
+            ...(secs.size === 1
+              ? {
+                  actionLabel: "Open section",
+                  actionPath: `/school/orgs/${orgId}/sections/${[...secs.keys()][0]}`,
+                }
+              : {}),
+          });
+        }
       }
 
       // Pending approvals rollup (existing behaviour).
