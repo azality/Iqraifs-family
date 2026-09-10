@@ -3391,6 +3391,76 @@ await check("71. a section with live subjects refuses subject-less lessons and a
   }
 });
 
+await check("72. marks distribution: components carry marks + paper, and the sheet uses the total as max", async () => {
+  // Ambreen's sheet (10 Sep) is written in MARKS per paper, not
+  // percentages: Class I English = written 50 + dictation 10, oral 15.
+  // The subject's per-paper total is what the marks sheet must use as
+  // that column's max — one sheet-wide number cannot serve a Class I
+  // oral where English is /15, Maths /20 and Islamiat /25.
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const cleanup: Array<() => Promise<unknown>> = [];
+  try {
+    const { data: cs, error } = await admin.from("class_subject").insert({
+      org_id: ORG, class_id: sandboxClass.id, name: "QA Distribution Sub", sort_order: 940,
+    }).select("id").single();
+    if (error) throw new Error(`subject: ${error.message}`);
+    cleanup.push(() => admin.from("class_subject").delete().eq("id", cs.id));
+
+    // Marks + paper are accepted and round-trip.
+    const ok = await api(admin2.token, `/school/class-subjects/${cs.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        assessmentWeights: [
+          { label: "Written", marks: 50, paper: "written" },
+          { label: "Dictation", marks: 10, paper: "written" },
+          { label: "Oral", marks: 15, paper: "oral" },
+        ],
+      }),
+    });
+    assert(ok.status === 200, `marks distribution save ${ok.status}`);
+    const { data: back } = await admin.from("class_subject")
+      .select("assessment_weights").eq("id", cs.id).maybeSingle();
+    const rows = (back?.assessment_weights ?? []) as any[];
+    assert(rows.length === 3, `expected 3 components, got ${rows.length}`);
+    const written = rows.filter((r) => r.paper === "written")
+      .reduce((s, r) => s + r.marks, 0);
+    const oral = rows.filter((r) => r.paper === "oral")
+      .reduce((s, r) => s + r.marks, 0);
+    assert(written === 60 && oral === 15, `paper totals ${written}/${oral}`);
+
+    // Nonsense marks are refused.
+    const bad = await api(admin2.token, `/school/class-subjects/${cs.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ assessmentWeights: [{ label: "Bad", marks: 0 }] }),
+    });
+    assert(bad.status === 400, `marks=0 should 400, got ${bad.status}`);
+
+    // The old percentage shape still saves — nothing written before the
+    // change is orphaned.
+    const legacy = await api(admin2.token, `/school/class-subjects/${cs.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ assessmentWeights: [{ label: "Written", pct: 60 }] }),
+    });
+    assert(legacy.status === 200, `legacy pct save ${legacy.status}`);
+
+    // The marks sheet tells the client which paper it is.
+    const { data: term } = await admin.from("academic_term").select("id")
+      .eq("org_id", ORG).eq("is_current", true).is("archived_at", null).maybeSingle();
+    const { data: exam } = await admin.from("exam").insert({
+      org_id: ORG, term_id: term!.id, name: "QA Distribution — Oral",
+      exam_type: "other", weight: 1,
+      exam_date: new Date().toISOString().slice(0, 10),
+    }).select("id").single();
+    cleanup.push(() => admin.from("exam").delete().eq("id", exam.id));
+    const sheet = await (await api(admin2.token,
+      `/school/orgs/${ORG}/exams/${exam.id}/marks-sheet?sectionId=${sandboxSec.id}`)).json();
+    assert(sheet.exam?.name === "QA Distribution — Oral",
+      `sheet must name its exam, got ${JSON.stringify(sheet.exam)}`);
+  } finally {
+    for (const fn of cleanup.reverse()) await fn();
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

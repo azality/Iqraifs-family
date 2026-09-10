@@ -71,7 +71,9 @@ export function ClassSubjectsManager({ classId, orgId, teachers }: Props) {
   // split (Oral 40 / Written 60; Science adds Practical 15, …). Shown
   // as guidance on the marks sheet; marks-as-weight does the math.
   const [weightsFor, setWeightsFor] = useState<ClassSubject | null>(null);
-  const [weightRows, setWeightRows] = useState<Array<{ label: string; pct: string }>>([]);
+  const [weightRows, setWeightRows] = useState<
+    Array<{ label: string; marks: string; paper: "oral" | "written" }>
+  >([]);
   const [weightSaving, setWeightSaving] = useState(false);
   const [editName, setEditName] = useState("");
 
@@ -141,18 +143,25 @@ export function ClassSubjectsManager({ classId, orgId, teachers }: Props) {
     setWeightsFor(subj);
     setWeightRows(
       (subj.assessmentWeights ?? []).length > 0
-        ? subj.assessmentWeights!.map((w) => ({ label: w.label, pct: String(w.pct) }))
-        : [{ label: "Written", pct: "" }, { label: "Oral", pct: "" }],
+        ? subj.assessmentWeights!.map((w) => ({
+            label: w.label,
+            marks: String(w.marks ?? w.pct ?? ""),
+            paper: (w.paper ?? "written") as "oral" | "written",
+          }))
+        : [
+            { label: "Written", marks: "", paper: "written" as const },
+            { label: "Oral", marks: "", paper: "oral" as const },
+          ],
     );
   };
 
   const saveWeights = async () => {
     if (!weightsFor) return;
     const rows = weightRows
-      .map((r) => ({ label: r.label.trim(), pct: Number(r.pct) }))
-      .filter((r) => r.label || r.pct);
+      .map((r) => ({ label: r.label.trim(), marks: Number(r.marks), paper: r.paper }))
+      .filter((r) => r.label || r.marks);
     for (const r of rows) {
-      if (!r.label || !Number.isFinite(r.pct) || r.pct <= 0 || r.pct > 100) {
+      if (!r.label || !Number.isFinite(r.marks) || r.marks <= 0 || r.marks > 1000) {
         toast.error("Each row needs a name and a percentage between 1 and 100.");
         return;
       }
@@ -339,7 +348,7 @@ export function ClassSubjectsManager({ classId, orgId, teachers }: Props) {
                             "rounded-md p-1 hover:bg-violet-50 hover:text-violet-700 " +
                             ((s.assessmentWeights?.length ?? 0) > 0 ? "text-violet-600" : "text-slate-400")
                           }
-                          title="Assessment weightage (oral / written / …)"
+                          title="Marks distribution (written / oral)"
                         >
                           <Percent className="h-3.5 w-3.5" />
                         </button>
@@ -412,12 +421,12 @@ export function ClassSubjectsManager({ classId, orgId, teachers }: Props) {
       <Dialog open={weightsFor !== null} onOpenChange={(o) => { if (!o) setWeightsFor(null); }}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Weightage — {weightsFor?.name}</DialogTitle>
+            <DialogTitle>Marks distribution — {weightsFor?.name}</DialogTitle>
           </DialogHeader>
           <p className="text-xs text-slate-500 -mt-2">
-            The school&apos;s split for this subject (e.g. Oral 40 · Written 60).
-            Shown on the marks sheet so max marks are set to match — the
-            report card then weighs itself.
+            How this subject&apos;s marks are split, the way the school writes it
+            — e.g. Written 50 · Dictation 10 on the written paper, Oral 15 on
+            the oral. Each paper&apos;s total becomes the max on its marks sheet.
           </p>
           <div className="space-y-2">
             {weightRows.map((r, i) => (
@@ -431,13 +440,23 @@ export function ClassSubjectsManager({ classId, orgId, teachers }: Props) {
                     setWeightRows((rows) => rows.map((x, xi) => (xi === i ? { ...x, label: e.target.value } : x)))
                   }
                 />
+                <select
+                  value={r.paper}
+                  onChange={(e) =>
+                    setWeightRows((rows) => rows.map((x, xi) => (xi === i ? { ...x, paper: e.target.value as "oral" | "written" } : x)))
+                  }
+                  className="rounded-md border border-slate-200 bg-white px-1.5 py-2 text-xs text-slate-700"
+                >
+                  <option value="written">written</option>
+                  <option value="oral">oral</option>
+                </select>
                 <Input
-                  value={r.pct}
-                  placeholder="%"
+                  value={r.marks}
+                  placeholder="marks"
                   inputMode="numeric"
                   className="w-16 text-right"
                   onChange={(e) =>
-                    setWeightRows((rows) => rows.map((x, xi) => (xi === i ? { ...x, pct: e.target.value.replace(/[^0-9]/g, "") } : x)))
+                    setWeightRows((rows) => rows.map((x, xi) => (xi === i ? { ...x, marks: e.target.value.replace(/[^0-9]/g, "") } : x)))
                   }
                 />
                 <button
@@ -452,16 +471,23 @@ export function ClassSubjectsManager({ classId, orgId, teachers }: Props) {
             <div className="flex items-center justify-between">
               <button
                 type="button"
-                onClick={() => setWeightRows((rows) => [...rows, { label: "", pct: "" }])}
+                onClick={() => setWeightRows((rows) => [...rows, { label: "", marks: "", paper: "written" }])}
                 className="text-xs font-semibold text-violet-700 hover:underline"
               >
                 + add component
               </button>
               {(() => {
-                const sum = weightRows.reduce((a, r) => a + (Number(r.pct) || 0), 0);
+                const sum = (paper: "oral" | "written") => weightRows
+                  .filter((r) => r.paper === paper)
+                  .reduce((a, r) => a + (Number(r.marks) || 0), 0);
+                const w = sum("written");
+                const o = sum("oral");
                 return (
-                  <span className={"text-xs font-semibold " + (sum === 100 ? "text-emerald-700" : "text-amber-700")}>
-                    total {sum}%
+                  <span className="text-xs font-semibold text-slate-600">
+                    {w > 0 ? `written /${w}` : ""}
+                    {w > 0 && o > 0 ? " · " : ""}
+                    {o > 0 ? `oral /${o}` : ""}
+                    {w + o > 0 ? ` · total ${w + o}` : ""}
                   </span>
                 );
               })()}
