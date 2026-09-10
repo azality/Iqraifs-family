@@ -11,6 +11,13 @@
   "name": "iqraifs",
   "compatibility_date": "2026-09-10",
 
+  // Serve ONLY the school's own domain. Cloudflare otherwise publishes
+  // the same app at an auto-generated <name>.<subdomain>.workers.dev
+  // address (its own build log warns it enables this by default) — a
+  // second public front door nobody chose, indexable by search engines
+  // and off-brand if the link ever reaches staff or parents.
+  "workers_dev": false,
+
   "assets": {
     "directory": "./dist",
     // The app is a client-routed SPA: any unmatched path must serve
