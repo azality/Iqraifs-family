@@ -629,6 +629,12 @@ school.patch("/orgs/:orgId", async (c) => {
     // ratings extend or end the break (good resumes, weak repeats).
     // Default on; false disables (Muneeb, 10 Sep).
     "sabaq_para_break",
+    // Parents page duplicate review (9 Sep): pair keys ("idA|idB",
+    // sorted) an admin marked as "different people" so the panel stops
+    // flagging them. Same-name different-family pairs are common here
+    // (several unrelated fathers share "Muhammad Adnan") and only the
+    // school can tell them apart.
+    "parent_dup_dismissals",
   ];
 
   // Load current settings so we merge rather than overwrite.
