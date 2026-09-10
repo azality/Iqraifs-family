@@ -582,6 +582,7 @@
       "generalSubject": "General",
       "dueOn": "due {{date}}",
       "ungraded": "{{missing}}/{{total}} ungraded",
+      "untaggedAssignments": "{{count}} assignment(s) missing a subject",
       "untaggedLessons": "{{count}} of your lessons (last 30 days) have no subject tag",
       "untaggedHint": "Tag them to subjects so curriculum progress updates and parents see the academic context.",
       "recentGrades": "Recent grades you entered",

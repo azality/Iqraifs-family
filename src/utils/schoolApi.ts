@@ -682,6 +682,16 @@ export interface TeacherSnapshot {
     className: string | null;
   }>;
   untaggedLessonsCount: number;
+  /** Same blind spot for assignments (server >= v1.1.47). */
+  untaggedAssignments?: Array<{
+    assignmentId: string;
+    title: string;
+    assignedDate: string;
+    classSectionId: string;
+    sectionName: string | null;
+    className: string | null;
+  }>;
+  untaggedAssignmentsCount?: number;
   assignmentsToGrade: Array<{
     assignmentId: string;
     title: string;

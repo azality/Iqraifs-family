@@ -3243,9 +3243,12 @@ await check("69. teacher's own exam-marks to-do: their incomplete columns, nothi
     const r1 = await api(t.token, `/school/orgs/${ORG}/me/exam-marks-todo`);
     const j1 = await r1.json();
     assert(r1.status === 200, `todo ${r1.status}`);
-    const probe1 = (j1.todos ?? []).filter((x: any) => x.examId === exam.id);
-    assert(probe1.length === 1, `expected 1 todo for probe exam, got ${probe1.length}`);
-    assert(probe1[0].classSubjectId === mineSub, "todo must be MY subject");
+    // Scope to the probe subject — qa-teacher may legitimately teach
+    // other live subjects that also owe marks for this exam.
+    const probe1 = (j1.todos ?? []).filter(
+      (x: any) => x.examId === exam.id && x.classSubjectId === mineSub,
+    );
+    assert(probe1.length === 1, `expected 1 todo for probe subject, got ${probe1.length}`);
     assert(!((j1.todos ?? []).some((x: any) => x.classSubjectId === otherSub)),
       "someone else's column must never appear in my to-do");
     assert(probe1[0].marked === 0 && probe1[0].studentCount === sbStudents!.length,
@@ -3262,8 +3265,68 @@ await check("69. teacher's own exam-marks to-do: their incomplete columns, nothi
     cleanup.push(() => admin.from("exam_subject_score").delete().eq("exam_id", exam.id));
     const r2 = await api(t.token, `/school/orgs/${ORG}/me/exam-marks-todo`);
     const j2 = await r2.json();
-    assert(!((j2.todos ?? []).some((x: any) => x.examId === exam.id)),
+    assert(!((j2.todos ?? []).some((x: any) => x.examId === exam.id && x.classSubjectId === mineSub)),
       "a fully entered column must drop off the to-do");
+  } finally {
+    for (const fn of cleanup.reverse()) await fn();
+  }
+});
+
+await check("70. untagged content reaches its author's home, and Sandbox never alarms the principal", async () => {
+  // Muneeb (10 Sep): the untagged-content notice sat at the very bottom
+  // of the admin dashboard — "the teacher who logged it" must see it
+  // too. The teacher snapshot now carries untagged ASSIGNMENTS (a
+  // subject-less "Viva" was invisible to its own author), and the new
+  // Needs-attention alert must NEVER fire off Sandbox/QA content.
+  const t = await ensureUser("qa-teacher@azality.com", "QA Teacher", "class_teacher");
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const cleanup: Array<() => Promise<unknown>> = [];
+  try {
+    const { data: asg, error } = await admin.from("assignment").insert({
+      org_id: ORG, class_section_id: sandboxSec.id, created_by: t.id,
+      title: "QA Untagged Probe", kind: "test",
+      assigned_date: new Date().toISOString().slice(0, 10),
+      section_subject_id: null,
+    }).select("id").single();
+    if (error) throw new Error(`assignment: ${error.message}`);
+    cleanup.push(() => admin.from("assignment").delete().eq("id", asg.id));
+
+    // 1. The author's snapshot lists it.
+    const r1 = await api(t.token, `/school/me/teacher-snapshot`);
+    const j1 = await r1.json();
+    assert(r1.status === 200, `snapshot ${r1.status}`);
+    assert((j1.untaggedAssignmentsCount ?? 0) >= 1, "author must see the untagged count");
+    assert((j1.untaggedAssignments ?? []).some((a: any) => a.assignmentId === asg.id),
+      "author must see the untagged assignment itself");
+
+    // 2. The principal's Needs-attention never alarms for Sandbox rows.
+    const r2 = await api(admin2.token, `/school/orgs/${ORG}/dashboard`);
+    const j2 = await r2.json();
+    assert(r2.status === 200, `dashboard ${r2.status}`);
+    const alert = (j2.alerts ?? []).find((a: any) => a.kind === "untagged_content");
+    if (alert) {
+      assert(!String(alert.body).includes("Sandbox"),
+        "untagged alert must not name the Sandbox");
+    }
+
+    // 3. Tagging it clears the author's nudge.
+    const { data: cs } = await admin.from("class_subject").insert({
+      org_id: ORG, class_id: sandboxClass.id, name: "QA Untagged Sub", sort_order: 920,
+    }).select("id").single();
+    cleanup.push(() => admin.from("class_subject").delete().eq("id", cs.id));
+    const { data: ss } = await admin.from("section_subject").insert({
+      org_id: ORG, class_section_id: sandboxSec.id, class_subject_id: cs.id,
+      teacher_user_id: t.id, name: "QA Untagged Sub",
+    }).select("id").single();
+    cleanup.push(() => admin.from("section_subject").delete().eq("id", ss.id));
+    await admin.from("assignment").update({ section_subject_id: ss.id }).eq("id", asg.id);
+    // LIFO cleanup: detach the assignment from the probe subject before
+    // the subject rows are deleted (FK order).
+    cleanup.push(() => admin.from("assignment").update({ section_subject_id: null }).eq("id", asg.id));
+    const r3 = await api(t.token, `/school/me/teacher-snapshot`);
+    const j3 = await r3.json();
+    assert(!((j3.untaggedAssignments ?? []).some((a: any) => a.assignmentId === asg.id)),
+      "tagged assignment must leave the nudge");
   } finally {
     for (const fn of cleanup.reverse()) await fn();
   }

@@ -922,6 +922,7 @@ export function TeacherHome({ orgId, me }: Props) {
         (snapshot.topicsDueSoon.length > 0 ||
           snapshot.assignmentsToGrade.length > 0 ||
           snapshot.untaggedLessonsCount > 0 ||
+          (snapshot.untaggedAssignmentsCount ?? 0) > 0 ||
           snapshot.recentGradesGiven.length > 0) && (
           <DashSection title="Marking &amp; prep" desktopCollapsible defaultOpen>
           <section className="space-y-3">
@@ -1024,14 +1025,22 @@ export function TeacherHome({ orgId, me }: Props) {
                 </div>
               )}
 
-              {/* Untagged lessons nudge */}
-              {snapshot.untaggedLessonsCount > 0 && (
+              {/* Untagged lessons / assignments nudge */}
+              {(snapshot.untaggedLessonsCount > 0 ||
+                (snapshot.untaggedAssignmentsCount ?? 0) > 0) && (
                 <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4 shadow-sm md:col-span-2">
                   <div className="flex items-start gap-3">
                     <AlertTriangle className="h-4 w-4 text-amber-700 mt-0.5 flex-shrink-0" />
                     <div className="min-w-0 flex-1">
                       <div className="text-sm font-medium text-amber-900">
-                        {t("teacherHome.untaggedLessons", { count: snapshot.untaggedLessonsCount })}
+                        {[
+                          snapshot.untaggedLessonsCount > 0
+                            ? t("teacherHome.untaggedLessons", { count: snapshot.untaggedLessonsCount })
+                            : null,
+                          (snapshot.untaggedAssignmentsCount ?? 0) > 0
+                            ? t("teacherHome.untaggedAssignments", { count: snapshot.untaggedAssignmentsCount })
+                            : null,
+                        ].filter(Boolean).join(" · ")}
                       </div>
                       <p className="text-[11px] text-amber-800 mt-0.5">
                         {t("teacherHome.untaggedHint")}
@@ -1048,6 +1057,24 @@ export function TeacherHome({ orgId, me }: Props) {
                                 {l.title}
                                 {l.sectionName
                                   ? ` (${l.className ?? ""} ${l.sectionName})`
+                                  : ""}
+                              </Link>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {(snapshot.untaggedAssignments ?? []).length > 0 && (
+                        <ul className="mt-2 space-y-1">
+                          {(snapshot.untaggedAssignments ?? []).slice(0, 3).map((a) => (
+                            <li key={a.assignmentId}>
+                              <Link
+                                to={`/school/orgs/${orgId}/sections/${a.classSectionId}/assignments`}
+                                className="text-[11px] text-amber-900 hover:underline"
+                              >
+                                {new Date(a.assignedDate).toLocaleDateString()} ·{" "}
+                                {a.title}
+                                {a.sectionName
+                                  ? ` (${a.className ?? ""} ${a.sectionName})`
                                   : ""}
                               </Link>
                             </li>

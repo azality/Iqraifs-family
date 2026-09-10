@@ -374,6 +374,28 @@ export function installSubjects(school: Hono) {
       className: r.class_section?.class?.name ?? null,
     }));
 
+    // Untagged assignments — same blind spot as lessons (Muneeb, 10 Sep:
+    // a subject-less "Viva" sat invisible to the teacher who made it).
+    const { data: untaggedAsgRows, count: untaggedAsgCount } = await serviceRoleClient
+      .from("assignment")
+      .select(
+        "id, title, assigned_date, class_section_id, class_section:class_section_id(name, class:class_id(name))",
+        { count: "exact" },
+      )
+      .eq("created_by", userId)
+      .gte("assigned_date", cutoffIso)
+      .is("section_subject_id", null)
+      .order("assigned_date", { ascending: false })
+      .limit(5);
+    const untaggedAssignments = (untaggedAsgRows ?? []).map((r: any) => ({
+      assignmentId: r.id,
+      title: r.title,
+      assignedDate: r.assigned_date,
+      classSectionId: r.class_section_id,
+      sectionName: r.class_section?.name ?? null,
+      className: r.class_section?.class?.name ?? null,
+    }));
+
     // ────────────────────────────────────────────────────────────────────
     // Assignments to grade: assignments I created where due_date is
     // past and at least one enrolled student doesn't have a grade row.
@@ -481,6 +503,8 @@ export function installSubjects(school: Hono) {
       topicsDueSoon,
       untaggedLessons,
       untaggedLessonsCount: untaggedCount ?? untaggedLessons.length,
+      untaggedAssignments,
+      untaggedAssignmentsCount: untaggedAsgCount ?? untaggedAssignments.length,
       assignmentsToGrade,
       recentGradesGiven,
     });
