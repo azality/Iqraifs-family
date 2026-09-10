@@ -112,13 +112,32 @@ export function MarksEntry() {
     getMarksSheet(orgId, examId, sectionId)
       .then((r) => {
         setSheet(r);
+        // Saved rows snapshot the max the teacher saw, and echoing that
+        // snapshot back into the little override box made EVERY saved
+        // cell look hand-overridden ("why is there two boxes" — Ambreen,
+        // 11 Sep). When the stored max simply agrees with the school's
+        // distribution for this paper, keep the box empty; a number in
+        // it now always means "this cell differs from the distribution"
+        // — a real per-student override, or a mark saved before the
+        // distribution was loaded, which the teacher can clear.
+        const paper = paperOfExamName(r.exam?.name);
+        const autoMax = new Map<string, number | null>();
+        for (const s of r.subjects) {
+          autoMax.set(s.id, subjectMaxForPaper(s.assessmentWeights, paper));
+        }
         const next = new Map<string, CellState>();
         for (const stu of r.students) {
           for (const sc of stu.scores) {
             const key = `${stu.id}:${sc.classSubjectId}`;
+            const auto = autoMax.get(sc.classSubjectId) ?? null;
+            const isAuto = sc.maxMarks !== null && auto !== null && Number(sc.maxMarks) === auto;
+            // An EMPTY cell's stored max measured nothing — it is the
+            // stamp of a whole-sheet save, and letting it linger would
+            // cap future marks at whatever the default was back then.
+            const isStaleStamp = sc.obtainedMarks === null && !sc.absent;
             next.set(key, {
               obtained: sc.obtainedMarks === null ? "" : String(sc.obtainedMarks),
-              maxOverride: sc.maxMarks === null ? "" : String(sc.maxMarks),
+              maxOverride: sc.maxMarks === null || isAuto || isStaleStamp ? "" : String(sc.maxMarks),
               absent: sc.absent,
             });
           }
@@ -164,17 +183,23 @@ export function MarksEntry() {
       const rows: any[] = [];
       // Store the max the teacher actually saw: their own override, else
       // the school's total for this subject on this paper, else the
-      // sheet default (sent separately as `defaults`).
+      // sheet default (sent separately as `defaults`). But only on cells
+      // that HOLD something — stamping a max onto every empty cell is
+      // what froze old defaults into the sheet and buried the school's
+      // distribution when it arrived later.
       const paper = paperOfExamName(s.exam?.name);
       for (const stu of s.students) {
         for (const subj of s.subjects) {
           const key = `${stu.id}:${subj.id}`;
           const c = cs.get(key) ?? { obtained: "", maxOverride: "", absent: false };
           const subjTotal = subjectMaxForPaper(subj.assessmentWeights, paper);
+          const holds = c.absent || c.obtained !== "" || c.maxOverride !== "";
           rows.push({
             studentId: stu.id,
             classSubjectId: subj.id,
-            maxMarks: c.maxOverride || (subjTotal !== null ? String(subjTotal) : null),
+            maxMarks: holds
+              ? c.maxOverride || (subjTotal !== null ? String(subjTotal) : null)
+              : null,
             obtainedMarks: c.absent ? null : (c.obtained || null),
             absent: c.absent,
           });
@@ -470,8 +495,15 @@ export function MarksEntry() {
                             <Input
                               value={c.maxOverride}
                               onChange={(e) => setCell(key, { maxOverride: e.target.value })}
-                              placeholder={defaultMax}
-                              className="h-7 w-12 text-center text-xs text-slate-500"
+                              // The empty box hints at the max that actually
+                              // applies: the school's total for this subject
+                              // on this paper, not the sheet-wide default.
+                              placeholder={String(subjectMax.get(subj.id) ?? defaultMax)}
+                              // px-1 + md:text-xs: the base Input's px-3 and
+                              // md:text-sm left ~22px of text room, so a
+                              // two-digit max clipped to one digit — "25"
+                              // read as "2" (Ambreen's photo, 11 Sep).
+                              className="h-7 w-12 px-1 text-center text-xs md:text-xs text-slate-500"
                               type="number" inputMode="numeric"
                               tabIndex={-1}
                             />
