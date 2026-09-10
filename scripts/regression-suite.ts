@@ -3082,6 +3082,61 @@ await check("66. adding a parent twice (same name + phone) reuses the row instea
   }
 });
 
+await check("67. merging duplicate parents carries the phone to the kept record", async () => {
+  // Muneeb (9 Sep), pointing at two same-name rows where only one had a
+  // number: "we just need to get the phone number from the right column
+  // and add it to the left". The canonical-merge endpoint now copies the
+  // alias's phone onto a phone-less kept record and fills the linked
+  // students' empty guardian_phone cards (the Students list reads that
+  // denormalized column).
+  const o = await ensureUser("qa-office@azality.com", "QA Office", "office_staff");
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const cleanup: Array<() => Promise<unknown>> = [];
+  try {
+    // Kept record: NO phone, linked to QA Portal Student's peer.
+    const keepR = await api(o.token, `/school/orgs/${ORG}/parents`, {
+      method: "POST", body: JSON.stringify({ fullName: "QA Merge Keep Father" }),
+    });
+    const keep = await keepR.json();
+    assert(keepR.status === 201, `keep create ${keepR.status}`);
+    cleanup.push(() => admin.from("parent").delete().eq("id", keep.id));
+
+    // Duplicate: HAS a phone, linked to a student whose card is empty.
+    const dupR = await api(o.token, `/school/orgs/${ORG}/parents`, {
+      method: "POST", body: JSON.stringify({ fullName: "QA Merge Dup Father", phone: "+920000000979" }),
+    });
+    const dup = await dupR.json();
+    assert(dupR.status === 201, `dup create ${dupR.status}`);
+    cleanup.push(() => admin.from("parent").delete().eq("id", dup.id));
+
+    await admin.from("student_parent").insert({ parent_id: dup.id, student_id: pStu2, is_primary: false });
+    cleanup.push(() => admin.from("student_parent").delete().eq("parent_id", dup.id));
+    const { data: before } = await admin.from("student").select("guardian_phone").eq("id", pStu2).maybeSingle();
+    cleanup.push(() =>
+      admin.from("student").update({ guardian_phone: before?.guardian_phone ?? null }).eq("id", pStu2));
+    await admin.from("student").update({ guardian_phone: null }).eq("id", pStu2);
+
+    // Merge, keeping the phone-less record (admin/principal gate).
+    const mergeR = await api(admin2.token, `/school/parents/${dup.id}/canonical`, {
+      method: "POST", body: JSON.stringify({ canonicalParentId: keep.id }),
+    });
+    const mergeJ = await mergeR.json();
+    assert(mergeR.status === 200, `merge ${mergeR.status}: ${JSON.stringify(mergeJ)}`);
+    assert(mergeJ.phoneCarried === true, "response must say the phone carried");
+
+    const { data: kept } = await admin.from("parent").select("phone, canonical_id").eq("id", keep.id).maybeSingle();
+    assert(kept?.phone === "+920000000979", `kept record phone ${kept?.phone}`);
+    assert(!kept?.canonical_id, "kept record must stay canonical");
+    const { data: aliased } = await admin.from("parent").select("canonical_id").eq("id", dup.id).maybeSingle();
+    assert(aliased?.canonical_id === keep.id, "dup must alias to the kept record");
+    const { data: stuAfter } = await admin.from("student").select("guardian_phone").eq("id", pStu2).maybeSingle();
+    assert(stuAfter?.guardian_phone === "+920000000979",
+      `linked student's empty card must be filled, got ${stuAfter?.guardian_phone}`);
+  } finally {
+    for (const fn of cleanup.reverse()) await fn();
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

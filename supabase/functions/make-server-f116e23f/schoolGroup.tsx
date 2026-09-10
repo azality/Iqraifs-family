@@ -240,7 +240,7 @@ export function installSchoolGroup(school: Hono): void {
 
     const { data: rows } = await serviceRoleClient
       .from("parent")
-      .select("id, org_id, school_group_id, canonical_id, full_name")
+      .select("id, org_id, school_group_id, canonical_id, full_name, phone")
       .in("id", [aliasId, canonicalId]);
     const alias = (rows ?? []).find((r: any) => r.id === aliasId);
     const canonical = (rows ?? []).find((r: any) => r.id === canonicalId);
@@ -251,18 +251,24 @@ export function installSchoolGroup(school: Hono): void {
       }, 400);
     }
 
-    // Same school_group required so the alias chain stays inside the chain.
-    const { data: orgs } = await serviceRoleClient
-      .from("organizations")
-      .select("id, school_group_id")
-      .in("id", [(alias as any).org_id, (canonical as any).org_id])
-      .is("deleted_at", null);
-    const groupOf = new Map<string, string | null>();
-    for (const o of (orgs ?? []) as any[]) groupOf.set(o.id, o.school_group_id ?? null);
-    const aliasGroup = groupOf.get((alias as any).org_id);
-    const canonicalGroup = groupOf.get((canonical as any).org_id);
-    if (!aliasGroup || aliasGroup !== canonicalGroup) {
-      return c.json({ error: "orgs are not in the same school group" }, 400);
+    // Two rows in the SAME org can always merge — a standalone school
+    // has no school_group at all, and requiring one made every merge
+    // button on its Parents page fail with this 400. The group check
+    // only guards CROSS-campus aliases, keeping the chain inside one
+    // school_group.
+    if ((alias as any).org_id !== (canonical as any).org_id) {
+      const { data: orgs } = await serviceRoleClient
+        .from("organizations")
+        .select("id, school_group_id")
+        .in("id", [(alias as any).org_id, (canonical as any).org_id])
+        .is("deleted_at", null);
+      const groupOf = new Map<string, string | null>();
+      for (const o of (orgs ?? []) as any[]) groupOf.set(o.id, o.school_group_id ?? null);
+      const aliasGroup = groupOf.get((alias as any).org_id);
+      const canonicalGroup = groupOf.get((canonical as any).org_id);
+      if (!aliasGroup || aliasGroup !== canonicalGroup) {
+        return c.json({ error: "orgs are not in the same school group" }, 400);
+      }
     }
 
     // Permission: admin/principal at either org.
@@ -278,10 +284,47 @@ export function installSchoolGroup(school: Hono): void {
       .eq("id", aliasId);
     if (updErr) return c.json({ error: updErr.message }, 500);
 
+    // The phone follows the merge (Muneeb, 9 Sep: "get the phone number
+    // from the right column and add it to the left"). Whichever side the
+    // admin keeps, the family keeps its number: if the surviving row has
+    // no phone and the alias does, copy it over — and fill the linked
+    // students' empty guardian_phone cards, since the Students list
+    // reads that denormalized column, not the parent record.
+    let phoneCarried = false;
+    try {
+      const canonicalPhone = String((canonical as any).phone ?? "").trim();
+      const aliasPhone = String((alias as any).phone ?? "").trim();
+      const familyPhone = canonicalPhone || aliasPhone;
+      if (!canonicalPhone && aliasPhone) {
+        await serviceRoleClient
+          .from("parent")
+          .update({ phone: aliasPhone })
+          .eq("id", canonicalId);
+        phoneCarried = true;
+      }
+      if (familyPhone) {
+        const { data: kidLinks } = await serviceRoleClient
+          .from("student_parent")
+          .select("student_id")
+          .in("parent_id", [aliasId, canonicalId]);
+        const kidIds = ((kidLinks ?? []) as any[]).map((l) => l.student_id).filter(Boolean);
+        if (kidIds.length > 0) {
+          await serviceRoleClient
+            .from("student")
+            .update({ guardian_phone: familyPhone })
+            .in("id", kidIds)
+            .or("guardian_phone.is.null,guardian_phone.eq.");
+        }
+      }
+    } catch (e) {
+      console.error("[parents/canonical] phone carry failed (non-fatal):", e);
+    }
+
     return c.json({
       ok: true,
       alias: { id: aliasId, name: (alias as any).full_name },
       canonical: { id: canonicalId, name: (canonical as any).full_name },
+      phoneCarried,
     });
   });
 
