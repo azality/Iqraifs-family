@@ -3335,56 +3335,57 @@ await check("70. untagged content reaches its author's home, and Sandbox never a
 await check("71. a section with live subjects refuses subject-less lessons and assignments", async () => {
   // Prevention for the untagged-content class of bug (Muneeb, 10 Sep:
   // "make sure things like this dont happen again... asked to fill out
-  // information right there"). Where the section HAS live subjects, the
-  // create endpoints 400 without one; a section with no live subjects
-  // (Sandbox default — every subject archived) stays legal.
+  // information right there"). The Sandbox HAS live subjects (Maths /
+  // Urdu / QA Subject), so subject-less creates must 400 there; a
+  // section with NO subjects configured (fresh setup) must stay legal.
   const t = await ensureUser("qa-teacher@azality.com", "QA Teacher", "class_teacher");
   const today = new Date().toISOString().slice(0, 10);
-  const mkLesson = (body: Record<string, unknown>) =>
-    api(t.token, `/school/orgs/${ORG}/sections/${sandboxSec.id}/lessons`, {
+  const mkLesson = (sectionId: string, body: Record<string, unknown>) =>
+    api(t.token, `/school/orgs/${ORG}/sections/${sectionId}/lessons`, {
       method: "POST", body: JSON.stringify({ lessonDate: today, title: "QA Subject Guard", ...body }),
     });
-  const mkAsg = (body: Record<string, unknown>) =>
-    api(t.token, `/school/orgs/${ORG}/sections/${sandboxSec.id}/assignments`, {
+  const mkAsg = (sectionId: string, body: Record<string, unknown>) =>
+    api(t.token, `/school/orgs/${ORG}/sections/${sectionId}/assignments`, {
       method: "POST", body: JSON.stringify({ title: "QA Subject Guard", kind: "test", maxScore: 10, ...body }),
     });
   const cleanup: Array<() => Promise<unknown>> = [];
   try {
-    // Sandbox has no live subjects → subject-less creates stay legal.
-    const l0 = await mkLesson({});
-    assert(l0.status === 201, `no-subjects lesson ${l0.status}`);
-    const l0j = await l0.json();
-    cleanup.push(() => admin.from("lesson").delete().eq("id", l0j.id));
-
-    // Give the section ONE live subject → subject-less now refused.
-    const { data: cs } = await admin.from("class_subject").insert({
-      org_id: ORG, class_id: sandboxClass.id, name: "QA Guard Sub", sort_order: 930,
-    }).select("id").single();
-    cleanup.push(() => admin.from("class_subject").delete().eq("id", cs.id));
-    const { data: ss } = await admin.from("section_subject").insert({
-      org_id: ORG, class_section_id: sandboxSec.id, class_subject_id: cs.id,
-      teacher_user_id: t.id, name: "QA Guard Sub",
-    }).select("id").single();
-    cleanup.push(() => admin.from("section_subject").delete().eq("id", ss.id));
-
-    const l1 = await mkLesson({});
+    // 1. Sandbox A has live subjects -> subject-less is refused.
+    const l1 = await mkLesson(sandboxSec.id, {});
     const l1j = await l1.json();
     assert(l1.status === 400 && l1j.code === "SUBJECT_REQUIRED",
       `subject-less lesson should 400 SUBJECT_REQUIRED, got ${l1.status} ${l1j.code}`);
-    const a1 = await mkAsg({});
+    const a1 = await mkAsg(sandboxSec.id, {});
     const a1j = await a1.json();
     assert(a1.status === 400 && a1j.code === "SUBJECT_REQUIRED",
       `subject-less assignment should 400, got ${a1.status} ${a1j.code}`);
 
-    // With the subject picked, both save fine.
-    const l2 = await mkLesson({ sectionSubjectId: ss.id });
+    // 2. With a subject picked, both save fine.
+    const { data: liveSS } = await admin.from("section_subject")
+      .select("id, class_subject:class_subject_id(archived_at)")
+      .eq("class_section_id", sandboxSec.id).is("archived_at", null);
+    const ss = ((liveSS ?? []) as any[]).find((r) => !r.class_subject?.archived_at);
+    assert(ss, "Sandbox A should have a live subject");
+    const l2 = await mkLesson(sandboxSec.id, { sectionSubjectId: ss.id });
     assert(l2.status === 201, `tagged lesson ${l2.status}`);
     const l2j = await l2.json();
     cleanup.push(() => admin.from("lesson").delete().eq("id", l2j.id));
-    const a2 = await mkAsg({ sectionSubjectId: ss.id });
+    const a2 = await mkAsg(sandboxSec.id, { sectionSubjectId: ss.id });
     assert(a2.status === 201, `tagged assignment ${a2.status}`);
     const a2j = await a2.json();
     cleanup.push(() => admin.from("assignment").delete().eq("id", a2j.id));
+
+    // 3. A section with NO subjects configured stays legal (fresh-setup
+    // flows must not block on the guard).
+    const { data: bareSec, error: secErr } = await admin.from("class_section").insert({
+      class_id: sandboxClass.id, name: "QA-Guard", class_teacher_user_id: t.id,
+    }).select("id").single();
+    if (secErr) throw new Error(`section: ${secErr.message}`);
+    cleanup.push(() => admin.from("class_section").delete().eq("id", bareSec.id));
+    const l3 = await mkLesson(bareSec.id, {});
+    assert(l3.status === 201, `no-subjects section lesson ${l3.status}`);
+    const l3j = await l3.json();
+    cleanup.push(() => admin.from("lesson").delete().eq("id", l3j.id));
   } finally {
     for (const fn of cleanup.reverse()) await fn();
   }
