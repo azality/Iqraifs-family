@@ -137,8 +137,12 @@ export function LessonForm() {
       const remembered = sid ? localStorage.getItem(lastSubjectKey(sid)) : null;
       if (remembered && subjects.some((s) => s.id === remembered)) {
         setSectionSubjectId(remembered);
+        return;
       }
-    } catch { /* storage unavailable — start blank */ }
+    } catch { /* storage unavailable — fall through */ }
+    // Nothing remembered: a section with exactly one subject needs no
+    // choice at all — preselect it (subject is required on save now).
+    if (subjects.length === 1) setSectionSubjectId(subjects[0].id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subjects]);
   useEffect(() => {
@@ -169,6 +173,12 @@ export function LessonForm() {
     e.preventDefault();
     if (!title.trim()) {
       toast.error("Title is required");
+      return;
+    }
+    // Untagged content skips coverage and the gradebook (Muneeb, 10
+    // Sep: ask right here). Only sections with subjects require one.
+    if (!sectionSubjectId && subjects.length > 0) {
+      toast.error("Pick a subject — without one this lesson is not counted in any subject's coverage.");
       return;
     }
     const payload: LessonInput = {
