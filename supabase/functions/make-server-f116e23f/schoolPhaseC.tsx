@@ -1042,39 +1042,54 @@ export function installPhaseC(school: Hono): void {
       const rows = byStudent.get(s.id) ?? [];
       const { ayahsMemorized } = computeMemorizedTotals(rows);
       let lastEntry: string | null = null;
-      // Nazra in the intake class has its own daily pair (Qari Usman,
-      // 8 Sep): sabaq = today's NEW reading portion (kind nazra), sabqi
-      // = revision of what was read (kind nazra_revision). `nazra`
-      // stays "any nazra activity" so older readers keep working.
-      const today = {
-        sabaq: false, sabqi: false, manzil: false,
-        nazra: false, nazraSabaq: false, nazraSabqi: false,
-      };
-      // Where this child has READ up to — the only number that means
-      // anything for nazra, where nothing is being memorized.
-      let lastNazra: typeof rows[number] | null = null;
-      for (const r of rows) {
-        if (!lastEntry || r.recorded_at > lastEntry) lastEntry = r.recorded_at;
-        if (NAZRA_KINDS.has(r.kind) && (!lastNazra || r.recorded_at > lastNazra.recorded_at)) {
-          lastNazra = r;
-        }
-        if (
-          new Date(new Date(r.recorded_at).getTime() + hifzTzOffsetMs)
-            .toISOString().slice(0, 10) === todayStr
-        ) {
-          if (r.kind === "sabaq") today.sabaq = true;
-          else if (r.kind === "sabqi") today.sabqi = true;
-          else if (r.kind === "manzil") today.manzil = true;
-          else if (r.kind === "nazra") { today.nazra = true; today.nazraSabaq = true; }
-          else if (r.kind === "nazra_revision") { today.nazra = true; today.nazraSabqi = true; }
-        }
-      }
       // Which screen this CHILD gets today. One Quran period can hold
       // both: mostly nazra readers, plus a hafiz revising alongside them.
       // Explicit setting wins; otherwise a hifz section means hifz, a
       // hafiz child means revision, and everyone else reads.
       const effectiveTrack =
         s.quran_track ?? (sectionIsHifz ? "hifz" : s.hafiz_since ? "revision" : "nazra");
+      // Nazra in the intake class has its own daily pair (Qari Usman,
+      // 8 Sep): sabaq = today's NEW reading portion, sabqi = revision of
+      // what was read. Teachers in the intake class hear their readers
+      // through the hifz surfaces too — the school's own words for the
+      // reading routine ARE sabaq and sabqi — so for a READER, entries
+      // of kind sabaq/sabqi count toward the pair exactly like
+      // nazra/nazra_revision. Without this, Hifz IV's whole intake sat
+      // at grey chips and "Not started" all day while every child had
+      // been heard (Muneeb, 11 Sep).
+      const isReader = effectiveTrack === "nazra";
+      const today = {
+        sabaq: false, sabqi: false, manzil: false,
+        nazra: false, nazraSabaq: false, nazraSabqi: false,
+      };
+      // Where this child has READ up to — the only number that means
+      // anything for nazra, where nothing is being memorized. For a
+      // reader a (non-missed) sabaq entry IS a reading portion, so it
+      // moves the position too.
+      let lastNazra: typeof rows[number] | null = null;
+      for (const r of rows) {
+        if (!lastEntry || r.recorded_at > lastEntry) lastEntry = r.recorded_at;
+        const movesPosition =
+          NAZRA_KINDS.has(r.kind) || (isReader && r.kind === "sabaq" && !r.missed);
+        if (movesPosition && (!lastNazra || r.recorded_at > lastNazra.recorded_at)) {
+          lastNazra = r;
+        }
+        if (
+          new Date(new Date(r.recorded_at).getTime() + hifzTzOffsetMs)
+            .toISOString().slice(0, 10) === todayStr
+        ) {
+          if (r.kind === "sabaq") {
+            today.sabaq = true;
+            if (isReader) { today.nazra = true; today.nazraSabaq = true; }
+          } else if (r.kind === "sabqi") {
+            today.sabqi = true;
+            if (isReader) { today.nazra = true; today.nazraSabqi = true; }
+          }
+          else if (r.kind === "manzil") today.manzil = true;
+          else if (r.kind === "nazra") { today.nazra = true; today.nazraSabaq = true; }
+          else if (r.kind === "nazra_revision") { today.nazra = true; today.nazraSabqi = true; }
+        }
+      }
 
       return {
         studentId: s.id,
