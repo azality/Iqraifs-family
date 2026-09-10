@@ -3543,6 +3543,98 @@ await check("73. extra sabaq earns the school's 'Memorized extra lesson' note, o
   }
 });
 
+await check("74. marks sheet: empty cells are never stamped with a max, and stale stamps clear", async () => {
+  // Ambreen (11 Sep): "why is there two boxes" — every cell of Class I's
+  // sheet showed /25 because one early save stamped the then-current
+  // default onto EVERY empty cell, and those stamps then beat the
+  // school's marks distribution when it arrived. An empty cell must
+  // store nothing, and re-saving an empty cell must clear an old stamp.
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const { data: term } = await admin.from("academic_term").select("id")
+    .eq("org_id", ORG).eq("is_current", true).is("archived_at", null).maybeSingle();
+  assert(term, "no current term");
+  const { data: sbStudents } = await admin.from("student").select("id")
+    .eq("class_section_id", sandboxSec.id).limit(2);
+  assert((sbStudents ?? []).length >= 2, "need >=2 sandbox students");
+  const [stuA, stuB] = sbStudents!;
+  const cleanup: Array<() => Promise<unknown>> = [];
+  try {
+    const { data: exam, error: exErr } = await admin.from("exam").insert({
+      org_id: ORG, term_id: term!.id, name: "QA Empty Cells — Written",
+      exam_type: "other", weight: 1,
+      exam_date: new Date().toISOString().slice(0, 10),
+    }).select("id").single();
+    if (exErr) throw new Error(`exam: ${exErr.message}`);
+    cleanup.push(() => admin.from("exam").delete().eq("id", exam.id));
+    const { data: cs, error: csErr } = await admin.from("class_subject").insert({
+      org_id: ORG, class_id: sandboxClass.id, name: "QA Empty Cells Sub", sort_order: 950,
+    }).select("id").single();
+    if (csErr) throw new Error(`subject: ${csErr.message}`);
+    cleanup.push(() => admin.from("class_subject").delete().eq("id", cs.id));
+    cleanup.push(() => admin.from("exam_subject_score").delete().eq("exam_id", exam.id));
+
+    // 1. One filled cell, one empty cell, defaults present. The filled
+    // cell takes the default as its max; the empty cell stores NOTHING.
+    const save1 = await api(admin2.token, `/school/orgs/${ORG}/exams/${exam.id}/marks-sheet`, {
+      method: "POST",
+      body: JSON.stringify({
+        sectionId: sandboxSec.id,
+        defaults: { maxMarks: 25 },
+        rows: [
+          { studentId: stuA.id, classSubjectId: cs.id, maxMarks: null, obtainedMarks: 20, absent: false },
+          { studentId: stuB.id, classSubjectId: cs.id, maxMarks: null, obtainedMarks: null, absent: false },
+        ],
+      }),
+    });
+    assert(save1.status === 200, `save ${save1.status}`);
+    const { data: rows1 } = await admin.from("exam_subject_score")
+      .select("student_id, max_marks").eq("exam_id", exam.id).eq("class_subject_id", cs.id);
+    assert((rows1 ?? []).some((r) => r.student_id === stuA.id && Number(r.max_marks) === 25),
+      "a filled cell keeps the default max");
+    assert(!((rows1 ?? []).some((r) => r.student_id === stuB.id)),
+      "an empty cell must not be stamped with the default max");
+
+    // 2. A stale stamp from the old behavior clears on the next save.
+    const { error: staleErr } = await admin.from("exam_subject_score").insert({
+      org_id: ORG, exam_id: exam.id, class_subject_id: cs.id,
+      student_id: stuB.id, obtained_marks: null, max_marks: 25,
+      absent: false, recorded_by: admin2.id,
+    });
+    if (staleErr) throw new Error(`stale stamp: ${staleErr.message}`);
+    const save2 = await api(admin2.token, `/school/orgs/${ORG}/exams/${exam.id}/marks-sheet`, {
+      method: "POST",
+      body: JSON.stringify({
+        sectionId: sandboxSec.id,
+        defaults: { maxMarks: 25 },
+        rows: [{ studentId: stuB.id, classSubjectId: cs.id, maxMarks: null, obtainedMarks: null, absent: false }],
+      }),
+    });
+    assert(save2.status === 200, `re-save ${save2.status}`);
+    const { data: rows2 } = await admin.from("exam_subject_score")
+      .select("student_id").eq("exam_id", exam.id)
+      .eq("class_subject_id", cs.id).eq("student_id", stuB.id);
+    assert((rows2 ?? []).length === 0, "re-saving an empty cell must clear the stale stamp");
+
+    // 3. An explicit per-cell max still saves without obtained marks
+    // (absent students keep their /X on report cards).
+    const save3 = await api(admin2.token, `/school/orgs/${ORG}/exams/${exam.id}/marks-sheet`, {
+      method: "POST",
+      body: JSON.stringify({
+        sectionId: sandboxSec.id,
+        rows: [{ studentId: stuB.id, classSubjectId: cs.id, maxMarks: 30, obtainedMarks: null, absent: true }],
+      }),
+    });
+    assert(save3.status === 200, `absent save ${save3.status}`);
+    const { data: rows3 } = await admin.from("exam_subject_score")
+      .select("max_marks, absent").eq("exam_id", exam.id)
+      .eq("class_subject_id", cs.id).eq("student_id", stuB.id).maybeSingle();
+    assert(rows3 && Number(rows3.max_marks) === 30 && rows3.absent === true,
+      "an absent cell keeps its explicit max");
+  } finally {
+    for (const fn of cleanup.reverse()) await fn();
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

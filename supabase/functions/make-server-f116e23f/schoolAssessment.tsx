@@ -854,15 +854,20 @@ export function installAssessment(school: Hono): void {
       const absent = r.absent === true;
       const obtained = r.obtainedMarks === null || r.obtainedMarks === undefined || r.obtainedMarks === ""
         ? null : Number(r.obtainedMarks);
-      const maxMarks = r.maxMarks === null || r.maxMarks === undefined || r.maxMarks === ""
-        ? defaultsMax : Number(r.maxMarks);
+      const rawMax = r.maxMarks === null || r.maxMarks === undefined || r.maxMarks === ""
+        ? null : Number(r.maxMarks);
       const notes = r.notes ? String(r.notes).slice(0, 500) : null;
 
-      // Truly empty cell — clear any existing score row.
-      if (!absent && obtained === null && !notes && maxMarks === null) {
+      // Truly empty cell — clear any existing score row. Decided BEFORE
+      // defaults apply: stamping defaults.maxMarks onto cells that hold
+      // nothing is what froze old sheet defaults into every empty cell
+      // and buried the school's marks distribution when it arrived later
+      // (Ambreen's "why is there two boxes", 11 Sep).
+      if (!absent && obtained === null && !notes && rawMax === null) {
         toDelete.push({ student_id: studentId, class_subject_id: subjectId });
         continue;
       }
+      const maxMarks = rawMax === null ? defaultsMax : rawMax;
       if (maxMarks === null || !Number.isFinite(maxMarks) || maxMarks <= 0) {
         return c.json({
           error: `maxMarks required for student ${studentId} / subject ${subjectId}`,
