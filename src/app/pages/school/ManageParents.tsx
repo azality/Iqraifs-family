@@ -284,6 +284,14 @@ export function ManageParents() {
     () => new Map(parents.map((p) => [p.id, p])),
     [parents],
   );
+  // parentId → the FOLDED family's children, so a duplicate-pair side
+  // shows everyone already merged under that row (e.g. Abdul Bari AND
+  // Bareera), not just the row's own links.
+  const familyChildrenOf = useMemo(() => {
+    const m = new Map<string, NonNullable<AdminParent["children"]>>();
+    for (const f of families) for (const p of f.parents) m.set(p.id, f.children);
+    return m;
+  }, [families]);
 
   // Permission-aware gate. isOrgAdmin still short-circuits for
   // principal/admin; other roles resolve through the effective matrix
@@ -425,7 +433,10 @@ export function ManageParents() {
     if (!confirm(
       `Merge "${alias.full_name}" into "${canonical.full_name}"?\n\n` +
       `A PIN login as either parent will see children of both. ` +
-      `"${canonical.full_name}" becomes the main record.`,
+      `"${canonical.full_name}" becomes the main record` +
+      (!canonical.phone && alias.phone
+        ? ` and takes over the phone number ${alias.phone}.`
+        : `.`),
     )) return;
     try {
       await linkParentCanonical(alias.id, canonical.id);
@@ -498,14 +509,16 @@ export function ManageParents() {
                       {side.phone || "no phone"}
                     </div>
                     <div className="mt-0.5 text-xs text-slate-600">
-                      {(side.children ?? []).length === 0
-                        ? "no linked students"
-                        : (side.children ?? [])
-                            .map((c) => {
-                              const cls = c.class_section_id ? sectionLabel.get(c.class_section_id) : null;
-                              return cls ? `${c.full_name} (${cls})` : c.full_name;
-                            })
-                            .join(", ")}
+                      {(() => {
+                        const kids = familyChildrenOf.get(side.id) ?? side.children ?? [];
+                        if (kids.length === 0) return "no linked students";
+                        return kids
+                          .map((c) => {
+                            const cls = c.class_section_id ? sectionLabel.get(c.class_section_id) : null;
+                            return cls ? `${c.full_name} (${cls})` : c.full_name;
+                          })
+                          .join(", ");
+                      })()}
                     </div>
                     {canMerge && (
                       <Button
