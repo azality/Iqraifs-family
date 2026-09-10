@@ -3153,7 +3153,7 @@ await check("68. exam-marks progress counts SUBJECT columns, not students-with-a
   try {
     const { data: exam, error: exErr } = await admin.from("exam").insert({
       org_id: ORG, term_id: term.id, name: "QA Progress Probe",
-      exam_type: "oral", weight: 1,
+      exam_type: "other", weight: 1, // allowed types: final/midterm/other/test
       exam_date: new Date().toISOString().slice(0, 10),
     }).select("id").single();
     if (exErr) throw new Error(`exam: ${exErr.message}`);
