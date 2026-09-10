@@ -49,6 +49,9 @@ import { PARA_EXTENT_OPTIONS } from "../../../utils/hifzExtent";
 import {
   serializeNextSabaq,
   parseNextSabaq,
+  parseNextSabaqParts,
+  serializeNextSabaqParts,
+  type SabaqPart,
   paraFinishedBySabaq,
   serializeSabaqParaRevision,
   parseSabaqParaRevision,
@@ -202,6 +205,9 @@ export function HifzLogEntry({
   // entry (the toggle alone must never strand the form on Al-Fatiha
   // 1–1 — pilot screenshot, 7 Sep).
   const [assignTouched, setAssignTouched] = useState(false);
+  // Second surah in the same sabaq: the tail of one surah plus the start
+  // of the next (Muneeb, 10 Sep). Null = single-surah assignment.
+  const [assign2, setAssign2] = useState<SabaqPart | null>(null);
   const [assignOptOut, setAssignOptOut] = useState(false);
   const [suggestion, setSuggestion] = useState<"none" | "advance" | "repeat">("none");
 
@@ -234,6 +240,9 @@ export function HifzLogEntry({
   const surah = getSurah(surahNumber);
   const maxAyah = surah?.ayahCount ?? 1;
   const assignMaxAyah = getSurah(assignSurah)?.ayahCount ?? 1;
+  useEffect(() => {
+    if (kind !== "sabaq") setAssign2(null);
+  }, [kind]);
 
   const kindOptions = hifzOnly ? TRIO : [...TRIO, ...EXTRA_KINDS];
 
@@ -470,11 +479,17 @@ export function HifzLogEntry({
           : serializeNextSabqiSurahs(assignSabqiParts);
         if (!structuredNext) structuredNext = undefined;
       } else {
-        structuredNext = serializeNextSabaq(assignSurah, aFrom, aTo);
+        // A lesson may close one surah and open the next.
+        structuredNext = assign2
+          ? serializeNextSabaqParts([
+              { surahNumber: assignSurah, from: aFrom, to: aTo },
+              assign2,
+            ])
+          : serializeNextSabaq(assignSurah, aFrom, aTo);
         // Untouched auto-advance that finishes a para becomes the
         // consolidation target (para break, 10 Sep). A teacher who
         // edited the assign fields is deciding herself — respected.
-        if (!assignTouched && suggestion === "advance" && paraBreak && kind === "sabaq") {
+        if (!assign2 && !assignTouched && suggestion === "advance" && paraBreak && kind === "sabaq") {
           const doneJuz = paraFinishedBySabaq(surahNumber, num(ayahFrom), num(ayahTo));
           if (doneJuz) {
             structuredNext = serializeSabaqParaRevision(doneJuz, {
@@ -665,19 +680,21 @@ export function HifzLogEntry({
               // Re-serialize a parseable sabaq target so an old reversed
               // row ("An-Nur 57–51") displays healed, matching the
               // prefill under it.
-              const sabaqParsed = isSabaq ? parseNextSabaq(current) : null;
+              const sabaqParts = isSabaq ? parseNextSabaqParts(current) : null;
               // Parseable targets display localized (and healed): Arabic
               // surah names + Urdu kind word in the Urdu UI, instead of
               // the stored English serialization.
-              const display = sabaqParsed
-                ? `${t("hifzTeach.sabaq")}: ${surahDisplayName(sabaqParsed.surahNumber, lang)} ${sabaqParsed.from}–${sabaqParsed.to}`
+              const display = sabaqParts
+                ? `${t("hifzTeach.sabaq")}: ${sabaqParts
+                    .map((pp) => `${surahDisplayName(pp.surahNumber, lang)} ${pp.from}–${pp.to}`)
+                    .join(" + ")}`
                 : kind === "sabqi" && kindSeed.sabqi
                 ? `${t("hifzTeach.sabqi")}: ${t("hifzTeach.juzN", { n: kindSeed.sabqi.juz })}`
                 : kind === "manzil" && kindSeed.manzil?.source === "assigned"
                 ? `${t("hifzTeach.manzil")}: ${t("hifzTeach.juzN", { n: kindSeed.manzil.juz })}${formatJuzExtent(kindSeed.manzil.extent)}`
                 : current;
               const prefilled =
-                (isSabaq && (sabaqParsed || sabaqRevisionDay !== null)) ||
+                (isSabaq && (sabaqParts || sabaqRevisionDay !== null)) ||
                 (kind === "sabqi" && kindSeed.sabqi) ||
                 (kind === "manzil" && kindSeed.manzil?.source === "assigned");
               return (
@@ -1182,6 +1199,72 @@ export function HifzLogEntry({
                       />
                     </div>
                   </div>
+                  {/* Close one surah and open the next in the same
+                      lesson - "repeat Yunus AND start Hud". */}
+                  {kind === "sabaq" && (assign2 ? (
+                    <div className="space-y-2 rounded-lg border border-indigo-100 bg-white/70 p-2">
+                      <Select
+                        value={String(assign2.surahNumber)}
+                        onValueChange={(v) => {
+                          setAssignTouched(true);
+                          setAssign2({ surahNumber: Number(v), from: 1, to: 5 });
+                        }}
+                      >
+                        <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
+                        <SelectContent className="max-h-64">
+                          {SURAHS.map((s2) => (
+                            <SelectItem key={s2.number} value={String(s2.number)}>
+                              {s2.number}. {surahDisplayName(s2, lang)} ({s2.ayahCount})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <Label className="text-xs">{t("hifzTeach.ayahFrom")}</Label>
+                          <Input type="number" inputMode="numeric" min={1}
+                            max={getSurah(assign2.surahNumber)?.ayahCount ?? 1}
+                            value={assign2.from}
+                            onChange={(e) => {
+                              setAssignTouched(true);
+                              setAssign2({ ...assign2, from: num(typed(e.target.value)) || 1 });
+                            }}
+                            className="bg-white" />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">{t("hifzTeach.ayahTo")}</Label>
+                          <Input type="number" inputMode="numeric" min={assign2.from}
+                            max={getSurah(assign2.surahNumber)?.ayahCount ?? 1}
+                            value={assign2.to}
+                            onChange={(e) => {
+                              setAssignTouched(true);
+                              setAssign2({ ...assign2, to: num(typed(e.target.value)) || assign2.from });
+                            }}
+                            className="bg-white" />
+                        </div>
+                      </div>
+                      <button type="button" onClick={() => setAssign2(null)}
+                        className="text-[11px] text-slate-500 underline hover:text-slate-700">
+                        {t("hifzRound.removeSurah")}
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAssignTouched(true);
+                        const after = nextSabaqAfter(assignSurah, num(assignFrom) || 1, num(assignTo) || 1);
+                        setAssign2(
+                          after && after.surahNumber !== assignSurah
+                            ? { surahNumber: after.surahNumber, from: after.from, to: after.to }
+                            : { surahNumber: Math.min(114, assignSurah + 1), from: 1, to: 5 },
+                        );
+                      }}
+                      className="text-[11px] font-semibold text-indigo-700 hover:underline"
+                    >
+                      + {t("hifzRound.assignSecondSurah")}
+                    </button>
+                  ))}
                   {!assignTouched && suggestion !== "none" && (
                     <p className="text-[11px] font-medium text-emerald-700">
                       {suggestion === "repeat"
