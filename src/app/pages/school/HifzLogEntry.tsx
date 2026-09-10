@@ -425,6 +425,10 @@ export function HifzLogEntry({
 
   const isManzil = kind === "manzil";
   const isSabaq = kind === "sabaq";
+  // Sabqi and manzil can both be skipped for the day with a reason
+  // (Muneeb, 10 Sep) — sabaq keeps its own "missed today" checkbox.
+  const isSabqi = kind === "sabqi";
+  const canSkip = isManzil || isSabqi;
   const isParaSabqi = kind === "sabqi" && sabqiMode === "para";
   const isParaManzil = isManzil && manzilMode === "para";
   const isParaMode = isParaSabqi || isParaManzil;
@@ -439,8 +443,8 @@ export function HifzLogEntry({
     let sendFrom = num(ayahFrom);
     let sendTo = num(ayahTo);
     const revDay = isSabaq && !missed ? sabaqRevisionDay : null;
-    if (isManzil && missed && !missedTargetReason.trim()) {
-      toast.error(t("hifzTeach.manzilSkipReasonRequired"));
+    if (canSkip && missed && !missedTargetReason.trim()) {
+      toast.error(t("hifzTeach.skipReasonRequired", { kind: t(`hifzTeach.${kind}`) }));
       return;
     }
     if (revDay) {
@@ -450,7 +454,7 @@ export function HifzLogEntry({
       sendTo = start.ayah;
     } else if (isParaMode) {
       if (typeof revJuz !== "number") {
-        if (isManzil && missed) {
+        if (canSkip && missed) {
           // Skipped without picking a juz — a marker-only entry is fine;
           // prefill ignores missed rows entirely.
           sendSurah = 1; sendFrom = 1; sendTo = 1;
@@ -647,10 +651,10 @@ export function HifzLogEntry({
             </RadioGroup>
           </div>
 
-          {/* Missed-manzil opt-out (teacher feedback, 11 Sep): skip with a
-              reason. Saved as a missed marker; prefill ignores it, so
-              the rotation re-suggests the same juz tomorrow. */}
-          {isManzil && (
+          {/* Skip-with-a-reason for sabqi and manzil. Saved as a missed
+              marker; prefill ignores it, so the same portion is
+              re-suggested tomorrow. */}
+          {canSkip && (
             <div className="rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2 space-y-2">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
@@ -659,15 +663,19 @@ export function HifzLogEntry({
                   onChange={(e) => setMissed(e.target.checked)}
                 />
                 <span className="text-sm text-amber-900">
-                  <span className="font-medium">{t("hifzTeach.manzilSkipToday")}</span>
-                  <span className="ml-1 text-xs text-amber-700">{t("hifzTeach.manzilSkipHint")}</span>
+                  <span className="font-medium">
+                    {t("hifzTeach.skipToday", { kind: t(`hifzTeach.${kind}`) })}
+                  </span>
+                  <span className="ml-1 text-xs text-amber-700">
+                    {t(isManzil ? "hifzTeach.manzilSkipHint" : "hifzTeach.sabqiSkipHint")}
+                  </span>
                 </span>
               </label>
               {missed && (
                 <Input
                   value={missedTargetReason}
                   onChange={(e) => setMissedTargetReason(e.target.value)}
-                  placeholder={t("hifzRound.manzilSkipReasonPh")}
+                  placeholder={t("hifzRound.skipReasonPh", { kind: t(`hifzTeach.${kind}`) })}
                   maxLength={200}
                   className="bg-white"
                 />
