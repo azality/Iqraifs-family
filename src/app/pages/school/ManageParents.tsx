@@ -25,6 +25,8 @@ import {
   getSchoolMe,
   isOrgAdmin,
   viewerRoleForOrg,
+  getOrganization,
+  updateOrganization,
   listClasses,
   listParents,
   listStudents,
@@ -111,6 +113,28 @@ export function ManageParents() {
     refresh();
     // eslint-disable-next-line
   }, [orgId]);
+
+  // Pairs an admin reviewed and marked "different people" — persisted in
+  // org settings so the duplicates panel stops flagging them for everyone.
+  const [dismissedPairs, setDismissedPairs] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (!orgId) return;
+    getOrganization(orgId)
+      .then((r) => {
+        const raw = (r.organization.settings as any)?.parent_dup_dismissals;
+        if (Array.isArray(raw)) setDismissedPairs(new Set(raw.filter((x) => typeof x === "string")));
+      })
+      .catch(() => {});
+  }, [orgId]);
+  const pairKey = (a: AdminParent, b: AdminParent) => [a.id, b.id].sort().join("|");
+  const persistDismissals = async (next: Set<string>) => {
+    setDismissedPairs(new Set(next));
+    try {
+      await updateOrganization(orgId, { parent_dup_dismissals: Array.from(next) });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not save.");
+    }
+  };
 
   // Debounced student search for the dialog's link picker.
   useEffect(() => {
@@ -233,13 +257,13 @@ export function ManageParents() {
         const nameMatch = a.full_name.trim().toLowerCase() === b.full_name.trim().toLowerCase();
         if (!phoneMatch && !nameMatch) continue;
         const key = [a.id, b.id].sort().join("|");
-        if (seen.has(key)) continue;
+        if (seen.has(key) || dismissedPairs.has(key)) continue;
         seen.add(key);
         pairs.push({ a, b, why: phoneMatch ? "same phone" : "same name" });
       }
     }
     return pairs;
-  }, [parents]);
+  }, [parents, dismissedPairs]);
   const aliasedParents = useMemo(
     () => parents.filter((p) => p.canonical_id),
     [parents],
@@ -435,7 +459,7 @@ export function ManageParents() {
       />
 
       {/* Possible duplicates + existing merges (settings/admin pass). */}
-      {(duplicatePairs.length > 0 || aliasedParents.length > 0) && (
+      {(duplicatePairs.length > 0 || aliasedParents.length > 0 || dismissedPairs.size > 0) && (
         <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 space-y-3">
           <div className="text-sm font-semibold text-amber-900">
             Possible duplicate parents
@@ -446,26 +470,91 @@ export function ManageParents() {
           {duplicatePairs.map(({ a, b, why }) => (
             <div
               key={a.id + b.id}
-              className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm"
+              className="rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm"
             >
-              <span className="font-medium text-slate-900">{a.full_name}</span>
-              <span className="text-slate-400">↔</span>
-              <span className="font-medium text-slate-900">{b.full_name}</span>
-              <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
-                {why}
-              </span>
-              {canMerge && (
-                <span className="ml-auto flex gap-1.5">
-                  <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => handleMerge(b, a)}>
-                    Keep "{a.full_name.split(/\s+/)[0]}"
-                  </Button>
-                  <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => handleMerge(a, b)}>
-                    Keep "{b.full_name.split(/\s+/)[0]}"
-                  </Button>
-                </span>
-              )}
+              {/* Each side shows its own phone + children so "Keep" is an
+                  informed choice — with identical names, the buttons alone
+                  were indistinguishable. Merging joins BOTH kid lists either
+                  way; Keep picks which row survives as the main record. */}
+              <div className="flex flex-wrap items-start gap-x-4 gap-y-2">
+                {[a, b].map((side, i) => (
+                  <div key={side.id} className="min-w-[180px] flex-1">
+                    <div className="font-medium text-slate-900">{side.full_name}</div>
+                    <div className="text-xs text-slate-500">
+                      {side.phone || "no phone"}
+                    </div>
+                    <div className="mt-0.5 text-xs text-slate-600">
+                      {(side.children ?? []).length === 0
+                        ? "no linked students"
+                        : (side.children ?? [])
+                            .map((c) => {
+                              const cls = c.class_section_id ? sectionLabel.get(c.class_section_id) : null;
+                              return cls ? `${c.full_name} (${cls})` : c.full_name;
+                            })
+                            .join(", ")}
+                    </div>
+                    {canMerge && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-1.5 h-7 text-xs"
+                        onClick={() => (i === 0 ? handleMerge(b, a) : handleMerge(a, b))}
+                      >
+                        Same person — keep this one
+                      </Button>
+                    )}
+                  </div>
+                ))}
+                <div className="flex flex-col items-end gap-1.5">
+                  <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+                    {why}
+                  </span>
+                  {canMerge && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs text-slate-600"
+                      onClick={() => persistDismissals(new Set(dismissedPairs).add(pairKey(a, b)))}
+                    >
+                      Different people
+                    </Button>
+                  )}
+                </div>
+              </div>
             </div>
           ))}
+          {dismissedPairs.size > 0 && (
+            <div className="space-y-1.5">
+              <div className="text-xs font-medium text-amber-900">Marked as different people</div>
+              {Array.from(dismissedPairs).map((key) => {
+                const [idA, idB] = key.split("|");
+                const pa = parentById.get(idA);
+                const pb = parentById.get(idB);
+                if (!pa || !pb) return null;
+                return (
+                  <div key={key} className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs">
+                    <span className="text-slate-700">{pa.full_name}</span>
+                    <span className="text-slate-400">≠</span>
+                    <span className="text-slate-700">{pb.full_name}</span>
+                    {canMerge && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="ml-auto h-6 text-xs text-slate-600"
+                        onClick={() => {
+                          const next = new Set(dismissedPairs);
+                          next.delete(key);
+                          persistDismissals(next);
+                        }}
+                      >
+                        Undo
+                      </Button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
           {aliasedParents.length > 0 && (
             <div className="space-y-1.5">
               <div className="text-xs font-medium text-amber-900">Already merged</div>

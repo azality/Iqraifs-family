@@ -290,6 +290,9 @@ export const updateOrganization = (
     sabaq_para_break: boolean;
     /** Teacher Track Record: pass threshold %, default 40. */
     pass_mark_pct: number;
+    /** Parents page: duplicate pairs ("idA|idB", ids sorted) an admin
+     *  marked as different people, so the panel stops flagging them. */
+    parent_dup_dismissals: string[];
   }>,
 ): Promise<OrganizationDetail> =>
   apiCall(`/school/orgs/${orgId}`, {
