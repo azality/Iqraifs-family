@@ -33,7 +33,8 @@ import {
   listClasses,
   getMarksSheet, saveMarksSheet,
   subjectMaxForPaper, paperOfExamName,
-  type AdminClass, type MarksSheetResponse, type SchoolMeResponse,
+  type AdminClass, type AssessmentWeight,
+  type MarksSheetResponse, type SchoolMeResponse,
 } from "../../../utils/schoolApi";
 import { sectionTitleClasses, NoAccessRedirect } from "../../components/school-ui";
 
@@ -100,19 +101,41 @@ export function MarksEntry() {
   // column on either sheet. A subject with NULL weights (no distribution
   // entered yet) keeps its column on both papers, exactly as before;
   // hidden subjects' saved rows are never touched.
-  const visibleSubjects = useMemo(() => {
-    const subs = sheet?.subjects ?? [];
+  // …EXCEPT a subject that already HOLDS marks on this paper. Hiding a
+  // column hides the marks inside it, and the report card still counts
+  // them — so a mark entered before the school corrected its
+  // distribution would be both invisible and uncorrectable (Muneeb,
+  // 11 Sep: the teachers own their marks; the system must never put one
+  // beyond their reach). Such a column is shown, flagged, so a teacher
+  // can clear it; it disappears on the next load once emptied.
+  //
+  // Deliberately derived from the SERVER's rows, not local edits, so the
+  // column does not vanish under the teacher the instant they clear it.
+  const subjectsHoldingMarks = useMemo(() => {
+    const held = new Set<string>();
+    for (const stu of sheet?.students ?? []) {
+      for (const sc of stu.scores) {
+        if (sc.obtainedMarks !== null || sc.absent) held.add(sc.classSubjectId);
+      }
+    }
+    return held;
+  }, [sheet]);
+  const isOnThisPaper = useCallback((s: { assessmentWeights?: AssessmentWeight[] | null }) => {
     const paper = paperOfExamName(sheet?.exam?.name);
     const other = paper === "oral" ? "written" : "oral";
-    return subs.filter((s) => {
-      if (Array.isArray(s.assessmentWeights) && s.assessmentWeights.length === 0) return false;
-      if (!paper) return true;
-      return (
-        subjectMaxForPaper(s.assessmentWeights, paper) !== null ||
-        subjectMaxForPaper(s.assessmentWeights, other) === null
-      );
-    });
+    if (Array.isArray(s.assessmentWeights) && s.assessmentWeights.length === 0) return false;
+    if (!paper) return true;
+    return (
+      subjectMaxForPaper(s.assessmentWeights, paper) !== null ||
+      subjectMaxForPaper(s.assessmentWeights, other) === null
+    );
   }, [sheet]);
+  const visibleSubjects = useMemo(
+    () => (sheet?.subjects ?? []).filter(
+      (s) => isOnThisPaper(s) || subjectsHoldingMarks.has(s.id),
+    ),
+    [sheet, isOnThisPaper, subjectsHoldingMarks],
+  );
   // Map of `${studentId}:${classSubjectId}` → cell.
   const [cells, setCells] = useState<Map<string, CellState>>(new Map());
   const [loading, setLoading] = useState(false);
@@ -476,10 +499,24 @@ export function MarksEntry() {
             <thead className="bg-slate-50 text-slate-700">
               <tr>
                 <th className="text-left px-2 py-2 sticky left-0 bg-slate-50 z-10">Student</th>
-                {visibleSubjects.map((s) => (
-                  <th key={s.id} className="text-center px-2 py-2 min-w-[120px]">
+                {visibleSubjects.map((s) => {
+                  // A column only still here because it holds marks the
+                  // school's distribution says belong on the other paper.
+                  const stray = !isOnThisPaper(s);
+                  return (
+                  <th
+                    key={s.id}
+                    className={
+                      "text-center px-2 py-2 min-w-[120px] " +
+                      (stray ? "bg-amber-50" : "")
+                    }
+                  >
                     {s.name}
-                    {(() => {
+                    {stray ? (
+                      <div className="mt-0.5 text-[10px] font-normal normal-case text-amber-700">
+                        Not on this paper — clear these to remove the column
+                      </div>
+                    ) : (() => {
                       // Column header shows this paper's components and the
                       // total the school gives them, so the teacher can see
                       // what the /max means: "Written 50 · Dictation 10 — /60".
@@ -499,7 +536,8 @@ export function MarksEntry() {
                       );
                     })()}
                   </th>
-                ))}
+                  );
+                })}
                 <th className="text-right px-2 py-2 bg-slate-100">Total · %</th>
               </tr>
             </thead>
