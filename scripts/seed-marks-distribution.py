@@ -211,6 +211,32 @@ for _cls, _names in [
 ]:
     PLAN.setdefault(_cls, {}).update({n: NOT_EXAMINED for n in _names})
 
+# ---------------------------------------------------------------- Catch Up
+# Ambreen's notebook (11 Sep): the catch-up assessment is four papers -
+# Quran, Maths, English, Urdu - sat by three students (GR 2404, 2251,
+# 2405). Components verbatim from her page; reading aloud is the oral
+# side, dictation counts toward written as everywhere else. The other
+# five Catch Up subjects sit no paper.
+PLAN["Catch Up"] = {
+    "Quran": [{"label": "Quran", "marks": 50, "paper": "oral"}],
+    "Maths": [
+        {"label": "Objective",  "marks": 40, "paper": "written"},
+        {"label": "Subjective", "marks": 60, "paper": "written"},
+    ],
+    "Urdu": [
+        {"label": "لفظ خوانی",             "marks": 10, "paper": "oral"},
+        {"label": "ذخیرہ الفاظ برائے املا", "marks": 15, "paper": "written"},
+        {"label": "حصہ (ادب + قواعد)",     "marks": 75, "paper": "written"},
+    ],
+    "English": [
+        {"label": "Reading",            "marks": 5,  "paper": "oral"},
+        {"label": "Dictation",          "marks": 5,  "paper": "written"},
+        {"label": "Literature & Lang",  "marks": 90, "paper": "written"},
+    ],
+    "Computer": NOT_EXAMINED, "Science": NOT_EXAMINED, "Sindhi": NOT_EXAMINED,
+    "Social Studies": NOT_EXAMINED, "Multimedia": NOT_EXAMINED,
+}
+
 # Quran carries 50 marks in Classes I-VIII. It is recited, not written,
 # so the 50 sits on the ORAL paper - flagged to Muneeb (10 Sep) in case
 # the school sets a written Quran paper instead. Classes I and II call
