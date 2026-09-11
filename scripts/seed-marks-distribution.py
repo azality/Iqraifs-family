@@ -224,7 +224,7 @@ PLAN["Catch Up"] = {
         {"label": "Subjective", "marks": 60, "paper": "written"},
     ],
     "Urdu": [
-        {"label": "لفظ خوانی",             "marks": 10, "paper": "oral"},
+        {"label": "بلند خوانی",            "marks": 10, "paper": "oral"},
         {"label": "ذخیرہ الفاظ برائے املا", "marks": 15, "paper": "written"},
         {"label": "حصہ (ادب + قواعد)",     "marks": 75, "paper": "written"},
     ],
