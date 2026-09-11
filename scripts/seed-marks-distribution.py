@@ -48,6 +48,10 @@ def ORAL(marks, label="Oral"):
 def WRITTEN(marks, label="Written"):
     return [{"label": label, "marks": marks, "paper": "written"}]
 
+# Sentinel: this subject sits NO paper - remove any distribution that was
+# set earlier (a wrong guess the school has since corrected).
+CLEAR = None
+
 URDU_47 = [
     {"label": "تحریری", "marks": 65, "paper": "written"},
     {"label": "املا",   "marks": 5,  "paper": "written"},
@@ -72,6 +76,8 @@ PLAN = {
         "Science":        W(70, 5),
         "Computer":       W(70, 5),
         "Social Studies": W(70, 5),
+        # No dictation split given for Sindhi III (11 Sep) - unlike IV-VII.
+        "Sindhi":         W(70, 5),
     },
     # Every Class II subject is out of 75: the two languages carry a
     # 10-mark dictation inside the written paper, the rest do not.
@@ -117,8 +123,11 @@ for _cls in ["Class IV", "Class V", "Class VI", "Class VII"]:
 # Pre-primary Senior is examined differently from the graded classes: six
 # ORAL components (90 marks in total) and three short WRITTEN papers of 25.
 # No Senior subject carries both papers, so each one is single-sided.
-# Deeniyat and Material Activity are taught but the school gave no marks
-# for them - deliberately left unset rather than guessed.
+# Ambreen (11 Sep): "material activity ka nahi hota paper aur jo uss main
+# islamic studies hai uss ka bhi nahi hota; yeh jo islamiyat ke 20 marks
+# hai yeh deeniyat main hi aayen ge" - the /20 oral is DEENIYAT's; the
+# Islamic Studies / English Core readers subject and Material Activity
+# sit no paper at all. CLEAR (None) removes a distribution set earlier.
 PLAN["Senior"] = {
     "Radiant Way Reading":                          ORAL(10),
     "Ufaq Zakhera (Urdu Reading) and Urdu Core Reader Books": ORAL(10),
@@ -129,7 +138,8 @@ PLAN["Senior"] = {
         {"label": "1000 Pictures", "marks": 10, "paper": "oral"},
     ],
     "Norani Qaidah":                                ORAL(30),
-    "Islamic Studies / English Core readers":       ORAL(20),
+    "Deeniyat":                                     ORAL(20),
+    "Islamic Studies / English Core readers":       CLEAR,
     "English Writing":                              WRITTEN(25),
     "Maths Writing":                                WRITTEN(25),
     "Urdu Writing":                                 WRITTEN(25),
@@ -160,6 +170,15 @@ for cls_name, subjects in PLAN.items():
         if not s:
             print(f"!! {cls_name}: subject not found -> {sub_name}")
             missing += 1
+            continue
+        if weights is CLEAR:
+            if s.get('assessment_weights') is None:
+                same += 1
+            else:
+                print(f"{cls_name} / {sub_name}: CLEARED (sits no paper)")
+                changed += 1
+                if APPLY:
+                    req('PATCH', f"class_subject?id=eq.{s['id']}", {'assessment_weights': None})
             continue
         w = sum(x['marks'] for x in weights if x['paper'] == 'written')
         o = sum(x['marks'] for x in weights if x['paper'] == 'oral')
