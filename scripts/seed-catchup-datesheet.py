@@ -3,10 +3,13 @@
 # by Muneeb, 11 Sep 2026). Catch Up was the ONLY class with no published
 # datesheet - every other class was loaded on 4 Sep.
 #
-# The page lists four papers. Catch Up teaches nine subjects, so either
-# the class sits only these four or the page continues past the photo -
-# flagged to Muneeb rather than invented. Re-running after the rest
-# arrives adds only what is missing.
+# The second photo (11 Sep) shows the page ends at Urdu (Guardian's
+# Signature follows), so these four papers ARE the whole datesheet -
+# Catch Up sits only Quran, Maths, English and Urdu, and only three of
+# its ten students take them now: GR 2404 Muhammad Ayaan Adnan, GR 2251
+# Muhammad Ikrash, GR 2405 Syed Muhammad Aaliyan (Ambreen: "jinke abhi
+# assessment hongy"). The datesheet is per class, so that lives here as
+# a note for whoever reads the marks sheet.
 #
 # Times are not on the page; they follow the school's own pattern for
 # every other class (08:00, ending 12:15 - the 11:30 finish is used only
@@ -42,8 +45,10 @@ def q(s): return urllib.parse.quote(str(s), safe='')
 
 CLASS = "Catch Up"
 # (date, the school's own label, the subject it maps to)
+# "New catch-up time table" (Muneeb, 11 Sep): Quran moved from Friday
+# 11 Sep to Monday 14 Sep, sitting WITH the Maths written.
 PAPERS = [
-    ("2026-09-11", "Quran",   "Quran"),
+    ("2026-09-14", "Quran",   "Quran"),
     ("2026-09-14", "Maths",   "Maths"),
     ("2026-09-16", "English", "English"),
     ("2026-09-19", "Urdu",    "Urdu"),
@@ -54,18 +59,27 @@ term = req('GET', f"academic_term?org_id=eq.{ORG}&is_current=is.true"
                   f"&archived_at=is.null&select=id,name,start_date,end_date")[0]
 subs = {s['name']: s['id'] for s in req(
     'GET', f"class_subject?class_id=eq.{cls['id']}&archived_at=is.null&select=id,name")}
-have = {(r['exam_date'], r['subject_label']) for r in req(
+have = {r['subject_label']: r for r in req(
     'GET', f"exam_schedule?class_id=eq.{cls['id']}&term_id=eq.{term['id']}"
-           f"&select=exam_date,subject_label") or []}
+           f"&select=id,exam_date,subject_label") or []}
 
 print(f"{CLASS} -> term \"{term['name']}\" ({term['start_date']} .. {term['end_date']})")
-added = 0
+added = moved = same = 0
 for date, label, subject in PAPERS:
     if not (term['start_date'] <= date <= term['end_date']):
         print(f"!! {date} {label} falls outside the term - skipped"); continue
     if subject not in subs:
         print(f"!! subject not found: {subject}"); continue
-    if (date, label) in have:
+    ex = have.get(label)
+    if ex and ex['exam_date'] == date:
+        same += 1
+        continue
+    if ex:
+        # The school re-dated this paper - move it rather than duplicate.
+        print(f"   ~ {label}: {ex['exam_date']} -> {date}")
+        moved += 1
+        if APPLY:
+            req('PATCH', f"exam_schedule?id=eq.{ex['id']}", {'exam_date': date})
         continue
     print(f"   + {date}  {label}")
     if APPLY:
@@ -76,5 +90,5 @@ for date, label, subject in PAPERS:
         }, prefer='return=minimal')
     added += 1
 
-print(f"\n{'APPLIED' if APPLY else 'DRY RUN'} - {added} paper(s) added, "
-      f"{len(PAPERS) - added} already there")
+print(f"\n{'APPLIED' if APPLY else 'DRY RUN'} - {added} added, {moved} re-dated, "
+      f"{same} already correct")
