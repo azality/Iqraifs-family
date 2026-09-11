@@ -82,6 +82,25 @@ export function TabulationSheet() {
     [classes],
   );
 
+  // Short per-exam labels so every cell says WHICH paper each number is
+  // ("how would I know if the marks are from oral" — Muneeb, 12 Sep).
+  // The term's exams usually share a prefix ("1st Assessment — Oral" /
+  // "… — Written"); stripping the common prefix leaves the school's own
+  // word for the paper: Oral, Written — or Midterm / Final elsewhere.
+  const examLabel = useMemo(() => {
+    const m = new Map<string, string>();
+    const exams = data?.exams ?? [];
+    let prefix = exams[0]?.name ?? "";
+    for (const e of exams.slice(1)) {
+      while (prefix && !e.name.startsWith(prefix)) prefix = prefix.slice(0, -1);
+    }
+    for (const e of exams) {
+      const stripped = exams.length > 1 ? e.name.slice(prefix.length) : e.name;
+      m.set(e.id, stripped.replace(/^[\s—–\-·:]+/, "").trim() || e.name);
+    }
+    return m;
+  }, [data]);
+
   if (meLoading) return null;
   if (!isOrgAdmin(me, orgId) && !presetSectionId) {
     return <NoAccessRedirect to={`/school/orgs/${orgId}`} />;
@@ -197,21 +216,25 @@ export function TabulationSheet() {
                       if (!cell || cell.max === 0) {
                         return <td key={s.id} className="px-2 py-2 text-center text-slate-300">—</td>;
                       }
-                      // "12 + 45 = 57/75" — each paper in the term's
-                      // exam order, then the combined total.
+                      // The combined total on top, and underneath the
+                      // NAMED papers it came from — "Oral 12 · Written
+                      // 45" — so nobody has to guess which marks these
+                      // are. An absent paper says so instead of a number.
                       const parts = data.exams
-                        .map((e) => cell.perExam[e.id])
-                        .filter((p) => p && !p.absent && p.obtained !== null)
-                        .map((p) => fmt(p!.obtained!));
+                        .map((e) => ({ label: examLabel.get(e.id) ?? e.name, p: cell.perExam[e.id] }))
+                        .filter(({ p }) => p && (p.absent || p.obtained !== null))
+                        .map(({ label, p }) => `${label} ${p!.absent ? "Abs" : fmt(p!.obtained!)}`);
                       return (
                         <td key={s.id} className="px-2 py-2 text-center align-top">
                           <div className="tabular-nums text-slate-900">
-                            {parts.length > 1 ? `${parts.join(" + ")} = ` : ""}
                             <span className="font-semibold">{fmt(cell.obtained)}</span>
                             <span className="text-slate-400">/{fmt(cell.max)}</span>
+                            {cell.percentage !== null && (
+                              <span className="ml-1 text-[10px] text-slate-500">{cell.percentage.toFixed(0)}%</span>
+                            )}
                           </div>
                           <div className="text-[10px] text-slate-500">
-                            {cell.percentage !== null ? `${cell.percentage.toFixed(0)}%` : ""}
+                            {parts.join(" · ")}
                           </div>
                         </td>
                       );
