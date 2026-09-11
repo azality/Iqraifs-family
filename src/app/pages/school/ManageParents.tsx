@@ -58,6 +58,12 @@ export function ManageParents() {
   const [searchParams] = useSearchParams();
   const [me, setMe] = useState<SchoolMeResponse | null>(null);
   const [meLoading, setMeLoading] = useState(true);
+  // Once the dedup review is done, its decision log (pairs marked as
+  // different people, completed merges) is history, not work — it
+  // collapses to one quiet line unless someone asks for it (Muneeb,
+  // 12 Sep: "will this always show up"). It re-expands by itself the
+  // moment a NEW possible duplicate appears.
+  const [showReviewLog, setShowReviewLog] = useState(false);
   const [parents, setParents] = useState<AdminParent[]>([]);
   const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
   const [formOpen, setFormOpen] = useState(false);
@@ -483,11 +489,41 @@ export function ManageParents() {
         }
       />
 
-      {/* Possible duplicates + existing merges (settings/admin pass). */}
-      {(duplicatePairs.length > 0 || aliasedParents.length > 0 || dismissedPairs.size > 0) && (
+      {/* Possible duplicates + existing merges (settings/admin pass).
+          Amber and expanded only while there is actual work; a clean
+          state is one quiet line with the decision log on request. */}
+      {(duplicatePairs.length > 0 || aliasedParents.length > 0 || dismissedPairs.size > 0) &&
+        (duplicatePairs.length === 0 && !showReviewLog ? (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs">
+          <span className="font-medium text-emerald-700">✓ No duplicate parents pending</span>
+          <span className="text-slate-500">
+            {dismissedPairs.size > 0 && `${dismissedPairs.size} pair${dismissedPairs.size === 1 ? "" : "s"} reviewed as different people`}
+            {dismissedPairs.size > 0 && aliasedParents.length > 0 && " · "}
+            {aliasedParents.length > 0 && `${aliasedParents.length} merged`}
+          </span>
+          <button
+            type="button"
+            onClick={() => setShowReviewLog(true)}
+            className="ml-auto font-medium text-indigo-700 hover:underline"
+          >
+            Show review log
+          </button>
+        </div>
+      ) : (
         <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 space-y-3">
-          <div className="text-sm font-semibold text-amber-900">
-            Possible duplicate parents
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-sm font-semibold text-amber-900">
+              Possible duplicate parents
+            </div>
+            {duplicatePairs.length === 0 && (
+              <button
+                type="button"
+                onClick={() => setShowReviewLog(false)}
+                className="text-xs font-medium text-amber-800 hover:underline"
+              >
+                Hide review log
+              </button>
+            )}
           </div>
           {duplicatePairs.length === 0 && (
             <p className="text-xs text-amber-800">No unmerged duplicates detected.</p>
@@ -603,7 +639,7 @@ export function ManageParents() {
             </div>
           )}
         </div>
-      )}
+      ))}
 
       {/* Filter scope chips + search input. Chips narrow which facet
           (parent / student / class) the search matches against. */}
