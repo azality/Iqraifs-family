@@ -3711,6 +3711,78 @@ await check("75. an intake reader's sabaq/sabqi count as their reading pair", as
   }
 });
 
+await check("76. tabulation sheet: papers combine per subject, with totals and positions", async () => {
+  // Ambreen (11 Sep): oral and written carry separate percentages, but
+  // the term closes with ONE register - each subject "60 + 15 = /75,
+  // aur 75 main se kitne aaye", then grand total, % and position. The
+  // endpoint must agree with the report card's weighting rules.
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const { data: term } = await admin.from("academic_term").select("id")
+    .eq("org_id", ORG).eq("is_current", true).is("archived_at", null).maybeSingle();
+  assert(term, "no current term");
+  const { data: sbStudents } = await admin.from("student").select("id, full_name")
+    .eq("class_section_id", sandboxSec.id).eq("status", "active").limit(2);
+  assert((sbStudents ?? []).length >= 2, "need >=2 sandbox students");
+  const [stuA, stuB] = sbStudents!;
+  const cleanup: Array<() => Promise<unknown>> = [];
+  try {
+    const { data: cs, error: csErr } = await admin.from("class_subject").insert({
+      org_id: ORG, class_id: sandboxClass.id, name: "QA Tab Sub", sort_order: 960,
+      assessment_weights: [
+        { label: "Written", marks: 60, paper: "written" },
+        { label: "Oral", marks: 15, paper: "oral" },
+      ],
+    }).select("id").single();
+    if (csErr) throw new Error(`subject: ${csErr.message}`);
+    cleanup.push(() => admin.from("class_subject").delete().eq("id", cs.id));
+    const mkExam = async (nm: string) => {
+      const { data: e, error } = await admin.from("exam").insert({
+        org_id: ORG, term_id: term!.id, name: nm, exam_type: "other", weight: 1,
+        exam_date: new Date().toISOString().slice(0, 10),
+      }).select("id").single();
+      if (error) throw new Error(`exam ${nm}: ${error.message}`);
+      cleanup.push(() => admin.from("exam").delete().eq("id", e.id));
+      cleanup.push(() => admin.from("exam_subject_score").delete().eq("exam_id", e.id));
+      return e.id;
+    };
+    const oralEx = await mkExam("QA Tab - Oral");
+    const writEx = await mkExam("QA Tab - Written");
+    const score = async (exam: string, stu: string, obt: number, max: number) => {
+      const { error } = await admin.from("exam_subject_score").insert({
+        org_id: ORG, exam_id: exam, class_subject_id: cs.id, student_id: stu,
+        obtained_marks: obt, max_marks: max, recorded_by: admin2.id,
+      });
+      if (error) throw new Error(`score: ${error.message}`);
+    };
+    await score(oralEx, stuA.id, 12, 15);
+    await score(writEx, stuA.id, 45, 60);
+    await score(oralEx, stuB.id, 10, 15);
+
+    const r = await api(admin2.token,
+      `/school/orgs/${ORG}/sections/${sandboxSec.id}/tabulation?termId=${term!.id}`);
+    const j = await r.json();
+    assert(r.status === 200, `tabulation ${r.status}: ${JSON.stringify(j).slice(0, 200)}`);
+    const col = (j.subjects ?? []).find((x: any) => x.id === cs.id);
+    assert(col, "the examined subject must be a column");
+    assert(col.expectedMax === 75, `expected /75 from the distribution, got ${col.expectedMax}`);
+    const rowA = (j.students ?? []).find((x: any) => x.studentId === stuA.id);
+    const rowB = (j.students ?? []).find((x: any) => x.studentId === stuB.id);
+    assert(rowA && rowB, "both students on the register");
+    const cellA = rowA.subjects[cs.id];
+    assert(cellA && cellA.obtained === 57 && cellA.max === 75,
+      `12 + 45 must combine to 57/75, got ${JSON.stringify(cellA)}`);
+    assert(Object.keys(cellA.perExam).length === 2, "both papers listed per exam");
+    const cellB = rowB.subjects[cs.id];
+    assert(cellB && cellB.obtained === 10 && cellB.max === 15,
+      `a lone oral stays 10/15, got ${JSON.stringify(cellB)}`);
+    // 76% beats 66.7% - position follows percentage.
+    assert(rowA.position !== null && rowB.position !== null && rowA.position < rowB.position,
+      `positions must rank A above B, got ${rowA.position} vs ${rowB.position}`);
+  } finally {
+    for (const fn of cleanup.reverse()) await fn();
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

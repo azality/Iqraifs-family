@@ -76,6 +76,7 @@ import { TeacherWeekView } from "./pages/school/TeacherWeekView";
 import { ManageFeePlans } from "./pages/school/ManageFeePlans";
 import { ManageAssessment } from "./pages/school/ManageAssessment";
 import { MarksEntry } from "./pages/school/MarksEntry";
+import { TabulationSheet } from "./pages/school/TabulationSheet";
 import { ManageGradeScales } from "./pages/school/ManageGradeScales";
 import { ParentInbox } from "./pages/school/ParentInbox";
 import { ContactSchool } from "./pages/portal/ContactSchool";
@@ -603,6 +604,7 @@ export const router = createBrowserRouter([
               { path: "admin/fees/plans", element: <ManageFeePlans /> },
               { path: "admin/assessment", element: <ManageAssessment /> },
               { path: "admin/assessment/exams/:examId/marks", element: <MarksEntry /> },
+              { path: "admin/assessment/tabulation", element: <TabulationSheet /> },
               { path: "admin/assessment/grade-scales", element: <ManageGradeScales /> },
               { path: "admin/inbox", element: <ParentInbox /> },
               { path: "students/:studentId/fees", element: <StudentFees /> },
