@@ -193,6 +193,24 @@ PLAN["Class X"] = {
 for _cls in ["Reception", "Junior", "Hifz I", "Hifz II", "Hifz III", "Hifz IV"]:
     NO_PAPER_CLASSES.append(_cls)
 
+# ------------------------------------------- the activity subjects
+# Ambreen (11 Sep): "Art and Craft, Robotics (Class I-III), aur Ethics,
+# Language, Sports (Class III) in ka koi written paper nahi hota."
+#
+# Read as not examined at all, not merely "no written paper": across the
+# 1st Assessment's oral sittings teachers entered 337 marks and not ONE
+# of them was for these subjects - 0 in 8 class/subject combinations,
+# while English and Maths in the same classes and the same sittings took
+# 19, 18, 13, 11, 9. They are taught, not marked. If any of them turns
+# out to have an oral after all, give it real weights here and the
+# column comes back with the right max.
+for _cls, _names in [
+    ("Class I",   ["Art and Craft", "Robotics"]),
+    ("Class II",  ["Art and Craft", "Robotics"]),
+    ("Class III", ["Art and Craft", "Robotics", "Ethics", "Language", "Sports"]),
+]:
+    PLAN.setdefault(_cls, {}).update({n: NOT_EXAMINED for n in _names})
+
 # Quran carries 50 marks in Classes I-VIII. It is recited, not written,
 # so the 50 sits on the ORAL paper - flagged to Muneeb (10 Sep) in case
 # the school sets a written Quran paper instead. Classes I and II call
