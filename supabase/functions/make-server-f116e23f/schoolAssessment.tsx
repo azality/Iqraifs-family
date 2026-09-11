@@ -212,6 +212,170 @@ export function installAssessment(school: Hono): void {
   // notice, not a record. Labels are the school's own ("Sst",
   // "Computer/Biology") and are never rewritten here.
   // ───────────────────────────────────────────────────────────────────────
+  // ───────────────────────────────────────────────────────────────────────
+  // GET /orgs/:orgId/sections/:sectionId/tabulation?termId=…
+  //
+  // The end-of-term tabulation sheet (Ambreen, 11 Sep): oral and written
+  // are entered as separate exams, each with its own percentage, but the
+  // register the school actually closes a term with is ONE grid — every
+  // student, every subject, each exam's marks side by side, combined into
+  // the subject's total ("60 + 15 = out of 75, aur 75 main se kitne
+  // aaye"), then the grand total, percentage and position.
+  //
+  // Generic by construction, not iqraifs-shaped: it combines WHATEVER
+  // exams the term holds (two here, any number elsewhere), weighted by
+  // exam.weight exactly like the report card, so the two can never
+  // disagree. termId omitted = the current term. Reads accept any org
+  // role, same as every assessment read.
+  // ───────────────────────────────────────────────────────────────────────
+  school.get("/orgs/:orgId/sections/:sectionId/tabulation", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const sectionId = c.req.param("sectionId");
+    if (!(await hasAnyOrgRole(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const { data: sec } = await serviceRoleClient
+      .from("class_section")
+      .select("id, name, class:class_id(id, name, org_id)")
+      .eq("id", sectionId).maybeSingle();
+    if (!sec || (sec as any).class?.org_id !== orgId) {
+      return c.json({ error: "section not found" }, 404);
+    }
+
+    let termId = c.req.query("termId") ?? "";
+    if (!termId) {
+      const { data: cur } = await serviceRoleClient
+        .from("academic_term")
+        .select("id").eq("org_id", orgId).eq("is_current", true)
+        .is("archived_at", null).maybeSingle();
+      termId = (cur as any)?.id ?? "";
+    }
+    const { data: term } = await serviceRoleClient
+      .from("academic_term")
+      .select("id, name, org_id, start_date, end_date")
+      .eq("id", termId).maybeSingle();
+    if (!term || (term as any).org_id !== orgId) {
+      return c.json({ error: "term not found" }, 404);
+    }
+
+    const { data: exams } = await serviceRoleClient
+      .from("exam")
+      .select("id, name, weight, exam_date")
+      .eq("term_id", termId).is("archived_at", null)
+      .order("exam_date");
+    const examList = (exams ?? []) as any[];
+    const examIds = examList.map((e) => e.id);
+
+    // No roll_number in this codebase's student table (see the
+    // marks-sheet note below) - selecting it 400s the whole query.
+    const { data: students } = await serviceRoleClient
+      .from("student")
+      .select("id, full_name, gr_number")
+      .eq("class_section_id", sectionId).eq("status", "active")
+      .order("full_name");
+    const stuList = (students ?? []) as any[];
+    const stuIds = stuList.map((s) => s.id);
+
+    const { data: subs } = await serviceRoleClient
+      .from("class_subject")
+      .select("id, name, sort_order, assessment_weights")
+      .eq("class_id", (sec as any).class.id).is("archived_at", null)
+      .order("sort_order").order("name");
+
+    const { data: scores } = stuIds.length && examIds.length
+      ? await serviceRoleClient
+          .from("exam_subject_score")
+          .select("student_id, exam_id, class_subject_id, obtained_marks, max_marks, absent")
+          .in("student_id", stuIds).in("exam_id", examIds)
+      : { data: [] as any[] };
+
+    // The subject's expected combined total from the school's marks
+    // distribution — the "out of 75" on the printed register. Null when
+    // no distribution exists; such a subject still appears if it holds
+    // marks (a mark must never fall off the register).
+    const expected = (w: any): number | null => {
+      if (!Array.isArray(w) || w.length === 0) return null;
+      const t = w.reduce(
+        (sum: number, x: any) => sum + (typeof x?.marks === "number" ? x.marks : 0), 0);
+      return t > 0 ? t : null;
+    };
+
+    const weightByExam = new Map<string, number>(
+      examList.map((e) => [e.id, Number(e.weight) || 1]));
+    type Cell = {
+      obtained: number; max: number;
+      perExam: Record<string, { obtained: number | null; max: number; absent: boolean }>;
+    };
+    const byStudent = new Map<string, Map<string, Cell>>();
+    const heldSubjects = new Set<string>();
+    for (const r of (scores ?? []) as any[]) {
+      const w = weightByExam.get(r.exam_id) ?? 1;
+      const m = byStudent.get(r.student_id) ?? new Map<string, Cell>();
+      const cell = m.get(r.class_subject_id) ?? { obtained: 0, max: 0, perExam: {} };
+      const obt = r.obtained_marks === null ? null : Number(r.obtained_marks);
+      cell.perExam[r.exam_id] = { obtained: obt, max: Number(r.max_marks), absent: !!r.absent };
+      // Absent or unscored rows don't count toward the totals — same
+      // rule as the report card, so the two always agree.
+      if (!r.absent && obt !== null) {
+        cell.obtained += w * obt;
+        cell.max += w * Number(r.max_marks);
+        heldSubjects.add(r.class_subject_id);
+      }
+      m.set(r.class_subject_id, cell);
+      byStudent.set(r.student_id, m);
+    }
+
+    // Columns: every EXAMINED subject (has a marks distribution), plus
+    // any subject that holds marks anyway.
+    const subjectCols = ((subs ?? []) as any[])
+      .filter((s) => expected(s.assessment_weights) !== null || heldSubjects.has(s.id))
+      .map((s) => ({ id: s.id, name: s.name, expectedMax: expected(s.assessment_weights) }));
+
+    const rows = stuList.map((s) => {
+      const m = byStudent.get(s.id) ?? new Map<string, Cell>();
+      let totalObtained = 0, totalMax = 0;
+      const subjects: Record<string, any> = {};
+      for (const col of subjectCols) {
+        const cell = m.get(col.id);
+        if (!cell) continue;
+        subjects[col.id] = {
+          obtained: cell.obtained, max: cell.max,
+          percentage: cell.max > 0 ? (cell.obtained / cell.max) * 100 : null,
+          perExam: cell.perExam,
+        };
+        totalObtained += cell.obtained;
+        totalMax += cell.max;
+      }
+      return {
+        studentId: s.id, studentName: s.full_name,
+        grNumber: s.gr_number, rollNumber: null,
+        subjects, totalObtained, totalMax,
+        percentage: totalMax > 0 ? (totalObtained / totalMax) * 100 : null,
+      };
+    });
+
+    // Position: rank by percentage, equal percentages share a position —
+    // how the school's own registers do it.
+    const ranked = rows
+      .filter((r) => r.percentage !== null)
+      .sort((a, b) => (b.percentage! - a.percentage!));
+    const posByStudent = new Map<string, number>();
+    let pos = 0, prevPct: number | null = null;
+    ranked.forEach((r, i) => {
+      if (prevPct === null || Math.abs(r.percentage! - prevPct) > 1e-9) { pos = i + 1; prevPct = r.percentage!; }
+      posByStudent.set(r.studentId, pos);
+    });
+
+    return c.json({
+      section: { id: (sec as any).id, name: (sec as any).name, className: (sec as any).class.name },
+      term: { id: (term as any).id, name: (term as any).name },
+      exams: examList.map((e) => ({ id: e.id, name: e.name, weight: Number(e.weight) || 1 })),
+      subjects: subjectCols,
+      students: rows.map((r) => ({ ...r, position: posByStudent.get(r.studentId) ?? null })),
+    });
+  });
+
   school.get("/orgs/:orgId/exam-schedule", async (c) => {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");

@@ -4906,6 +4906,40 @@ export interface MarksSheetResponse {
   students: MarksSheetStudent[];
 }
 
+/** End-of-term tabulation register: every student × subject, each exam's
+ *  marks combined into the subject total, then grand total, % and
+ *  position. Generic across however many exams the term holds. */
+export interface TabulationCell {
+  obtained: number;
+  max: number;
+  percentage: number | null;
+  perExam: Record<string, { obtained: number | null; max: number; absent: boolean }>;
+}
+export interface TabulationRow {
+  studentId: string;
+  studentName: string;
+  grNumber: string | null;
+  rollNumber: string | null;
+  subjects: Record<string, TabulationCell>;
+  totalObtained: number;
+  totalMax: number;
+  percentage: number | null;
+  position: number | null;
+}
+export interface TabulationResponse {
+  section: { id: string; name: string; className: string };
+  term: { id: string; name: string };
+  exams: Array<{ id: string; name: string; weight: number }>;
+  subjects: Array<{ id: string; name: string; expectedMax: number | null }>;
+  students: TabulationRow[];
+}
+export const getTabulation = (
+  orgId: string,
+  sectionId: string,
+  termId?: string,
+): Promise<TabulationResponse> =>
+  apiCall(`/school/orgs/${orgId}/sections/${sectionId}/tabulation${termId ? `?termId=${termId}` : ""}`);
+
 export const listTerms = (orgId: string): Promise<{ terms: AcademicTerm[] }> =>
   apiCall(`/school/orgs/${orgId}/terms`);
 export const createTerm = (
