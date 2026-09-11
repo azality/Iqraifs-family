@@ -45,6 +45,29 @@ async function readConfirmations(termId: string, sectionId: string):
   catch { return {}; }
 }
 
+// Which paper an exam is, read from its name - the server-side twin of
+// the client's paperOfExamName. Anything unnameable returns null and
+// paper filtering simply doesn't apply.
+function paperOfExam(name: string | null | undefined): "oral" | "written" | null {
+  const n = (name ?? "").toLowerCase();
+  if (/\boral\b/.test(n)) return "oral";
+  if (/\bwritten\b/.test(n)) return "written";
+  return null;
+}
+
+// Does this subject sit this exam's paper? Mirrors the marks sheet's
+// column rule: null weights = unknown, applies everywhere; [] = the
+// school said "no paper at all"; components = only papers with marks.
+function subjectSitsExam(weights: any, examName: string): boolean {
+  if (!Array.isArray(weights)) return true;
+  if (weights.length === 0) return false;
+  const paper = paperOfExam(examName);
+  if (!paper) return true;
+  const marksTyped = weights.filter((w: any) => typeof w?.marks === "number");
+  if (!marksTyped.length) return true; // legacy pct shape - no paper info
+  return marksTyped.some((w: any) => w.paper === paper && w.marks > 0);
+}
+
 // Which subject columns this caller may edit in this section.
 // null = ALL (admin/principal/class teacher — they own the section);
 // otherwise the class_subject_ids they teach here. A subject teacher
@@ -995,10 +1018,28 @@ export function installAssessment(school: Hono): void {
     if (!mine.length) return c.json({ todos: [] });
 
     const sectionIds = [...new Set(mine.map((r) => r.class_section_id))];
+    // Left students must not keep a column forever "incomplete".
     const { data: students } = await serviceRoleClient
       .from("student")
       .select("id, class_section_id")
+      .eq("status", "active")
       .in("class_section_id", sectionIds);
+    // Names so the home page can say "Sindhi - Class IV A" without a
+    // second round-trip.
+    const { data: secRows } = await serviceRoleClient
+      .from("class_section")
+      .select("id, name, class:class_id(name)")
+      .in("id", sectionIds);
+    const secName = new Map<string, string>(
+      ((secRows ?? []) as any[]).map((r) => [r.id, `${r.class?.name ?? ""} ${r.name ?? ""}`.trim()]),
+    );
+    const { data: subjWeights } = await serviceRoleClient
+      .from("class_subject")
+      .select("id, assessment_weights")
+      .in("id", [...new Set(mine.map((r) => r.class_subject_id))]);
+    const weightsById = new Map<string, any>(
+      ((subjWeights ?? []) as any[]).map((r) => [r.id, r.assessment_weights]),
+    );
     const bySection = new Map<string, string[]>();
     for (const s of ((students ?? []) as any[])) {
       const arr = bySection.get(s.class_section_id) ?? [];
@@ -1022,26 +1063,54 @@ export function installAssessment(school: Hono): void {
     }
 
     const todos: any[] = [];
+    // "My column is complete but unsigned" - the green-check nudge
+    // (Muneeb, 12 Sep). Confirmation maps are per (term, section).
+    const signOffs: any[] = [];
+    const confBySection = new Map<string, Record<string, any>>();
+    for (const sid of sectionIds) {
+      confBySection.set(sid, await readConfirmations((term as any).id, sid));
+    }
     for (const row of mine) {
       const stuIds = bySection.get(row.class_section_id) ?? [];
       if (stuIds.length === 0) continue;
+      const w = weightsById.get(row.class_subject_id);
+      if (Array.isArray(w) && w.length === 0) continue; // not examined
+      let applicable = 0, complete = 0;
+      let lastExamId: string | null = null;
       for (const e of (exams as any[])) {
+        // A paper the subject does not sit must never nag - Nazra has
+        // no written paper, Science IV-V no oral.
+        if (!subjectSitsExam(w, e.name)) continue;
+        applicable += 1;
+        lastExamId = e.id;
         const done = stuIds.filter(
           (id) => marked.get(`${e.id}|${row.class_subject_id}`)?.has(id),
         ).length;
-        if (done >= stuIds.length) continue;
+        if (done >= stuIds.length) { complete += 1; continue; }
         todos.push({
           examId: e.id,
           examName: e.name,
           classSectionId: row.class_section_id,
+          sectionLabel: secName.get(row.class_section_id) ?? "",
           classSubjectId: row.class_subject_id,
           subjectName: row.class_subject?.name ?? "",
           marked: done,
           studentCount: stuIds.length,
         });
       }
+      if (applicable > 0 && complete === applicable &&
+          !confBySection.get(row.class_section_id)?.[row.class_subject_id]) {
+        signOffs.push({
+          termId: (term as any).id,
+          examId: lastExamId,
+          classSectionId: row.class_section_id,
+          sectionLabel: secName.get(row.class_section_id) ?? "",
+          classSubjectId: row.class_subject_id,
+          subjectName: row.class_subject?.name ?? "",
+        });
+      }
     }
-    return c.json({ todos });
+    return c.json({ todos, signOffs });
   });
 
   // ─── Marks sheet ────────────────────────────────────────────────────

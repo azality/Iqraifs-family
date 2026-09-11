@@ -3926,6 +3926,110 @@ await check("78. finalize locks the term's marks; publish needs finalize; unfina
   }
 });
 
+await check("79. needs-attention nudges: enter marks, then sign off - paper-aware, never for unexamined", async () => {
+  // The teacher's Needs-attention list (Muneeb, 12 Sep): a column still
+  // owing marks nags "enter marks"; a column fully entered but unsigned
+  // nags "sign off"; a paper the subject does not sit never nags (Nazra
+  // has no written paper), and a not-examined subject never appears.
+  const t2 = await ensureUser("qa-teacher2@azality.com", "QA Teacher Two", "class_teacher");
+  const { data: term } = await admin.from("academic_term").select("id")
+    .eq("org_id", ORG).eq("is_current", true).is("archived_at", null).maybeSingle();
+  assert(term, "no current term");
+  const { data: exams } = await admin.from("exam").select("id, name")
+    .eq("term_id", term!.id).is("archived_at", null);
+  const oralEx = (exams ?? []).find((e: any) => /Oral/.test(e.name));
+  const writEx = (exams ?? []).find((e: any) => /Written/.test(e.name));
+  assert(oralEx && writEx, "need the term's oral + written exams");
+  const { data: sbStudents } = await admin.from("student").select("id")
+    .eq("class_section_id", sandboxSec.id).eq("status", "active");
+  const n = (sbStudents ?? []).length;
+  assert(n >= 1, "need sandbox students");
+  const cleanup: Array<() => Promise<unknown>> = [];
+  const mkSub = async (nm: string, weights: unknown, sort: number) => {
+    const { data: cs, error } = await admin.from("class_subject").insert({
+      org_id: ORG, class_id: sandboxClass.id, name: nm, sort_order: sort,
+      assessment_weights: weights,
+    }).select("id").single();
+    if (error) throw new Error(`${nm}: ${error.message}`);
+    cleanup.push(() => admin.from("class_subject").delete().eq("id", cs.id));
+    cleanup.push(() => admin.from("exam_subject_score").delete().eq("class_subject_id", cs.id));
+    const { data: ss, error: e2 } = await admin.from("section_subject").insert({
+      org_id: ORG, class_section_id: sandboxSec.id, class_subject_id: cs.id,
+      teacher_user_id: t2.id, name: nm,
+    }).select("id").single();
+    if (e2) throw new Error(`ss ${nm}: ${e2.message}`);
+    cleanup.push(() => admin.from("section_subject").delete().eq("id", ss.id));
+    return cs.id;
+  };
+  try {
+    const both = await mkSub("QA NA Both", [
+      { label: "Written", marks: 60, paper: "written" },
+      { label: "Oral", marks: 15, paper: "oral" },
+    ], 981);
+    const oralOnly = await mkSub("QA NA OralOnly",
+      [{ label: "Oral", marks: 20, paper: "oral" }], 982);
+    const notExamined = await mkSub("QA NA Never", [], 983);
+    cleanup.push(() => admin.from("kv_store_f116e23f").delete()
+      .eq("key", `school:marksconfirm:${term!.id}:${sandboxSec.id}`));
+
+    // 1. Fresh columns owe marks - but only on papers they sit.
+    const r1 = await api(t2.token, `/school/orgs/${ORG}/me/exam-marks-todo`);
+    const j1 = await r1.json();
+    assert(r1.status === 200, `todo ${r1.status}`);
+    const mineTodos = (j1.todos ?? []).filter((x: any) =>
+      [both, oralOnly, notExamined].includes(x.classSubjectId));
+    assert(mineTodos.some((x: any) => x.classSubjectId === both && x.examId === oralEx!.id), "both: oral owed");
+    assert(mineTodos.some((x: any) => x.classSubjectId === both && x.examId === writEx!.id), "both: written owed");
+    assert(mineTodos.some((x: any) => x.classSubjectId === oralOnly && x.examId === oralEx!.id), "oral-only: oral owed");
+    assert(!mineTodos.some((x: any) => x.classSubjectId === oralOnly && x.examId === writEx!.id),
+      "a paper the subject does not sit must never nag");
+    assert(!mineTodos.some((x: any) => x.classSubjectId === notExamined),
+      "a not-examined subject must never appear");
+    const withLabel = mineTodos.find((x: any) => x.classSubjectId === both);
+    assert(String(withLabel?.sectionLabel ?? "").includes("Sandbox"),
+      `todo carries the section label, got "${withLabel?.sectionLabel}"`);
+
+    // 2. Enter every mark -> the todos become a sign-off nudge.
+    const rows: any[] = [];
+    for (const stu of sbStudents!) {
+      rows.push({ org_id: ORG, exam_id: oralEx!.id, class_subject_id: both, student_id: stu.id, obtained_marks: 10, max_marks: 15, recorded_by: t2.id });
+      rows.push({ org_id: ORG, exam_id: writEx!.id, class_subject_id: both, student_id: stu.id, obtained_marks: 40, max_marks: 60, recorded_by: t2.id });
+      rows.push({ org_id: ORG, exam_id: oralEx!.id, class_subject_id: oralOnly, student_id: stu.id, obtained_marks: 15, max_marks: 20, recorded_by: t2.id });
+    }
+    const { error: insErr } = await admin.from("exam_subject_score").insert(rows);
+    if (insErr) throw new Error(`scores: ${insErr.message}`);
+    const r2 = await api(t2.token, `/school/orgs/${ORG}/me/exam-marks-todo`);
+    const j2 = await r2.json();
+    assert(!((j2.todos ?? []).some((x: any) => [both, oralOnly].includes(x.classSubjectId))),
+      "fully marked columns leave the todo list");
+    const so = (j2.signOffs ?? []).filter((x: any) => [both, oralOnly].includes(x.classSubjectId));
+    assert(so.length === 2, `both complete columns ask for sign-off, got ${so.length}`);
+    assert(!((j2.signOffs ?? []).some((x: any) => x.classSubjectId === notExamined)),
+      "a not-examined subject never asks for sign-off");
+
+    // 3. Signing the column clears its nudge.
+    const conf = await api(t2.token,
+      `/school/orgs/${ORG}/sections/${sandboxSec.id}/subjects/${both}/marks-confirmation`, {
+        method: "POST", body: JSON.stringify({ termId: term!.id, confirmed: true }),
+      });
+    assert(conf.status === 200, `confirm ${conf.status}`);
+    const r3 = await api(t2.token, `/school/orgs/${ORG}/me/exam-marks-todo`);
+    const j3 = await r3.json();
+    assert(!((j3.signOffs ?? []).some((x: any) => x.classSubjectId === both)),
+      "a signed column stops nagging");
+    assert((j3.signOffs ?? []).some((x: any) => x.classSubjectId === oralOnly),
+      "the unsigned column still nags");
+
+    // 4. The office dashboard still answers with its alerts array.
+    const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+    const dash = await api(admin2.token, `/school/orgs/${ORG}/dashboard`);
+    const dj = await dash.json();
+    assert(dash.status === 200 && Array.isArray(dj.alerts), "dashboard alerts intact");
+  } finally {
+    for (const fn of cleanup.reverse()) await fn();
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
