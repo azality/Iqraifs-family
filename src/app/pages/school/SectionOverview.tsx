@@ -511,6 +511,16 @@ export function SectionOverview() {
                         </span>{" "}→
                       </Link>
                     ))}
+                    {/* The class teacher's front door to the term
+                        register (the office reaches it from Assessment;
+                        the server turns subject-only teachers away with
+                        a plain-words message). */}
+                    <Link
+                      to={`/school/orgs/${orgId}/admin/assessment/tabulation?sectionId=${sectionId}`}
+                      className="ml-2 font-semibold text-violet-700 hover:underline"
+                    >
+                      Tabulation sheet →
+                    </Link>
                   </span>
                 </div>
               )}
