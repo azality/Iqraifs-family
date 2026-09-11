@@ -55,6 +55,10 @@ def WRITTEN(marks, label="Written"):
 # aur Islamic Studies / English Core reader ka paper nahi hota."
 NOT_EXAMINED = []
 
+# Whole classes that sit no assessment papers at all; every live subject
+# in them is marked NOT_EXAMINED. Filled in below.
+NO_PAPER_CLASSES: list[str] = []
+
 URDU_47 = [
     {"label": "تحریری", "marks": 65, "paper": "written"},
     {"label": "املا",   "marks": 5,  "paper": "written"},
@@ -177,6 +181,18 @@ PLAN["Class X"] = {
     ]},
 }
 
+# ------------------------------------------- classes that sit no papers
+# Ambreen (11 Sep): "Junior, aur reception aur Hifz main assessment nahi
+# hote; Hifz main Jaize hote hain - sehmahi, sheshmahi aur annual Jaiza."
+# So EVERY subject in these classes sits no assessment paper, and none of
+# them should offer a marks column. Listed by CLASS rather than by subject
+# so a newly added subject is covered automatically.
+#
+# The Hifz classes will carry marks again when the Jaiza is built; that
+# will set real weights, replacing these empty ones.
+for _cls in ["Reception", "Junior", "Hifz I", "Hifz II", "Hifz III", "Hifz IV"]:
+    NO_PAPER_CLASSES.append(_cls)
+
 # Quran carries 50 marks in Classes I-VIII. It is recited, not written,
 # so the 50 sits on the ORAL paper - flagged to Muneeb (10 Sep) in case
 # the school sets a written Quran paper instead. Classes I and II call
@@ -188,6 +204,14 @@ for _cls, _name in [
     ("Class VII", "Quran"), ("Class VIII", "Quran"),
 ]:
     PLAN.setdefault(_cls, {})[_name] = QURAN
+
+# Expand the no-paper classes: read their live subjects and mark each.
+for _cls in NO_PAPER_CLASSES:
+    _c = req('GET', f"class?org_id=eq.{ORG}&name=eq.{q(_cls)}&select=id")
+    if not _c:
+        print(f"!! class not found: {_cls}"); continue
+    _subs = req('GET', f"class_subject?class_id=eq.{_c[0]['id']}&archived_at=is.null&select=name")
+    PLAN.setdefault(_cls, {}).update({x['name']: NOT_EXAMINED for x in (_subs or [])})
 
 changed = missing = same = 0
 for cls_name, subjects in PLAN.items():
