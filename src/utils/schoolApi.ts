@@ -4894,17 +4894,51 @@ export interface MarksSheetStudent {
   rollNumber: number | null;
   scores: ExamSubjectScore[];
 }
+export interface MarksConfirmation {
+  by: string;
+  byName: string;
+  at: string;
+}
+
 export interface MarksSheetResponse {
   /** Which exam this sheet is for — its name says oral vs written
-   *  (server >= v1.1.49). */
-  exam?: { id: string; name: string; examType: string } | null;
+   *  (server >= v1.1.49); termId from v1.1.56 powers the sign-off. */
+  exam?: { id: string; name: string; examType: string; termId?: string | null } | null;
   section: { id: string; name: string; className: string };
   subjects: { id: string; name: string; assessmentWeights?: AssessmentWeight[] | null }[];
   /** null = caller may edit every column; otherwise the subject ids
    *  they teach (the subjects list is already filtered to these). */
   editableSubjectIds?: string[] | null;
+  /** Per-subject "column complete" sign-off for this exam's TERM (the
+   *  sign-off covers both papers at once), keyed by classSubjectId. */
+  confirmations?: Record<string, MarksConfirmation>;
   students: MarksSheetStudent[];
 }
+
+/** The subject teacher's green check: "my column for this term is
+ *  complete". confirmed:false withdraws it. */
+export const setMarksConfirmation = (
+  orgId: string,
+  sectionId: string,
+  classSubjectId: string,
+  body: { termId?: string | null; confirmed: boolean },
+): Promise<{ termId: string; confirmations: Record<string, MarksConfirmation> }> =>
+  apiCall(`/school/orgs/${orgId}/sections/${sectionId}/subjects/${classSubjectId}/marks-confirmation`, {
+    method: "POST", body: JSON.stringify(body),
+  });
+
+/** Section-wide end-of-term actions (office only). Finalize locks the
+ *  marks sheets for the term; publish shows the cards to parents;
+ *  unfinalize reopens (and unpublishes). */
+export const bulkTermReportCards = (
+  orgId: string,
+  sectionId: string,
+  termId: string,
+  action: "finalize" | "unfinalize" | "publish" | "unpublish",
+): Promise<{ ok: boolean; action: string; updated: number; studentCount: number }> =>
+  apiCall(`/school/orgs/${orgId}/sections/${sectionId}/terms/${termId}/report-cards/bulk`, {
+    method: "POST", body: JSON.stringify({ action }),
+  });
 
 /** End-of-term tabulation register: every student × subject, each exam's
  *  marks combined into the subject total, then grand total, % and
@@ -4932,6 +4966,11 @@ export interface TabulationResponse {
   exams: Array<{ id: string; name: string; weight: number }>;
   subjects: Array<{ id: string; name: string; expectedMax: number | null }>;
   students: TabulationRow[];
+  /** Per-subject sign-off state, keyed by classSubjectId (v1.1.56). */
+  confirmations?: Record<string, MarksConfirmation>;
+  reportCards?: { studentCount: number; finalizedCount: number; publishedCount: number };
+  /** True when the caller may finalize/publish (admin/principal). */
+  canFinalize?: boolean;
 }
 export const getTabulation = (
   orgId: string,

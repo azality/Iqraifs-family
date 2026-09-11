@@ -22,9 +22,11 @@ import {
 } from "../../components/ui/select";
 import {
   getSchoolMe, isOrgAdmin, listClasses, listTerms, getTabulation,
+  bulkTermReportCards,
   type AdminClass, type AcademicTerm, type SchoolMeResponse,
   type TabulationResponse,
 } from "../../../utils/schoolApi";
+import { CheckCircle2, Circle } from "lucide-react";
 import { NoAccessRedirect } from "../../components/school-ui";
 
 const fmt = (n: number): string =>
@@ -46,6 +48,10 @@ export function TabulationSheet() {
   const [data, setData] = useState<TabulationResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Two-step confirm for finalize (it locks marks entry) and publish
+  // (parents see the cards) — the first click only arms the red button.
+  const [armed, setArmed] = useState<"finalize" | "publish" | null>(null);
+  const [acting, setActing] = useState(false);
 
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
@@ -81,6 +87,22 @@ export function TabulationSheet() {
       (c.sections ?? []).map((s) => ({ id: s.id, label: `${c.name} — ${s.name}` }))),
     [classes],
   );
+
+  const runBulk = async (action: "finalize" | "unfinalize" | "publish" | "unpublish") => {
+    if (!data) return;
+    setArmed(null);
+    setActing(true);
+    setError(null);
+    try {
+      await bulkTermReportCards(orgId, data.section.id, data.term.id, action);
+      const fresh = await getTabulation(orgId, data.section.id, data.term.id);
+      setData(fresh);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setActing(false);
+    }
+  };
 
   // Short per-exam labels so every cell says WHICH paper each number is
   // ("how would I know if the marks are from oral" — Muneeb, 12 Sep).
@@ -179,6 +201,76 @@ export function TabulationSheet() {
             {data.exams.map((e) => e.name).join(" + ") || "no exams in this term"}
           </div>
 
+          {/* Where the term stands: confirmed columns, then the
+              office's finalize / publish, in that order. */}
+          {data.subjects.length > 0 && (
+            <div className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs print:hidden">
+              {(() => {
+                const done = data.subjects.filter((s) => data.confirmations?.[s.id]).length;
+                const rc = data.reportCards;
+                const finalized = !!rc && rc.studentCount > 0 && rc.finalizedCount >= rc.studentCount;
+                const published = !!rc && rc.studentCount > 0 && rc.publishedCount >= rc.studentCount;
+                return (
+                  <>
+                    <span className={done === data.subjects.length ? "text-emerald-700 font-medium" : "text-slate-600"}>
+                      {done}/{data.subjects.length} subjects confirmed
+                    </span>
+                    {rc && (
+                      <span className="text-slate-500">
+                        · report cards: {rc.finalizedCount}/{rc.studentCount} finalized, {rc.publishedCount}/{rc.studentCount} published
+                      </span>
+                    )}
+                    {data.canFinalize && (
+                      <span className="ml-auto inline-flex items-center gap-2">
+                        {armed === "finalize" ? (
+                          <>
+                            <Button size="sm" variant="destructive" disabled={acting} onClick={() => void runBulk("finalize")}>
+                              {done < data.subjects.length
+                                ? `Finalize anyway (${data.subjects.length - done} unconfirmed)`
+                                : "Yes — finalize & lock marks"}
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => setArmed(null)}>Cancel</Button>
+                          </>
+                        ) : armed === "publish" ? (
+                          <>
+                            <Button size="sm" variant="destructive" disabled={acting} onClick={() => void runBulk("publish")}>
+                              Yes — show report cards to parents
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => setArmed(null)}>Cancel</Button>
+                          </>
+                        ) : (
+                          <>
+                            {!finalized ? (
+                              <Button size="sm" disabled={acting} onClick={() => setArmed("finalize")}>
+                                Finalize term for this section
+                              </Button>
+                            ) : (
+                              <>
+                                {!published && (
+                                  <Button size="sm" disabled={acting} onClick={() => setArmed("publish")}>
+                                    Publish to parents
+                                  </Button>
+                                )}
+                                {published && (
+                                  <Button size="sm" variant="outline" disabled={acting} onClick={() => void runBulk("unpublish")}>
+                                    Unpublish
+                                  </Button>
+                                )}
+                                <Button size="sm" variant="outline" disabled={acting} onClick={() => void runBulk("unfinalize")}>
+                                  Unfinalize (reopen marks)
+                                </Button>
+                              </>
+                            )}
+                          </>
+                        )}
+                      </span>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+          )}
+
           {data.subjects.length === 0 ? (
             <Card><CardContent className="p-4 text-sm text-slate-500 italic">
               No examined subjects in this class — enter a marks distribution first.
@@ -189,14 +281,28 @@ export function TabulationSheet() {
               <thead className="bg-slate-50 text-slate-700">
                 <tr>
                   <th className="text-left px-2 py-2 sticky left-0 bg-slate-50 z-10">Student</th>
-                  {data.subjects.map((s) => (
+                  {data.subjects.map((s) => {
+                    const conf = data.confirmations?.[s.id];
+                    return (
                     <th key={s.id} className="text-center px-2 py-2 min-w-[110px]">
-                      {s.name}
-                      {s.expectedMax !== null && (
-                        <div className="mt-0.5 text-[10px] font-normal text-slate-400">/{s.expectedMax}</div>
-                      )}
+                      <span className="inline-flex items-center gap-1">
+                        {s.name}
+                        {conf ? (
+                          <CheckCircle2
+                            className="h-3.5 w-3.5 text-emerald-600"
+                            aria-label={`Confirmed by ${conf.byName || "the teacher"}`}
+                          />
+                        ) : (
+                          <Circle className="h-3 w-3 text-slate-300" aria-label="Not yet confirmed" />
+                        )}
+                      </span>
+                      <div className="mt-0.5 text-[10px] font-normal text-slate-400">
+                        {s.expectedMax !== null ? `/${s.expectedMax}` : ""}
+                        {conf?.byName ? `${s.expectedMax !== null ? " · " : ""}${conf.byName} ✓` : ""}
+                      </div>
                     </th>
-                  ))}
+                    );
+                  })}
                   <th className="text-right px-2 py-2 bg-slate-100">Total</th>
                   <th className="text-right px-2 py-2 bg-slate-100">%</th>
                   <th className="text-center px-2 py-2 bg-slate-100">Position</th>
