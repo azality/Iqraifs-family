@@ -448,7 +448,11 @@ export interface ClassSubject {
   classId: string;
   name: string;
   sortOrder: number;
-  /** School-defined weightage split, e.g. Oral 40 / Written 60. */
+  /** School-defined weightage split, e.g. Oral 40 / Written 60.
+   *  null = no distribution entered yet (sheet default applies on both
+   *  papers). An EMPTY array = the school confirmed this subject sits
+   *  NO paper at all (e.g. Senior's Material Activity) — the marks
+   *  sheet drops its column on every paper. */
   assessmentWeights?: AssessmentWeight[] | null;
   createdAt: string;
   updatedAt: string;

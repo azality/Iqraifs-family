@@ -94,19 +94,24 @@ export function MarksEntry() {
   // Only subjects EXAMINED on this paper get a column. Quran carries 50
   // oral marks and nothing written; Science IV–V is written-only — their
   // columns on the other paper invited marks the school never set
-  // ("I see Quran in written", Ambreen, 11 Sep). A subject with no
-  // marks-based distribution at all keeps its column on both papers,
-  // exactly as before; hidden subjects' saved rows are never touched.
+  // ("I see Quran in written", Ambreen, 11 Sep). An EMPTY weights array
+  // is the school saying "this subject sits no paper at all" (Senior's
+  // Material Activity and Islamic Studies / English Core readers) — no
+  // column on either sheet. A subject with NULL weights (no distribution
+  // entered yet) keeps its column on both papers, exactly as before;
+  // hidden subjects' saved rows are never touched.
   const visibleSubjects = useMemo(() => {
     const subs = sheet?.subjects ?? [];
     const paper = paperOfExamName(sheet?.exam?.name);
-    if (!paper) return subs;
     const other = paper === "oral" ? "written" : "oral";
-    return subs.filter(
-      (s) =>
+    return subs.filter((s) => {
+      if (Array.isArray(s.assessmentWeights) && s.assessmentWeights.length === 0) return false;
+      if (!paper) return true;
+      return (
         subjectMaxForPaper(s.assessmentWeights, paper) !== null ||
-        subjectMaxForPaper(s.assessmentWeights, other) === null,
-    );
+        subjectMaxForPaper(s.assessmentWeights, other) === null
+      );
+    });
   }, [sheet]);
   // Map of `${studentId}:${classSubjectId}` → cell.
   const [cells, setCells] = useState<Map<string, CellState>>(new Map());

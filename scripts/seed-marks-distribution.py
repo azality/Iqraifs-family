@@ -48,9 +48,12 @@ def ORAL(marks, label="Oral"):
 def WRITTEN(marks, label="Written"):
     return [{"label": label, "marks": marks, "paper": "written"}]
 
-# Sentinel: this subject sits NO paper - remove any distribution that was
-# set earlier (a wrong guess the school has since corrected).
-CLEAR = None
+# "This subject sits NO paper" - stored as an EMPTY components array,
+# distinct from null (= no distribution entered yet, sheet default
+# applies). The marks sheet drops a []-subject's column on every paper;
+# a null subject keeps its columns. Ambreen (11 Sep): "Material activity
+# aur Islamic Studies / English Core reader ka paper nahi hota."
+NOT_EXAMINED = []
 
 URDU_47 = [
     {"label": "تحریری", "marks": 65, "paper": "written"},
@@ -139,10 +142,39 @@ PLAN["Senior"] = {
     ],
     "Norani Qaidah":                                ORAL(30),
     "Deeniyat":                                     ORAL(20),
-    "Islamic Studies / English Core readers":       CLEAR,
+    "Islamic Studies / English Core readers":       NOT_EXAMINED,
+    "Material Activity":                            NOT_EXAMINED,
     "English Writing":                              WRITTEN(25),
     "Maths Writing":                                WRITTEN(25),
     "Urdu Writing":                                 WRITTEN(25),
+}
+
+# ------------------------------------------------------------- VIII-X
+# The matric wing follows the Sindh board pattern (Ambreen's notebook,
+# 11 Sep): every subject is a single WRITTEN paper - 75 marks, except
+# English in IX and X which is /100 - and only Quran (VIII) has an oral.
+# Her "P.st" is the DB's "Social Studies" in VIII and "Pakistan Studies"
+# in X; "Computer/Biology" means each student sits one of the two, so
+# both subjects carry the same /75.
+PLAN["Class VIII"] = {
+    n: WRITTEN(75) for n in [
+        "English", "Urdu", "Maths", "Science", "Computer",
+        "Social Studies", "Islamiyat", "Sindhi",
+    ]
+}
+PLAN["Class IX"] = {
+    "English": WRITTEN(100),
+    **{n: WRITTEN(75) for n in [
+        "Urdu", "Maths", "Islamiyat", "Physics", "Chemistry",
+        "Computer", "Biology",
+    ]},
+}
+PLAN["Class X"] = {
+    "English": WRITTEN(100),
+    **{n: WRITTEN(75) for n in [
+        "Maths", "Pakistan Studies", "Sindhi", "Physics", "Chemistry",
+        "Biology", "Computer",
+    ]},
 }
 
 # Quran carries 50 marks in Classes I-VIII. It is recited, not written,
@@ -171,14 +203,14 @@ for cls_name, subjects in PLAN.items():
             print(f"!! {cls_name}: subject not found -> {sub_name}")
             missing += 1
             continue
-        if weights is CLEAR:
-            if s.get('assessment_weights') is None:
+        if weights == NOT_EXAMINED and weights is not None:
+            if s.get('assessment_weights') == []:
                 same += 1
             else:
-                print(f"{cls_name} / {sub_name}: CLEARED (sits no paper)")
+                print(f"{cls_name} / {sub_name}: NOT EXAMINED (no paper, no column)")
                 changed += 1
                 if APPLY:
-                    req('PATCH', f"class_subject?id=eq.{s['id']}", {'assessment_weights': None})
+                    req('PATCH', f"class_subject?id=eq.{s['id']}", {'assessment_weights': []})
             continue
         w = sum(x['marks'] for x in weights if x['paper'] == 'written')
         o = sum(x['marks'] for x in weights if x['paper'] == 'oral')
