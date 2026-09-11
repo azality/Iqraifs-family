@@ -800,7 +800,9 @@ export function installDashboard(school: Hono): void {
         | "attendance_gap"
         | "roster_stale"
         | "no_assignment"
-        | "untagged_content";
+        | "untagged_content"
+        | "signoffs_pending"
+        | "ready_to_finalize";
       title: string;
       body: string;
       actionLabel?: string;
@@ -1340,6 +1342,113 @@ export function installDashboard(school: Hono): void {
       console.error("[dashboard] teaching alerts failed:", taErr);
     }
 
+    // ── Term sign-off alerts (the tabulation protocol, 12 Sep) ─────────
+    // Which sections in scope still owe subject sign-offs, and which are
+    // fully signed and waiting for the office to finalize. Reads the
+    // confirmation maps straight off the kv table (one query) - the
+    // third and last place that knows their key layout.
+    try {
+      const { data: curTermRow } = await serviceRoleClient
+        .from("academic_term").select("id")
+        .eq("org_id", orgId).eq("is_current", true)
+        .is("archived_at", null).maybeSingle();
+      if (curTermRow) {
+        const signTermId = (curTermRow as any).id;
+        const { data: startedExams } = await serviceRoleClient
+          .from("exam").select("id")
+          .eq("term_id", signTermId).is("archived_at", null)
+          .lte("exam_date", now.toISOString().slice(0, 10)).limit(1);
+        if (startedExams?.length) {
+          const gradeSections = sectionStatuses
+            .map((x) => x.section)
+            .filter((sec) => sec.class_kind !== "hifz");
+          const classIds = [...new Set(gradeSections.map((sec) => sec.class_id))];
+          const { data: subRows } = classIds.length
+            ? await serviceRoleClient
+                .from("class_subject").select("class_id, assessment_weights")
+                .in("class_id", classIds).is("archived_at", null)
+            : { data: [] as any[] };
+          const examinedByClass = new Map<string, number>();
+          for (const r of ((subRows ?? []) as any[])) {
+            const w = r.assessment_weights;
+            const examined = Array.isArray(w) && w.length > 0 &&
+              w.some((x: any) => typeof x?.marks === "number" && x.marks > 0);
+            if (examined) {
+              examinedByClass.set(r.class_id, (examinedByClass.get(r.class_id) ?? 0) + 1);
+            }
+          }
+          const { data: kvRows } = await serviceRoleClient
+            .from("kv_store_f116e23f").select("key, value")
+            .like("key", `school:marksconfirm:${signTermId}:%`);
+          const confirmedBySection = new Map<string, number>();
+          for (const r of ((kvRows ?? []) as any[])) {
+            const sid = String(r.key).split(":").pop() ?? "";
+            confirmedBySection.set(sid, Object.keys(r.value ?? {}).length);
+          }
+          const secIds = gradeSections.map((sec) => sec.id);
+          const { data: stuRows } = secIds.length
+            ? await serviceRoleClient
+                .from("student").select("id, class_section_id")
+                .eq("status", "active").in("class_section_id", secIds)
+            : { data: [] as any[] };
+          const stuBySec = new Map<string, string[]>();
+          for (const r of ((stuRows ?? []) as any[])) {
+            const arr = stuBySec.get(r.class_section_id) ?? [];
+            arr.push(r.id);
+            stuBySec.set(r.class_section_id, arr);
+          }
+          const allStu = ((stuRows ?? []) as any[]).map((r) => r.id);
+          const { data: finRows } = allStu.length
+            ? await serviceRoleClient
+                .from("term_report_card").select("student_id")
+                .eq("term_id", signTermId).in("student_id", allStu)
+                .not("finalized_at", "is", null)
+            : { data: [] as any[] };
+          const finalizedIds = new Set(((finRows ?? []) as any[]).map((r) => r.student_id));
+
+          const pending: string[] = [];
+          const ready: Array<{ id: string; label: string }> = [];
+          for (const sec of gradeSections) {
+            const need = examinedByClass.get(sec.class_id) ?? 0;
+            if (need === 0) continue; // no distribution -> nothing to sign
+            const got = confirmedBySection.get(sec.id) ?? 0;
+            const label = `${sec.class_name} — ${sec.name}`;
+            if (got < need) {
+              pending.push(`${label} ${got}/${need}`);
+            } else {
+              const stus = stuBySec.get(sec.id) ?? [];
+              const fin = stus.filter((id) => finalizedIds.has(id)).length;
+              if (stus.length > 0 && fin < stus.length) ready.push({ id: sec.id, label });
+            }
+          }
+          if (ready.length > 0) {
+            alerts.push({
+              id: "signoff_ready",
+              severity: "info",
+              kind: "ready_to_finalize",
+              title: `${ready.length} section${ready.length === 1 ? "" : "s"} ready to finalize`,
+              body: `All subject columns signed off in ${ready.map((r) => r.label).slice(0, 4).join(", ")}${ready.length > 4 ? "…" : ""} — finalize from the tabulation sheet.`,
+              actionLabel: "Open tabulation",
+              actionPath: `/school/orgs/${orgId}/admin/assessment/tabulation?sectionId=${ready[0].id}`,
+            });
+          }
+          if (pending.length > 0) {
+            alerts.push({
+              id: "signoff_pending",
+              severity: "info",
+              kind: "signoffs_pending",
+              title: `${pending.length} section${pending.length === 1 ? "" : "s"} awaiting marks sign-off`,
+              body: `Subject columns confirmed: ${pending.slice(0, 5).join(" · ")}${pending.length > 5 ? " …" : ""}`,
+              actionLabel: "Open tabulation",
+              actionPath: `/school/orgs/${orgId}/admin/assessment/tabulation`,
+            });
+          }
+        }
+      }
+    } catch (e) {
+      console.error("[dashboard] sign-off alerts failed:", e);
+    }
+
     // Sort by severity (critical > warning > info), cap to 8.
     const sevRank = { critical: 0, warning: 1, info: 2 } as const;
     alerts.sort((a, b) => sevRank[a.severity] - sevRank[b.severity]);
@@ -1798,6 +1907,7 @@ export function installDashboard(school: Hono): void {
         nameById.set(s.id, { name: s.full_name, gr: s.gr_number ?? null });
       }
     }
+
 
     return c.json({
       threshold,

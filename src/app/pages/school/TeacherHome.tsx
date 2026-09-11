@@ -33,6 +33,7 @@ import {
   getSectionsLeaderboard,
   getMySectionSubjects,
   getMyExamMarksTodo,
+  type MyMarksSignOff,
   listHifzGroups,
   listStudents,
   type HifzGroup,
@@ -146,6 +147,7 @@ export function TeacherHome({ orgId, me }: Props) {
   // Exam columns this teacher still owes marks for (window open,
   // column incomplete) — the nudge chips on the subject cards below.
   const [marksTodos, setMarksTodos] = useState<MyExamMarksTodo[]>([]);
+  const [signOffs, setSignOffs] = useState<MyMarksSignOff[]>([]);
   const [snapshot, setSnapshot] = useState<TeacherSnapshot | null>(null);
   const [todayCells, setTodayCells] = useState<MyTimetableCell[]>([]);
   const [upcoming, setUpcoming] = useState<import("../../../utils/schoolApi").LessonPrepItem[] | null>(null);
@@ -219,7 +221,10 @@ export function TeacherHome({ orgId, me }: Props) {
       });
     getMyExamMarksTodo(orgId)
       .then((r) => {
-        if (!cancelled) setMarksTodos(r.todos ?? []);
+        if (!cancelled) {
+          setMarksTodos(r.todos ?? []);
+          setSignOffs(r.signOffs ?? []);
+        }
       })
       .catch(() => {
         /* older server / no exams — chips just don't show */
@@ -452,15 +457,62 @@ export function TeacherHome({ orgId, me }: Props) {
       )}
 
 
-      {/* Sections needing attention — surfaced near the top so a teacher
-          sees what's slipping before scrolling past today's plan. */}
-      {sectionsToWatch.length > 0 && (
+      {/* Needs attention — one list, surfaced near the top so a teacher
+          sees what needs THEIR hand before scrolling past today's plan:
+          marks still to enter, columns done but unsigned, and sections
+          whose attendance is slipping (Muneeb, 12 Sep). */}
+      {(sectionsToWatch.length > 0 || marksTodos.length > 0 || signOffs.length > 0) && (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
             {t("teacherHome.needsAttention")}
           </h2>
           <div className="rounded-xl border border-slate-200 bg-white">
             <ul className="divide-y divide-slate-100">
+              {marksTodos.map((td) => (
+                <li key={`todo-${td.examId}-${td.classSectionId}-${td.classSubjectId}`}>
+                  <Link
+                    to={`/school/orgs/${orgId}/admin/assessment/exams/${td.examId}/marks?sectionId=${td.classSectionId}`}
+                    className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-slate-900">
+                        {t("teacherHome.attnEnterMarks", {
+                          exam: td.examName.replace(/^.*?—\s*/, "") || td.examName,
+                          subject: td.subjectName,
+                        })}
+                      </div>
+                      <div className="mt-0.5 text-xs text-slate-500">
+                        {td.sectionLabel ? `${td.sectionLabel} · ` : ""}
+                        {td.marked}/{td.studentCount}
+                      </div>
+                    </div>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+                  </Link>
+                </li>
+              ))}
+              {signOffs.map((so) => (
+                <li key={`sign-${so.classSectionId}-${so.classSubjectId}`}>
+                  <Link
+                    to={
+                      so.examId
+                        ? `/school/orgs/${orgId}/admin/assessment/exams/${so.examId}/marks?sectionId=${so.classSectionId}`
+                        : `/school/orgs/${orgId}/sections/${so.classSectionId}`
+                    }
+                    className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-emerald-800">
+                        {t("teacherHome.attnSignOff", { subject: so.subjectName })}
+                      </div>
+                      <div className="mt-0.5 text-xs text-slate-500">
+                        {so.sectionLabel ? `${so.sectionLabel} · ` : ""}
+                        {t("teacherHome.attnSignOffHint")}
+                      </div>
+                    </div>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+                  </Link>
+                </li>
+              ))}
               {sectionsToWatch.map((s) => (
                 <li key={s.sectionId}>
                   <Link

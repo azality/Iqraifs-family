@@ -685,14 +685,26 @@ export interface MyExamMarksTodo {
   examId: string;
   examName: string;
   classSectionId: string;
+  /** "Class IV A" — server >= v1.1.57. */
+  sectionLabel?: string;
   classSubjectId: string;
   subjectName: string;
   marked: number;
   studentCount: number;
 }
+/** "Column complete but unsigned" — the green-check nudge. */
+export interface MyMarksSignOff {
+  termId: string;
+  /** The latest applicable exam — where the sign-off button lives. */
+  examId: string | null;
+  classSectionId: string;
+  sectionLabel?: string;
+  classSubjectId: string;
+  subjectName: string;
+}
 export const getMyExamMarksTodo = (
   orgId: string,
-): Promise<{ todos: MyExamMarksTodo[] }> =>
+): Promise<{ todos: MyExamMarksTodo[]; signOffs?: MyMarksSignOff[] }> =>
   apiCall(`/school/orgs/${orgId}/me/exam-marks-todo`);
 
 // --- Teacher snapshot (Phase 6b) ----------------------------------------
