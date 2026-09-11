@@ -67,6 +67,40 @@ function cellMax(
 const AUTOSAVE_DELAY_MS = 1500;
 type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "error";
 
+/** The bulk-save payload for one cells map. Stores the max the teacher
+ *  actually saw — their own override, else the school's total for this
+ *  paper — but only on cells that HOLD something: stamping a max onto
+ *  every empty cell is what froze old defaults into the sheet and
+ *  buried the school's distribution when it arrived later. Subjects
+ *  hidden on this paper are not sent at all, so their rows are never
+ *  disturbed. Shared by save and by "discard this session" (which
+ *  saves the opening snapshot instead of the edits). */
+function buildSheetRows(
+  s: MarksSheetResponse,
+  subs: MarksSheetResponse["subjects"],
+  cs: Map<string, CellState>,
+  paper: "oral" | "written" | null,
+): any[] {
+  const rows: any[] = [];
+  for (const stu of s.students) {
+    for (const subj of subs) {
+      const c = cs.get(`${stu.id}:${subj.id}`) ?? { obtained: "", maxOverride: "", absent: false };
+      const subjTotal = subjectMaxForPaper(subj.assessmentWeights, paper);
+      const holds = c.absent || c.obtained !== "" || c.maxOverride !== "";
+      rows.push({
+        studentId: stu.id,
+        classSubjectId: subj.id,
+        maxMarks: holds
+          ? c.maxOverride || (subjTotal !== null ? String(subjTotal) : null)
+          : null,
+        obtainedMarks: c.absent ? null : (c.obtained || null),
+        absent: c.absent,
+      });
+    }
+  }
+  return rows;
+}
+
 export function MarksEntry() {
   const { orgId = "", examId = "" } = useParams<{ orgId: string; examId: string }>();
   // ?sectionId= — the teacher-facing front door: the Homework & tests
@@ -142,6 +176,13 @@ export function MarksEntry() {
   const [error, setError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [savedAt, setSavedAt] = useState<string | null>(null);
+  // The sheet as it looked when opened, and whether anything has been
+  // written to the server since. Together they power "Discard this
+  // session": auto-save means closing the page discards nothing, so a
+  // trial run (Ambreen, 10 Sep) needs an explicit way back.
+  const baselineRef = useRef<{ cells: Map<string, CellState>; defaultMax: string } | null>(null);
+  const [savedThisSession, setSavedThisSession] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
 
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
@@ -188,6 +229,12 @@ export function MarksEntry() {
           }
         }
         setCells(next);
+        // Snapshot of the sheet AS OPENED — "Discard this session" puts
+        // the server back to exactly this, undoing anything auto-save
+        // already wrote (Ambreen's trial 20s were auto-saved within
+        // seconds; closing the tab discarded nothing).
+        baselineRef.current = { cells: new Map(next), defaultMax: stateRef.current.defaultMax };
+        setSavedThisSession(false);
         setError(null);
         setSaveStatus("idle");
         setSavedAt(null);
@@ -252,30 +299,7 @@ export function MarksEntry() {
           }
         }
       }
-      // Store the max the teacher actually saw: their own override, else
-      // the school's total for this subject on this paper, else the
-      // sheet default (sent separately as `defaults`). But only on cells
-      // that HOLD something — stamping a max onto every empty cell is
-      // what froze old defaults into the sheet and buried the school's
-      // distribution when it arrived later. Subjects hidden on this
-      // paper are not sent at all, so their rows are never disturbed.
-      for (const stu of s.students) {
-        for (const subj of subs) {
-          const key = `${stu.id}:${subj.id}`;
-          const c = cs.get(key) ?? { obtained: "", maxOverride: "", absent: false };
-          const subjTotal = subjectMaxForPaper(subj.assessmentWeights, paper);
-          const holds = c.absent || c.obtained !== "" || c.maxOverride !== "";
-          rows.push({
-            studentId: stu.id,
-            classSubjectId: subj.id,
-            maxMarks: holds
-              ? c.maxOverride || (subjTotal !== null ? String(subjTotal) : null)
-              : null,
-            obtainedMarks: c.absent ? null : (c.obtained || null),
-            absent: c.absent,
-          });
-        }
-      }
+      rows.push(...buildSheetRows(s, subs, cs, paper));
       const def = Number(dm);
       await saveMarksSheet(orgId, examId, {
         sectionId: sid,
@@ -283,7 +307,38 @@ export function MarksEntry() {
         rows,
       });
       setSavedAt(new Date().toLocaleTimeString());
+      setSavedThisSession(true);
       setSaveStatus("saved");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setSaveStatus("error");
+    }
+  }, [orgId, examId]);
+
+  // "Discard this session": write the OPENING snapshot back to the
+  // server, undoing everything typed (and auto-saved) since the sheet
+  // loaded. Nothing that was already on the sheet when it opened is
+  // touched — this is an undo of the visit, not a wipe.
+  const discardSession = useCallback(async () => {
+    const base = baselineRef.current;
+    const { sheet: s, sectionId: sid, visibleSubjects: subs } = stateRef.current;
+    if (!base || !s || !sid) return;
+    setConfirmDiscard(false);
+    setSaveStatus("saving");
+    setError(null);
+    try {
+      const paper = paperOfExamName(s.exam?.name);
+      const def = Number(base.defaultMax);
+      await saveMarksSheet(orgId, examId, {
+        sectionId: sid,
+        defaults: Number.isFinite(def) && def > 0 ? { maxMarks: def } : undefined,
+        rows: buildSheetRows(s, subs, base.cells, paper),
+      });
+      setCells(new Map(base.cells));
+      setDefaultMax(base.defaultMax);
+      setSavedThisSession(false);
+      setSavedAt(null);
+      setSaveStatus("idle");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setSaveStatus("error");
@@ -435,6 +490,34 @@ export function MarksEntry() {
         </Link>
         <div className="flex items-center gap-2">
           {statusPill()}
+          {/* Auto-save means closing the page keeps everything, so a
+              trial run needs an explicit way back: restore the sheet to
+              how it looked when opened. Two clicks — the first only
+              arms the red confirm — because this rewinds saved data. */}
+          {(savedThisSession || saveStatus === "dirty" || saveStatus === "saving") && sheet && (
+            confirmDiscard ? (
+              <>
+                <Button
+                  size="sm" variant="destructive"
+                  onClick={() => void discardSession()}
+                  disabled={saveStatus === "saving"}
+                >
+                  Yes — undo everything from this visit
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setConfirmDiscard(false)}>
+                  Keep
+                </Button>
+              </>
+            ) : (
+              <Button
+                size="sm" variant="outline"
+                className="text-rose-700 border-rose-200 hover:bg-rose-50"
+                onClick={() => setConfirmDiscard(true)}
+              >
+                Discard this session
+              </Button>
+            )
+          )}
           <Button size="sm" onClick={() => void doSave()} disabled={saveStatus === "saving" || !sheet}>
             <Save className="h-3.5 w-3.5 mr-1" /> Save now
           </Button>
