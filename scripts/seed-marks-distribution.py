@@ -95,14 +95,22 @@ PLAN = {
 #                    conversation")
 #   Sindhi         : written 65 + dictation 5 + oral 5 - the same shape as
 #                    Urdu, which the school describes with the same words
-#   Science        : written 70 + oral 5, the oral being a presentation chart
+#   Maths          : written 60 + oral 15, the oral being "Mind Maths"
+#   Computer       : written 65 + oral 10 (viva)
+#   Science        : split by class (Ambreen's correction, 11 Sep) -
+#                    IV-V sit a single written paper of 75, no oral;
+#                    VI-VII keep written 70 + a 5-mark presentation chart
 SINDHI_47 = W(65, 5, dictation=5)
 ENGLISH_47 = W(60, 10, dictation=5)
-SCIENCE_47 = W(70, 5, labels=("Written", "Oral (presentation chart)", "Dictation"))
+MATHS_47 = W(60, 15, labels=("Written", "Oral (Mind Maths)", "Dictation"))
+COMPUTER_47 = W(65, 10, labels=("Written", "Oral (viva)", "Dictation"))
+SCIENCE_67 = W(70, 5, labels=("Written", "Oral (presentation chart)", "Dictation"))
 for _cls in ["Class IV", "Class V", "Class VI", "Class VII"]:
     PLAN.setdefault(_cls, {}).update({
         "Urdu": URDU_47, "Islamiyat": W(65, 10), "Social Studies": W(65, 10),
-        "English": ENGLISH_47, "Sindhi": SINDHI_47, "Science": SCIENCE_47,
+        "English": ENGLISH_47, "Sindhi": SINDHI_47,
+        "Maths": MATHS_47, "Computer": COMPUTER_47,
+        "Science": SCIENCE_67 if _cls in ("Class VI", "Class VII") else WRITTEN(75),
     })
 
 # ---------------------------------------------------------------- Senior
