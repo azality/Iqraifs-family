@@ -91,6 +91,23 @@ export function MarksEntry() {
     }
     return m;
   }, [sheet]);
+  // Only subjects EXAMINED on this paper get a column. Quran carries 50
+  // oral marks and nothing written; Science IV–V is written-only — their
+  // columns on the other paper invited marks the school never set
+  // ("I see Quran in written", Ambreen, 11 Sep). A subject with no
+  // marks-based distribution at all keeps its column on both papers,
+  // exactly as before; hidden subjects' saved rows are never touched.
+  const visibleSubjects = useMemo(() => {
+    const subs = sheet?.subjects ?? [];
+    const paper = paperOfExamName(sheet?.exam?.name);
+    if (!paper) return subs;
+    const other = paper === "oral" ? "written" : "oral";
+    return subs.filter(
+      (s) =>
+        subjectMaxForPaper(s.assessmentWeights, paper) !== null ||
+        subjectMaxForPaper(s.assessmentWeights, other) === null,
+    );
+  }, [sheet]);
   // Map of `${studentId}:${classSubjectId}` → cell.
   const [cells, setCells] = useState<Map<string, CellState>>(new Map());
   const [loading, setLoading] = useState(false);
@@ -171,25 +188,51 @@ export function MarksEntry() {
   // ─── Save (manual + debounced auto-save) ─────────────────────────
   // Latest-state ref so the debounced callback sees the freshest data
   // without re-creating itself every keystroke.
-  const stateRef = useRef({ sheet, cells, defaultMax, sectionId });
-  stateRef.current = { sheet, cells, defaultMax, sectionId };
+  const stateRef = useRef({ sheet, cells, defaultMax, sectionId, visibleSubjects });
+  stateRef.current = { sheet, cells, defaultMax, sectionId, visibleSubjects };
 
   const doSave = useCallback(async () => {
-    const { sheet: s, cells: cs, defaultMax: dm, sectionId: sid } = stateRef.current;
+    const { sheet: s, cells: cs, defaultMax: dm, sectionId: sid, visibleSubjects: subs } = stateRef.current;
     if (!s || !sid) return;
     setSaveStatus("saving");
     setError(null);
     try {
       const rows: any[] = [];
+      const paper = paperOfExamName(s.exam?.name);
+      // One bad cell fails the whole bulk save server-side, with a
+      // message that names ids rather than people ("save nahi horahey",
+      // Ambreen, 11 Sep — a stray value in one Science cell blocked the
+      // sheet). Catch it here and point at the actual cell.
+      for (const stu of s.students) {
+        for (const subj of subs) {
+          const c = cs.get(`${stu.id}:${subj.id}`);
+          if (!c) continue;
+          const cellName = `${stu.fullName} — ${subj.name}`;
+          const mo = c.maxOverride === "" ? null : Number(c.maxOverride);
+          if (mo !== null && (!Number.isFinite(mo) || mo <= 0)) {
+            throw new Error(`${cellName}: the max (the small box) must be a positive number, got "${c.maxOverride}". Clear it to use the paper's own total.`);
+          }
+          if (!c.absent && c.obtained !== "") {
+            const ob = Number(c.obtained);
+            if (!Number.isFinite(ob) || ob < 0) {
+              throw new Error(`${cellName}: marks must be 0 or more, got "${c.obtained}".`);
+            }
+            const mx = cellMax(c.maxOverride, subjectMaxForPaper(subj.assessmentWeights, paper), dm);
+            if (Number.isFinite(mx) && mx > 0 && ob > mx) {
+              throw new Error(`${cellName}: ${ob} is more than this paper's /${mx}.`);
+            }
+          }
+        }
+      }
       // Store the max the teacher actually saw: their own override, else
       // the school's total for this subject on this paper, else the
       // sheet default (sent separately as `defaults`). But only on cells
       // that HOLD something — stamping a max onto every empty cell is
       // what froze old defaults into the sheet and buried the school's
-      // distribution when it arrived later.
-      const paper = paperOfExamName(s.exam?.name);
+      // distribution when it arrived later. Subjects hidden on this
+      // paper are not sent at all, so their rows are never disturbed.
       for (const stu of s.students) {
-        for (const subj of s.subjects) {
+        for (const subj of subs) {
           const key = `${stu.id}:${subj.id}`;
           const c = cs.get(key) ?? { obtained: "", maxOverride: "", absent: false };
           const subjTotal = subjectMaxForPaper(subj.assessmentWeights, paper);
@@ -238,14 +281,14 @@ export function MarksEntry() {
   const focusCell = (rowIdx: number, colIdx: number) => {
     if (!sheet) return;
     const r = Math.max(0, Math.min(sheet.students.length - 1, rowIdx));
-    const c = Math.max(0, Math.min(sheet.subjects.length - 1, colIdx));
+    const c = Math.max(0, Math.min(visibleSubjects.length - 1, colIdx));
     const el = inputRefs.current.get(`${r}:${c}`);
     if (el) { el.focus(); el.select(); }
   };
   const onCellKeyDown = (rowIdx: number, colIdx: number) =>
     (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (!sheet) return;
-      const lastCol = sheet.subjects.length - 1;
+      const lastCol = visibleSubjects.length - 1;
       const lastRow = sheet.students.length - 1;
       if (e.key === "Tab") {
         e.preventDefault();
@@ -291,9 +334,9 @@ export function MarksEntry() {
             const targetRow = rowIdx + ri;
             const targetCol = colIdx + ci;
             if (targetRow > sheet.students.length - 1) continue;
-            if (targetCol > sheet.subjects.length - 1) continue;
+            if (targetCol > visibleSubjects.length - 1) continue;
             const stuId = sheet.students[targetRow].id;
-            const subjId = sheet.subjects[targetCol].id;
+            const subjId = visibleSubjects[targetCol].id;
             const k = `${stuId}:${subjId}`;
             const cur = next.get(k) ?? { obtained: "", maxOverride: "", absent: false };
             const raw = grid[ri][ci].trim();
@@ -316,7 +359,7 @@ export function MarksEntry() {
     const m = new Map<string, { obtained: number; max: number; pct: number | null }>();
     for (const stu of sheet.students) {
       let obt = 0, max = 0, any = false;
-      for (const subj of sheet.subjects) {
+      for (const subj of visibleSubjects) {
         const c = cells.get(`${stu.id}:${subj.id}`);
         if (!c || c.absent || !c.obtained) continue;
         const o = Number(c.obtained);
@@ -327,7 +370,7 @@ export function MarksEntry() {
       m.set(stu.id, { obtained: obt, max, pct: any && max > 0 ? (obt / max) * 100 : null });
     }
     return m;
-  }, [sheet, cells, defaultMax, subjectMax]);
+  }, [sheet, cells, defaultMax, subjectMax, visibleSubjects]);
 
   if (meLoading) return null;
   // Admins browse any section; teachers arrive via the section deep
@@ -412,7 +455,7 @@ export function MarksEntry() {
         <Card><CardContent className="p-4 text-sm text-slate-500 italic">
           No students in this section.
         </CardContent></Card>
-      ) : sheet.subjects.length === 0 ? (
+      ) : visibleSubjects.length === 0 ? (
         <Card><CardContent className="p-4 text-sm text-slate-500 italic">
           No subjects defined for this class — add them under class settings first.
         </CardContent></Card>
@@ -428,7 +471,7 @@ export function MarksEntry() {
             <thead className="bg-slate-50 text-slate-700">
               <tr>
                 <th className="text-left px-2 py-2 sticky left-0 bg-slate-50 z-10">Student</th>
-                {sheet.subjects.map((s) => (
+                {visibleSubjects.map((s) => (
                   <th key={s.id} className="text-center px-2 py-2 min-w-[120px]">
                     {s.name}
                     {(() => {
@@ -466,7 +509,7 @@ export function MarksEntry() {
                         {stu.rollNumber ? `Roll ${stu.rollNumber} · ` : ""}{stu.grNumber}
                       </div>
                     </td>
-                    {sheet.subjects.map((subj, colIdx) => {
+                    {visibleSubjects.map((subj, colIdx) => {
                       const key = `${stu.id}:${subj.id}`;
                       const c = cells.get(key) ?? { obtained: "", maxOverride: "", absent: false };
                       const mx = cellMax(c.maxOverride, subjectMax.get(subj.id) ?? null, defaultMax);
@@ -484,8 +527,21 @@ export function MarksEntry() {
                               onPaste={onCellPaste(rowIdx, colIdx)}
                               disabled={c.absent}
                               placeholder="—"
-                              className="h-7 w-14 text-center text-xs rounded-md border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-400 disabled:bg-slate-50 disabled:text-slate-400"
-                              type="number" inputMode="numeric"
+                              // Over-max or negative marks turn the cell red
+                              // BEFORE save — the server would refuse the
+                              // whole sheet over one such cell.
+                              className={
+                                "h-7 w-14 text-center text-xs rounded-md border focus:outline-none focus:ring-1 disabled:bg-slate-50 disabled:text-slate-400 " +
+                                (ob !== null && (ob < 0 || (Number.isFinite(mx) && mx > 0 && ob > mx))
+                                  ? "border-rose-400 text-rose-700 focus:ring-rose-400"
+                                  : "border-slate-200 focus:ring-indigo-400")
+                              }
+                              // type="text" (numeric keypad on mobile), NOT
+                              // type="number": the number spinner let arrow
+                              // keys and stray clicks walk a cell to values
+                              // like -2 ("the up and down arrow are not
+                              // behaving", Ambreen, 11 Sep).
+                              type="text" inputMode="numeric"
                               // Block default Tab order from reaching the
                               // max-override + absent checkbox so the
                               // sheet feels Excel-like.
@@ -504,7 +560,7 @@ export function MarksEntry() {
                               // two-digit max clipped to one digit — "25"
                               // read as "2" (Ambreen's photo, 11 Sep).
                               className="h-7 w-12 px-1 text-center text-xs md:text-xs text-slate-500"
-                              type="number" inputMode="numeric"
+                              type="text" inputMode="numeric"
                               tabIndex={-1}
                             />
                           </div>
