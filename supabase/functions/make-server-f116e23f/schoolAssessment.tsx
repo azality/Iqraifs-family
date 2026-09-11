@@ -27,8 +27,23 @@
 
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
-import { hasAnyRoleInOrg as hasAnyOrgRole, hasAdminOrPrincipal as isAdminOrPrincipal } from "./schoolAuth.ts";
+import { hasAnyRoleInOrg as hasAnyOrgRole, hasAdminOrPrincipal as isAdminOrPrincipal, isInchargeInOrg } from "./schoolAuth.ts";
 import { orgTimezone, todayInOrgTz } from "./tz.ts";
+import * as kv from "./kv_store.tsx";
+
+// Per-subject "my column is complete" sign-off, one small map per
+// (term, section): { [classSubjectId]: { by, byName, at } }. Lives in
+// the kv store because this codebase has no migration path to the live
+// database from here - it is tiny, single-writer metadata, and the two
+// helpers below are the only code that knows where it lives, so moving
+// it into a real table later is a two-function change.
+const confirmKey = (termId: string, sectionId: string) =>
+  `school:marksconfirm:${termId}:${sectionId}`;
+async function readConfirmations(termId: string, sectionId: string):
+  Promise<Record<string, { by: string; byName: string; at: string }>> {
+  try { return (await kv.get(confirmKey(termId, sectionId))) ?? {}; }
+  catch { return {}; }
+}
 
 // Which subject columns this caller may edit in this section.
 // null = ALL (admin/principal/class teacher — they own the section);
@@ -237,10 +252,21 @@ export function installAssessment(school: Hono): void {
     }
     const { data: sec } = await serviceRoleClient
       .from("class_section")
-      .select("id, name, class:class_id(id, name, org_id)")
+      .select("id, name, class_teacher_user_id, hifz_teacher_user_id, class:class_id(id, name, org_id)")
       .eq("id", sectionId).maybeSingle();
     if (!sec || (sec as any).class?.org_id !== orgId) {
       return c.json({ error: "section not found" }, 404);
+    }
+    // The register is for the office and the section's own teacher.
+    // Subject teachers deliberately do NOT get it - they see only their
+    // own column on the marks sheets (the Rizwana rule), and their
+    // sign-off lives there too.
+    const isOffice = await isAdminOrPrincipal(userId, orgId);
+    const isSectionTeacher =
+      (sec as any).class_teacher_user_id === userId ||
+      (sec as any).hifz_teacher_user_id === userId;
+    if (!isOffice && !isSectionTeacher && !(await isInchargeInOrg(userId, orgId))) {
+      return c.json({ error: "the tabulation sheet is for the office, the incharge and the class teacher" }, 403);
     }
 
     let termId = c.req.query("termId") ?? "";
@@ -367,13 +393,160 @@ export function installAssessment(school: Hono): void {
       posByStudent.set(r.studentId, pos);
     });
 
+    // Sign-offs and the finalize/publish state, so the register shows
+    // where the term stands: which columns are confirmed, how many
+    // report cards are finalized and published.
+    const confirmations = await readConfirmations(termId, sectionId);
+    let finalizedCount = 0, publishedCount = 0;
+    if (stuIds.length) {
+      const { data: cards } = await serviceRoleClient
+        .from("term_report_card")
+        .select("student_id, finalized_at, published_at")
+        .eq("term_id", termId).in("student_id", stuIds);
+      for (const cRow of (cards ?? []) as any[]) {
+        if (cRow.finalized_at) finalizedCount++;
+        if (cRow.published_at) publishedCount++;
+      }
+    }
+
     return c.json({
       section: { id: (sec as any).id, name: (sec as any).name, className: (sec as any).class.name },
       term: { id: (term as any).id, name: (term as any).name },
       exams: examList.map((e) => ({ id: e.id, name: e.name, weight: Number(e.weight) || 1 })),
       subjects: subjectCols,
       students: rows.map((r) => ({ ...r, position: posByStudent.get(r.studentId) ?? null })),
+      confirmations,
+      reportCards: { studentCount: stuList.length, finalizedCount, publishedCount },
+      canFinalize: isOffice,
     });
+  });
+
+  // ---------------------------------------------------------------------
+  // POST /orgs/:orgId/sections/:sectionId/subjects/:subjectId/marks-confirmation
+  // Body: { termId?, confirmed: boolean }
+  //
+  // The subject teacher's green check: "my column for this term is
+  // complete". Allowed for whoever may EDIT that column on the marks
+  // sheet - the subject's own teacher, the class teacher, the office -
+  // and recorded with name and time so the register shows who signed.
+  // ---------------------------------------------------------------------
+  school.post("/orgs/:orgId/sections/:sectionId/subjects/:subjectId/marks-confirmation", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const sectionId = c.req.param("sectionId");
+    const subjectId = c.req.param("subjectId");
+    if (!(await hasAnyOrgRole(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const editable = await editableSubjects(userId, orgId, sectionId);
+    if (editable !== null && !editable.has(subjectId)) {
+      return c.json({ error: "only the subject's own teacher (or the class teacher) can sign off this column" }, 403);
+    }
+    const body = await c.req.json().catch(() => ({}));
+    let termId = String(body.termId ?? "");
+    if (!termId) {
+      const { data: cur } = await serviceRoleClient
+        .from("academic_term").select("id").eq("org_id", orgId)
+        .eq("is_current", true).is("archived_at", null).maybeSingle();
+      termId = (cur as any)?.id ?? "";
+    }
+    if (!termId) return c.json({ error: "no current term" }, 400);
+    const { data: subj } = await serviceRoleClient
+      .from("class_subject").select("id, org_id").eq("id", subjectId).maybeSingle();
+    if (!subj || (subj as any).org_id !== orgId) {
+      return c.json({ error: "subject not found" }, 404);
+    }
+
+    const map = await readConfirmations(termId, sectionId);
+    if (body.confirmed === true) {
+      let byName = "";
+      try {
+        const { data: u } = await (serviceRoleClient as any).auth.admin.getUserById(userId);
+        byName = u?.user?.user_metadata?.name || u?.user?.email || "";
+      } catch { /* name is cosmetic */ }
+      map[subjectId] = { by: userId, byName, at: new Date().toISOString() };
+    } else {
+      delete map[subjectId];
+    }
+    await kv.set(confirmKey(termId, sectionId), map);
+    return c.json({ termId, confirmations: map });
+  });
+
+  // ---------------------------------------------------------------------
+  // POST /orgs/:orgId/sections/:sectionId/terms/:termId/report-cards/bulk
+  // Body: { action: "finalize" | "unfinalize" | "publish" | "unpublish" }
+  //
+  // The principal's end-of-term buttons, section-wide. Finalize marks
+  // every active student's report card signed-off AND locks the marks
+  // sheets for this term (the marks-sheet save refuses finalized
+  // students). Publish makes the cards visible in the parent portal -
+  // only cards that are finalized. Unfinalize reopens the term and,
+  // because a visible-but-reopened card would mislead parents, also
+  // unpublishes. Admin/principal only.
+  // ---------------------------------------------------------------------
+  school.post("/orgs/:orgId/sections/:sectionId/terms/:termId/report-cards/bulk", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const sectionId = c.req.param("sectionId");
+    const termId = c.req.param("termId");
+    if (!(await isAdminOrPrincipal(userId, orgId))) {
+      return c.json({ error: "finalize and publish are for the office" }, 403);
+    }
+    const body = await c.req.json().catch(() => ({}));
+    const action = String(body.action ?? "");
+    if (!["finalize", "unfinalize", "publish", "unpublish"].includes(action)) {
+      return c.json({ error: "action must be finalize | unfinalize | publish | unpublish" }, 400);
+    }
+    const { data: sec } = await serviceRoleClient
+      .from("class_section").select("id, class:class_id(org_id)").eq("id", sectionId).maybeSingle();
+    if (!sec || (sec as any).class?.org_id !== orgId) {
+      return c.json({ error: "section not found" }, 404);
+    }
+    const { data: term } = await serviceRoleClient
+      .from("academic_term").select("id, org_id").eq("id", termId).maybeSingle();
+    if (!term || (term as any).org_id !== orgId) {
+      return c.json({ error: "term not found" }, 404);
+    }
+    const { data: students } = await serviceRoleClient
+      .from("student").select("id")
+      .eq("class_section_id", sectionId).eq("status", "active");
+    const ids = ((students ?? []) as any[]).map((s) => s.id);
+    if (!ids.length) return c.json({ ok: true, action, updated: 0, studentCount: 0 });
+
+    const now = new Date().toISOString();
+    let updated = 0;
+    if (action === "finalize") {
+      // Ensure a card row per student, then stamp them all.
+      for (const sid of ids) {
+        const { error } = await serviceRoleClient
+          .from("term_report_card")
+          .upsert(
+            { org_id: orgId, student_id: sid, term_id: termId, finalized_at: now },
+            { onConflict: "student_id,term_id" },
+          );
+        if (!error) updated++;
+      }
+    } else if (action === "unfinalize") {
+      const { data } = await serviceRoleClient
+        .from("term_report_card")
+        .update({ finalized_at: null, published_at: null })
+        .eq("term_id", termId).in("student_id", ids).select("id");
+      updated = (data ?? []).length;
+    } else if (action === "publish") {
+      const { data } = await serviceRoleClient
+        .from("term_report_card")
+        .update({ published_at: now })
+        .eq("term_id", termId).in("student_id", ids)
+        .not("finalized_at", "is", null).select("id");
+      updated = (data ?? []).length;
+    } else {
+      const { data } = await serviceRoleClient
+        .from("term_report_card")
+        .update({ published_at: null })
+        .eq("term_id", termId).in("student_id", ids).select("id");
+      updated = (data ?? []).length;
+    }
+    return c.json({ ok: true, action, updated, studentCount: ids.length });
   });
 
   school.get("/orgs/:orgId/exam-schedule", async (c) => {
@@ -943,12 +1116,19 @@ export function installAssessment(school: Hono): void {
     // stores a per-paper total ("English oral 15, written 60"), and the
     // client uses it as each column's max.
     const { data: examRow } = await serviceRoleClient
-      .from("exam").select("id, name, exam_type").eq("id", examId).maybeSingle();
+      .from("exam").select("id, name, exam_type, term_id").eq("id", examId).maybeSingle();
+    const sheetTermId = (examRow as any)?.term_id ?? null;
+    const confirmations = sheetTermId
+      ? await readConfirmations(sheetTermId, sectionId)
+      : {};
 
     return c.json({
       exam: examRow
-        ? { id: (examRow as any).id, name: (examRow as any).name, examType: (examRow as any).exam_type }
+        ? { id: (examRow as any).id, name: (examRow as any).name, examType: (examRow as any).exam_type, termId: sheetTermId }
         : null,
+      // Which subject columns are signed off for this exam's TERM (the
+      // sign-off covers both papers at once).
+      confirmations,
       section: { id: section.id, name: (section as any).name, className: (section as any).class.name },
       subjects: visibleSubjects.map((s) => ({
         id: s.id,
@@ -995,9 +1175,28 @@ export function installAssessment(school: Hono): void {
     }
 
     const { data: exam } = await serviceRoleClient
-      .from("exam").select("org_id").eq("id", examId).maybeSingle();
+      .from("exam").select("org_id, term_id").eq("id", examId).maybeSingle();
     if (!exam || (exam as any).org_id !== orgId) {
       return c.json({ error: "exam not found" }, 404);
+    }
+
+    // A finalized term is CLOSED: its marks no longer move. The bulk
+    // finalize on the tabulation sheet locks the whole section at once;
+    // a per-student finalize locks that child's row the same way.
+    const rowsIn = Array.isArray(body.rows) ? body.rows : [];
+    const lockIds = [...new Set(rowsIn.map((r: any) => String(r.studentId ?? "")).filter(Boolean))];
+    if ((exam as any).term_id && lockIds.length) {
+      const { data: locked } = await serviceRoleClient
+        .from("term_report_card").select("student_id")
+        .eq("term_id", (exam as any).term_id)
+        .in("student_id", lockIds)
+        .not("finalized_at", "is", null)
+        .limit(1);
+      if (locked?.length) {
+        return c.json({
+          error: "This term is finalized — marks are locked. Unfinalize from the tabulation sheet to make a correction.",
+        }, 409);
+      }
     }
 
     const defaultsMax = body.defaults?.maxMarks ? Number(body.defaults.maxMarks) : null;

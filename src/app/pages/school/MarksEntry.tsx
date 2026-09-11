@@ -31,7 +31,7 @@ import {
 import {
   getSchoolMe, isOrgAdmin,
   listClasses,
-  getMarksSheet, saveMarksSheet,
+  getMarksSheet, saveMarksSheet, setMarksConfirmation,
   subjectMaxForPaper, paperOfExamName,
   type AdminClass, type AssessmentWeight,
   type MarksSheetResponse, type SchoolMeResponse,
@@ -170,6 +170,25 @@ export function MarksEntry() {
     ),
     [sheet, isOnThisPaper, subjectsHoldingMarks],
   );
+  // Per-subject "my column is complete" sign-off for this exam's term.
+  // Local mirror of sheet.confirmations so the check flips instantly.
+  const [confirmations, setConfirmations] = useState<Record<string, { by: string; byName: string; at: string }>>({});
+  const [confirmBusy, setConfirmBusy] = useState<string | null>(null);
+  const toggleConfirm = async (subjectId: string) => {
+    if (!sheet?.exam?.termId || !sectionId) return;
+    setConfirmBusy(subjectId);
+    try {
+      const r = await setMarksConfirmation(orgId, sectionId, subjectId, {
+        termId: sheet.exam.termId,
+        confirmed: !confirmations[subjectId],
+      });
+      setConfirmations(r.confirmations);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setConfirmBusy(null);
+    }
+  };
   // Map of `${studentId}:${classSubjectId}` → cell.
   const [cells, setCells] = useState<Map<string, CellState>>(new Map());
   const [loading, setLoading] = useState(false);
@@ -229,6 +248,7 @@ export function MarksEntry() {
           }
         }
         setCells(next);
+        setConfirmations(r.confirmations ?? {});
         // Snapshot of the sheet AS OPENED — "Discard this session" puts
         // the server back to exactly this, undoing anything auto-save
         // already wrote (Ambreen's trial 20s were auto-saved within
@@ -595,6 +615,34 @@ export function MarksEntry() {
                     }
                   >
                     {s.name}
+                    {/* The green check: "my column for this term is
+                        complete". Shown on every column the caller may
+                        edit (the server enforces the same rule) — the
+                        sign-off covers BOTH papers of the term at once,
+                        and the tabulation sheet displays who signed. */}
+                    {!stray && sheet.exam?.termId && (
+                      confirmations[s.id] ? (
+                        <button
+                          type="button"
+                          disabled={confirmBusy === s.id}
+                          onClick={() => void toggleConfirm(s.id)}
+                          className="mt-0.5 block mx-auto text-[10px] font-semibold normal-case text-emerald-700 hover:underline"
+                          title={`Confirmed by ${confirmations[s.id].byName || "a teacher"} — click to undo`}
+                        >
+                          ✓ Confirmed
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={confirmBusy === s.id}
+                          onClick={() => void toggleConfirm(s.id)}
+                          className="mt-0.5 block mx-auto text-[10px] font-normal normal-case text-slate-400 hover:text-emerald-700 hover:underline"
+                          title="Sign off this column for the term (covers oral + written)"
+                        >
+                          Mark column complete
+                        </button>
+                      )
+                    )}
                     {stray ? (
                       <div className="mt-0.5 text-[10px] font-normal normal-case text-amber-700">
                         Not on this paper — clear these to remove the column

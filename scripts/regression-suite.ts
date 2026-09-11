@@ -3783,6 +3783,149 @@ await check("76. tabulation sheet: papers combine per subject, with totals and p
   }
 });
 
+await check("77. marks sign-off: the subject's own teacher checks the column, others cannot; the register shows it", async () => {
+  // The green check (Muneeb, 12 Sep): a subject teacher signs "my
+  // column for this term is complete" from their own marks sheet; the
+  // tabulation register shows who signed. The Rizwana rule holds both
+  // ways: a teacher with no claim on the column gets 403, and a
+  // subject-only teacher cannot open the register at all.
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const t2 = await ensureUser("qa-teacher2@azality.com", "QA Teacher Two", "class_teacher");
+  const { data: term } = await admin.from("academic_term").select("id")
+    .eq("org_id", ORG).eq("is_current", true).is("archived_at", null).maybeSingle();
+  assert(term, "no current term");
+  const cleanup: Array<() => Promise<unknown>> = [];
+  try {
+    const { data: cs, error: csErr } = await admin.from("class_subject").insert({
+      org_id: ORG, class_id: sandboxClass.id, name: "QA Signoff Sub", sort_order: 970,
+      assessment_weights: [{ label: "Oral", marks: 20, paper: "oral" }],
+    }).select("id").single();
+    if (csErr) throw new Error(`subject: ${csErr.message}`);
+    cleanup.push(() => admin.from("class_subject").delete().eq("id", cs.id));
+    cleanup.push(() => admin.from("kv_store_f116e23f").delete()
+      .eq("key", `school:marksconfirm:${term!.id}:${sandboxSec.id}`));
+
+    const confirmUrl =
+      `/school/orgs/${ORG}/sections/${sandboxSec.id}/subjects/${cs.id}/marks-confirmation`;
+
+    // 1. A teacher with NO claim on the column: 403.
+    const no = await api(t2.token, confirmUrl, {
+      method: "POST", body: JSON.stringify({ termId: term!.id, confirmed: true }),
+    });
+    assert(no.status === 403, `stranger sign-off should 403, got ${no.status}`);
+
+    // 2. Assign t2 as the subject's teacher here -> the sign-off lands.
+    const { data: ss, error: ssErr } = await admin.from("section_subject").insert({
+      org_id: ORG, class_section_id: sandboxSec.id, class_subject_id: cs.id,
+      teacher_user_id: t2.id, name: "QA Signoff Sub",
+    }).select("id").single();
+    if (ssErr) throw new Error(`section_subject: ${ssErr.message}`);
+    cleanup.push(() => admin.from("section_subject").delete().eq("id", ss.id));
+    const yes = await api(t2.token, confirmUrl, {
+      method: "POST", body: JSON.stringify({ termId: term!.id, confirmed: true }),
+    });
+    const yesJ = await yes.json();
+    assert(yes.status === 200, `sign-off ${yes.status}`);
+    assert(yesJ.confirmations?.[cs.id]?.by === t2.id, "the check must record who signed");
+
+    // 3. The register shows it (as the office)...
+    const tabR = await api(admin2.token,
+      `/school/orgs/${ORG}/sections/${sandboxSec.id}/tabulation?termId=${term!.id}`);
+    const tabJ = await tabR.json();
+    assert(tabR.status === 200, `tabulation ${tabR.status}`);
+    assert(tabJ.confirmations?.[cs.id]?.by === t2.id, "the register must show the sign-off");
+    assert(tabJ.canFinalize === true, "the office can finalize");
+
+    // ...but the subject-only teacher cannot open the register.
+    const denied = await api(t2.token,
+      `/school/orgs/${ORG}/sections/${sandboxSec.id}/tabulation?termId=${term!.id}`);
+    assert(denied.status === 403, `subject teacher must not see the register, got ${denied.status}`);
+
+    // 4. Withdrawing the check removes it.
+    const undo = await api(t2.token, confirmUrl, {
+      method: "POST", body: JSON.stringify({ termId: term!.id, confirmed: false }),
+    });
+    const undoJ = await undo.json();
+    assert(undo.status === 200 && !undoJ.confirmations?.[cs.id], "unconfirm must clear the check");
+  } finally {
+    for (const fn of cleanup.reverse()) await fn();
+  }
+});
+
+await check("78. finalize locks the term's marks; publish needs finalize; unfinalize reopens", async () => {
+  // The principal's end-of-term buttons (Muneeb, 12 Sep): one click
+  // finalizes every report card in the section AND locks the marks
+  // sheets for that term; publish then shows the cards to parents;
+  // unfinalize reopens the term and pulls the cards back.
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const { data: term } = await admin.from("academic_term").select("id")
+    .eq("org_id", ORG).eq("is_current", true).is("archived_at", null).maybeSingle();
+  assert(term, "no current term");
+  const { data: sbStudents } = await admin.from("student").select("id")
+    .eq("class_section_id", sandboxSec.id).eq("status", "active");
+  const n = (sbStudents ?? []).length;
+  assert(n >= 1, "need sandbox students");
+  const stuA = sbStudents![0];
+  const { data: wrExam } = await admin.from("exam").select("id")
+    .eq("term_id", term!.id).ilike("name", "%Written%").is("archived_at", null).maybeSingle();
+  assert(wrExam, "no written exam in the current term");
+  const { data: cs } = await admin.from("class_subject").select("id")
+    .eq("class_id", sandboxClass.id).is("archived_at", null).limit(1).maybeSingle();
+  assert(cs, "need a sandbox subject");
+  const bulkUrl =
+    `/school/orgs/${ORG}/sections/${sandboxSec.id}/terms/${term!.id}/report-cards/bulk`;
+  const bulk = (action: string) => api(admin2.token, bulkUrl, {
+    method: "POST", body: JSON.stringify({ action }),
+  });
+  const saveMark = () => api(admin2.token, `/school/orgs/${ORG}/exams/${wrExam!.id}/marks-sheet`, {
+    method: "POST",
+    body: JSON.stringify({
+      sectionId: sandboxSec.id,
+      rows: [{ studentId: stuA.id, classSubjectId: cs!.id, maxMarks: 50, obtainedMarks: 30, absent: false }],
+    }),
+  });
+  const cleanup: Array<() => Promise<unknown>> = [];
+  cleanup.push(() => admin.from("term_report_card").delete()
+    .eq("term_id", term!.id).in("student_id", sbStudents!.map((x) => x.id)));
+  cleanup.push(() => admin.from("exam_subject_score").delete()
+    .eq("exam_id", wrExam!.id).eq("student_id", stuA.id));
+  try {
+    // 1. Finalize the section: every active student stamped.
+    const f = await bulk("finalize");
+    const fJ = await f.json();
+    assert(f.status === 200 && fJ.updated === n, `finalize ${f.status}: ${JSON.stringify(fJ)}`);
+
+    // 2. Marks are now locked for this term.
+    const locked = await saveMark();
+    const lockedJ = await locked.json();
+    assert(locked.status === 409, `finalized term must refuse marks, got ${locked.status}`);
+    assert(String(lockedJ.error).includes("finalized"), "the refusal must say why");
+
+    // 3. Publish: cards become parent-visible, only because finalized.
+    const pub = await bulk("publish");
+    const pubJ = await pub.json();
+    assert(pub.status === 200 && pubJ.updated === n, `publish ${JSON.stringify(pubJ)}`);
+    const tabJ = await (await api(admin2.token,
+      `/school/orgs/${ORG}/sections/${sandboxSec.id}/tabulation?termId=${term!.id}`)).json();
+    assert(tabJ.reportCards?.finalizedCount === n && tabJ.reportCards?.publishedCount === n,
+      `register must count ${n}/${n} finalized+published, got ${JSON.stringify(tabJ.reportCards)}`);
+
+    // 4. Unfinalize reopens the term - and pulls the cards back from
+    // parents (a visible-but-reopened card would mislead them).
+    const uf = await bulk("unfinalize");
+    assert(uf.status === 200, `unfinalize ${uf.status}`);
+    const { data: after } = await admin.from("term_report_card")
+      .select("finalized_at, published_at").eq("term_id", term!.id)
+      .in("student_id", sbStudents!.map((x) => x.id));
+    assert((after ?? []).every((r: any) => !r.finalized_at && !r.published_at),
+      "unfinalize must clear both stamps");
+    const open = await saveMark();
+    assert(open.status === 200, `reopened term must accept marks, got ${open.status}`);
+  } finally {
+    for (const fn of cleanup.reverse()) await fn();
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
