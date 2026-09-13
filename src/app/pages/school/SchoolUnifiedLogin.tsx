@@ -373,7 +373,15 @@ export function SchoolUnifiedLogin() {
         </div>
 
         <p className="mt-4 text-center text-xs text-slate-500">
-          Powered by iqraifs.com — {t("portal.loginIntro")}
+          <a
+            href="https://theilmnetwork.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium text-slate-600 hover:text-indigo-700 hover:underline"
+          >
+            {t("portal.poweredBy", { brand: "ILM Network" })}
+          </a>
+          {" — "}{t("portal.loginIntro")}
         </p>
       </div>
     </div>

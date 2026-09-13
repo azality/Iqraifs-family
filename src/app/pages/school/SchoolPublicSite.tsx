@@ -756,7 +756,7 @@ export function SchoolPublicSite() {
           </div>
           <div style={{ borderBlockStart: "1px solid rgba(250,246,238,0.12)", paddingBlockStart: 24, display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
             <span style={{ font: `400 13px/1.4 ${fontSans}`, color: "rgba(250,246,238,0.5)" }}>© {site.org.name} {new Date().getFullYear()} · All rights reserved</span>
-            <span style={{ font: `500 12px/1.4 ${fontSans}`, color: "rgba(250,246,238,0.4)", fontVariantNumeric: "tabular-nums" }}>iqraifs.com/{site.org.slug}</span>
+            <a href="https://theilmnetwork.com" target="_blank" rel="noopener noreferrer" style={{ font: `500 12px/1.4 ${fontSans}`, color: "rgba(250,246,238,0.55)", textDecoration: "none" }}>Powered by ILM Network</a>
           </div>
         </div>
       </footer>
