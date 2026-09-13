@@ -1,0 +1,34 @@
+{
+  // The ILM Network marketing site - theilmnetwork.com (13 Sep 2026).
+  //
+  // A SEPARATE Cloudflare Worker from the school app ("iqraifs", repo
+  // root wrangler.jsonc). Two projects on purpose: the pilot portal must
+  // never redeploy because marketing copy changed, and a bad marketing
+  // deploy must never be able to reach it. Nothing outside marketing/ is
+  // read by this project, and nothing in marketing/ is part of the app's
+  // Vite build or typecheck.
+  //
+  // Cloudflare dashboard setup (Workers & Pages -> Create -> Import a
+  // repository): project name "theilmnetwork" (MUST match "name" below),
+  // root directory "marketing", no build command, deploy command
+  // "npx wrangler deploy", production branch main.
+  "name": "theilmnetwork",
+  "compatibility_date": "2026-09-13",
+
+  // No public *.workers.dev copy of the site - same reasoning as iqraifs.
+  "workers_dev": false,
+
+  // Static files only; no Worker script.
+  "assets": {
+    "directory": "./public",
+    // /about serves about.html, so page URLs stay clean.
+    "html_handling": "auto-trailing-slash"
+  },
+
+  // Deploying attaches the domains and creates their DNS records; the
+  // zone is already Active in this Cloudflare account.
+  "routes": [
+    { "pattern": "theilmnetwork.com", "custom_domain": true },
+    { "pattern": "www.theilmnetwork.com", "custom_domain": true }
+  ]
+}
