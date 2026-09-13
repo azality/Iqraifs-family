@@ -13,6 +13,7 @@
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { setFavicon } from "../../../utils/favicon";
+import { schoolTabTitle } from "../../../utils/brand";
 import { useNavigate, useParams } from "react-router";
 import { GraduationCap, Eye, EyeOff } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -69,7 +70,7 @@ export function SchoolUnifiedLogin() {
         // Tab title = the school's name from the moment the login page
         // resolves (pilot feedback: "Family Growth System" is wrong here).
         const name = b?.name?.trim();
-        if (name) document.title = /iqra/i.test(name) ? name : `Iqra — ${name}`;
+        if (name) document.title = schoolTabTitle(name);
         if (b?.logoUrl) setFavicon(b.logoUrl);
       })
       .catch(() => {

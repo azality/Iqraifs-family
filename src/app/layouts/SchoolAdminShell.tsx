@@ -15,17 +15,18 @@ import { useEffect } from "react";
 import { Outlet } from "react-router";
 import { OrgBrandingProvider, useOrgBranding } from "../contexts/OrgBrandingContext";
 import { CmdKPalette } from "../components/school-ui/CmdKPalette";
+import { PLATFORM_NAME, schoolTabTitle } from "../../utils/brand";
 
 // Tab title = the school's own name while inside the school workspace
-// (pilot feedback: "Family Growth System" is wrong for a school user).
-// If the school's name doesn't already carry the Iqra brand, suffix it.
+// (pilot feedback: "Family Growth System" is wrong for a school user),
+// credited to the platform.
 function SchoolTabTitle() {
   const branding = useOrgBranding();
   useEffect(() => {
     const name = branding.schoolName?.trim();
     if (!name) return;
-    document.title = /iqra/i.test(name) ? name : `Iqra — ${name}`;
-    return () => { document.title = "Iqra — Islamic Family System"; };
+    document.title = schoolTabTitle(name);
+    return () => { document.title = PLATFORM_NAME; };
   }, [branding.schoolName]);
   return null;
 }
