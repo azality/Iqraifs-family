@@ -4077,6 +4077,85 @@ await check("80. curriculum pace pauses on exam days, and never demands more tha
   }
 });
 
+await check("81. PIN slips: a whole section at once, never touching a chosen PIN", async () => {
+  // Whole-section onboarding (Muneeb, 13 Sep). One call issues fresh
+  // temporary PINs for everyone in the section who needs one and
+  // returns printable slip rows. The invariant that matters: a subject
+  // who already CHOSE their own PIN (must_change=false) is skipped -
+  // a bulk run must never lock out a family that is already logging in.
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const url = `/school/orgs/${ORG}/sections/${sandboxSec.id}/pin-slips`;
+  const cleanup: Array<() => Promise<unknown>> = [];
+  try {
+    // Snapshot pStu1's credential - the portal checks depend on it and
+    // the bulk run must leave it exactly as found.
+    const { data: before } = await admin.from("pin_credential")
+      .select("id, must_change, pin_hash").eq("org_id", ORG)
+      .eq("subject_type", "student").eq("subject_id", pStu1).maybeSingle();
+
+    // 1. Student slips: 4-digit PINs, GR identifiers, temp credentials.
+    const r1 = await api(admin2.token, url, {
+      method: "POST", body: JSON.stringify({ subjectType: "student" }),
+    });
+    const j1 = await r1.json();
+    assert(r1.status === 200, `slips ${r1.status}: ${JSON.stringify(j1).slice(0, 150)}`);
+    assert(Array.isArray(j1.slips), "slips array");
+    for (const sl of j1.slips) {
+      assert(/^\d{4}$/.test(sl.pin), `pin must be 4 digits, got ${sl.pin}`);
+      assert(sl.identifier, "identifier present");
+    }
+    if (before && before.must_change === false) {
+      assert((j1.skipped ?? []).length >= 1, "chosen-PIN holders must be skipped");
+      const { data: after } = await admin.from("pin_credential")
+        .select("must_change, pin_hash").eq("id", before.id).maybeSingle();
+      assert(after && after.pin_hash === before.pin_hash && after.must_change === false,
+        "a chosen PIN must be untouched by the bulk run");
+    }
+    // New credentials are temporary.
+    if (j1.slips.length) {
+      const { data: cred } = await admin.from("pin_credential")
+        .select("must_change").eq("org_id", ORG).eq("subject_type", "student")
+        .eq("subject_id", j1.slips[0].subjectId).maybeSingle();
+      assert(cred?.must_change === true, "bulk PINs are temporary (must_change)");
+    }
+
+    // 2. Parent slips: phone identifiers; a phone-less parent is
+    // reported, not failed.
+    const { data: pNoPhone, error: pErr } = await admin.from("parent").insert({
+      org_id: ORG, full_name: "QA Slipless Parent", relationship: "father",
+    }).select("id").single();
+    if (pErr) throw new Error(`parent: ${pErr.message}`);
+    cleanup.push(() => admin.from("parent").delete().eq("id", pNoPhone.id));
+    const { data: link, error: lErr } = await admin.from("student_parent").insert({
+      student_id: pStu1, parent_id: pNoPhone.id,
+    }).select("student_id").single();
+    if (lErr) throw new Error(`link: ${lErr.message}`);
+    cleanup.push(() => admin.from("student_parent").delete()
+      .eq("student_id", pStu1).eq("parent_id", pNoPhone.id));
+
+    const r2 = await api(admin2.token, url, {
+      method: "POST", body: JSON.stringify({ subjectType: "parent" }),
+    });
+    const j2 = await r2.json();
+    assert(r2.status === 200, `parent slips ${r2.status}`);
+    assert((j2.skipped ?? []).some((x: any) => x.name === "QA Slipless Parent" && /phone/.test(x.reason)),
+      `phone-less parent must be reported: ${JSON.stringify(j2.skipped).slice(0, 200)}`);
+    for (const sl of (j2.slips ?? [])) {
+      assert(Array.isArray(sl.children) && sl.children.length > 0, "parent slips name the children");
+      cleanup.push(() => admin.from("pin_credential").delete()
+        .eq("org_id", ORG).eq("subject_type", "parent").eq("subject_id", sl.subjectId));
+    }
+    // Student credentials created by step 1 for non-portal QA students
+    // are throwaway - remove them so later runs start clean.
+    for (const sl of j1.slips) {
+      cleanup.push(() => admin.from("pin_credential").delete()
+        .eq("org_id", ORG).eq("subject_type", "student").eq("subject_id", sl.subjectId));
+    }
+  } finally {
+    for (const fn of cleanup.reverse()) await fn();
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

@@ -479,6 +479,11 @@ export function ManageParents() {
             <Link to={`/school/orgs/${orgId}/admin`}>
               <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">← Admin</Button>
             </Link>
+            <Link to={`/school/orgs/${orgId}/admin/pin-slips?type=parent`}>
+              <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">
+                <KeyRound className="h-4 w-4 mr-1" /> PIN slips
+              </Button>
+            </Link>
             <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20" onClick={() => setCsvOpen(true)}>
               <Upload className="h-4 w-4 mr-1" /> Bulk CSV
             </Button>

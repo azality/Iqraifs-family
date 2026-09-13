@@ -3112,6 +3112,31 @@ export const setPin = (
     body: JSON.stringify(body),
   });
 
+/** Whole-section onboarding: fresh temporary PINs for every student
+ *  (or linked parent) that still needs one; anyone who already chose
+ *  their own PIN is skipped. PINs appear only in this response. */
+export interface PinSlipsResponse {
+  section: { id: string; name: string; className: string };
+  subjectType: "student" | "parent";
+  slips: Array<{
+    subjectId: string;
+    name: string;
+    identifier: string;
+    pin: string;
+    children: string[] | null;
+  }>;
+  skipped: Array<{ name: string; reason: string }>;
+}
+export const generatePinSlips = (
+  orgId: string,
+  sectionId: string,
+  subjectType: "student" | "parent",
+): Promise<PinSlipsResponse> =>
+  apiCall(`/school/orgs/${orgId}/sections/${sectionId}/pin-slips`, {
+    method: "POST",
+    body: JSON.stringify({ subjectType }),
+  });
+
 export const resetPin = (
   orgId: string,
   body: { subjectType: PinSubjectType; subjectId: string },

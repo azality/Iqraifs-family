@@ -24,7 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../components/ui/select";
-import { Plus, Upload, Search, Trash2, Pencil, Eye, MessageSquare, UserMinus, UserPlus, MoreHorizontal, Users } from "lucide-react";
+import { Plus, Upload, Search, Trash2, Pencil, Eye, MessageSquare, UserMinus, UserPlus, MoreHorizontal, Users, KeyRound } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -674,6 +674,11 @@ export function ManageStudents() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Link to={`/school/orgs/${orgId}/admin/pin-slips?type=student`}>
+            <Button variant="outline" size="sm">
+              <KeyRound className="h-4 w-4 mr-1" /> PIN slips
+            </Button>
+          </Link>
           <Button variant="outline" size="sm" onClick={() => setCsvOpen(true)}>
             <Upload className="h-4 w-4 mr-1" /> Bulk CSV
           </Button>
