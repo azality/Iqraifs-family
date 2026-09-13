@@ -21,6 +21,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { AppModeGuard } from "../components/AppModeGuard";
 import { LanguageDropdown } from "../components/LanguageDropdown";
 import { getStorageSync } from '../../utils/storage';
+import { PLATFORM_NAME } from '../../utils/brand';
 
 // ---------------------------------------------------------------------------
 // Navigation data
@@ -870,7 +871,7 @@ export function RootLayout() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <p className="text-center text-xs text-slate-400">
             {isSchoolWorkspace
-              ? (workspace.kind === "school" ? workspace.orgName : "Iqra") + " · powered by Iqra"
+              ? (workspace.kind === "school" ? workspace.orgName : PLATFORM_NAME) + " · powered by " + PLATFORM_NAME
               : "Iqra — Islamic Family System · Consistency, accountability, growth"}
           </p>
         </div>

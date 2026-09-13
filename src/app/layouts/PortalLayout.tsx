@@ -38,6 +38,7 @@ import {
 import { RoleTour } from "../components/RoleTour";
 import { LanguageDropdown } from "../components/LanguageDropdown";
 import type { TourRole } from "../../utils/tours";
+import { PLATFORM_NAME, schoolTabTitle } from "../../utils/brand";
 
 const LAST_STUDENT_KEY = "fgs_portal_last_student";
 
@@ -93,8 +94,8 @@ export function PortalLayout() {
   useEffect(() => {
     const name = subject?.orgName?.trim();
     if (!name) return;
-    document.title = /iqra/i.test(name) ? name : `Iqra — ${name}`;
-    return () => { document.title = "Iqra — Islamic Family System"; };
+    document.title = schoolTabTitle(name);
+    return () => { document.title = PLATFORM_NAME; };
   }, [subject?.orgName]);
 
   // ── Badges (best-effort; deferred ≠ hidden). ─────────────────────────

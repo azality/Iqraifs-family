@@ -16,6 +16,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { setFavicon } from "../../../utils/favicon";
+import { schoolTabTitle } from "../../../utils/brand";
 import { Link, useParams } from "react-router";
 import {
   getPublicSite,
@@ -65,7 +66,7 @@ export function SchoolPublicSite() {
   // Browser-tab identity: title + favicon from the school's own branding.
   useEffect(() => {
     if (!site?.org) return;
-    document.title = site.org.name;
+    document.title = schoolTabTitle(site.org.name);
     const restore = site.org.logoUrl ? setFavicon(site.org.logoUrl) : undefined;
     return () => restore?.();
   }, [site?.org?.name, site?.org?.logoUrl]);
