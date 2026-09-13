@@ -4030,6 +4030,53 @@ await check("79. needs-attention nudges: enter marks, then sign off - paper-awar
   }
 });
 
+await check("80. curriculum pace pauses on exam days, and never demands more than the naive line", async () => {
+  // Muneeb (13 Sep): "62% vs ~95% expected" mid-papers read as a crisis
+  // while no teaching could happen. On any datesheet date the expected
+  // line must NOT climb - each exam day contributes zero - so the
+  // served expectation equals an independent recomputation from the
+  // term dates and the datesheet, and can never exceed the naive
+  // straight line.
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const { data: term } = await admin.from("academic_term")
+    .select("id, start_date, end_date")
+    .eq("org_id", ORG).eq("is_current", true).is("archived_at", null).maybeSingle();
+  assert(term, "no current term");
+  const r = await api(admin2.token, `/school/orgs/${ORG}/academics`);
+  const j = await r.json();
+  assert(r.status === 200, `academics ${r.status}`);
+  const served = j.pace?.expectedPct;
+  assert(typeof served === "number", `pace.expectedPct missing: ${JSON.stringify(j.pace ?? {}).slice(0, 160)}`);
+
+  // Independent recomputation, same semantics as termPace.ts.
+  const DAY = 86_400_000;
+  const startMs = Date.parse(`${term!.start_date}T00:00:00Z`);
+  const endMs = Date.parse(`${term!.end_date}T00:00:00Z`);
+  const totalDays = (endMs - startMs) / DAY;
+  const nowMs = Date.now();
+  const elapsedDays = Math.min(totalDays, Math.max(0, (nowMs - startMs) / DAY));
+  const { data: sched } = await admin.from("exam_schedule")
+    .select("exam_date").eq("org_id", ORG).eq("term_id", term!.id);
+  const atIso = new Date(nowMs).toISOString().slice(0, 10);
+  const examElapsed = new Set(
+    ((sched ?? []) as any[])
+      .map((x) => x.exam_date)
+      .filter((d) => d && d >= term!.start_date && d <= term!.end_date && d <= atIso),
+  ).size;
+  const expected = Math.round(Math.min(1, Math.max(0, elapsedDays - examElapsed) / totalDays) * 100);
+  const naive = Math.round(Math.min(1, elapsedDays / totalDays) * 100);
+
+  // The clock crosses midnight between the two computations at most
+  // rarely - allow 1pp of slack, no more.
+  assert(Math.abs(served - expected) <= 1,
+    `served ${served} vs recomputed ${expected} (naive ${naive})`);
+  assert(served <= naive, "the pause must never demand MORE than the naive line");
+  if (examElapsed > 0) {
+    assert(served < naive,
+      `with ${examElapsed} exam day(s) elapsed the pause must show: served ${served}, naive ${naive}`);
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

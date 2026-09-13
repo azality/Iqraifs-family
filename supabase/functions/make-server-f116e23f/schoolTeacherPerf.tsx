@@ -12,6 +12,7 @@
 // definitions and fairness guardrails (ramp, term-compare-first).
 
 import type { Hono } from "npm:hono";
+import { termExpectedPct } from "./termPace.ts";
 import { orgTimezone, tzOffsetMinutes } from "./tz.ts";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { hasAdminOrPrincipal, inchargeClassIds } from "./schoolAuth.ts";
@@ -215,10 +216,10 @@ export function installTeacherPerf(school: Hono) {
     }
 
     // ── 2. Curriculum pace per taught subject ─────────────────────────
+    // Exam days paused (termPace.ts) — a teacher's pace is not "behind"
+    // for days the school spent sitting papers.
     const termElapsedPct = term
-      ? Math.min(100, Math.max(0, Math.round(
-          ((today.getTime() - winStart.getTime()) /
-            (new Date(`${term.end_date}T00:00:00Z`).getTime() - winStart.getTime())) * 100)))
+      ? await termExpectedPct(orgId, term as any, today)
       : null;
     const pace: unknown[] = [];
     for (const ss of subjects) {
@@ -420,10 +421,10 @@ export function installTeachingOverview(school: Hono) {
     const startStr = winStart.toISOString().slice(0, 10);
     const endStr = winEnd.toISOString().slice(0, 10);
     const weeksElapsed = Math.max(1, (winEnd.getTime() - winStart.getTime()) / (7 * DAY));
+    // Exam days paused (termPace.ts) — a teacher's pace is not "behind"
+    // for days the school spent sitting papers.
     const termElapsedPct = term
-      ? Math.min(100, Math.max(0, Math.round(
-          ((today.getTime() - winStart.getTime()) /
-            (new Date(`${term.end_date}T00:00:00Z`).getTime() - winStart.getTime())) * 100)))
+      ? await termExpectedPct(orgId, term as any, today)
       : null;
 
     // ── Teaching footprint (wing-filtered when scoped).
