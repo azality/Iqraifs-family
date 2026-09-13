@@ -3,74 +3,174 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>The ILM Network</title>
-<meta name="description" content="Technology for Islamic schools and the families they serve.">
-<!-- Holding page until the designed site ships: keep it out of search
-     results so the placeholder is never what gets indexed. -->
-<meta name="robots" content="noindex">
+<title>The ILM Network — run your school from one place</title>
+<meta name="description" content="Attendance, syllabus, homework, grading and parent communication in one education platform, with an optional Hifz program.">
 <link rel="canonical" href="https://theilmnetwork.com/">
-<style>
-  :root {
-    --ground: #f3f6f5;
-    --ink: #10271f;
-    --muted: #4c6158;
-    --accent: #1d6b52;
-    --rule: #d3ddd8;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --ground: #0d1a16;
-      --ink: #e7efeb;
-      --muted: #9fb3aa;
-      --accent: #6cc4a1;
-      --rule: #22362f;
-    }
-  }
-  * { box-sizing: border-box; }
-  html, body { height: 100%; }
-  body {
-    margin: 0;
-    background: var(--ground);
-    color: var(--ink);
-    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    display: grid;
-    place-items: center;
-    padding: 2rem;
-  }
-  main {
-    max-width: 34rem;
-    display: grid;
-    gap: 1.25rem;
-    text-align: left;
-  }
-  .mark {
-    font: 400 3.5rem/1 "Noto Naskh Arabic", "Geeza Pro", "Traditional Arabic", serif;
-    color: var(--accent);
-    margin: 0 0 0.5rem;
-  }
-  h1 {
-    margin: 0;
-    font-size: clamp(2rem, 6vw, 2.75rem);
-    line-height: 1.1;
-    letter-spacing: -0.02em;
-    text-wrap: balance;
-  }
-  p { margin: 0; }
-  .lede { font-size: 1.15rem; color: var(--ink); max-width: 30ch; }
-  .note {
-    padding-top: 1.25rem;
-    border-top: 1px solid var(--rule);
-    color: var(--muted);
-    font-size: 0.95rem;
-  }
-</style>
+<meta property="og:title" content="The ILM Network">
+<meta property="og:description" content="One education platform for schools — attendance, syllabus, homework, grading and parents, with an optional Hifz program.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://theilmnetwork.com/">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800;900&family=Amiri:wght@700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
 </head>
 <body>
+
+<header class="site-head">
+  <nav class="site-nav">
+    <a class="brand" href="/"><span class="brand-name">ILM<span class="dot">·</span>Network</span><span class="brand-ar">عِلْم</span></a>
+    <a class="navlink" href="/" aria-current="page">Home</a>
+    <a class="navlink" href="/features">Features</a>
+    <a class="navlink" href="/parents">For Parents</a>
+    <a class="navlink" href="/about">About</a>
+    <a class="navlink" href="/contact">Contact</a>
+    <a class="btn btn-sm" href="/contact">Book a demo</a>
+  </nav>
+</header>
+
 <main>
-  <p class="mark" lang="ar" dir="rtl" aria-hidden="true">علم</p>
-  <h1>The ILM Network</h1>
-  <p class="lede">Technology for Islamic schools and the families they serve.</p>
-  <p class="note">Our full website is on its way.</p>
+<section class="hero">
+  <div class="wrap hero-inner">
+    <div class="hero-copy">
+      <div class="pill">The Education Platform</div>
+      <h1 class="h1-hero">Run your school from one place.</h1>
+      <p class="lede">Attendance, syllabus, homework, grading, and parent communication — one education platform built inside working schools, with an optional Hifz program for schools that offer one.</p>
+      <div style="display:flex; gap:12px; flex-wrap:wrap;">
+        <a class="btn" href="/contact">Book a demo</a>
+        <a class="btn-ghost" href="/features">Explore features</a>
+      </div>
+    </div>
+    <div class="hero-art">
+      <div class="panel">
+        <div class="panel-head">
+          <span class="panel-head-title">Teaching overview</span>
+          <span class="panel-head-meta">23 teachers · this week</span>
+        </div>
+        <div class="panel-row">
+          <span class="who"><b>Ayesha R.</b><span>5 sections · 4 subjects</span></span>
+          <span class="mid">2.3 lessons/wk</span>
+          <span class="chip chip-green">+9pp ahead</span>
+        </div>
+        <div class="panel-row">
+          <span class="who"><b>Hina M.</b><span>6 sections · 3 subjects</span></span>
+          <span class="mid">same-day grading</span>
+          <span class="chip chip-green">on pace</span>
+        </div>
+        <div class="panel-row">
+          <span class="who"><b>Qari Abdullah</b><span>hifz · 42 students</span></span>
+          <span class="mid">59% heard this week</span>
+          <span class="chip chip-amber">hifz</span>
+        </div>
+        <div class="panel-row">
+          <span class="who"><b>Sana T.</b><span>1 section · 13 subjects</span></span>
+          <span class="mid">roll call 13/14</span>
+          <span class="chip chip-amber">−3pp</span>
+        </div>
+        <div class="panel-foot">Example view. Context beats ranking — every name links to a full track record.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="wrap" style="padding:80px 24px 40px;">
+  <h2>Three things every principal asks.</h2>
+  <p class="sub">ILM answers them without you walking ten classrooms.</p>
+  <div class="grid grid-300">
+    <div class="card">
+      <span class="card-tag" style="color:#4f46e5;">Is teaching happening?</span>
+      <span class="card-title">Teaching overview</span>
+      <span class="card-body">Every teacher in one row — lessons logged, grading lag, roll-call discipline, syllabus pace against the calendar. Ranked with context, never blame.</span>
+      <div class="mock">
+        <span class="mock-title">TEACHING · THIS WEEK</span>
+        <span class="mock-line">18 of 23 teachers logging · 3 need onboarding help</span>
+        <span class="mock-sub">New accounts get a 42-day fairness window</span>
+      </div>
+    </div>
+    <div class="card">
+      <span class="card-tag" style="color:#059669;">Is hifz progressing?</span>
+      <span class="card-title">Hifz program (optional)</span>
+      <span class="card-body">For schools that offer Qur'an memorization: every student's revision rounds and what's due tonight — for the Qari, the principal, and the parent at home.</span>
+      <div class="mock">
+        <span class="mock-title">TONIGHT'S REVISION · AHMAD</span>
+        <span class="mock-line">Surah Al-Mulk 1–15 · new sabaq after Fajr</span>
+        <span class="mock-sub">Heard 4 of last 5 days</span>
+      </div>
+    </div>
+    <div class="card">
+      <span class="card-tag" style="color:#b45309;">Do parents know?</span>
+      <span class="card-title">Parent portal</span>
+      <span class="card-body">A daily check-in per child: attendance, homework due, grades returned, tonight's revision. Only what needs action — no noise.</span>
+      <div class="mock">
+        <span class="mock-title">TODAY · 2 CHILDREN</span>
+        <span class="mock-line">Fatima: maths homework due tomorrow</span>
+        <span class="mock-sub">Bilal: present, nothing needs action</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="wrap" style="padding:40px 24px 80px;">
+  <h2>One platform, four honest views.</h2>
+  <p class="sub" style="margin-bottom:36px;">Everyone sees exactly what they're accountable for — and nothing they aren't. A teacher never sees a ranked table of their peers.</p>
+  <div class="grid grid-240">
+    <div class="card-flat">
+      <div style="font-size:15px; font-weight:800; margin-bottom:8px;">Principal / Owner</div>
+      <div style="font-size:13.5px; line-height:1.6; color:var(--body);">The whole school: teaching overview, attendance patterns, hifz progress, behavior — every wing, every teacher.</div>
+    </div>
+    <div class="card-flat">
+      <div style="font-size:15px; font-weight:800; margin-bottom:8px;">Incharge</div>
+      <div style="font-size:13.5px; line-height:1.6; color:var(--body);">Their own wing only. Same tools as the principal, automatically scoped — no configuration.</div>
+    </div>
+    <div class="card-flat">
+      <div style="font-size:15px; font-weight:800; margin-bottom:8px;">Teacher</div>
+      <div style="font-size:13.5px; line-height:1.6; color:var(--body);">Their own classes: roll call, lessons, homework, grading, their own track record. Never a ranked table of peers.</div>
+    </div>
+    <div class="card-flat">
+      <div style="font-size:15px; font-weight:800; margin-bottom:8px;">Parent</div>
+      <div style="font-size:13.5px; line-height:1.6; color:var(--body);">Their own children only: daily check-in, homework, grades, timetable, hifz revision, report cards.</div>
+    </div>
+  </div>
+</section>
+
+<section class="band-wash">
+  <div class="narrow quote-band">
+    <div class="ar-mark">اِقْرَأْ</div>
+    <p class="quote-text">Built inside working schools, not a boardroom. Every screen was shaped by a real principal's question, a real teacher's evening, a real parent's worry.</p>
+  </div>
+</section>
+
+<section class="wrap center" style="padding:72px 24px;">
+  <h2 style="font-size:34px; margin-bottom:12px;">See it with your own school's eyes.</h2>
+  <p class="sub sub-center" style="font-size:16px;">A 30-minute walkthrough with your real workflows — attendance, hifz, report cards — not a canned tour.</p>
+  <a class="btn btn-lg" href="/contact">Book a demo</a>
+</section>
 </main>
+
+<footer class="site-foot">
+  <div class="wrap foot-wide">
+    <div class="foot-brand">
+      <div class="foot-brand-name">ILM<span class="dot">·</span>Network</div>
+      <div class="foot-brand-copy">عِلْم — knowledge. One education platform for schools worldwide, with a first-class optional Hifz program.</div>
+    </div>
+    <div class="foot-col">
+      <span class="foot-head">Product</span>
+      <a class="foot-link" href="/features">Features</a>
+      <a class="foot-link" href="/parents">For Parents</a>
+    </div>
+    <div class="foot-col">
+      <span class="foot-head">Company</span>
+      <a class="foot-link" href="/about">About</a>
+      <a class="foot-link" href="/contact">Contact</a>
+    </div>
+    <div class="foot-col foot-col-wide">
+      <span class="foot-head">Reach us</span>
+      <span class="foot-text">TheILMnetwork.com</span>
+      <a class="foot-link" href="mailto:hello@theilmnetwork.com">hello@theilmnetwork.com</a>
+    </div>
+  </div>
+  <div class="foot-legal">© 2026 The ILM Network. All rights reserved.</div>
+</footer>
+
 </body>
 </html>
