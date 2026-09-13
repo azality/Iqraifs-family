@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Book a demo — The ILM Network</title>
+<meta name="description" content="A 30-minute walkthrough of ILM with your own school's structure — sections, hifz classes, wings.">
+<link rel="canonical" href="https://theilmnetwork.com/contact">
+<meta property="og:title" content="Book a demo — The ILM Network">
+<meta property="og:description" content="30 minutes, your workflows.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://theilmnetwork.com/contact">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800;900&family=Amiri:wght@700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="site-head">
+  <nav class="site-nav">
+    <a class="brand" href="/"><span class="brand-name">ILM<span class="dot">·</span>Network</span><span class="brand-ar">عِلْم</span></a>
+    <a class="navlink" href="/">Home</a>
+    <a class="navlink" href="/features">Features</a>
+    <a class="navlink" href="/parents">For Parents</a>
+    <a class="navlink" href="/about">About</a>
+    <a class="navlink" href="/contact" aria-current="page">Contact</a>
+    <a class="btn btn-sm" href="/contact">Book a demo</a>
+  </nav>
+</header>
+
+<main>
+<section class="wrap contact-grid">
+  <div class="contact-intro">
+    <div class="pill">Book a demo</div>
+    <h1 class="h1-page" style="margin:16px 0 14px; font-size:clamp(30px,4vw,42px); line-height:1.12;">30 minutes, your workflows.</h1>
+    <p style="margin:0 0 28px; font-size:15.5px; color:var(--body); line-height:1.7;">Tell us a little about your school and we'll walk you through ILM with your own structure in mind — sections, hifz classes, wings, whatever your day actually looks like.</p>
+    <div style="display:flex; flex-direction:column; gap:14px;">
+      <div class="tick"><b>✓</b><span>A live walkthrough of teaching overview, hifz tracking, and the parent portal</span></div>
+      <div class="tick"><b>✓</b><span>Honest answers about onboarding — including the messy first weeks</span></div>
+      <div class="tick"><b>✓</b><span>Pricing tailored to your school's size, shared on the call</span></div>
+    </div>
+    <div class="contact-direct">
+      <span class="contact-direct-label">Or write directly</span>
+      <a href="mailto:hello@theilmnetwork.com" style="font-size:15px; font-weight:600;">hello@theilmnetwork.com</a>
+    </div>
+  </div>
+
+  <div class="contact-form-col">
+    <div class="form-sent" id="sent" hidden>
+      <b>JazakAllah khair — request ready to send.</b>
+      <span>Your email app should have opened with the details filled in. Send that message and we'll reply within two working days to schedule your walkthrough.</span>
+    </div>
+
+    <form class="form-card" id="demo-form" novalidate>
+      <div class="form-row">
+        <label class="field">
+          <span>Your name</span>
+          <input id="f-name" name="name" type="text" autocomplete="name" placeholder="e.g. Muhammad Imran" required>
+        </label>
+        <label class="field">
+          <span>Role</span>
+          <select id="f-role" name="role">
+            <option>Principal / Owner</option>
+            <option>Administrator</option>
+            <option>Teacher</option>
+            <option>Parent referring a school</option>
+            <option>Investor / Partner</option>
+          </select>
+        </label>
+      </div>
+      <div class="form-row">
+        <label class="field field-wide">
+          <span>School name</span>
+          <input id="f-school" name="school" type="text" autocomplete="organization" placeholder="e.g. Al-Noor Academy" required>
+        </label>
+        <label class="field field-narrow">
+          <span>Students (approx.)</span>
+          <select id="f-size" name="size">
+            <option>Under 100</option>
+            <option selected>100–300</option>
+            <option>300–800</option>
+            <option>800+</option>
+          </select>
+        </label>
+      </div>
+      <label class="field">
+        <span>Email</span>
+        <input id="f-email" name="email" type="email" autocomplete="email" placeholder="you@yourschool.org" required>
+      </label>
+      <label class="field">
+        <span>What matters most to you? <span style="font-weight:500; color:var(--faint);">(optional)</span></span>
+        <textarea id="f-msg" name="message" rows="4" placeholder="e.g. We run hifz for 200 students and attendance is still on paper…"></textarea>
+      </label>
+      <div class="form-error" id="f-error" hidden>Please add your name, school, and email so we can reply.</div>
+      <button class="btn" type="submit" style="padding:14px;">Request a demo</button>
+      <div class="form-note">Opens your email app so you can send the request — no mailing lists, we only reply to schedule.</div>
+    </form>
+  </div>
+</section>
+</main>
+
+<footer class="site-foot">
+  <div class="wrap foot-slim">
+    <span class="foot-slim-brand">ILM<span class="dot">·</span>Network</span>
+    <span class="foot-slim-links">
+      <a href="/">Home</a>
+      <a href="/features">Features</a>
+      <a href="/parents">For Parents</a>
+      <a href="/about">About</a>
+    </span>
+    <span class="foot-slim-legal">© 2026 The ILM Network</span>
+  </div>
+</footer>
+
+<script>
+// The site is static (no server), so the form hands a pre-filled message to
+// the visitor's own email app rather than pretending to submit somewhere.
+(function () {
+  var form = document.getElementById("demo-form");
+  var sent = document.getElementById("sent");
+  var err = document.getElementById("f-error");
+  var val = function (id) { return (document.getElementById(id).value || "").trim(); };
+
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    var name = val("f-name"), school = val("f-school"), email = val("f-email");
+    if (!name || !school || email.indexOf("@") === -1) {
+      err.hidden = false;
+      return;
+    }
+    err.hidden = true;
+
+    var body = [
+      "Name: " + name,
+      "Role: " + val("f-role"),
+      "School: " + school,
+      "Approx. students: " + val("f-size"),
+      "Email: " + email,
+      "",
+      val("f-msg") || "(no additional notes)"
+    ].join("\n");
+
+    window.location.href = "mailto:hello@theilmnetwork.com"
+      + "?subject=" + encodeURIComponent("Demo request — " + school)
+      + "&body=" + encodeURIComponent(body);
+
+    form.hidden = true;
+    sent.hidden = false;
+  });
+})();
+</script>
+
+</body>
+</html>
