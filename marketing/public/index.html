@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The ILM Network</title>
+<meta name="description" content="Technology for Islamic schools and the families they serve.">
+<!-- Holding page until the designed site ships: keep it out of search
+     results so the placeholder is never what gets indexed. -->
+<meta name="robots" content="noindex">
+<link rel="canonical" href="https://theilmnetwork.com/">
+<style>
+  :root {
+    --ground: #f3f6f5;
+    --ink: #10271f;
+    --muted: #4c6158;
+    --accent: #1d6b52;
+    --rule: #d3ddd8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0d1a16;
+      --ink: #e7efeb;
+      --muted: #9fb3aa;
+      --accent: #6cc4a1;
+      --rule: #22362f;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    display: grid;
+    place-items: center;
+    padding: 2rem;
+  }
+  main {
+    max-width: 34rem;
+    display: grid;
+    gap: 1.25rem;
+    text-align: left;
+  }
+  .mark {
+    font: 400 3.5rem/1 "Noto Naskh Arabic", "Geeza Pro", "Traditional Arabic", serif;
+    color: var(--accent);
+    margin: 0 0 0.5rem;
+  }
+  h1 {
+    margin: 0;
+    font-size: clamp(2rem, 6vw, 2.75rem);
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+  }
+  p { margin: 0; }
+  .lede { font-size: 1.15rem; color: var(--ink); max-width: 30ch; }
+  .note {
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--rule);
+    color: var(--muted);
+    font-size: 0.95rem;
+  }
+</style>
+</head>
+<body>
+<main>
+  <p class="mark" lang="ar" dir="rtl" aria-hidden="true">علم</p>
+  <h1>The ILM Network</h1>
+  <p class="lede">Technology for Islamic schools and the families they serve.</p>
+  <p class="note">Our full website is on its way.</p>
+</main>
+</body>
+</html>
