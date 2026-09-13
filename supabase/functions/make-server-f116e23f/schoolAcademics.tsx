@@ -28,6 +28,7 @@
 
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
+import { termExpectedPct } from "./termPace.ts";
 import { hasAnyRoleInOrg as hasAnyOrgRole, hasAdminOrPrincipal, inchargeClassIds } from "./schoolAuth.ts";
 
 export function installAcademics(school: Hono) {
@@ -175,15 +176,10 @@ export function installAcademics(school: Hono) {
     //     prompts setup instead of pretending.
     // ────────────────────────────────────────────────────────────────────────
 
-    let expectedPct: number | null = null;
-    if (currentTerm?.start_date && currentTerm?.end_date) {
-      const startMs = Date.parse(currentTerm.start_date);
-      const endMs = Date.parse(currentTerm.end_date);
-      if (Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs) {
-        const frac = (Date.now() - startMs) / (endMs - startMs);
-        expectedPct = Math.round(Math.min(1, Math.max(0, frac)) * 100);
-      }
-    }
+    // Exam days are PAUSED: on datesheet dates the expectation does not
+    // climb, so mid-papers the pace tile compares against a fair target
+    // (Muneeb, 13 Sep). See termPace.ts for the exact semantics.
+    const expectedPct: number | null = await termExpectedPct(orgId, currentTerm as any);
 
     const perClassSubject = (classSubjects ?? [])
       .map((cs: any) => {

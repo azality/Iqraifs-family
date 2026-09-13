@@ -22,6 +22,7 @@
 
 import { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
+import { termExpectedPct } from "./termPace.ts";
 import { hasAnyRoleInOrg, hasAdminOrPrincipal, inchargeClassIds } from "./schoolAuth.ts";
 import { todayInOrgTz, nowTimeInOrgTz, schoolDayAnchor, orgTimezone, zonedDayRangeUtc } from "./tz.ts";
 import { loadSchoolWeek, lastNSchoolDays } from "./schoolWeek.ts";
@@ -1220,7 +1221,11 @@ export function installDashboard(school: Hono): void {
         if (curTerm?.start_date && curTerm?.end_date) {
           const tStart = new Date(`${curTerm.start_date}T00:00:00Z`).getTime();
           const tEnd = new Date(`${curTerm.end_date}T00:00:00Z`).getTime();
-          const expectedPct = Math.min(100, Math.max(0, Math.round(((today.getTime() - tStart) / (tEnd - tStart)) * 100)));
+          // Exam days paused (termPace.ts): the slipping alert must not
+          // fire against a target that kept climbing through the papers.
+          const expectedPct =
+            (await termExpectedPct(orgId, curTerm as any, today)) ??
+            Math.min(100, Math.max(0, Math.round(((today.getTime() - tStart) / (tEnd - tStart)) * 100)));
           if (expectedPct >= 25) { // too-early terms produce noise, not signal
             const { data: scopeSubj } = await serviceRoleClient
               .from("section_subject")
