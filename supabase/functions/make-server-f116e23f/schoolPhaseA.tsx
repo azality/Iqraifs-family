@@ -2963,6 +2963,166 @@ export function installPhaseA(school: Hono) {
   // -------------------------------------------------------------------------
   // PIN AUTH
   // -------------------------------------------------------------------------
+  // -------------------------------------------------------------------------
+  // POST /orgs/:orgId/sections/:sectionId/pin-slips  { subjectType }
+  //
+  // Whole-section onboarding (Muneeb, 13 Sep): clicking 395 students one
+  // by one is not a rollout plan. Generates a temporary PIN for every
+  // subject in the section that needs one and returns the rows for a
+  // printable slip sheet (GR/phone + name + temp PIN).
+  //
+  // The one rule that matters: anyone who has already CHOSEN their own
+  // PIN (credential exists with must_change=false) is SKIPPED - a bulk
+  // run must never lock out a family that is already logging in. An
+  // unused temporary PIN (must_change=true) is regenerated freely; that
+  // is exactly what re-printing slips is for.
+  //
+  //   subjectType "student": every active student, identifier = GR.
+  //   subjectType "parent" : every distinct canonical parent linked to
+  //                          the section's students; needs a phone
+  //                          (identifier). Phone-less parents are
+  //                          reported, not failed.
+  // -------------------------------------------------------------------------
+  school.post("/orgs/:orgId/sections/:sectionId/pin-slips", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const sectionId = c.req.param("sectionId");
+    if (!(await userCanInOrg(userId, orgId, "manage_students"))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    let body: any;
+    try { body = await c.req.json(); } catch { body = {}; }
+    const subjectType = body?.subjectType;
+    if (subjectType !== "student" && subjectType !== "parent") {
+      return c.json({ error: "subjectType must be student or parent" }, 400);
+    }
+    const { data: sec } = await serviceRoleClient
+      .from("class_section")
+      .select("id, name, class:class_id(name, org_id)")
+      .eq("id", sectionId).maybeSingle();
+    if (!sec || (sec as any).class?.org_id !== orgId) {
+      return c.json({ error: "section not found" }, 404);
+    }
+    const { data: students } = await serviceRoleClient
+      .from("student")
+      .select("id, full_name, gr_number")
+      .eq("class_section_id", sectionId).eq("status", "active")
+      .order("full_name");
+    const stuList = (students ?? []) as any[];
+
+    // The subjects to issue slips for.
+    type Subject = {
+      id: string; name: string; identifier: string;
+      children?: string[];
+    };
+    const subjects: Subject[] = [];
+    const skipped: Array<{ name: string; reason: string }> = [];
+    if (subjectType === "student") {
+      for (const st of stuList) {
+        subjects.push({ id: st.id, name: st.full_name, identifier: st.gr_number });
+      }
+    } else {
+      const stuIds = stuList.map((st) => st.id);
+      const { data: links } = stuIds.length
+        ? await serviceRoleClient
+            .from("student_parent").select("student_id, parent_id")
+            .in("student_id", stuIds)
+        : { data: [] as any[] };
+      const parentIds = [...new Set(((links ?? []) as any[]).map((l) => l.parent_id))];
+      const { data: parents } = parentIds.length
+        ? await serviceRoleClient
+            .from("parent").select("id, full_name, phone, canonical_id")
+            .in("id", parentIds)
+        : { data: [] as any[] };
+      const pById = new Map(((parents ?? []) as any[]).map((pr) => [pr.id, pr]));
+      // Aliased records resolve to their canonical root - fetch missing roots.
+      const rootIds = new Set<string>();
+      for (const pr of ((parents ?? []) as any[])) rootIds.add(pr.canonical_id ?? pr.id);
+      const missing = [...rootIds].filter((id) => !pById.has(id));
+      if (missing.length) {
+        const { data: more } = await serviceRoleClient
+          .from("parent").select("id, full_name, phone, canonical_id").in("id", missing);
+        for (const pr of ((more ?? []) as any[])) pById.set(pr.id, pr);
+      }
+      const childrenByRoot = new Map<string, string[]>();
+      for (const l of ((links ?? []) as any[])) {
+        let pr = pById.get(l.parent_id);
+        while (pr?.canonical_id && pById.get(pr.canonical_id)) pr = pById.get(pr.canonical_id);
+        if (!pr) continue;
+        const st = stuList.find((x) => x.id === l.student_id);
+        if (!st) continue;
+        const arr = childrenByRoot.get(pr.id) ?? [];
+        if (!arr.includes(st.full_name)) arr.push(st.full_name);
+        childrenByRoot.set(pr.id, arr);
+      }
+      for (const [rootId, children] of childrenByRoot) {
+        const pr = pById.get(rootId);
+        if (!pr) continue;
+        if (!pr.phone) {
+          skipped.push({ name: pr.full_name, reason: "no phone number on record" });
+          continue;
+        }
+        subjects.push({ id: pr.id, name: pr.full_name, identifier: pr.phone, children });
+      }
+      subjects.sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    // Existing credentials: chosen-own-PIN holders are untouchable.
+    const subjIds = subjects.map((x) => x.id);
+    const { data: creds } = subjIds.length
+      ? await serviceRoleClient
+          .from("pin_credential").select("subject_id, must_change")
+          .eq("org_id", orgId).eq("subject_type", subjectType)
+          .in("subject_id", subjIds)
+      : { data: [] as any[] };
+    const credBy = new Map(((creds ?? []) as any[]).map((cr) => [cr.subject_id, cr]));
+
+    const slips: any[] = [];
+    for (const sub of subjects) {
+      const cred = credBy.get(sub.id);
+      if (cred && cred.must_change === false) {
+        skipped.push({ name: sub.name, reason: "already chose their own PIN" });
+        continue;
+      }
+      const rnd = crypto.getRandomValues(new Uint32Array(1))[0];
+      const newPin = String(rnd % 10000).padStart(4, "0");
+      const pin_hash = await hashPin(newPin);
+      const { error } = await serviceRoleClient
+        .from("pin_credential")
+        .upsert(
+          {
+            org_id: orgId,
+            subject_type: subjectType,
+            subject_id: sub.id,
+            login_identifier: sub.identifier,
+            pin_hash,
+            must_change: true,
+            failed_attempts: 0,
+            locked_until: null,
+          },
+          { onConflict: "org_id,subject_type,subject_id" },
+        );
+      if (error) {
+        skipped.push({ name: sub.name, reason: error.message });
+        continue;
+      }
+      slips.push({
+        subjectId: sub.id,
+        name: sub.name,
+        identifier: sub.identifier,
+        pin: newPin,
+        children: sub.children ?? null,
+      });
+    }
+
+    return c.json({
+      section: { id: (sec as any).id, name: (sec as any).name, className: (sec as any).class.name },
+      subjectType,
+      slips,
+      skipped,
+    });
+  });
+
   school.post("/orgs/:orgId/pin/set", async (c) => {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");

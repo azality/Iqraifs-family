@@ -845,7 +845,9 @@ export function StudentDetail() {
         </DialogContent>
       </Dialog>
 
-      {/* Reset PIN result */}
+      {/* Reset PIN result — with the ready-to-forward onboarding
+          message, mirroring the parent flow in ManageParents (Muneeb,
+          13 Sep: "we should have something like this for the student"). */}
       <Dialog open={!!resetPinValue} onOpenChange={(v) => { if (!v) setResetPinValue(null); }}>
         <DialogContent>
           <DialogHeader>
@@ -854,8 +856,29 @@ export function StudentDetail() {
           </DialogHeader>
           <div className="text-3xl font-mono font-bold text-center py-4 tracking-widest">{resetPinValue}</div>
           <DialogFooter>
-            <Button onClick={() => { if (resetPinValue) copy(resetPinValue); }}>
-              <Copy className="h-4 w-4 mr-1" /> Copy
+            <Button
+              onClick={() => {
+                if (!resetPinValue) return;
+                const slug = (me?.organizations ?? []).find((o) => o.id === orgId)?.slug ?? "";
+                const loginUrl = `${window.location.origin}/school-login${slug ? `?org=${encodeURIComponent(slug)}` : ""}`;
+                copy(
+                  `Assalam-o-Alaikum${student?.full_name ? ` ${student.full_name}` : ""},\n\n` +
+                  `You can now see your homework, grades and Hifz progress online.\n\n` +
+                  `Open: ${loginUrl}\n` +
+                  `Sign in as: Student\n` +
+                  `GR Number: ${student?.gr_number ?? ""}\n` +
+                  `Temporary PIN: ${resetPinValue}\n\n` +
+                  `You will be asked to choose your own 4-digit PIN right after signing in. ` +
+                  `Please do not share this PIN with anyone.\n\n` +
+                  `طلبہ کے لیے: اوپر دیے گئے لنک پر جائیں، اپنا GR نمبر اور یہ عارضی پن درج کریں، ` +
+                  `پھر اپنا نیا پن خود منتخب کریں۔`,
+                );
+              }}
+            >
+              <Copy className="h-4 w-4 mr-1" /> Copy message
+            </Button>
+            <Button variant="outline" onClick={() => { if (resetPinValue) copy(resetPinValue); }}>
+              Copy PIN only
             </Button>
             <Button variant="outline" onClick={() => setResetPinValue(null)}>Done</Button>
           </DialogFooter>
