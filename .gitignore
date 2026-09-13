@@ -42,3 +42,6 @@ admission form.pdf
 
 # Local Access databases (real school data — never commit)
 *.accdb
+
+# wrangler dev local state (marketing site + app)
+.wrangler/
