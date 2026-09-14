@@ -120,11 +120,14 @@ export function StudentReportCard() {
   return (
     <div className="space-y-4 print:space-y-3">
       <style>{`
-        /* PR feat/report-card-print — A4 print quality. Landscape by
-           default (principal's call, 7 Sep): the card is a wide layout —
-           three stat tiles + remark columns side by side — and reads
-           better across the long edge. */
-        @page { size: A4 landscape; margin: 10mm 12mm; }
+        /* PR feat/report-card-print — A4 print quality. PORTRAIT since
+           14 Sep: landscape was the principal's call back when remarks
+           were side-by-side columns; with remarks now inside the table
+           the card is one tall stack, and on landscape the unbreakable
+           summary boxes fell onto a second page after a half-empty
+           first (Ambreen's print). Portrait holds the whole card — the
+           biggest class table included — on one page. */
+        @page { size: A4 portrait; margin: 10mm 12mm; }
         @media print {
           .no-print, .no-print * { display: none !important; }
           body { background: white !important; }
@@ -137,6 +140,11 @@ export function StudentReportCard() {
           .print-card .text-xs, .print-card .text-\\[10px\\], .print-card .text-\\[11px\\] {
             font-size: 9pt !important;
           }
+          /* Tighter rows + boxes on paper — screen keeps its spacing. */
+          .print-card table td, .print-card table th {
+            padding-top: 3px !important; padding-bottom: 3px !important;
+          }
+          .print-card .print-keep .rounded-md { padding: 8px !important; }
           /* Signature block stays at the bottom of the card */
           .print-signature { break-before: auto; }
           .print-only { display: block !important; }
