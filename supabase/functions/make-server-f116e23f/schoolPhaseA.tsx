@@ -3055,6 +3055,15 @@ export function installPhaseA(school: Hono) {
         if (!arr.includes(st.full_name)) arr.push(st.full_name);
         childrenByRoot.set(pr.id, arr);
       }
+      // A student with no parent linked at all must be named, not silently
+      // left off the sheet (Catch Up, 13 Sep: 7 of 10 students had none, and
+      // the run looked like it had failed).
+      const linkedStudentIds = new Set(((links ?? []) as any[]).map((l) => l.student_id));
+      for (const st of stuList) {
+        if (!linkedStudentIds.has(st.id)) {
+          skipped.push({ name: st.full_name, reason: "no parent on record for this student" });
+        }
+      }
       for (const [rootId, children] of childrenByRoot) {
         const pr = pById.get(rootId);
         if (!pr) continue;

@@ -4133,6 +4133,16 @@ await check("81. PIN slips: a whole section at once, never touching a chosen PIN
     cleanup.push(() => admin.from("student_parent").delete()
       .eq("student_id", pStu1).eq("parent_id", pNoPhone.id));
 
+    // A student with no parent linked at all is named on the sheet, not
+    // silently dropped (Catch Up, 13 Sep: 7 of 10 had none).
+    const orphanName = `QA Parentless Student ${Date.now()}`;
+    const { data: orphan, error: oErr } = await admin.from("student").insert({
+      org_id: ORG, class_section_id: sandboxSec.id, full_name: orphanName,
+      gr_number: `QA-NP-${Date.now()}`, status: "active",
+    }).select("id").single();
+    if (oErr) throw new Error(`orphan student: ${oErr.message}`);
+    cleanup.push(() => admin.from("student").delete().eq("id", orphan.id));
+
     const r2 = await api(admin2.token, url, {
       method: "POST", body: JSON.stringify({ subjectType: "parent" }),
     });
@@ -4140,6 +4150,8 @@ await check("81. PIN slips: a whole section at once, never touching a chosen PIN
     assert(r2.status === 200, `parent slips ${r2.status}`);
     assert((j2.skipped ?? []).some((x: any) => x.name === "QA Slipless Parent" && /phone/.test(x.reason)),
       `phone-less parent must be reported: ${JSON.stringify(j2.skipped).slice(0, 200)}`);
+    assert((j2.skipped ?? []).some((x: any) => x.name === orphanName && /no parent/.test(x.reason)),
+      `a student with no parent must be named: ${JSON.stringify(j2.skipped).slice(0, 200)}`);
     for (const sl of (j2.slips ?? [])) {
       assert(Array.isArray(sl.children) && sl.children.length > 0, "parent slips name the children");
       cleanup.push(() => admin.from("pin_credential").delete()
