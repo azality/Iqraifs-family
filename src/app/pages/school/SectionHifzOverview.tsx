@@ -248,6 +248,7 @@ export function SectionHifzOverview() {
         onSaved={() => setReloadKey((k) => k + 1)}
         qaidaLessonCount={qaidaLessonCount}
         onMoveTrack={changeTrack}
+        nazraParasBeforeHifz={hifzNazraParas}
       />
     );
   }
