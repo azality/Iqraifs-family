@@ -4233,7 +4233,13 @@ await check("83. report card: the Hifz box belongs to memorizers only", async ()
   // child who is not memorizing, true once their track is hifz - and its
   // counts ignore reading kinds, so nazra hearings never inflate it.
   const tt = (await ensureUser("qa-teacher@azality.com", "QA Teacher", "class_teacher")).token;
-  const cardUrl = `/school/orgs/${ORG}/students/${pStu1}/terms/${term!.id}/report-card`;
+  // The current term, resolved here: the `term` other checks use is
+  // local to their own bodies (first run failed with "term is not
+  // defined" - 14 Sep).
+  const { data: curTerm } = await admin.from("academic_term")
+    .select("id").eq("org_id", ORG).eq("is_current", true).is("archived_at", null).maybeSingle();
+  assert(curTerm, "no current term for the report-card check");
+  const cardUrl = `/school/orgs/${ORG}/students/${pStu1}/terms/${(curTerm as any).id}/report-card`;
   try {
     const plain = await api(tt, cardUrl);
     const pj = await plain.json();
