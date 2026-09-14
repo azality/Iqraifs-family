@@ -3,6 +3,7 @@ import { ChildSelector } from "../components/ChildSelector";
 import { ModeSwitcher } from "../components/ModeSwitcher";
 import { WorkspaceSwitcher } from "../components/WorkspaceSwitcher";
 import { useWorkspace } from "../contexts/WorkspaceContext";
+import { useOrgLogo } from "../contexts/OrgBrandingContext";
 import { ManageToolbar, schoolNavGroupsForRole, HeaderSearch, NotificationBell } from "../components/school-ui";
 import { viewerRoleForOrg } from "../../utils/schoolApi";
 import {
@@ -166,6 +167,7 @@ export function RootLayout() {
     ? location.pathname.match(/\/school\/orgs\/([^/]+)/)
     : null;
   const schoolOrgId = schoolOrgIdMatch?.[1] ?? workspace.orgId ?? "";
+  const { logoUrl: schoolLogoUrl, loading: schoolLogoLoading } = useOrgLogo(isSchoolWorkspace ? schoolOrgId : "");
   const schoolViewerRole = isSchoolWorkspace
     ? viewerRoleForOrg(schoolMe, schoolOrgId)
     : "other" as const;
@@ -401,9 +403,27 @@ export function RootLayout() {
                 </>
               ) : isSchoolWorkspace ? (
                 <>
-                  <span className="h-9 w-9 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-700 flex items-center justify-center shadow-md shadow-indigo-500/30 transition-transform group-hover:scale-105">
-                    <School className="h-5 w-5 text-white" />
-                  </span>
+                  {/* The school's own logo - this slot is the school's identity.
+                      Schools without one get the platform mark, never a
+                      generic icon. Neutral tile while it loads so the mark
+                      doesn't flash before a school logo arrives. */}
+                  {schoolLogoLoading ? (
+                    <span className="h-9 w-9 flex-shrink-0 rounded-xl bg-slate-100" aria-hidden="true" />
+                  ) : (
+                    <img
+                      src={schoolLogoUrl || PLATFORM_MARK_SRC}
+                      alt=""
+                      width={36}
+                      height={36}
+                      onError={(e) => {
+                        if (!e.currentTarget.src.endsWith(PLATFORM_MARK_SRC)) e.currentTarget.src = PLATFORM_MARK_SRC;
+                      }}
+                      className={cn(
+                        "h-9 w-9 flex-shrink-0 rounded-xl transition-transform group-hover:scale-105",
+                        schoolLogoUrl && "bg-white object-cover ring-1 ring-slate-200",
+                      )}
+                    />
+                  )}
                   <div className="min-w-0">
                     <h1 className="text-sm sm:text-base font-bold leading-tight text-slate-900 truncate">
                       {workspace.orgName ?? 'School'}
