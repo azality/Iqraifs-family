@@ -58,10 +58,10 @@ a:hover { color: var(--accent-dark); }
   gap: 28px;
   flex-wrap: wrap;
 }
-.brand { display: flex; align-items: baseline; gap: 8px; margin-right: auto; }
+.brand { display: flex; align-items: center; gap: 10px; margin-right: auto; }
+.brand-mark { width: 34px; height: 34px; display: block; flex: none; }
 .brand-name { font-size: 19px; font-weight: 900; color: var(--ink); letter-spacing: -0.01em; }
 .brand-name .dot { color: var(--accent); }
-.brand-ar { font-family: "Amiri", "Noto Naskh Arabic", serif; font-size: 17px; color: var(--muted); }
 .navlink { font-size: 14px; font-weight: 500; color: var(--body); }
 .navlink:hover { color: var(--ink); }
 .navlink[aria-current="page"] { font-weight: 700; color: var(--ink); }
@@ -315,7 +315,7 @@ h2 { margin: 0 0 10px; font-size: 32px; font-weight: 900; letter-spacing: -0.02e
 .site-foot { background: var(--ink); }
 .foot-wide { padding: 44px 24px; display: flex; gap: 40px; flex-wrap: wrap; align-items: flex-start; }
 .foot-brand { flex: 2; min-width: 260px; }
-.foot-brand-name { font-size: 17px; font-weight: 900; color: #fff; }
+.foot-brand-name { font-size: 17px; font-weight: 900; color: #fff; display: flex; align-items: center; gap: 10px; }
 .foot-brand-name .dot { color: var(--accent-light); }
 .foot-brand-copy { font-size: 13px; color: var(--faint); margin-top: 8px; line-height: 1.6; max-width: 320px; }
 .foot-col { flex: 1; min-width: 140px; display: flex; flex-direction: column; gap: 8px; }
@@ -333,11 +333,12 @@ h2 { margin: 0 0 10px; font-size: 32px; font-weight: 900; letter-spacing: -0.02e
   align-items: center;
   justify-content: space-between;
 }
-.foot-slim-brand { font-size: 15px; font-weight: 900; color: #fff; }
+.foot-slim-brand { font-size: 15px; font-weight: 900; color: #fff; display: inline-flex; align-items: center; gap: 9px; }
 .foot-slim-brand .dot { color: var(--accent-light); }
 .foot-slim-links { display: flex; gap: 22px; flex-wrap: wrap; }
 .foot-slim-links a { font-size: 13px; color: #cbd5e1; }
 .foot-slim-links a:hover { color: #fff; }
+.foot-mark { display: block; flex: none; }
 .foot-slim-legal { font-size: 12px; color: var(--muted); }
 
 @media (prefers-reduced-motion: reduce) {

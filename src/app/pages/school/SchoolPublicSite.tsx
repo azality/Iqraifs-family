@@ -16,7 +16,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { setFavicon } from "../../../utils/favicon";
-import { schoolTabTitle } from "../../../utils/brand";
+import { PLATFORM_MARK_SRC, PLATFORM_NAME, PLATFORM_URL, schoolTabTitle } from "../../../utils/brand";
 import { Link, useParams } from "react-router";
 import {
   getPublicSite,
@@ -757,7 +757,10 @@ export function SchoolPublicSite() {
           </div>
           <div style={{ borderBlockStart: "1px solid rgba(250,246,238,0.12)", paddingBlockStart: 24, display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
             <span style={{ font: `400 13px/1.4 ${fontSans}`, color: "rgba(250,246,238,0.5)" }}>© {site.org.name} {new Date().getFullYear()} · All rights reserved</span>
-            <a href="https://theilmnetwork.com" target="_blank" rel="noopener noreferrer" style={{ font: `500 12px/1.4 ${fontSans}`, color: "rgba(250,246,238,0.55)", textDecoration: "none" }}>Powered by ILM Network</a>
+            <a href={PLATFORM_URL} target="_blank" rel="noopener noreferrer" style={{ font: `500 12px/1.4 ${fontSans}`, color: "rgba(250,246,238,0.55)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <img src={PLATFORM_MARK_SRC} alt="" width={14} height={14} style={{ width: 14, height: 14, borderRadius: 3 }} />
+              Powered by {PLATFORM_NAME}
+            </a>
           </div>
         </div>
       </footer>

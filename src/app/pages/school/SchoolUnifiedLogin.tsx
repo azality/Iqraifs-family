@@ -13,7 +13,7 @@
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { setFavicon } from "../../../utils/favicon";
-import { schoolTabTitle } from "../../../utils/brand";
+import { PLATFORM_MARK_SRC, PLATFORM_NAME, PLATFORM_URL, schoolTabTitle } from "../../../utils/brand";
 import { useNavigate, useParams } from "react-router";
 import { GraduationCap, Eye, EyeOff } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -375,12 +375,13 @@ export function SchoolUnifiedLogin() {
 
         <p className="mt-4 text-center text-xs text-slate-500">
           <a
-            href="https://theilmnetwork.com"
+            href={PLATFORM_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="font-medium text-slate-600 hover:text-indigo-700 hover:underline"
+            className="inline-flex items-center gap-1 align-middle font-medium text-slate-600 hover:text-indigo-700 hover:underline"
           >
-            {t("portal.poweredBy", { brand: "ILM Network" })}
+            <img src={PLATFORM_MARK_SRC} alt="" width={14} height={14} className="h-3.5 w-3.5 rounded-[3px]" />
+            {t("portal.poweredBy", { brand: PLATFORM_NAME })}
           </a>
           {" — "}{t("portal.loginIntro")}
         </p>
