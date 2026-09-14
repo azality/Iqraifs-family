@@ -359,7 +359,7 @@ export function StudentHifz() {
                 width: "w-28",
                 cell: (r) => (
                   <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-indigo-50 text-indigo-700 capitalize">
-                    {r.kind}
+                    {r.kind === "qaida" ? t("portal.hifz.kindQaida") : r.kind}
                   </span>
                 ),
               },
@@ -367,7 +367,9 @@ export function StudentHifz() {
                 key: "surahNumber",
                 header: t("portal.hifz.colSurah"),
                 cell: (r) =>
-                  r.juzExtent && r.juzNumber ? (
+                  r.kind === "qaida" ? (
+                    <span className="text-sm">{t("portal.hifz.qaidaLesson", { n: r.qaidaLesson ?? "" })}</span>
+                  ) : r.juzExtent && r.juzNumber ? (
                     <span className="text-sm">
                       {t("hifzTeach.juzN", { n: r.juzNumber })}
                     </span>
@@ -381,7 +383,9 @@ export function StudentHifz() {
                 width: "w-24",
                 cell: (r) => (
                   <span className="tabular-nums text-sm">
-                    {r.juzExtent
+                    {r.kind === "qaida"
+                      ? "—"
+                      : r.juzExtent
                       ? formatJuzExtent(r.juzExtent, r.juzNumber).replace(/^ — /, "")
                       : `${r.ayahFrom}–${r.ayahTo}`}
                   </span>

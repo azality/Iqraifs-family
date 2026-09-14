@@ -412,6 +412,8 @@
       "colDate": "تاریخ",
       "colKind": "قسم",
       "colSurah": "سورت",
+      "kindQaida": "قاعدہ",
+      "qaidaLesson": "قاعدہ تختی {{n}}",
       "colAyahs": "آیات",
       "colQuality": "معیار",
       "colNote": "نوٹ"
@@ -637,7 +639,7 @@
       "openLesson": "سبق کھولیں"
   },
   "hifzTeach": {
-    "startNazraRound": "ناظرہ راؤنڈ ({{n}})",
+    "startNazraRound": "قاعدہ / ناظرہ راؤنڈ ({{n}})",
     "startHifzRound": "حفظ راؤنڈ ({{n}})",
     "manzilSkipToday": "آج منزل چھوڑیں",
     "skipToday": "آج {{kind}} چھوڑیں",

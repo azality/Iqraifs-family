@@ -412,6 +412,8 @@
       "colDate": "Date",
       "colKind": "Kind",
       "colSurah": "Surah",
+      "kindQaida": "Qaida",
+      "qaidaLesson": "Qaida takhti {{n}}",
       "colAyahs": "Ayahs",
       "colQuality": "Quality",
       "colNote": "Note"
@@ -637,7 +639,7 @@
       "openLesson": "Open lesson"
   },
   "hifzTeach": {
-    "startNazraRound": "Nazra round ({{n}})",
+    "startNazraRound": "Qaida / Nazra round ({{n}})",
     "startHifzRound": "Hifz round ({{n}})",
     "manzilSkipToday": "Skip manzil today",
     "skipToday": "Skip {{kind}} today",

@@ -38,6 +38,7 @@ const KIND_LABEL: Record<HifzKind, string> = {
   // Reading, not memorizing — the child's history should say so.
   nazra: "Nazra",
   nazra_revision: "Nazra revision",
+  qaida: "Noorani Qaida",
 };
 
 const KIND_CLASSES: Record<HifzKind, string> = {
@@ -49,6 +50,7 @@ const KIND_CLASSES: Record<HifzKind, string> = {
   tested: "bg-amber-100 text-amber-800 border-amber-200",
   nazra: "bg-teal-100 text-teal-800 border-teal-200",
   nazra_revision: "bg-teal-50 text-teal-700 border-teal-200",
+  qaida: "bg-orange-100 text-orange-800 border-orange-200",
 };
 
 function formatRelative(iso: string): string {
@@ -146,7 +148,7 @@ export function HifzProgressFeed({
           </p>
         )}
         {entries.map((e) => {
-          const surah = getSurah(e.surahNumber);
+          const surah = e.kind === "qaida" ? null : getSurah(e.surahNumber);
           return (
             <div
               key={e.id}
@@ -160,10 +162,13 @@ export function HifzProgressFeed({
                   >
                     {KIND_LABEL[e.kind]}
                   </Badge>
-                  {/* Manzil (and para-based sabqi) are revised per juz —
+                  {/* Qaida has no surah — it is taught lesson by lesson.
+                      Manzil (and para-based sabqi) are revised per juz —
                       the stored ayah is just a position marker, so show
                       "Juz N" (+ how much of it) instead. */}
-                  {(e.kind === "manzil" || (e as any).juzExtent) && e.juzNumber ? (
+                  {e.kind === "qaida" ? (
+                    <span className="text-sm font-medium">Takhti {e.qaidaLesson ?? "—"}</span>
+                  ) : (e.kind === "manzil" || (e as any).juzExtent) && e.juzNumber ? (
                     <span className="text-sm font-medium">
                       Juz {e.juzNumber}
                       {formatJuzExtent((e as any).juzExtent)}

@@ -20,8 +20,13 @@
 // memorizing (here or elsewhere) and now sits in the same period
 // revising. So the SCREEN IS CHOSEN PER CHILD, not per class:
 //
+//   qaida              Noorani Qaida — hear a takhti → advance
 //   nazra              read a portion → heard → advance
 //   hifz / revision    the full sabaq / sabqi / manzil trio
+//
+// A child moves up Qaida → Nazra → Hifz. The system notices when they
+// reach the end of a stage and ASKS; the teacher decides (same rule as
+// the hafiz milestone).
 //
 // The track comes from the roster (student.quran_track, or inferred:
 // hifz section → hifz, hafiz → revision, else nazra), so the teacher
@@ -32,8 +37,8 @@
 //
 // Reported by Uroosa Basit (Nazra, Class II A + Junior/Senior), Sep 2026.
 
-import { useEffect, useMemo, useState } from "react";
-import { BookOpen, Check, RotateCcw, ChevronRight, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { BookOpen, Check, RotateCcw, ChevronRight, X, ArrowUpCircle } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
@@ -61,6 +66,30 @@ const QUALITIES: Array<{ v: HifzQuality; label: string; tone: string }> = [
   { v: "weak", label: "Weak", tone: "bg-rose-100 text-rose-800 border-rose-200" },
 ];
 
+const NEEDS_REPEAT = (q: HifzQuality | null | undefined) =>
+  q === "weak" || q === "needs_practice" || q === "not_learned";
+
+const QAIDA_LESSONS_DEFAULT = 17;
+
+/** The next stage a child can be moved up to, if they've reached the end
+ *  of this one. Qaida: the last takhti heard without needing a repeat.
+ *  Nazra: reading has reached the school's para limit (a hifz section reads
+ *  only a few paras before hifz; elsewhere the whole Quran) or An-Nas. */
+function readyToMoveUp(row: SectionHifzSummaryRow, lessonCount: number, nazraParas: number): QuranTrack | null {
+  const track = row.quranTrack ?? "nazra";
+  if (track === "qaida") {
+    const q = row.qaidaPosition;
+    return q && q.lesson >= lessonCount && !NEEDS_REPEAT(q.quality) ? "nazra" : null;
+  }
+  if (track === "nazra") {
+    // A few paras (hifz section): count the distinct paras read.
+    if (nazraParas < 30) return (row.nazraParasRead ?? 0) >= nazraParas ? "hifz" : null;
+    const p = row.nazraPosition;
+    return p && !p.isRevision && (p.juzNumber === 30 || p.surahNumber === 114) ? "hifz" : null;
+  }
+  return null;
+}
+
 export interface QuranRoundModeProps {
   orgId: string;
   groupLabel: string;
@@ -72,9 +101,19 @@ export interface QuranRoundModeProps {
   onConfirmHafiz?: (row: SectionHifzSummaryRow) => void;
   /** Not yet — keep hearing them, ask again later. */
   onDismissHafiz?: (row: SectionHifzSummaryRow) => void;
+  /** Lessons in the school's Noorani Qaida (settings.qaida_lesson_count). */
+  qaidaLessonCount?: number;
+  /** The teacher moves a child up a stage (Qaida → Nazra, Nazra → Hifz). */
+  onMoveTrack?: (row: SectionHifzSummaryRow, track: QuranTrack) => Promise<void> | void;
+  /** Paras of nazra before hifz starts. A hifz section passes the school's
+   *  setting; everywhere else nazra runs the whole Quran (30). */
+  nazraParasBeforeHifz?: number;
 }
 
-export function QuranRoundMode({ orgId, groupLabel, roster, onClose, onSaved, onConfirmHafiz, onDismissHafiz }: QuranRoundModeProps) {
+export function QuranRoundMode({
+  orgId, groupLabel, roster, onClose, onSaved, onConfirmHafiz, onDismissHafiz,
+  qaidaLessonCount = QAIDA_LESSONS_DEFAULT, onMoveTrack, nazraParasBeforeHifz = 30,
+}: QuranRoundModeProps) {
   // The roster is snapshotted by the caller so re-sorting mid-round
   // doesn't shuffle the queue under the teacher's hand.
   const [idx, setIdx] = useState(0);
@@ -82,8 +121,13 @@ export function QuranRoundMode({ orgId, groupLabel, roster, onClose, onSaved, on
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [heardIds, setHeardIds] = useState<Set<string>>(
-    () => new Set(roster.filter((s) => s.today?.nazra).map((s) => s.studentId)),
+    () => new Set(roster.filter((s) => s.today?.nazra || s.today?.qaida).map((s) => s.studentId)),
   );
+  // Move-up asks the teacher answered "Not yet" to, this round.
+  const [notYet, setNotYet] = useState<Set<string>>(new Set());
+  // A just-saved hearing that finished a stage: stay on this child so the
+  // teacher sees the ask rather than being walked past it.
+  const [justFinished, setJustFinished] = useState<{ studentId: string; to: QuranTrack } | null>(null);
 
   const student = roster[idx];
 
@@ -97,11 +141,15 @@ export function QuranRoundMode({ orgId, groupLabel, roster, onClose, onSaved, on
   // Which of the trio is being heard, for a child on the hifz/revision
   // track. Ignored entirely for nazra readers.
   const [trioKind, setTrioKind] = useState<"sabaq" | "sabqi" | "manzil">("sabaq");
+  // Noorani Qaida takhti being heard.
+  const [lesson, setLesson] = useState<number>(1);
 
   // The track decides the whole card. Explicit setting wins; the roster
   // already resolved the inference server-side.
   const track: QuranTrack = student?.quranTrack ?? "nazra";
   const isTrio = track === "hifz" || track === "revision";
+  const isQaida = track === "qaida";
+  const lessons = Array.from({ length: Math.max(1, qaidaLessonCount) }, (_, i) => i + 1);
 
   // Pre-fill from where this child left off. Continuing is the common
   // case, so the form opens on "the next bit" rather than blank — but
@@ -112,6 +160,11 @@ export function QuranRoundMode({ orgId, groupLabel, roster, onClose, onSaved, on
     setErr(null);
     setQuality(null);
     setRevision(!!p?.isRevision);
+    // Qaida: the next takhti, or the same one again after a weak hearing.
+    const q = student.qaidaPosition;
+    setLesson(
+      q ? Math.min(NEEDS_REPEAT(q.quality) ? q.lesson : q.lesson + 1, Math.max(1, qaidaLessonCount)) : 1,
+    );
     if (!p) {
       setPara(1); setSurah(1); setFrom("1"); setTo("");
       return;
@@ -128,6 +181,7 @@ export function QuranRoundMode({ orgId, groupLabel, roster, onClose, onSaved, on
       setFrom(p.ayahTo != null ? String(p.ayahTo + 1) : "1");
       setTo("");
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [student?.studentId]);
 
   const surahInfo = getSurah(surah);
@@ -137,6 +191,10 @@ export function QuranRoundMode({ orgId, groupLabel, roster, onClose, onSaved, on
     const rowTrack = row.quranTrack ?? "nazra";
     if (rowTrack === "revision") return "Hafiz · revising";
     if (rowTrack === "hifz") return "Hifz · sabaq / sabqi / manzil";
+    if (rowTrack === "qaida") {
+      const q = row.qaidaPosition;
+      return q ? `Qaida · takhti ${q.lesson} of ${qaidaLessonCount}` : "Qaida · not started";
+    }
     const p = row.nazraPosition;
     if (!p) return "Not started";
     const where = p.juzNumber
@@ -149,11 +207,45 @@ export function QuranRoundMode({ orgId, groupLabel, roster, onClose, onSaved, on
   };
 
   const goNext = () => {
+    setJustFinished(null);
     setIdx((i) => Math.min(i + 1, roster.length - 1));
+  };
+
+  const afterSave = (finishedTo: QuranTrack | null) => {
+    setHeardIds((prev) => new Set(prev).add(student.studentId));
+    onSaved();
+    if (finishedTo && onMoveTrack) {
+      setJustFinished({ studentId: student.studentId, to: finishedTo });
+      return;
+    }
+    if (idx < roster.length - 1) goNext();
   };
 
   const save = async (mode: "heard" | "repeat") => {
     if (!student) return;
+
+    if (isQaida) {
+      setBusy(true); setErr(null);
+      try {
+        await postHifzEntry(orgId, {
+          studentId: student.studentId,
+          kind: "qaida",
+          qaidaLesson: lesson,
+          quality: quality ?? undefined,
+          nextTarget: mode === "repeat" || NEEDS_REPEAT(quality)
+            ? `Qaida: repeat takhti ${lesson}`
+            : lesson >= qaidaLessonCount
+            ? "Qaida: finished"
+            : `Qaida: takhti ${lesson + 1}`,
+        } as any);
+        const finished = mode === "heard" && lesson >= qaidaLessonCount && !NEEDS_REPEAT(quality);
+        afterSave(finished ? "nazra" : null);
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : "Could not save.");
+      } finally { setBusy(false); }
+      return;
+    }
+
     // Manzil is heard by juz — there is no ayah range to type, which is
     // the whole point of logging a revision round quickly.
     if (isTrio && trioKind === "manzil") {
@@ -168,9 +260,7 @@ export function QuranRoundMode({ orgId, groupLabel, roster, onClose, onSaved, on
           juzNumber: para,
           quality: quality ?? undefined,
         } as any);
-        setHeardIds((prev) => new Set(prev).add(student.studentId));
-        onSaved();
-        if (idx < roster.length - 1) goNext();
+        afterSave(null);
       } catch (e) {
         setErr(e instanceof Error ? e.message : "Could not save.");
       } finally { setBusy(false); }
@@ -198,9 +288,14 @@ export function QuranRoundMode({ orgId, groupLabel, roster, onClose, onSaved, on
           ? `Repeat ${unit === "para" ? `para ${para}` : surahInfo?.nameTransliterated ?? ""} ayah ${f}–${t}`
           : `Continue from ayah ${t + 1}`,
       } as any);
-      setHeardIds((prev) => new Set(prev).add(student.studentId));
-      onSaved();
-      if (idx < roster.length - 1) goNext();
+      // In a hifz section, today's para counts if it's a new one.
+      const parasAfter = (student.nazraParasRead ?? 0) +
+        (unit === "para" && student.nazraPosition?.juzNumber !== para ? 1 : 0);
+      const reachedEnd = !isTrio && !revision && mode === "heard" &&
+        (nazraParasBeforeHifz < 30
+          ? parasAfter >= nazraParasBeforeHifz
+          : unit === "para" ? para === 30 : surah === 114);
+      afterSave(reachedEnd ? "hifz" : null);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Could not save.");
     } finally {
@@ -219,6 +314,17 @@ export function QuranRoundMode({ orgId, groupLabel, roster, onClose, onSaved, on
     );
   }
 
+  // Ask to move this child up a stage: right after the hearing that
+  // finished it, or whenever their card opens already at the end.
+  const moveUpTo: QuranTrack | null =
+    !onMoveTrack || notYet.has(student.studentId)
+      ? null
+      : justFinished?.studentId === student.studentId
+      ? justFinished.to
+      : readyToMoveUp(student, qaidaLessonCount, nazraParasBeforeHifz);
+
+  const roundName = isQaida ? "Qaida" : isTrio ? "Quran" : "Nazra";
+
   return (
     <div className="space-y-3">
       {/* Header — who, where in the round, and a way out. */}
@@ -226,7 +332,7 @@ export function QuranRoundMode({ orgId, groupLabel, roster, onClose, onSaved, on
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-emerald-200">
-              <BookOpen className="h-3.5 w-3.5" /> Nazra round · {groupLabel}
+              <BookOpen className="h-3.5 w-3.5" /> {roundName} round · {groupLabel}
             </div>
             <h2 className="truncate text-lg font-bold">{student.studentName}</h2>
             <p className="text-[12px] text-emerald-100">
@@ -244,6 +350,50 @@ export function QuranRoundMode({ orgId, groupLabel, roster, onClose, onSaved, on
           </div>
         </div>
       </div>
+
+      {/* Moving up a stage is the teacher's call. The system only notices
+          the child has reached the end of this one and asks. */}
+      {moveUpTo && (
+        <div className="rounded-xl border border-sky-300 bg-sky-50 p-4">
+          <p className="flex items-center gap-1.5 text-sm font-semibold text-sky-900">
+            <ArrowUpCircle className="h-4 w-4" />
+            {moveUpTo === "nazra"
+              ? `${student.studentName} has finished Noorani Qaida.`
+              : nazraParasBeforeHifz < 30
+              ? `${student.studentName} is on para ${nazraParasBeforeHifz} of nazra — the last one before hifz.`
+              : `${student.studentName} has reached the end of the Quran in nazra.`}
+          </p>
+          <p className="mt-0.5 text-[12px] text-sky-800">
+            {moveUpTo === "nazra"
+              ? "Move them to Nazra when you're satisfied with their Qaida — tomorrow's card will be reading the Quran."
+              : nazraParasBeforeHifz < 30
+              ? "Move them to Hifz once they finish this para — tomorrow's card will be sabaq / sabqi / manzil."
+              : "Move them to Hifz when they're ready — tomorrow's card will be sabaq / sabqi / manzil."}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button
+              size="sm" disabled={busy}
+              className="bg-sky-700 hover:bg-sky-800"
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  await onMoveTrack?.(student, moveUpTo);
+                  goNext();
+                } finally { setBusy(false); }
+              }}
+            >
+              {moveUpTo === "nazra" ? "Move to Nazra" : "Move to Hifz"}
+            </Button>
+            <Button size="sm" variant="outline" disabled={busy}
+              onClick={() => {
+                setNotYet((p) => new Set(p).add(student.studentId));
+                if (justFinished?.studentId === student.studentId) goNext();
+              }}>
+              Not yet
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* The system can see that a child has now covered all 30 juz. It
           cannot judge whether they are hafiz — quality isn't counted and
@@ -304,87 +454,113 @@ export function QuranRoundMode({ orgId, groupLabel, roster, onClose, onSaved, on
           </div>
         )}
 
-        {/* Unit — teachers think in paras; some think in surahs. */}
-        <div className="flex flex-wrap items-center gap-2">
-          <Label className="text-xs text-slate-500">
-            {isTrio && trioKind === "manzil" ? "Revising" : "Track by"}
-          </Label>
-          <div className="inline-flex overflow-hidden rounded-lg border border-slate-200">
-            {(["para", "surah"] as Unit[]).map((u) => (
-              <button
-                key={u} type="button" onClick={() => setUnit(u)}
-                disabled={isTrio && trioKind === "manzil" && u === "surah"}
-                className={
-                  "px-3 py-1.5 text-xs font-semibold capitalize disabled:opacity-40 " +
-                  (unit === u ? "bg-emerald-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50")
-                }
-              >
-                {u}
-              </button>
-            ))}
-          </div>
-          {!isTrio && (
-            <label className="ml-auto inline-flex items-center gap-1.5 text-xs text-slate-600">
-              <input
-                type="checkbox" checked={revision}
-                onChange={(e) => setRevision(e.target.checked)}
-                className="h-3.5 w-3.5 rounded border-slate-300"
-              />
-              {/* One flag, two audiences: the intake reader's SABQI
-                  (revising what they've read) and the hafiz child
-                  revising in a nazra group. Same stored kind. */}
-              Sabqi / revision
-            </label>
-          )}
-        </div>
-
-        {/* Where */}
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div className="space-y-1">
-            <Label className="text-xs">{unit === "para" ? "Para" : "Surah"}</Label>
-            {unit === "para" ? (
-              <Select value={String(para)} onValueChange={(v) => setPara(Number(v))}>
+        {isQaida ? (
+          /* Noorani Qaida: which takhti they recited. */
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Takhti</Label>
+              <Select value={String(lesson)} onValueChange={(v) => setLesson(Number(v))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {PARAS.map((p) => <SelectItem key={p} value={String(p)}>Para {p}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            ) : (
-              <Select value={String(surah)} onValueChange={(v) => setSurah(Number(v))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {SURAHS.map((s) => (
-                    <SelectItem key={s.number} value={String(s.number)}>
-                      {s.number}. {s.nameTransliterated}
-                    </SelectItem>
+                  {lessons.map((n) => (
+                    <SelectItem key={n} value={String(n)}>Takhti {n} of {qaidaLessonCount}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-            )}
+            </div>
+            <p className="self-end text-[11px] text-slate-500 sm:col-span-2">
+              {student.qaidaPosition
+                ? `Last heard: takhti ${student.qaidaPosition.lesson}`
+                : "First takhti for this child."}
+            </p>
           </div>
-          {/* Manzil is a whole juz — no ayah typing, which is what makes
-              a revision round fast. */}
-          {!(isTrio && trioKind === "manzil") && (
-            <>
-              <div className="space-y-1">
-                <Label className="text-xs">From ayah</Label>
-                <Input inputMode="numeric" value={from}
-                  onChange={(e) => setFrom(e.target.value.replace(/\D/g, ""))} />
+        ) : (
+          <>
+            {/* Unit — teachers think in paras; some think in surahs. */}
+            <div className="flex flex-wrap items-center gap-2">
+              <Label className="text-xs text-slate-500">
+                {isTrio && trioKind === "manzil" ? "Revising" : "Track by"}
+              </Label>
+              <div className="inline-flex overflow-hidden rounded-lg border border-slate-200">
+                {(["para", "surah"] as Unit[]).map((u) => (
+                  <button
+                    key={u} type="button" onClick={() => setUnit(u)}
+                    disabled={isTrio && trioKind === "manzil" && u === "surah"}
+                    className={
+                      "px-3 py-1.5 text-xs font-semibold capitalize disabled:opacity-40 " +
+                      (unit === u ? "bg-emerald-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50")
+                    }
+                  >
+                    {u}
+                  </button>
+                ))}
               </div>
+              {!isTrio && (
+                <label className="ml-auto inline-flex items-center gap-1.5 text-xs text-slate-600">
+                  <input
+                    type="checkbox" checked={revision}
+                    onChange={(e) => setRevision(e.target.checked)}
+                    className="h-3.5 w-3.5 rounded border-slate-300"
+                  />
+                  {/* One flag, two audiences: the intake reader's SABQI
+                      (revising what they've read) and the hafiz child
+                      revising in a nazra group. Same stored kind. */}
+                  Sabqi / revision
+                </label>
+              )}
+            </div>
+
+            {/* Where */}
+            <div className="grid gap-3 sm:grid-cols-3">
               <div className="space-y-1">
-                <Label className="text-xs">
-                  To ayah{unit === "surah" && surahInfo ? <span className="font-normal text-slate-400"> (max {maxAyah})</span> : null}
-                </Label>
-                <Input inputMode="numeric" value={to} placeholder="…"
-                  onChange={(e) => setTo(e.target.value.replace(/\D/g, ""))} />
+                <Label className="text-xs">{unit === "para" ? "Para" : "Surah"}</Label>
+                {unit === "para" ? (
+                  <Select value={String(para)} onValueChange={(v) => setPara(Number(v))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {PARAS.map((p) => <SelectItem key={p} value={String(p)}>Para {p}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Select value={String(surah)} onValueChange={(v) => setSurah(Number(v))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {SURAHS.map((s) => (
+                        <SelectItem key={s.number} value={String(s.number)}>
+                          {s.number}. {s.nameTransliterated}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
-            </>
-          )}
-        </div>
+              {/* Manzil is a whole juz — no ayah typing, which is what makes
+                  a revision round fast. */}
+              {!(isTrio && trioKind === "manzil") && (
+                <>
+                  <div className="space-y-1">
+                    <Label className="text-xs">From ayah</Label>
+                    <Input inputMode="numeric" value={from}
+                      onChange={(e) => setFrom(e.target.value.replace(/\D/g, ""))} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">
+                      To ayah{unit === "surah" && surahInfo ? <span className="font-normal text-slate-400"> (max {maxAyah})</span> : null}
+                    </Label>
+                    <Input inputMode="numeric" value={to} placeholder="…"
+                      onChange={(e) => setTo(e.target.value.replace(/\D/g, ""))} />
+                  </div>
+                </>
+              )}
+            </div>
+          </>
+        )}
 
         {/* How it went — optional, but it drives tomorrow's prefill. */}
         <div className="space-y-1">
-          <Label className="text-xs text-slate-500">How did they read? <span className="font-normal text-slate-400">(optional)</span></Label>
+          <Label className="text-xs text-slate-500">
+            {isQaida ? "How did they recite?" : "How did they read?"} <span className="font-normal text-slate-400">(optional)</span>
+          </Label>
           <div className="flex flex-wrap gap-1.5">
             {QUALITIES.map((q) => (
               <button
@@ -401,7 +577,9 @@ export function QuranRoundMode({ orgId, groupLabel, roster, onClose, onSaved, on
           </div>
           {(quality === "weak" || quality === "needs_practice") && (
             <p className="text-[11px] text-amber-700">
-              Tomorrow will start them on this same portion again.
+              {isQaida
+                ? "Tomorrow will start them on this same takhti again."
+                : "Tomorrow will start them on this same portion again."}
             </p>
           )}
         </div>
@@ -436,7 +614,7 @@ export function QuranRoundMode({ orgId, groupLabel, roster, onClose, onSaved, on
           {roster.map((s, i) => (
             <li key={s.studentId}>
               <button
-                type="button" onClick={() => setIdx(i)}
+                type="button" onClick={() => { setJustFinished(null); setIdx(i); }}
                 className={
                   "flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50 " +
                   (i === idx ? "bg-emerald-50/60" : "")

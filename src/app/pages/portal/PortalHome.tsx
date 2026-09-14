@@ -162,8 +162,13 @@ export function PortalHome() {
               }
               const lh = snap.latestHifz;
               if (lh && Date.now() - Date.parse(lh.recordedAt) < 7 * 86400e3) {
-                const surah = getSurah(lh.surahNumber)?.nameTransliterated ?? lh.surahNumber;
-                const kindWord = ["sabaq", "sabqi", "manzil"].includes(lh.kind) ? t(`hifzTeach.${lh.kind}`) : lh.kind;
+                const isQaida = lh.kind === "qaida";
+                const surah = isQaida ? "" : getSurah(lh.surahNumber)?.nameTransliterated ?? lh.surahNumber;
+                const kindWord = ["sabaq", "sabqi", "manzil"].includes(lh.kind)
+                  ? t(`hifzTeach.${lh.kind}`)
+                  : isQaida
+                  ? t("portal.hifz.kindQaida")
+                  : lh.kind;
                 const dayDiff = Math.floor((Date.now() - Date.parse(lh.recordedAt)) / 86400e3);
                 const when = dayDiff <= 0 ? t("portal.home.today") : dayDiff === 1 ? t("portal.home.yesterday") : new Date(lh.recordedAt).toLocaleDateString(i18n.language === "ur" ? "ur-PK" : undefined, { weekday: "short" });
                 lines.push({
@@ -177,7 +182,9 @@ export function PortalHome() {
                         kind: kindWord,
                         // Para-mode entries (sabqi/manzil by juz) store only
                         // the juz-start marker in surah/ayah — show the juz.
-                        portion: lh.juzNumber
+                        portion: isQaida
+                          ? t("portal.hifz.qaidaLesson", { n: lh.qaidaLesson ?? "" })
+                          : lh.juzNumber
                           ? `${t("hifzTeach.juzN", { n: lh.juzNumber })}${formatJuzExtent(lh.juzExtent, lh.juzNumber)}`
                           : `${surah} ${lh.ayahFrom}–${lh.ayahTo}`,
                       })}

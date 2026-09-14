@@ -189,6 +189,9 @@ const HIFZ_KINDS = new Set([
   "sabaq",
   "sabqi",
   "manzil",
+  "nazra",
+  "nazra_revision",
+  "qaida",
 ]);
 const BEHAVIOR_KINDS = new Set(["positive", "concern"]);
 
@@ -235,6 +238,8 @@ function hifzToJson(r: any) {
     ayahFrom: r.ayah_from,
     ayahTo: r.ayah_to,
     kind: r.kind,
+    // Qaida entries carry a lesson instead of surah/ayah (both null then).
+    qaidaLesson: r.qaida_lesson ?? null,
     quality: r.quality,
     missed: !!r.missed,
     // Legacy `notes` is preserved for parent display because rows
@@ -1577,7 +1582,7 @@ export function installPortal(school: Hono): void {
     {
       const { data: hifzRecent } = await serviceRoleClient
         .from("hifz_progress")
-        .select("id, surah_number, ayah_from, ayah_to, kind, recorded_at")
+        .select("id, surah_number, ayah_from, ayah_to, kind, recorded_at, qaida_lesson")
         .eq("student_id", studentId)
         .order("recorded_at", { ascending: false })
         .limit(10);
@@ -1587,7 +1592,9 @@ export function installPortal(school: Hono): void {
           id: row.id,
           at: row.recorded_at,
           kind: "hifz",
-          summary: `Surah ${row.surah_number} ayah ${row.ayah_from}-${row.ayah_to} (${row.kind})`,
+          summary: row.kind === "qaida"
+            ? `Noorani Qaida takhti ${row.qaida_lesson}`
+            : `Surah ${row.surah_number} ayah ${row.ayah_from}-${row.ayah_to} (${row.kind})`,
         });
       }
     }
@@ -1786,11 +1793,12 @@ export function installPortal(school: Hono): void {
       missed: boolean; parentAction: string | null; nextTarget: string | null;
       teacherRemarks: string | null;
       juzNumber: number | null; juzExtent: string | null;
+      qaidaLesson: number | null;
     } | null = null;
     {
       const { data: hifz } = await serviceRoleClient
         .from("hifz_progress")
-        .select("recorded_at, kind, surah_number, ayah_from, ayah_to, quality, missed, parent_action, next_target, teacher_remarks, juz_number, juz_extent")
+        .select("recorded_at, kind, surah_number, ayah_from, ayah_to, quality, missed, parent_action, next_target, teacher_remarks, juz_number, juz_extent, qaida_lesson")
         .eq("student_id", studentId)
         .order("recorded_at", { ascending: false })
         .limit(20);
@@ -1813,6 +1821,7 @@ export function installPortal(school: Hono): void {
           // 10 Sep). Clients show "Juz 18 — …" when juzNumber is set.
           juzNumber: latest.juz_number ?? null,
           juzExtent: latest.juz_extent ?? null,
+          qaidaLesson: latest.qaida_lesson ?? null,
         };
       }
       const lastRevision = ((hifz ?? []) as any[]).find(
@@ -1827,8 +1836,10 @@ export function installPortal(school: Hono): void {
             daysSince: days,
           };
         }
-      } else if ((hifz ?? []).length > 0) {
-        // Student has Hifz entries but never any revision — flag immediately.
+      } else if (((hifz ?? []) as any[]).some((h) => h.kind === "sabaq")) {
+        // A memorizing child with no revision yet — flag immediately.
+        // Qaida and nazra children don't revise sabqi/manzil, so their
+        // entries never trip this.
         const last = (hifz as any)[0].recorded_at;
         const days = Math.floor((Date.now() - new Date(last).getTime()) / (24 * 60 * 60 * 1000));
         hifzRevisionNeeded = { lastEntryDate: last, daysSince: days };
@@ -2003,7 +2014,7 @@ export function installPortal(school: Hono): void {
     // ── hifz_progress prose fields ──
     const { data: hifzRows } = await serviceRoleClient
       .from("hifz_progress")
-      .select("id, kind, surah_number, ayah_from, ayah_to, recorded_at, recorded_by, tajweed_notes, fluency_notes, teacher_remarks, parent_comments, parent_action")
+      .select("id, kind, surah_number, ayah_from, ayah_to, recorded_at, recorded_by, tajweed_notes, fluency_notes, teacher_remarks, parent_comments, parent_action, qaida_lesson")
       .eq("student_id", studentId)
       .gte("recorded_at", cutoffIso)
       .order("recorded_at", { ascending: false })
@@ -2022,7 +2033,9 @@ export function installPortal(school: Hono): void {
         kind: "hifz",
         at: r.recorded_at,
         authorName: r.recorded_by,
-        title: `Hifz ${r.kind}${r.surah_number ? ` · Surah ${r.surah_number}${r.ayah_from && r.ayah_to ? `:${r.ayah_from}-${r.ayah_to}` : ""}` : ""}`,
+        title: r.kind === "qaida"
+          ? `Noorani Qaida · takhti ${r.qaida_lesson}`
+          : `Hifz ${r.kind}${r.surah_number ? ` · Surah ${r.surah_number}${r.ayah_from && r.ayah_to ? `:${r.ayah_from}-${r.ayah_to}` : ""}` : ""}`,
         body: lines.join("\n"),
         link: "/hifz",
         tone: "neutral",

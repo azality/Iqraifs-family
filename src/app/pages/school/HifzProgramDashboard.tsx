@@ -35,6 +35,8 @@ function positionLabel(
   const pos = parts.join(" · ") || "—";
   const kind = ["sabaq", "sabqi", "manzil"].includes(s.lastKind)
     ? t(`hifzTeach.${s.lastKind}`)
+    : s.lastKind === "qaida"
+    ? "Qaida"
     : s.lastKind;
   return `${pos} (${kind})`;
 }

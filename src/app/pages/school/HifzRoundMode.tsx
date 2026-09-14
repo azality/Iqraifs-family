@@ -457,7 +457,9 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
           // Para-mode entries carry the juz-start marker in surah/ayah —
           // rendering that read as a one-ayah recitation ("Sabqi
           // Al-Mu'minun 1–1"; Muneeb, 10 Sep). Show the juz instead.
-          const portionText = latest.juzNumber
+          const portionText = latest.kind === "qaida"
+            ? `${latest.qaidaLesson ?? ""}`
+            : latest.juzNumber
             ? `${t("hifzTeach.juzN", { n: latest.juzNumber })}${formatJuzExtent(latest.juzExtent, latest.juzNumber)}`
             : `${surahDisplayName(latest.surahNumber, lang)} ${latest.ayahFrom}–${latest.ayahTo}`;
           setLastLine(
