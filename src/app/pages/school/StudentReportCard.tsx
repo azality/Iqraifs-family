@@ -319,7 +319,7 @@ export function StudentReportCard() {
                 )}
               </section>
 
-              <section className="grid grid-cols-1 sm:grid-cols-3 gap-3 print-keep">
+              <section className={`grid grid-cols-1 ${card.hifz.show !== false ? "sm:grid-cols-3" : "sm:grid-cols-2"} gap-3 print-keep`}>
                 <div className="rounded-md border border-slate-200 bg-white p-3">
                   <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 flex items-center gap-1">
                     <Calendar className="h-3.5 w-3.5 text-indigo-500" /> Attendance
@@ -344,22 +344,26 @@ export function StudentReportCard() {
                     <div>Net points: <span className="font-semibold">{card.behavior.netPoints}</span></div>
                   </div>
                 </div>
-                <div className="rounded-md border border-slate-200 bg-white p-3">
-                  <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 flex items-center gap-1">
-                    <Award className="h-3.5 w-3.5 text-amber-500" /> Hifz progress
-                  </div>
-                  <div className="text-xs space-y-0.5">
-                    <div>Ayahs memorized: <span className="font-medium">{card.hifz.ayahsMemorized}</span></div>
-                    <div>Surahs touched: <span className="font-medium">{card.hifz.surahsCompleted}</span></div>
-                    <div>Entries: {card.hifz.totalEntries} (missed {card.hifz.missedCount})</div>
-                    <div className="pt-1 border-t border-slate-100 mt-1 text-[11px] text-slate-500">
-                      Quality: Excellent {card.hifz.qualityCounts.excellent} ·
-                      Good {card.hifz.qualityCounts.good} ·
-                      Needs practice {card.hifz.qualityCounts.needs_practice} ·
-                      Weak {card.hifz.qualityCounts.weak}
+                {/* Only a memorizing child gets the Hifz box — an academic
+                    child's card showed a box of zeros (school, 14 Sep). */}
+                {card.hifz.show !== false && (
+                  <div className="rounded-md border border-slate-200 bg-white p-3">
+                    <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 flex items-center gap-1">
+                      <Award className="h-3.5 w-3.5 text-amber-500" /> Hifz progress
+                    </div>
+                    <div className="text-xs space-y-0.5">
+                      <div>Ayahs memorized: <span className="font-medium">{card.hifz.ayahsMemorized}</span></div>
+                      <div>Surahs touched: <span className="font-medium">{card.hifz.surahsCompleted}</span></div>
+                      <div>Entries: {card.hifz.totalEntries} (missed {card.hifz.missedCount})</div>
+                      <div className="pt-1 border-t border-slate-100 mt-1 text-[11px] text-slate-500">
+                        Quality: Excellent {card.hifz.qualityCounts.excellent} ·
+                        Good {card.hifz.qualityCounts.good} ·
+                        Needs practice {card.hifz.qualityCounts.needs_practice} ·
+                        Weak {card.hifz.qualityCounts.weak}
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
               </section>
 
               <section className="space-y-3 print-keep">

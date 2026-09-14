@@ -5150,7 +5150,12 @@ export interface TermReportCardResponse {
   };
   attendance: { present: number; late: number; absent: number; excused: number; total: number; attendancePct: number | null };
   behavior: { positive: number; concern: number; netPoints: number };
-  hifz: { ayahsMemorized: number; surahsCompleted: number; totalEntries: number; missedCount: number; qualityCounts: { excellent: number; good: number; needs_practice: number; weak: number } };
+  hifz: {
+    /** False when the child is not memorizing (nazra/qaida or no Quran
+     *  track) — the Hifz Progress box is hidden. Older payloads omit it. */
+    show?: boolean;
+    ayahsMemorized: number; surahsCompleted: number; totalEntries: number; missedCount: number; qualityCounts: { excellent: number; good: number; needs_practice: number; weak: number };
+  };
   comments: { classTeacher: string | null; principal: string | null; subjects: Record<string, string> };
   workflow: { recordId: string | null; finalizedAt: string | null; publishedAt: string | null };
 }

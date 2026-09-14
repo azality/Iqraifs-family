@@ -143,7 +143,8 @@ async function assembleReportCard(
     .from("student")
     .select(
       "id, full_name, gr_number, date_of_birth, gender, photo_url, program, religion, nationality, " +
-      "class_section:class_section_id(name, class_teacher_user_id, hifz_teacher_user_id, class:class_id(name)), " +
+      "quran_track, hafiz_since, " +
+      "class_section:class_section_id(name, class_teacher_user_id, hifz_teacher_user_id, class:class_id(name, kind)), " +
       "org_id",
     )
     .eq("id", studentId)
@@ -152,6 +153,16 @@ async function assembleReportCard(
     return { error: "student not found", status: 404 as const };
   }
   const section = (stu as any).class_section;
+  // Does the Hifz Progress box belong on this child's card? Same track
+  // resolution as the section summary (schoolPhaseC): an explicit
+  // quran_track wins; otherwise a hifz-kind class means hifz and a
+  // confirmed hafiz means revision. An academic child (nazra/qaida, or
+  // nothing at all) is not memorizing — the card showed them a box of
+  // zeros (school, 14 Sep: "if a student is not in a Hifz stream why
+  // does it show Hifz Progress").
+  const track = (stu as any).quran_track ??
+    (section?.class?.kind === "hifz" ? "hifz" : (stu as any).hafiz_since ? "revision" : null);
+  const isMemorizer = track === "hifz" || track === "revision";
   const classTeacherUid = section?.class_teacher_user_id ?? null;
   const hifzTeacherUid = section?.hifz_teacher_user_id ?? null;
   const teacherIds = [classTeacherUid, hifzTeacherUid].filter((x): x is string => !!x);
@@ -285,7 +296,12 @@ async function assembleReportCard(
   let ayahsMemorized = 0, surahsCompleted = 0, totalEntries = 0, missedCount = 0;
   const qualityCounts = { excellent: 0, good: 0, needs_practice: 0, weak: 0 };
   const completedSurahs = new Set<number>();
+  // Memorization kinds only. A reader's nazra/qaida hearings (or the
+  // intake days before a child moved to hifz) are reading, not hifz —
+  // counting them inflated "Entries" while "Ayahs memorized" stayed 0.
+  const MEMORIZATION_KINDS = new Set(["sabaq", "sabqi", "manzil", "memorized", "revised", "tested"]);
   for (const h of (hifz ?? []) as any[]) {
+    if (!isMemorizer || !MEMORIZATION_KINDS.has(h.kind)) continue;
     totalEntries++;
     if (h.missed) { missedCount++; continue; }
     if (h.kind === "sabaq" && h.ayah_from !== null && h.ayah_to !== null) {
@@ -372,6 +388,8 @@ async function assembleReportCard(
       },
       behavior: { positive, concern, netPoints },
       hifz: {
+        /** False for a child who is not memorizing — the card hides the box. */
+        show: isMemorizer,
         ayahsMemorized, surahsCompleted, totalEntries, missedCount, qualityCounts,
       },
       comments: {

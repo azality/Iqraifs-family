@@ -4227,6 +4227,32 @@ await check("82. Noorani Qaida: a lesson, not a surah - logged, positioned, neve
   }
 });
 
+await check("83. report card: the Hifz box belongs to memorizers only", async () => {
+  // An academic child's report card showed a Hifz Progress box of zeros
+  // (school, 14 Sep). The card now says whether to show it - false for a
+  // child who is not memorizing, true once their track is hifz - and its
+  // counts ignore reading kinds, so nazra hearings never inflate it.
+  const tt = (await ensureUser("qa-teacher@azality.com", "QA Teacher", "class_teacher")).token;
+  const cardUrl = `/school/orgs/${ORG}/students/${pStu1}/terms/${term!.id}/report-card`;
+  try {
+    const plain = await api(tt, cardUrl);
+    const pj = await plain.json();
+    assert(plain.status === 200, `report card ${plain.status}`);
+    assert(pj.hifz?.show === false,
+      `an academic child's card must not show the Hifz box: ${JSON.stringify(pj.hifz).slice(0, 120)}`);
+
+    const tr = await api(tt, `/school/orgs/${ORG}/students/${pStu1}/quran-track`, {
+      method: "POST", body: JSON.stringify({ quranTrack: "hifz" }),
+    });
+    assert(tr.status === 200, `set hifz track ${tr.status}`);
+    const hifzCard = await (await api(tt, cardUrl)).json();
+    assert(hifzCard.hifz?.show === true,
+      `a hifz child's card must show the box: ${JSON.stringify(hifzCard.hifz).slice(0, 120)}`);
+  } finally {
+    await admin.from("student").update({ quran_track: null }).eq("id", pStu1);
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

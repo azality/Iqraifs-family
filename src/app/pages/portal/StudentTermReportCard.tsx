@@ -191,7 +191,7 @@ export function StudentTermReportCard() {
             )}
           </section>
 
-          <section className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <section className={`grid grid-cols-1 ${card.hifz.show !== false ? "sm:grid-cols-3" : "sm:grid-cols-2"} gap-3`}>
             <div className="rounded-md border border-slate-200 bg-white p-3">
               <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 flex items-center gap-1">
                 <Calendar className="h-3.5 w-3.5 text-indigo-500" /> {t("portal.rc.attendance")}
@@ -215,16 +215,20 @@ export function StudentTermReportCard() {
                 <div>{t("portal.beh.netPoints")} <span className="font-semibold">{card.behavior.netPoints}</span></div>
               </div>
             </div>
-            <div className="rounded-md border border-slate-200 bg-white p-3">
-              <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 flex items-center gap-1">
-                <Award className="h-3.5 w-3.5 text-amber-500" /> {t("portal.rc.hifzProgress")}
+            {/* Hidden for a child who is not memorizing — same rule as the
+                staff card. */}
+            {card.hifz.show !== false && (
+              <div className="rounded-md border border-slate-200 bg-white p-3">
+                <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 flex items-center gap-1">
+                  <Award className="h-3.5 w-3.5 text-amber-500" /> {t("portal.rc.hifzProgress")}
+                </div>
+                <div className="text-xs space-y-0.5">
+                  <div>{t("portal.rc.ayahsMemorized")}: <span className="font-medium">{card.hifz.ayahsMemorized}</span></div>
+                  <div>{t("portal.rc.surahsTouched")}: <span className="font-medium">{card.hifz.surahsCompleted}</span></div>
+                  <div>{t("portal.rc.entriesLine", { n: card.hifz.totalEntries, missed: card.hifz.missedCount })}</div>
+                </div>
               </div>
-              <div className="text-xs space-y-0.5">
-                <div>{t("portal.rc.ayahsMemorized")}: <span className="font-medium">{card.hifz.ayahsMemorized}</span></div>
-                <div>{t("portal.rc.surahsTouched")}: <span className="font-medium">{card.hifz.surahsCompleted}</span></div>
-                <div>{t("portal.rc.entriesLine", { n: card.hifz.totalEntries, missed: card.hifz.missedCount })}</div>
-              </div>
-            </div>
+            )}
           </section>
 
           {(card.comments.classTeacher || card.comments.principal) && (
