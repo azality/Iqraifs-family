@@ -442,6 +442,18 @@ export function SectionHifzOverview() {
           return nazraTodayChips(s);
         }
         const t = s.today ?? { sabaq: false, sabqi: false, manzil: false };
+        // Marked absent and heard nothing since: say so, instead of
+        // three grey "pending" chips that invite chasing an empty desk.
+        if (t.absent && !t.sabaq && !t.sabqi && !t.manzil) {
+          return (
+            <span
+              className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold bg-amber-100 text-amber-800 ring-1 ring-amber-300"
+              title="Marked absent today"
+            >
+              Absent
+            </span>
+          );
+        }
         const chip = (done: boolean, label: string) => (
           <span
             className={

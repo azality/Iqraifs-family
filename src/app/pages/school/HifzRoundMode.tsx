@@ -205,7 +205,12 @@ export function HifzRoundMode({
     }
     return m;
   });
-  const [absentSet, setAbsentSet] = useState<Set<string>>(new Set());
+  // Seeded from the summary's absence markers, so a round reopened
+  // after marking someone absent still counts them absent instead of
+  // "heard" (pilot, 14 Sep: "19 heard · 0 absent" with one absentee).
+  const [absentSet, setAbsentSet] = useState<Set<string>>(
+    () => new Set(roster.filter((r) => r.today?.absent).map((r) => r.studentId)),
+  );
   const [elapsed, setElapsed] = useState<Record<string, number>>({});
   // Kind-scoped rounds: morning sabaq-only, afternoon sabqi/manzil.
   const [scope, setScope] = useState<RoundScope>("all");
@@ -234,24 +239,32 @@ export function HifzRoundMode({
       }
       return next;
     });
+    setAbsentSet((prev) => {
+      const marked = roster.filter((r) => r.today?.absent).map((r) => r.studentId);
+      if (!marked.some((id) => !prev.has(id))) return prev;
+      const next = new Set(prev);
+      for (const id of marked) next.add(id);
+      return next;
+    });
   }, [roster]);
 
   // "Done for this round" — absent, or already heard for the scoped
   // kind(s). Revision uses OR: a deliberately-untouched manzil shouldn't
   // drag the student back into the queue.
-  const doneForScope = (id: string): boolean => {
+  const doneFor = (id: string, s: RoundScope): boolean => {
     if (absentSet.has(id)) return true;
     const h = heardToday[id];
     if (!h) return false;
     // A qaida child has ONE hearing a day — their takhti — whatever
     // scope the round is running in.
     if (rosterById.get(id)?.quranTrack === "qaida") return h.qaida;
-    if (scope === "sabaq") return h.sabaq;
-    if (scope === "revision") return h.sabqi || h.manzil;
-    if (scope === "sabqi") return h.sabqi;
-    if (scope === "manzil") return h.manzil;
+    if (s === "sabaq") return h.sabaq;
+    if (s === "revision") return h.sabqi || h.manzil;
+    if (s === "sabqi") return h.sabqi;
+    if (s === "manzil") return h.manzil;
     return h.sabaq || h.sabqi || h.manzil;
   };
+  const doneForScope = (id: string): boolean => doneFor(id, scope);
 
   const currentId =
     currentOverride && !doneForScope(currentOverride)
@@ -926,6 +939,13 @@ export function HifzRoundMode({
   // ── Round complete (for this scope) ──────────────────────────────────
   if (!current) {
     const absent = queue.filter((id) => absentSet.has(id)).length;
+    // "Done" under the default scope means ANY of the trio — so a class
+    // whose sabaq was heard in the morning read "Round complete" when
+    // the teacher came back for sabqi, with no way onward (pilot, 14
+    // Sep). Count what each kind still has pending and offer to
+    // continue there.
+    const pendingSabaq = queue.filter((id) => !doneFor(id, "sabaq")).length;
+    const pendingRevision = queue.filter((id) => !doneFor(id, "revision")).length;
     return (
       <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-8 text-center">
         <div className="text-2xl font-extrabold text-emerald-900">
@@ -939,6 +959,24 @@ export function HifzRoundMode({
           {t("hifzRound.completeStats", { heard: heardCount - absent, absent })}
         </p>
         <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+          {scope === "all" && pendingSabaq > 0 && (
+            <Button
+              variant="outline"
+              className="border-emerald-300 text-emerald-900"
+              onClick={() => setScope("sabaq")}
+            >
+              {t("hifzRound.continueSabaq", { n: pendingSabaq })}
+            </Button>
+          )}
+          {scope === "all" && pendingRevision > 0 && (
+            <Button
+              variant="outline"
+              className="border-emerald-300 text-emerald-900"
+              onClick={() => setScope("revision")}
+            >
+              {t("hifzRound.continueRevision", { n: pendingRevision })}
+            </Button>
+          )}
           {scope !== "all" && (
             <Button
               variant="outline"
