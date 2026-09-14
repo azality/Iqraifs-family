@@ -45,3 +45,6 @@ admission form.pdf
 
 # wrangler dev local state (marketing site + app)
 .wrangler/
+
+# Family financial data from the school - never commit (standing rule)
+fees/
