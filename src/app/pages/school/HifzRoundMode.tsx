@@ -31,6 +31,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { ArrowUpCircle } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import {
   Select,
@@ -90,8 +91,12 @@ interface Props {
    *  class gets the takhti card inside this same round (one round for
    *  the whole class, Muneeb 14 Sep). */
   qaidaLessonCount?: number;
-  /** The teacher confirms a qaida child's move to Nazra. */
-  onMoveTrack?: (row: SectionHifzSummaryRow, track: "nazra") => Promise<void> | void;
+  /** The teacher confirms a child's move up a stage: a qaida child to
+   *  Nazra, a nazra reader to Hifz. */
+  onMoveTrack?: (row: SectionHifzSummaryRow, track: "nazra" | "hifz") => Promise<void> | void;
+  /** Paras of nazra a reader in this section reads before hifz starts
+   *  (settings.hifz_nazra_paras; IFS 3). Null/undefined = no reminder. */
+  nazraParasBeforeHifz?: number | null;
 }
 
 type KindKey = "sabaq" | "sabqi" | "manzil";
@@ -188,6 +193,7 @@ type HeardFlags = { sabaq: boolean; sabqi: boolean; manzil: boolean; qaida: bool
 
 export function HifzRoundMode({
   orgId, sectionLabel, roster, onExit, onSaved, qaidaLessonCount = 17, onMoveTrack,
+  nazraParasBeforeHifz = null,
 }: Props) {
   const { t, i18n } = useTranslation();
   const lang = i18n.language ?? "en";
@@ -206,6 +212,10 @@ export function HifzRoundMode({
     return m;
   });
   const [absentSet, setAbsentSet] = useState<Set<string>>(new Set());
+  // Readers the teacher answered "Not yet" to on the move-to-Hifz ask —
+  // don't nag again this round.
+  const [notYetHifz, setNotYetHifz] = useState<Set<string>>(new Set());
+  const [movingUp, setMovingUp] = useState(false);
   const [elapsed, setElapsed] = useState<Record<string, number>>({});
   // Kind-scoped rounds: morning sabaq-only, afternoon sabqi/manzil.
   const [scope, setScope] = useState<RoundScope>("all");
@@ -1080,6 +1090,46 @@ export function HifzRoundMode({
               <span className="sm:hidden">{t("hifzRound.absentShort")}</span>
             </button>
           </div>
+
+          {/* The 3-paras reminder (school rule, settings.hifz_nazra_paras):
+              a reader who has read the intake's paras of nazra is ready —
+              ask BEFORE the hearing, so today's sitting can already be
+              their first sabaq. The system only notices; the move is the
+              teacher's call. */}
+          {current.quranTrack === "nazra" && onMoveTrack &&
+            !notYetHifz.has(current.studentId) &&
+            nazraParasBeforeHifz != null &&
+            (current.nazraParasRead ?? 0) >= nazraParasBeforeHifz && (
+            <div className="mt-3 rounded-xl border border-sky-300 bg-sky-50 p-3">
+              <p className="flex items-center gap-1.5 text-sm font-semibold text-sky-900">
+                <ArrowUpCircle className="h-4 w-4" />
+                {current.studentName} has read {current.nazraParasRead} para{(current.nazraParasRead ?? 0) === 1 ? "" : "s"} of nazra.
+              </p>
+              <p className="mt-0.5 text-[12px] text-sky-800">
+                Move them to Hifz when they're ready — their card becomes
+                sabaq / sabqi / manzil, and today's sitting can be their
+                first sabaq.
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Button
+                  size="sm" disabled={movingUp || saving}
+                  className="bg-sky-700 hover:bg-sky-800"
+                  onClick={async () => {
+                    setMovingUp(true);
+                    try { await onMoveTrack(current, "hifz"); } finally { setMovingUp(false); }
+                  }}
+                >
+                  Move to Hifz
+                </Button>
+                <Button
+                  size="sm" variant="outline" disabled={movingUp}
+                  onClick={() => setNotYetHifz((p) => new Set(p).add(current.studentId))}
+                >
+                  Not yet — keep reading
+                </Button>
+              </div>
+            </div>
+          )}
 
           {/* A qaida-track child (intake class): the takhti card replaces
               the trio — same round, different hearing. */}
