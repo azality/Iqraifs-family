@@ -298,7 +298,13 @@ export function StudentReportCard() {
                             </td>
                             <td className="px-2 py-1.5 text-right font-medium">{fmtPct(s.percentage)}</td>
                             <td className="px-2 py-1.5 text-center font-bold">{s.letter}</td>
-                            <td className="px-2 py-1.5 text-slate-600">{s.remark}</td>
+                            {/* The subject teacher's own comment lives IN the
+                                table (like the school's paper registers and
+                                the parent portal); the band remark is the
+                                fallback. Live state, so unsaved edits print. */}
+                            <td className="px-2 py-1.5 text-slate-600">
+                              {(subjectComments[s.classSubjectId] ?? "").trim() || s.remark}
+                            </td>
                           </tr>
                         ))}
                         <tr className="border-t-2 border-slate-300 bg-slate-50/60 font-semibold">
@@ -366,10 +372,17 @@ export function StudentReportCard() {
                 )}
               </section>
 
-              <section className="space-y-3 print-keep">
+              {/* Editing tool only — on PAPER each subject's comment sits in
+                  the table's Remarks column above. Printing this list too
+                  repeated every subject ("Subject: —" × 9) and pushed the
+                  card onto a second page (Ambreen, 14 Sep). */}
+              <section className="space-y-3 no-print">
                 <div>
                   <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
                     Subject remarks
+                    <span className="ml-2 font-normal normal-case tracking-normal text-slate-400">
+                      printed inside the table's Remarks column
+                    </span>
                   </div>
                   <div className="space-y-1.5">
                     {card.academic.subjects.map((s) => {
@@ -381,16 +394,17 @@ export function StudentReportCard() {
                             value={v}
                             onChange={(e) => setSubjectComments({ ...subjectComments, [s.classSubjectId]: e.target.value })}
                             placeholder="—"
-                            className="text-xs h-16 no-print"
+                            className="text-xs h-16"
                             maxLength={1000}
                           />
-                          <div className="hidden print:block text-slate-700">{v || "—"}</div>
                         </div>
                       );
                     })}
                   </div>
                 </div>
+              </section>
 
+              <section className="space-y-3 print-keep">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
