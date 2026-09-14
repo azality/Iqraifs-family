@@ -1055,7 +1055,7 @@ export function installPhaseC(school: Hono): void {
       // `missed` matters: a skip marker must never become a reader's
       // "position" — without it in the select the !r.missed guard below
       // saw undefined and waved every marker through (check 75).
-      .select("student_id, surah_number, ayah_from, ayah_to, juz_number, kind, quality, missed, recorded_at, qaida_lesson")
+      .select("student_id, surah_number, ayah_from, ayah_to, juz_number, kind, quality, missed, missed_target_reason, recorded_at, qaida_lesson")
       .in("student_id", studentIds);
     if (entryErr) return c.json({ error: entryErr.message }, 500);
 
@@ -1067,6 +1067,7 @@ export function installPhaseC(school: Hono): void {
       kind: string;
       quality: string | null;
       missed: boolean | null;
+      missed_target_reason: string | null;
       recorded_at: string;
       qaida_lesson: number | null;
     }>>();
@@ -1113,6 +1114,10 @@ export function installPhaseC(school: Hono): void {
         sabaq: false, sabqi: false, manzil: false,
         nazra: false, nazraSabaq: false, nazraSabqi: false,
         qaida: false,
+        /** A bare missed-sabaq marker today — the child was absent /
+         *  never heard. Distinct from a reasoned skip, which keeps its
+         *  kind flag. */
+        absent: false,
       };
       // Where this child has READ up to — the only number that means
       // anything for nazra, where nothing is being memorized. For a
@@ -1142,7 +1147,16 @@ export function installPhaseC(school: Hono): void {
           new Date(new Date(r.recorded_at).getTime() + hifzTzOffsetMs)
             .toISOString().slice(0, 10) === todayStr
         ) {
-          if (r.kind === "sabaq") {
+          if (r.kind === "sabaq" && r.missed && !r.missed_target_reason) {
+            // The round's "Absent" button / the dialog's bare "missed
+            // sabaq today": an absence marker, not a hearing. It used
+            // to flip today.sabaq, so a reopened round counted the
+            // absent child among the heard ("19 heard · 0 absent" for
+            // a class with one absentee - pilot, 14 Sep). A missed
+            // entry WITH a reason is a deliberate per-kind skip and
+            // keeps its flag, so skips still stick across reopens.
+            today.absent = true;
+          } else if (r.kind === "sabaq") {
             today.sabaq = true;
             if (isReader) { today.nazra = true; today.nazraSabaq = true; }
           } else if (r.kind === "sabqi") {

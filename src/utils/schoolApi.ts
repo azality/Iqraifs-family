@@ -4025,6 +4025,9 @@ export interface SectionHifzSummaryRow {
     nazraSabaq?: boolean; nazraSabqi?: boolean;
     /** A Noorani Qaida lesson was heard today. */
     qaida?: boolean;
+    /** A bare missed-sabaq marker today — the child was marked absent
+     *  and has not been heard since. */
+    absent?: boolean;
   };
   /** Reading position. Meaningful for nazra groups; null for hifz. */
   nazraPosition?: NazraPosition | null;

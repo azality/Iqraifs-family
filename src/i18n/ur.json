@@ -864,6 +864,8 @@
     "completeSabaq": "سبق کا دور مکمل",
     "completeRevision": "سبقی و منزل کا دور مکمل",
     "completeStats": "{{heard}} کی سماعت · {{absent}} غیر حاضر",
+    "continueSabaq": "Ø³Ø¨Ù Ø³ÙÛÚº â {{n}} Ø¨Ø§ÙÛ â",
+    "continueRevision": "Ø³Ø¨ÙÛ + ÙÙØ²Ù Ø³ÙÛÚº â {{n}} Ø¨Ø§ÙÛ â",
     "hearRevision": "سبقی + منزل سنیں ←",
     "hearSabaq": "سبق سنیں ←",
     "backToList": "کلاس کی فہرست پر واپس"

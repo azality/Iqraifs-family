@@ -4259,6 +4259,46 @@ await check("83. report card: the Hifz box belongs to memorizers only", async ()
   }
 });
 
+await check("84. absence is not a hearing: the day flags tell them apart", async () => {
+  // The round's Absent button writes a bare missed sabaq. That used to
+  // flip today.sabaq, so a reopened round counted the absent child as
+  // heard ("19 heard · 0 absent" - pilot, 14 Sep). Now: a bare missed
+  // sabaq -> today.absent, not today.sabaq; a missed entry WITH a
+  // reason is a deliberate skip and keeps its kind flag; a real
+  // hearing still counts.
+  const tt = (await ensureUser("qa-teacher@azality.com", "QA Teacher", "class_teacher")).token;
+  const summaryUrl = `/school/orgs/${ORG}/sections/${sandboxSec.id}/hifz-progress/summary`;
+  const rowFor = async () => {
+    const j = await (await api(tt, summaryUrl)).json();
+    return (j.students ?? []).find((s: any) => s.studentId === pStu1);
+  };
+  const made: string[] = [];
+  const post = async (body: Record<string, unknown>) => {
+    const r = await api(tt, `/school/orgs/${ORG}/hifz-progress`, {
+      method: "POST", body: JSON.stringify({ studentId: pStu1, ...body }),
+    });
+    const j = await r.json();
+    assert(r.status === 201, `create ${r.status}: ${JSON.stringify(j).slice(0, 160)}`);
+    made.push(j.entry.id);
+  };
+  try {
+    await post({ kind: "sabaq", surahNumber: 1, ayahFrom: 1, ayahTo: 1, missed: true });
+    let row = await rowFor();
+    assert(row?.today?.absent === true, `bare missed sabaq should mark absent: ${JSON.stringify(row?.today)}`);
+    assert(row?.today?.sabaq === false, `an absence is not a heard sabaq: ${JSON.stringify(row?.today)}`);
+
+    await post({ kind: "sabqi", surahNumber: 1, ayahFrom: 1, ayahTo: 1, missed: true, missedTargetReason: "short day" });
+    row = await rowFor();
+    assert(row?.today?.sabqi === true, `a reasoned skip keeps its flag: ${JSON.stringify(row?.today)}`);
+
+    await post({ kind: "sabaq", surahNumber: 1, ayahFrom: 1, ayahTo: 3 });
+    row = await rowFor();
+    assert(row?.today?.sabaq === true, `a real sabaq still counts: ${JSON.stringify(row?.today)}`);
+  } finally {
+    for (const id of made) await api(tt, `/school/orgs/${ORG}/hifz-progress/${id}`, { method: "DELETE" });
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
