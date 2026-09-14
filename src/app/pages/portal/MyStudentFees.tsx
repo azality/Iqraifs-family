@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useParams } from "react-router";
-import { Wallet, CheckCircle2, AlertCircle, Clock } from "lucide-react";
+import { Wallet, CheckCircle2, AlertCircle, Clock, Landmark } from "lucide-react";
 import {
   HeroCard,
   KpiTile,
@@ -50,6 +50,11 @@ export function MyStudentFees() {
   const { studentId = "" } = useParams<{ studentId: string }>();
   const { subject } = usePinAuth();
   const [fees, setFees] = useState<FeeStatus[] | null>(null);
+  // Where this child's fees are deposited — the school banks per class
+  // group, so the account comes with the fees payload.
+  const [bankAccount, setBankAccount] = useState<{
+    bank: string | null; title: string | null; accountNumber: string | null;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const student = useMemo(() => {
@@ -64,7 +69,10 @@ export function MyStudentFees() {
     setError(null);
     getMyStudentFees(studentId)
       .then((r) => {
-        if (!cancelled) setFees(r.fees);
+        if (!cancelled) {
+          setFees(r.fees);
+          setBankAccount(r.bankAccount ?? null);
+        }
       })
       .catch((e) => {
         if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load");
@@ -193,6 +201,35 @@ export function MyStudentFees() {
           hint={t("portal.fees.hintAllPeriods")}
         />
       </div>
+
+      {bankAccount?.accountNumber && (
+        <div className="rounded-xl border border-indigo-200 bg-indigo-50/50 p-4">
+          <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-indigo-700">
+            <Landmark className="h-3.5 w-3.5" /> {t("portal.fees.howToPay")}
+          </div>
+          <div className="mt-2 grid gap-x-6 gap-y-1.5 text-sm sm:grid-cols-3">
+            {bankAccount.bank && (
+              <div>
+                <div className="text-[11px] text-slate-500">{t("portal.fees.bank")}</div>
+                <div className="font-medium text-slate-800">{bankAccount.bank}</div>
+              </div>
+            )}
+            {bankAccount.title && (
+              <div>
+                <div className="text-[11px] text-slate-500">{t("portal.fees.accountTitle")}</div>
+                <div className="font-medium text-slate-800">{bankAccount.title}</div>
+              </div>
+            )}
+            <div>
+              <div className="text-[11px] text-slate-500">{t("portal.fees.accountNumber")}</div>
+              <div className="font-mono font-semibold tracking-wide text-slate-900" dir="ltr">
+                {bankAccount.accountNumber}
+              </div>
+            </div>
+          </div>
+          <p className="mt-2 text-[12px] text-slate-600">{t("portal.fees.cashNote")}</p>
+        </div>
+      )}
 
       <DataTable
         columns={columns}

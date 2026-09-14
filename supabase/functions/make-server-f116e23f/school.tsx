@@ -636,6 +636,10 @@ school.patch("/orgs/:orgId", async (c) => {
     // Hifz intake (14 Sep): paras of nazra a child reads in a hifz section
     // before hifz starts - the round offers the move to Hifz there.
     "hifz_nazra_paras",
+    // Where parents deposit fees (14 Sep): the school banks per class
+    // group - a list of { bank, title, accountNumber, classIds }. The
+    // parent fee page shows the account for the child's class.
+    "fee_bank_accounts",
     // Parents page duplicate review (9 Sep): pair keys ("idA|idB",
     // sorted) an admin marked as "different people" so the panel stops
     // flagging them. Same-name different-family pairs are common here

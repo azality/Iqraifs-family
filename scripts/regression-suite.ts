@@ -4299,6 +4299,29 @@ await check("84. absence is not a hearing: the day flags tell them apart", async
   }
 });
 
+await check("85. portal fees name the bank account for the child's class", async () => {
+  // The school banks per class group (14 Sep): settings.fee_bank_accounts
+  // is [{ bank, title, accountNumber, classIds }] and the parent fee page
+  // shows the account covering the child's class - null when none does.
+  const { data: orgRow } = await admin.from("organizations").select("settings").eq("id", ORG).maybeSingle();
+  const before = (orgRow as any).settings ?? {};
+  const test = [{ bank: "QA Bank", title: "QA Title", accountNumber: "0000-1111", classIds: [sandboxClass.id] }];
+  await admin.from("organizations").update({ settings: { ...before, fee_bank_accounts: test } }).eq("id", ORG);
+  try {
+    const r = await portalGet(parToken, `/pin-me/students/${pStu1}/fees`);
+    const j = await r.json();
+    assert(r.status === 200, `fees ${r.status}: ${JSON.stringify(j).slice(0, 160)}`);
+    assert(j.bankAccount?.accountNumber === "0000-1111" && j.bankAccount?.bank === "QA Bank",
+      `bankAccount should resolve by class: ${JSON.stringify(j.bankAccount)}`);
+
+    await admin.from("organizations").update({ settings: { ...before, fee_bank_accounts: [] } }).eq("id", ORG);
+    const none = await (await portalGet(parToken, `/pin-me/students/${pStu1}/fees`)).json();
+    assert(none.bankAccount === null, `no covering account must be null: ${JSON.stringify(none.bankAccount)}`);
+  } finally {
+    await admin.from("organizations").update({ settings: before }).eq("id", ORG);
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

@@ -31,6 +31,7 @@ import {
   deleteSchool,
   uploadSchoolPhoto,
   getOrganization,
+  listClasses,
   getSchoolMe,
   isOrgPrincipal,
   listAdmins,
@@ -112,6 +113,20 @@ export function OrgSettings() {
   const [orgSaving, setOrgSaving] = useState(false);
   const [orgError, setOrgError] = useState<string | null>(null);
   const [orgSavedAt, setOrgSavedAt] = useState<number | null>(null);
+
+  // Where parents deposit fees (14 Sep): the school banks per class
+  // group. Each account lists the classes it collects for; the parent
+  // fee page shows the matching account.
+  const [feeAccounts, setFeeAccounts] = useState<Array<{
+    bank: string; title: string; accountNumber: string; classIds: string[];
+  }>>([]);
+  const [classList, setClassList] = useState<Array<{ id: string; name: string }>>([]);
+  useEffect(() => {
+    if (!orgId) return;
+    listClasses(orgId)
+      .then((cs) => setClassList(cs.map((c: any) => ({ id: c.id, name: c.name }))))
+      .catch(() => {});
+  }, [orgId]);
 
   const [academicYear, setAcademicYear] = useState("");
   const [yearSaving, setYearSaving] = useState(false);
@@ -201,6 +216,14 @@ export function OrgSettings() {
         setAcademicYear(
           (o.organization.settings?.academic_year as string | undefined) ?? "",
         );
+        setFeeAccounts(
+          (((o.organization.settings as any)?.fee_bank_accounts ?? []) as any[]).map((a) => ({
+            bank: a?.bank ?? "",
+            title: a?.title ?? "",
+            accountNumber: a?.accountNumber ?? "",
+            classIds: Array.isArray(a?.classIds) ? a.classIds : [],
+          })),
+        );
         const sy: any = (o.organization.settings as any)?.school_year ?? {};
         setYearStartDate(typeof sy.startDate === "string" ? sy.startDate : "");
         setYearEndDate(typeof sy.endDate === "string" ? sy.endDate : "");
@@ -245,6 +268,13 @@ export function OrgSettings() {
         pass_mark_pct: Math.min(100, Math.max(1, Number(orgForm.pass_mark_pct) || 40)),
         qaida_lesson_count: Math.min(60, Math.max(1, Math.round(Number(orgForm.qaida_lesson_count)) || 17)),
         hifz_nazra_paras: Math.min(30, Math.max(1, Math.round(Number(orgForm.hifz_nazra_paras)) || 30)),
+        // Accounts without a number are half-typed rows - dropped on save.
+        fee_bank_accounts: feeAccounts
+          .filter((a) => a.accountNumber.trim() !== "")
+          .map((a) => ({
+            bank: a.bank.trim(), title: a.title.trim(),
+            accountNumber: a.accountNumber.trim(), classIds: a.classIds,
+          })),
       });
       setOrgSavedAt(Date.now());
     } catch (e) {
@@ -815,6 +845,81 @@ export function OrgSettings() {
                 className="mt-1.5 w-24 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm"
               />
             </label>
+          </div>
+
+          {/* Where parents deposit fees: the school banks per class
+              group. The parent fee page shows the matching account. */}
+          <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-3">
+            <span className="block text-sm font-medium text-slate-800">Fee bank accounts</span>
+            <span className="block text-xs text-slate-500">
+              Parents see the account for their child's class on the fee
+              page, next to the cash-at-the-office note. Tick the classes
+              each account collects for.
+            </span>
+            <div className="mt-2 space-y-3">
+              {feeAccounts.map((a, i) => (
+                <div key={i} className="rounded-md border border-slate-200 bg-white p-2.5">
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    <input
+                      placeholder="Bank (e.g. Askari Bank Ltd)"
+                      value={a.bank}
+                      onChange={(e) => setFeeAccounts((p) => p.map((x, j) => (j === i ? { ...x, bank: e.target.value } : x)))}
+                      className="rounded-md border border-slate-200 px-2 py-1.5 text-sm"
+                    />
+                    <input
+                      placeholder="Account title"
+                      value={a.title}
+                      onChange={(e) => setFeeAccounts((p) => p.map((x, j) => (j === i ? { ...x, title: e.target.value } : x)))}
+                      className="rounded-md border border-slate-200 px-2 py-1.5 text-sm"
+                    />
+                    <input
+                      placeholder="Account number"
+                      value={a.accountNumber}
+                      onChange={(e) => setFeeAccounts((p) => p.map((x, j) => (j === i ? { ...x, accountNumber: e.target.value } : x)))}
+                      className="rounded-md border border-slate-200 px-2 py-1.5 font-mono text-sm"
+                    />
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1.5">
+                    {classList.map((c) => (
+                      <label key={c.id} className="flex cursor-pointer items-center gap-1 text-xs text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={a.classIds.includes(c.id)}
+                          onChange={() =>
+                            setFeeAccounts((p) => p.map((x, j) =>
+                              j === i
+                                ? {
+                                    ...x,
+                                    classIds: x.classIds.includes(c.id)
+                                      ? x.classIds.filter((id) => id !== c.id)
+                                      : [...x.classIds, c.id],
+                                  }
+                                : x,
+                            ))
+                          }
+                        />
+                        {c.name}
+                      </label>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setFeeAccounts((p) => p.filter((_, j) => j !== i))}
+                    className="mt-2 text-xs font-semibold text-rose-600 hover:underline"
+                  >
+                    Remove account
+                  </button>
+                </div>
+              ))}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setFeeAccounts((p) => [...p, { bank: "", title: "", accountNumber: "", classIds: [] }])}
+              >
+                Add bank account
+              </Button>
+            </div>
           </div>
 
           {/* School + office hours. School hours = when students are

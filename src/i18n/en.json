@@ -201,6 +201,11 @@
     },
     "fees": {
       "title": "Fees",
+      "howToPay": "How to pay",
+      "bank": "Bank",
+      "accountTitle": "Account title",
+      "accountNumber": "Account number",
+      "cashNote": "Deposit at the bank, or pay cash at the school office — both are accepted.",
       "stPaid": "Paid",
       "stPending": "Pending",
       "stPartial": "Partial",

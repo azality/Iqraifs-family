@@ -506,7 +506,13 @@ export const getLessonCompletion = (
 
 export const getMyStudentFees = (
   studentId: string,
-): Promise<{ fees: FeeStatus[] }> =>
+): Promise<{
+  fees: FeeStatus[];
+  /** Where to deposit this child's fees — the school banks per class
+   *  group (settings.fee_bank_accounts). Null when none covers the
+   *  class, or on an older backend. */
+  bankAccount?: { bank: string | null; title: string | null; accountNumber: string | null } | null;
+}> =>
   pinApiCall(`/school/pin-me/students/${studentId}/fees`);
 
 // ─── Timetable (PR feat/timetable-consumers) ───────────────────────────
