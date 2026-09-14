@@ -294,6 +294,10 @@ export const updateOrganization = (
     qaida_lesson_count: number;
     /** Paras of nazra a child reads in a hifz section before hifz starts. */
     hifz_nazra_paras: number;
+    /** Where parents deposit fees, per class group. */
+    fee_bank_accounts: Array<{
+      bank: string; title: string; accountNumber: string; classIds: string[];
+    }>;
     /** Parents page: duplicate pairs ("idA|idB", ids sorted) an admin
      *  marked as different people, so the panel stops flagging them. */
     parent_dup_dismissals: string[];

@@ -852,7 +852,7 @@ export function installAnnounce(school: Hono): void {
     // Verify same org.
     const { data: stu } = await serviceRoleClient
       .from("student")
-      .select("id, org_id")
+      .select("id, org_id, class_section:class_section_id(class_id)")
       .eq("id", studentId)
       .maybeSingle();
     if (!stu) return c.json({ error: "student not found" }, 404);
@@ -867,7 +867,30 @@ export function installAnnounce(school: Hono): void {
       .order("period", { ascending: false });
     if (error) return c.json({ error: error.message }, 500);
 
-    return c.json({ fees: (data ?? []).map(feeToJson) });
+    // Which bank account this child's fees go to (school, 14 Sep): IFS
+    // banks per class group, so settings.fee_bank_accounts holds a list
+    // of { bank, title, accountNumber, classIds } the office edits in
+    // Org Settings. Null when no account covers the class — the page
+    // then shows no deposit card.
+    const classId = (stu as any).class_section?.class_id ?? null;
+    let bankAccount: { bank: string | null; title: string | null; accountNumber: string | null } | null = null;
+    if (classId) {
+      const { data: orgRow } = await serviceRoleClient
+        .from("organizations").select("settings").eq("id", subject.orgId).maybeSingle();
+      const accounts = ((orgRow as any)?.settings?.fee_bank_accounts ?? []) as any[];
+      const acct = accounts.find(
+        (a) => Array.isArray(a?.classIds) && a.classIds.includes(classId),
+      );
+      if (acct) {
+        bankAccount = {
+          bank: acct.bank ?? null,
+          title: acct.title ?? null,
+          accountNumber: acct.accountNumber ?? null,
+        };
+      }
+    }
+
+    return c.json({ fees: (data ?? []).map(feeToJson), bankAccount });
   });
 }
 
