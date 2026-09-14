@@ -1268,6 +1268,25 @@ export function installAssessment(school: Hono): void {
       }
     }
 
+    // A signed-off column is locked too (Muneeb, 14 Sep: "lock the
+    // column on sign-off") — the green check now MEANS the marks no
+    // longer move. Corrections are deliberate: untick the sign-off on
+    // the marks sheet (subject teacher, class teacher or office), edit,
+    // tick it again. Finalize remains the term-wide lock above this.
+    if ((exam as any).term_id && rowsIn.length) {
+      const signed = await readConfirmations((exam as any).term_id, sectionId);
+      const hit = rowsIn.find((r: any) => signed[String(r.classSubjectId ?? "")]);
+      if (hit) {
+        const { data: subjRow } = await serviceRoleClient
+          .from("class_subject").select("name")
+          .eq("id", String((hit as any).classSubjectId)).maybeSingle();
+        return c.json({
+          error: `${(subjRow as any)?.name ?? "This column"} is signed off — its marks are locked. ` +
+            `Untick the sign-off on the marks sheet to make a correction, then sign it off again.`,
+        }, 409);
+      }
+    }
+
     const defaultsMax = body.defaults?.maxMarks ? Number(body.defaults.maxMarks) : null;
     const rows = Array.isArray(body.rows) ? body.rows : [];
     if (rows.length === 0) return c.json({ ok: true, written: 0 });

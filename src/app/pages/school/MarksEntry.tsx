@@ -173,6 +173,9 @@ export function MarksEntry() {
   // Per-subject "my column is complete" sign-off for this exam's term.
   // Local mirror of sheet.confirmations so the check flips instantly.
   const [confirmations, setConfirmations] = useState<Record<string, { by: string; byName: string; at: string }>>({});
+  // Ref twin for the save/discard callbacks (they read state via refs).
+  const confirmationsRef = useRef(confirmations);
+  useEffect(() => { confirmationsRef.current = confirmations; }, [confirmations]);
   const [confirmBusy, setConfirmBusy] = useState<string | null>(null);
   const toggleConfirm = async (subjectId: string) => {
     if (!sheet?.exam?.termId || !sectionId) return;
@@ -287,8 +290,11 @@ export function MarksEntry() {
   stateRef.current = { sheet, cells, defaultMax, sectionId, visibleSubjects };
 
   const doSave = useCallback(async () => {
-    const { sheet: s, cells: cs, defaultMax: dm, sectionId: sid, visibleSubjects: subs } = stateRef.current;
+    const { sheet: s, cells: cs, defaultMax: dm, sectionId: sid, visibleSubjects: allSubs } = stateRef.current;
     if (!s || !sid) return;
+    // Signed-off columns are locked server-side (409): leave them out of
+    // the payload entirely, so saving the OTHER columns still works.
+    const subs = allSubs.filter((x: any) => !confirmationsRef.current[x.id]);
     setSaveStatus("saving");
     setError(null);
     try {
@@ -341,8 +347,11 @@ export function MarksEntry() {
   // touched — this is an undo of the visit, not a wipe.
   const discardSession = useCallback(async () => {
     const base = baselineRef.current;
-    const { sheet: s, sectionId: sid, visibleSubjects: subs } = stateRef.current;
+    const { sheet: s, sectionId: sid, visibleSubjects: allSubs } = stateRef.current;
     if (!base || !s || !sid) return;
+    // Locked columns can't be written back either — they were read-only
+    // for the whole visit, so there is nothing of theirs to undo.
+    const subs = allSubs.filter((x: any) => !confirmationsRef.current[x.id]);
     setConfirmDiscard(false);
     setSaveStatus("saving");
     setError(null);
@@ -627,9 +636,9 @@ export function MarksEntry() {
                           disabled={confirmBusy === s.id}
                           onClick={() => void toggleConfirm(s.id)}
                           className="mt-0.5 block mx-auto text-[10px] font-semibold normal-case text-emerald-700 hover:underline"
-                          title={`Confirmed by ${confirmations[s.id].byName || "a teacher"} — click to undo`}
+                          title={`Signed off by ${confirmations[s.id].byName || "a teacher"} — marks are locked. Click to unlock for a correction.`}
                         >
-                          ✓ Confirmed
+                          ✓ Signed off · locked
                         </button>
                       ) : (
                         <button
@@ -637,7 +646,7 @@ export function MarksEntry() {
                           disabled={confirmBusy === s.id}
                           onClick={() => void toggleConfirm(s.id)}
                           className="mt-0.5 block mx-auto text-[10px] font-normal normal-case text-slate-400 hover:text-emerald-700 hover:underline"
-                          title="Sign off this column for the term (covers oral + written)"
+                          title="Sign off this column for the term (covers oral + written) — locks its marks"
                         >
                           Mark column complete
                         </button>
@@ -686,6 +695,9 @@ export function MarksEntry() {
                     {visibleSubjects.map((subj, colIdx) => {
                       const key = `${stu.id}:${subj.id}`;
                       const c = cells.get(key) ?? { obtained: "", maxOverride: "", absent: false };
+                      // A signed-off column is locked — the server refuses
+                      // its saves, so the cells go read-only too.
+                      const colLocked = !!confirmations[subj.id];
                       const mx = cellMax(c.maxOverride, subjectMax.get(subj.id) ?? null, defaultMax);
                       const ob = c.obtained ? Number(c.obtained) : null;
                       const cellPct = !c.absent ? pct(ob, mx) : null;
@@ -699,7 +711,7 @@ export function MarksEntry() {
                               onChange={(e) => setCell(key, { obtained: e.target.value })}
                               onKeyDown={onCellKeyDown(rowIdx, colIdx)}
                               onPaste={onCellPaste(rowIdx, colIdx)}
-                              disabled={c.absent}
+                              disabled={c.absent || colLocked}
                               placeholder="—"
                               // Over-max or negative marks turn the cell red
                               // BEFORE save — the server would refuse the
@@ -736,6 +748,7 @@ export function MarksEntry() {
                               className="h-7 w-12 px-1 text-center text-xs md:text-xs text-slate-500"
                               type="text" inputMode="numeric"
                               tabIndex={-1}
+                              disabled={colLocked}
                             />
                           </div>
                           <div className="flex items-center justify-between mt-0.5 px-0.5">
@@ -743,6 +756,7 @@ export function MarksEntry() {
                               <input
                                 type="checkbox" checked={c.absent}
                                 tabIndex={-1}
+                                disabled={colLocked}
                                 onChange={(e) => setCell(key, { absent: e.target.checked, obtained: e.target.checked ? "" : c.obtained })}
                               />
                               A

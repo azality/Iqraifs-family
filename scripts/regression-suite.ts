@@ -4330,6 +4330,71 @@ await check("85. portal fees name the bank account for the child's class", async
   }
 });
 
+await check("86. a signed-off column locks its marks until unticked", async () => {
+  // Muneeb (14 Sep): "lock the column on sign-off". The green check went
+  // from a promise to a lock: marks-sheet saves touching that (section,
+  // subject, term) refuse with 409 until the sign-off is withdrawn;
+  // withdrawing reopens the column.
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const { data: term } = await admin.from("academic_term").select("id")
+    .eq("org_id", ORG).eq("is_current", true).is("archived_at", null).maybeSingle();
+  assert(term, "no current term");
+  const cleanup: Array<() => Promise<unknown>> = [];
+  try {
+    const { data: cs, error: csErr } = await admin.from("class_subject").insert({
+      org_id: ORG, class_id: sandboxClass.id, name: "QA Lock Sub", sort_order: 971,
+      assessment_weights: [{ label: "Oral", marks: 20, paper: "oral" }],
+    }).select("id").single();
+    if (csErr) throw new Error(`subject: ${csErr.message}`);
+    cleanup.push(() => admin.from("class_subject").delete().eq("id", cs.id));
+    const { data: exam, error: exErr } = await admin.from("exam").insert({
+      org_id: ORG, term_id: term!.id, name: "QA Lock Oral", exam_type: "other", weight: 1,
+      exam_date: new Date().toISOString().slice(0, 10),
+    }).select("id").single();
+    if (exErr) throw new Error(`exam: ${exErr.message}`);
+    cleanup.push(() => admin.from("exam").delete().eq("id", exam.id));
+    cleanup.push(() => admin.from("exam_subject_score").delete().eq("exam_id", exam.id));
+    cleanup.push(() => admin.from("kv_store_f116e23f").delete()
+      .eq("key", `school:marksconfirm:${term!.id}:${sandboxSec.id}`));
+
+    const sheetUrl = `/school/orgs/${ORG}/exams/${exam.id}/marks-sheet`;
+    const confirmUrl =
+      `/school/orgs/${ORG}/sections/${sandboxSec.id}/subjects/${cs.id}/marks-confirmation`;
+    const row = { studentId: pStu1, classSubjectId: cs.id, obtainedMarks: 15, maxMarks: 20 };
+
+    // Open column: saves land.
+    const before = await api(admin2.token, sheetUrl, {
+      method: "POST", body: JSON.stringify({ sectionId: sandboxSec.id, rows: [row] }),
+    });
+    assert(before.status === 200, `save before sign-off ${before.status}`);
+
+    // Signed off: the same save is refused, and the message says why.
+    const sign = await api(admin2.token, confirmUrl, {
+      method: "POST", body: JSON.stringify({ termId: term!.id, confirmed: true }),
+    });
+    assert(sign.status === 200, `sign-off ${sign.status}`);
+    const locked = await api(admin2.token, sheetUrl, {
+      method: "POST", body: JSON.stringify({ sectionId: sandboxSec.id, rows: [{ ...row, obtainedMarks: 18 }] }),
+    });
+    const lockedJ = await locked.json();
+    assert(locked.status === 409, `signed-off save should 409, got ${locked.status}`);
+    assert(String(lockedJ.error ?? "").includes("signed off"),
+      `the refusal names the sign-off: ${lockedJ.error}`);
+
+    // Unticked: the correction lands again.
+    const untick = await api(admin2.token, confirmUrl, {
+      method: "POST", body: JSON.stringify({ termId: term!.id, confirmed: false }),
+    });
+    assert(untick.status === 200, `untick ${untick.status}`);
+    const after = await api(admin2.token, sheetUrl, {
+      method: "POST", body: JSON.stringify({ sectionId: sandboxSec.id, rows: [{ ...row, obtainedMarks: 18 }] }),
+    });
+    assert(after.status === 200, `save after untick ${after.status}`);
+  } finally {
+    for (const fn of cleanup.reverse()) await fn();
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
