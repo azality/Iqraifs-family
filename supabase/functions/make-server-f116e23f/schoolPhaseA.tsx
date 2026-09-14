@@ -1441,7 +1441,7 @@ export function installPhaseA(school: Hono) {
     // surface as a 500 the office can't act on.
     if ("quranTrack" in body) {
       const v = body.quranTrack;
-      if (v !== "" && v != null && !["nazra", "hifz", "revision"].includes(v)) {
+      if (v !== "" && v != null && !["qaida", "nazra", "hifz", "revision"].includes(v)) {
         return c.json({ error: "quranTrack must be nazra, hifz or revision" }, 400);
       }
     }

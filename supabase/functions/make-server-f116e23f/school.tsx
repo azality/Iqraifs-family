@@ -629,6 +629,13 @@ school.patch("/orgs/:orgId", async (c) => {
     // ratings extend or end the break (good resumes, weak repeats).
     // Default on; false disables (Muneeb, 10 Sep).
     "sabaq_para_break",
+    // Noorani Qaida (14 Sep): how many lessons (takhti) the school's
+    // edition has. Drives the lesson picker and the "finished Qaida -
+    // move to Nazra?" prompt. 17 when unset.
+    "qaida_lesson_count",
+    // Hifz intake (14 Sep): paras of nazra a child reads in a hifz section
+    // before hifz starts - the round offers the move to Hifz there.
+    "hifz_nazra_paras",
     // Parents page duplicate review (9 Sep): pair keys ("idA|idB",
     // sorted) an admin marked as "different people" so the panel stops
     // flagging them. Same-name different-family pairs are common here

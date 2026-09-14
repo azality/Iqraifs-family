@@ -290,6 +290,10 @@ export const updateOrganization = (
     sabaq_para_break: boolean;
     /** Teacher Track Record: pass threshold %, default 40. */
     pass_mark_pct: number;
+    /** Lessons (takhti) in the school's Noorani Qaida edition. */
+    qaida_lesson_count: number;
+    /** Paras of nazra a child reads in a hifz section before hifz starts. */
+    hifz_nazra_paras: number;
     /** Parents page: duplicate pairs ("idA|idB", ids sorted) an admin
      *  marked as different people, so the panel stops flagging them. */
     parent_dup_dismissals: string[];
@@ -3858,7 +3862,10 @@ export type HifzKind =
   // is the same act for a hafiz child sitting in a nazra group (IV+),
   // who is revising the Quran rather than advancing through it.
   | "nazra"
-  | "nazra_revision";
+  | "nazra_revision"
+  // Noorani Qaida, the stage before nazra: a lesson (takhti), not a surah.
+  // qaidaLesson is set and surahNumber/ayahFrom/ayahTo are null.
+  | "qaida";
 
 export type HifzQuality = "excellent" | "good" | "needs_practice" | "weak" | "not_learned";
 
@@ -3873,6 +3880,9 @@ export interface HifzEntry {
   ayahFrom: number;
   ayahTo: number;
   kind: HifzKind;
+  /** The Noorani Qaida lesson heard — only on kind "qaida", whose
+   *  surahNumber / ayahFrom / ayahTo arrive null. */
+  qaidaLesson?: number | null;
   quality: HifzQuality | null;
   notes: string | null;
   recordedBy: string | null;
@@ -3906,6 +3916,9 @@ export interface HifzEntryInput {
   ayahFrom: number;
   ayahTo: number;
   kind: HifzKind;
+  /** Required for kind "qaida" (1..the school's lesson count); the
+   *  surah/ayah fields are ignored for it. */
+  qaidaLesson?: number;
   quality?: HifzQuality;
   notes?: string;
   /** When true, the entry is a placeholder for "missed sabaq today" and
@@ -3989,6 +4002,13 @@ export interface NazraPosition {
   recordedAt: string;
 }
 
+/** The Noorani Qaida lesson a child was last heard on. */
+export interface QaidaPosition {
+  lesson: number;
+  quality: HifzQuality | null;
+  recordedAt: string;
+}
+
 export interface SectionHifzSummaryRow {
   studentId: string;
   studentName: string;
@@ -4003,9 +4023,16 @@ export interface SectionHifzSummaryRow {
     nazra?: boolean;
     /** Nazra's own daily pair: new reading portion / revision of read portion. */
     nazraSabaq?: boolean; nazraSabqi?: boolean;
+    /** A Noorani Qaida lesson was heard today. */
+    qaida?: boolean;
   };
   /** Reading position. Meaningful for nazra groups; null for hifz. */
   nazraPosition?: NazraPosition | null;
+  /** Distinct paras read in nazra (revision excluded). A hifz section uses
+   *  it to offer the move to hifz after settings.hifz_nazra_paras. */
+  nazraParasRead?: number;
+  /** Last Qaida lesson heard. Meaningful on the qaida track; null otherwise. */
+  qaidaPosition?: QaidaPosition | null;
   /** Which screen THIS child gets — one Quran period can hold both a
    *  room of nazra readers and a hafiz revising alongside them. */
   quranTrack?: QuranTrack;
@@ -4021,15 +4048,21 @@ export interface SectionHifzSummaryRow {
   needsHafizConfirmation?: boolean;
 }
 
-/** 'nazra' reads · 'hifz' memorizes · 'revision' has finished and is
- *  revising. Revision keeps the full sabaq/sabqi/manzil trio — the
- *  school's call, confirmed Sep 2026. */
-export type QuranTrack = "nazra" | "hifz" | "revision";
+/** 'qaida' learns Noorani Qaida · 'nazra' reads · 'hifz' memorizes ·
+ *  'revision' has finished and is revising. A child moves up in that
+ *  order, each step confirmed by the teacher. Revision keeps the full
+ *  sabaq/sabqi/manzil trio — the school's call, confirmed Sep 2026. */
+export type QuranTrack = "qaida" | "nazra" | "hifz" | "revision";
 
 export const getSectionHifzSummary = (
   orgId: string,
   sectionId: string,
-): Promise<{ students: SectionHifzSummaryRow[] }> =>
+): Promise<{
+  students: SectionHifzSummaryRow[];
+  qaidaLessonCount?: number;
+  /** Hifz sections only: paras of nazra before hifz starts (null = unset). */
+  hifzNazraParas?: number | null;
+}> =>
   apiCall(`/school/orgs/${orgId}/sections/${sectionId}/hifz-progress/summary`);
 
 /** Narrow track setter the child's own teacher may call (the big student

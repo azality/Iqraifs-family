@@ -4168,6 +4168,65 @@ await check("81. PIN slips: a whole section at once, never touching a chosen PIN
   }
 });
 
+await check("82. Noorani Qaida: a lesson, not a surah - logged, positioned, never a hifz number", async () => {
+  // Qaida is the stage before nazra (14 Sep): taught lesson by lesson, so
+  // an entry carries a lesson number and no surah/ayah. The roster must
+  // place the child on their lesson and count them heard, credit nothing
+  // as memorized, and every other kind must still demand a surah.
+  const tt = (await ensureUser("qa-teacher@azality.com", "QA Teacher", "class_teacher")).token;
+  const summaryUrl = `/school/orgs/${ORG}/sections/${sandboxSec.id}/hifz-progress/summary`;
+  const made: string[] = [];
+  try {
+    const before = await (await api(tt, summaryUrl)).json();
+    const memorizedBefore = (before.students ?? []).find((s: any) => s.studentId === pStu1)?.ayahsMemorized;
+
+    const tr = await api(tt, `/school/orgs/${ORG}/students/${pStu1}/quran-track`, {
+      method: "POST", body: JSON.stringify({ quranTrack: "qaida" }),
+    });
+    assert(tr.status === 200, `set qaida track ${tr.status}`);
+
+    const mk = await api(tt, `/school/orgs/${ORG}/hifz-progress`, {
+      method: "POST",
+      body: JSON.stringify({ studentId: pStu1, kind: "qaida", qaidaLesson: 3, quality: "good", nextTarget: "Qaida: lesson 4" }),
+    });
+    const mj = await mk.json();
+    assert(mk.status === 201, `qaida create ${mk.status}: ${JSON.stringify(mj).slice(0, 160)}`);
+    made.push(mj.entry.id);
+    assert(mj.entry.qaidaLesson === 3 && mj.entry.surahNumber == null,
+      `entry should carry the lesson and no surah: ${JSON.stringify(mj.entry).slice(0, 160)}`);
+
+    const noLesson = await api(tt, `/school/orgs/${ORG}/hifz-progress`, {
+      method: "POST", body: JSON.stringify({ studentId: pStu1, kind: "qaida" }),
+    });
+    assert(noLesson.status === 400, `qaida without a lesson should 400, got ${noLesson.status}`);
+    const tooFar = await api(tt, `/school/orgs/${ORG}/hifz-progress`, {
+      method: "POST", body: JSON.stringify({ studentId: pStu1, kind: "qaida", qaidaLesson: 61 }),
+    });
+    assert(tooFar.status === 400, `a lesson past the school's count should 400, got ${tooFar.status}`);
+    const noSurah = await api(tt, `/school/orgs/${ORG}/hifz-progress`, {
+      method: "POST", body: JSON.stringify({ studentId: pStu1, kind: "sabaq", ayahFrom: 1, ayahTo: 2 }),
+    });
+    assert(noSurah.status === 400, `a sabaq without a surah must still 400, got ${noSurah.status}`);
+
+    const sum = await api(tt, summaryUrl);
+    const sj = await sum.json();
+    assert(sum.status === 200, `summary ${sum.status}`);
+    assert(Number.isInteger(sj.qaidaLessonCount) && sj.qaidaLessonCount >= 1,
+      `qaidaLessonCount missing: ${sj.qaidaLessonCount}`);
+    assert("hifzNazraParas" in sj, "hifzNazraParas missing from summary");
+    const row = (sj.students ?? []).find((s: any) => s.studentId === pStu1);
+    assert(Number.isInteger(row?.nazraParasRead), `nazraParasRead: ${row?.nazraParasRead}`);
+    assert(row?.quranTrack === "qaida", `track should be qaida, got ${row?.quranTrack}`);
+    assert(row.qaidaPosition?.lesson === 3, `qaidaPosition: ${JSON.stringify(row.qaidaPosition)}`);
+    assert(row.today?.qaida === true, "today.qaida should be set after a hearing");
+    assert(row.ayahsMemorized === memorizedBefore,
+      `a Qaida lesson must not change ayahs memorized (${memorizedBefore} -> ${row.ayahsMemorized})`);
+  } finally {
+    for (const id of made) await api(tt, `/school/orgs/${ORG}/hifz-progress/${id}`, { method: "DELETE" });
+    await admin.from("student").update({ quran_track: null }).eq("id", pStu1);
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

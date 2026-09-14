@@ -1030,6 +1030,7 @@ function QuranTrackCard({
 
   const OPTIONS: Array<{ v: "" | QuranTrack; label: string; hint: string }> = [
     { v: "", label: "Automatic", hint: "Decide from the section and hafiz status" },
+    { v: "qaida", label: "Qaida", hint: "Noorani Qaida — lesson by lesson, before Nazra" },
     { v: "nazra", label: "Nazra", hint: "Reads — position and ayah range" },
     { v: "hifz", label: "Hifz", hint: "Memorizing — sabaq / sabqi / manzil" },
     { v: "revision", label: "Revision", hint: "Finished — revising with the full trio" },

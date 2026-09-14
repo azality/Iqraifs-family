@@ -61,8 +61,28 @@ const HIFZ_KINDS = new Set([
   "manzil",
   "nazra",
   "nazra_revision",
+  // Noorani Qaida (14 Sep): the stage before nazra. Learnt lesson by
+  // lesson (takhti), so the entry carries qaida_lesson and no surah/ayah.
+  "qaida",
 ]);
 const NAZRA_KINDS = new Set(["nazra", "nazra_revision"]);
+
+// How many lessons the school's Qaida edition has is the school's to set
+// (settings.qaida_lesson_count); 17 when unset. 60 matches the DB check.
+const QAIDA_LESSONS_DEFAULT = 17;
+const QAIDA_LESSONS_MAX = 60;
+function qaidaLessonCountFrom(settings: unknown): number {
+  const n = Number((settings as any)?.qaida_lesson_count);
+  return Number.isInteger(n) && n >= 1 && n <= QAIDA_LESSONS_MAX ? n : QAIDA_LESSONS_DEFAULT;
+}
+
+// In a hifz section, how many paras of nazra a child reads before hifz
+// starts (settings.hifz_nazra_paras; IFS: 3). Outside hifz sections nazra
+// runs the whole Quran. Null when unset: the round waits for the last para.
+function hifzNazraParasFrom(settings: unknown): number | null {
+  const n = Number((settings as any)?.hifz_nazra_paras);
+  return Number.isInteger(n) && n >= 1 && n <= 30 ? n : null;
+}
 
 // Hafs count. Reaching it means the child has memorized the Quran.
 const QURAN_AYAH_TOTAL = 6236;
@@ -134,6 +154,8 @@ function hifzToJson(r: any) {
     ayahFrom: r.ayah_from,
     ayahTo: r.ayah_to,
     kind: r.kind,
+    // Qaida entries carry a lesson instead of surah/ayah (both null then).
+    qaidaLesson: r.qaida_lesson ?? null,
     quality: r.quality,
     notes: r.notes,
     // Full-module fields (PR feat/hifz-full-module). Null on legacy rows
@@ -637,20 +659,38 @@ export function installPhaseC(school: Hono): void {
     if (!body?.studentId || typeof body.studentId !== "string") {
       return c.json({ error: "studentId required" }, 400);
     }
-    const surah = Number(body.surahNumber);
-    if (!Number.isInteger(surah) || surah < 1 || surah > 114) {
-      return c.json({ error: "surahNumber must be 1..114" }, 400);
-    }
-    const ayahFrom = Number(body.ayahFrom);
-    const ayahTo = Number(body.ayahTo);
-    if (!Number.isInteger(ayahFrom) || ayahFrom < 1) {
-      return c.json({ error: "ayahFrom must be >= 1" }, 400);
-    }
-    if (!Number.isInteger(ayahTo) || ayahTo < ayahFrom) {
-      return c.json({ error: "ayahTo must be >= ayahFrom" }, 400);
-    }
     if (!HIFZ_KINDS.has(body?.kind)) {
       return c.json({ error: "invalid kind" }, 400);
+    }
+    // A Qaida lesson has no surah or ayah - the child is still learning
+    // letters. It carries the lesson number instead.
+    const isQaida = body.kind === "qaida";
+    let surah: number | null = null;
+    let ayahFrom: number | null = null;
+    let ayahTo: number | null = null;
+    let qaidaLesson: number | null = null;
+    if (isQaida) {
+      const lesson = Number(body.qaidaLesson);
+      const { data: orgRow } = await serviceRoleClient
+        .from("organizations").select("settings").eq("id", orgId).maybeSingle();
+      const lessonCount = qaidaLessonCountFrom((orgRow as any)?.settings);
+      if (!Number.isInteger(lesson) || lesson < 1 || lesson > lessonCount) {
+        return c.json({ error: `qaidaLesson must be 1..${lessonCount}` }, 400);
+      }
+      qaidaLesson = lesson;
+    } else {
+      surah = Number(body.surahNumber);
+      if (!Number.isInteger(surah) || surah < 1 || surah > 114) {
+        return c.json({ error: "surahNumber must be 1..114" }, 400);
+      }
+      ayahFrom = Number(body.ayahFrom);
+      ayahTo = Number(body.ayahTo);
+      if (!Number.isInteger(ayahFrom) || ayahFrom < 1) {
+        return c.json({ error: "ayahFrom must be >= 1" }, 400);
+      }
+      if (!Number.isInteger(ayahTo) || ayahTo < ayahFrom) {
+        return c.json({ error: "ayahTo must be >= ayahFrom" }, 400);
+      }
     }
     if (body.quality !== undefined && body.quality !== null && !HIFZ_QUALITIES.has(body.quality)) {
       return c.json({ error: "invalid quality" }, 400);
@@ -735,6 +775,7 @@ export function installPhaseC(school: Hono): void {
         ayah_from: ayahFrom,
         ayah_to: ayahTo,
         kind: body.kind,
+        qaida_lesson: qaidaLesson,
         quality: body.quality ?? null,
         notes: body.notes ?? null,
         juz_number: safeInt(body.juzNumber, 1, 30),
@@ -1014,7 +1055,7 @@ export function installPhaseC(school: Hono): void {
       // `missed` matters: a skip marker must never become a reader's
       // "position" — without it in the select the !r.missed guard below
       // saw undefined and waved every marker through (check 75).
-      .select("student_id, surah_number, ayah_from, ayah_to, juz_number, kind, quality, missed, recorded_at")
+      .select("student_id, surah_number, ayah_from, ayah_to, juz_number, kind, quality, missed, recorded_at, qaida_lesson")
       .in("student_id", studentIds);
     if (entryErr) return c.json({ error: entryErr.message }, 500);
 
@@ -1027,6 +1068,7 @@ export function installPhaseC(school: Hono): void {
       quality: string | null;
       missed: boolean | null;
       recorded_at: string;
+      qaida_lesson: number | null;
     }>>();
     for (const e of (entries ?? []) as any[]) {
       const arr = byStudent.get(e.student_id) ?? [];
@@ -1041,6 +1083,11 @@ export function installPhaseC(school: Hono): void {
     const hifzTz = await orgTimezone(orgId);
     const todayStr = todayInOrgTz(hifzTz);
     const hifzTzOffsetMs = tzOffsetMinutes(new Date(), hifzTz) * 60_000;
+
+    const { data: orgRow } = await serviceRoleClient
+      .from("organizations").select("settings").eq("id", orgId).maybeSingle();
+    const qaidaLessonCount = qaidaLessonCountFrom((orgRow as any)?.settings);
+    const hifzNazraParas = sectionIsHifz ? hifzNazraParasFrom((orgRow as any)?.settings) : null;
 
     const out = studentList.map((s) => {
       const rows = byStudent.get(s.id) ?? [];
@@ -1065,18 +1112,31 @@ export function installPhaseC(school: Hono): void {
       const today = {
         sabaq: false, sabqi: false, manzil: false,
         nazra: false, nazraSabaq: false, nazraSabqi: false,
+        qaida: false,
       };
       // Where this child has READ up to — the only number that means
       // anything for nazra, where nothing is being memorized. For a
       // reader a (non-missed) sabaq entry IS a reading portion, so it
       // moves the position too.
       let lastNazra: typeof rows[number] | null = null;
+      // The Qaida lesson this child was last heard on.
+      let lastQaida: typeof rows[number] | null = null;
+      // Distinct paras read in nazra (not revision). A hifz section moves a
+      // child to hifz after a few paras; counting them works whichever end
+      // of the Quran the class starts from.
+      const parasRead = new Set<number>();
       for (const r of rows) {
         if (!lastEntry || r.recorded_at > lastEntry) lastEntry = r.recorded_at;
         const movesPosition =
           NAZRA_KINDS.has(r.kind) || (isReader && r.kind === "sabaq" && !r.missed);
         if (movesPosition && (!lastNazra || r.recorded_at > lastNazra.recorded_at)) {
           lastNazra = r;
+        }
+        if (movesPosition && !r.missed && r.kind !== "nazra_revision" && r.juz_number != null) {
+          parasRead.add(r.juz_number);
+        }
+        if (r.kind === "qaida" && !r.missed && (!lastQaida || r.recorded_at > lastQaida.recorded_at)) {
+          lastQaida = r;
         }
         if (
           new Date(new Date(r.recorded_at).getTime() + hifzTzOffsetMs)
@@ -1092,6 +1152,7 @@ export function installPhaseC(school: Hono): void {
           else if (r.kind === "manzil") today.manzil = true;
           else if (r.kind === "nazra") { today.nazra = true; today.nazraSabaq = true; }
           else if (r.kind === "nazra_revision") { today.nazra = true; today.nazraSabqi = true; }
+          else if (r.kind === "qaida") today.qaida = true;
         }
       }
 
@@ -1126,10 +1187,18 @@ export function installPhaseC(school: Hono): void {
               recordedAt: lastNazra.recorded_at,
             }
           : null,
+        nazraParasRead: parasRead.size,
+        qaidaPosition: lastQaida
+          ? {
+              lesson: lastQaida.qaida_lesson,
+              quality: lastQaida.quality ?? null,
+              recordedAt: lastQaida.recorded_at,
+            }
+          : null,
       };
     });
 
-    return c.json({ sectionId, students: out });
+    return c.json({ sectionId, students: out, qaidaLessonCount, hifzNazraParas });
   });
 
   // ---------------------------------------------------------------------------
@@ -1195,6 +1264,10 @@ export function installPhaseC(school: Hono): void {
       }
       if (!HIFZ_KINDS.has(r.kind)) {
         errors.push({ rowIndex: i, message: `kind must be one of ${Array.from(HIFZ_KINDS).join("/")}` });
+        continue;
+      }
+      if (r.kind === "qaida") {
+        errors.push({ rowIndex: i, message: "qaida lessons are logged in the round, not imported" });
         continue;
       }
       if (r.quality !== undefined && r.quality !== null && r.quality !== "" && !HIFZ_QUALITIES.has(r.quality)) {
@@ -1279,8 +1352,8 @@ export function installPhaseC(school: Hono): void {
       return c.json({ error: "invalid JSON body" }, 400);
     }
     const v = body?.quranTrack ?? null;
-    if (v !== null && !["nazra", "hifz", "revision"].includes(v)) {
-      return c.json({ error: "quranTrack must be nazra, hifz, revision or null" }, 400);
+    if (v !== null && !["qaida", "nazra", "hifz", "revision"].includes(v)) {
+      return c.json({ error: "quranTrack must be qaida, nazra, hifz, revision or null" }, 400);
     }
 
     const { data: stu } = await serviceRoleClient

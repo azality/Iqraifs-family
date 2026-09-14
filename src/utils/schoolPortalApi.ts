@@ -589,6 +589,8 @@ export interface TodaySnapshot {
      *  old server payloads. */
     juzNumber?: number | null;
     juzExtent?: string | null;
+    /** Noorani Qaida lesson — kind "qaida" has no surah/ayah. */
+    qaidaLesson?: number | null;
   } | null;
   latestTeacherNote: { kind: "positive" | "concern"; summary: string; observedAt: string } | null;
   publishedReportCardTermName: string | null;
