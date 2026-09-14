@@ -4318,7 +4318,15 @@ await check("85. portal fees name the bank account for the child's class", async
     const none = await (await portalGet(parToken, `/pin-me/students/${pStu1}/fees`)).json();
     assert(none.bankAccount === null, `no covering account must be null: ${JSON.stringify(none.bankAccount)}`);
   } finally {
-    await admin.from("organizations").update({ settings: before }).eq("id", ORG);
+    // Restore ONLY the key this check touched, onto the CURRENT settings.
+    // Writing back the whole `before` snapshot would freeze every other
+    // setting at its captured value - exactly how a stale snapshot left
+    // student_points_league=false in live settings once (14 Sep).
+    const { data: curRow } = await admin.from("organizations").select("settings").eq("id", ORG).maybeSingle();
+    const cur = { ...((curRow as any)?.settings ?? {}) };
+    if ("fee_bank_accounts" in before) cur.fee_bank_accounts = (before as any).fee_bank_accounts;
+    else delete cur.fee_bank_accounts;
+    await admin.from("organizations").update({ settings: cur }).eq("id", ORG);
   }
 });
 
