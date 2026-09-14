@@ -28,17 +28,23 @@ export type AssignExtent =
   | "middle_half"          // ruba → salasa (¼ → ¾)
   | "last_three_quarters"; // ruba → end (¼ → end)
 
-/** First (surah, ayah) of each juz — Hafs. Used to prefill para-mode
- *  entries and to place a position in its juz. */
+/** First (surah, ayah) of each para — the Indo-Pak mushaf the school's
+ *  qaris teach from, where each para opens on the words it is named
+ *  for. Six differ from the Madani juz list this table first used:
+ *  Para 4 "Lan Tanalu" 3:92, 7 "Wa Iza Sami'u" 5:83, 11 "Ya'tazirun"
+ *  9:94, 20 "Amman Khalaq" 27:60, 21 "Utlu Ma Uhiya" 29:45, 23 "Wa Ma
+ *  Liya" 36:22 (pilot, 14 Sep: "Para 10 finishes on ayah 93"). Used to
+ *  prefill para-mode entries, place a position in its para, and fire
+ *  the end-of-para revision. */
 export const JUZ_STARTS: ReadonlyArray<{ surah: number; ayah: number }> = [
   { surah: 1, ayah: 1 }, { surah: 2, ayah: 142 }, { surah: 2, ayah: 253 },
-  { surah: 3, ayah: 93 }, { surah: 4, ayah: 24 }, { surah: 4, ayah: 148 },
-  { surah: 5, ayah: 82 }, { surah: 6, ayah: 111 }, { surah: 7, ayah: 88 },
-  { surah: 8, ayah: 41 }, { surah: 9, ayah: 93 }, { surah: 11, ayah: 6 },
+  { surah: 3, ayah: 92 }, { surah: 4, ayah: 24 }, { surah: 4, ayah: 148 },
+  { surah: 5, ayah: 83 }, { surah: 6, ayah: 111 }, { surah: 7, ayah: 88 },
+  { surah: 8, ayah: 41 }, { surah: 9, ayah: 94 }, { surah: 11, ayah: 6 },
   { surah: 12, ayah: 53 }, { surah: 15, ayah: 1 }, { surah: 17, ayah: 1 },
   { surah: 18, ayah: 75 }, { surah: 21, ayah: 1 }, { surah: 23, ayah: 1 },
-  { surah: 25, ayah: 21 }, { surah: 27, ayah: 56 }, { surah: 29, ayah: 46 },
-  { surah: 33, ayah: 31 }, { surah: 36, ayah: 28 }, { surah: 39, ayah: 32 },
+  { surah: 25, ayah: 21 }, { surah: 27, ayah: 60 }, { surah: 29, ayah: 45 },
+  { surah: 33, ayah: 31 }, { surah: 36, ayah: 22 }, { surah: 39, ayah: 32 },
   { surah: 41, ayah: 47 }, { surah: 46, ayah: 1 }, { surah: 51, ayah: 31 },
   { surah: 58, ayah: 1 }, { surah: 67, ayah: 1 }, { surah: 78, ayah: 1 },
 ];
@@ -213,16 +219,20 @@ export function parseNextSabqiPara(text: string): number | null {
 /** End-of-para consolidation (Muneeb, 10 Sep): when a sabaq finishes a
  *  juz, the method pauses new lessons while the whole para is heard —
  *  even mid-surah (juz 1 ends at Baqarah 141; the break still happens).
- *  Returns the finished juz number, or null when the portion doesn't
- *  end exactly at a juz boundary. */
+ *
+ *  A portion that runs PAST the last ayah finished the para too: lesson
+ *  lengths rarely land on a boundary, and only an exact landing used to
+ *  count, so a child reading straight through never got the revision
+ *  (pilot, 14 Sep). Returns the finished juz number, or null when the
+ *  portion stays inside one juz. */
 export function paraFinishedBySabaq(
   surahNumber: number,
   from: number,
   to: number,
 ): number | null {
-  void from;
   const max = getSurah(surahNumber)?.ayahCount ?? to;
-  const end = Math.min(to, max);
+  const end = Math.min(Math.max(from, to), max);
+  const startJuz = juzOfPosition(surahNumber, Math.max(1, Math.min(from, to)));
   const endJuz = juzOfPosition(surahNumber, end);
   let nextS: number;
   let nextA: number;
@@ -233,7 +243,12 @@ export function paraFinishedBySabaq(
   } else {
     return endJuz === 30 ? 30 : null; // An-Nas finished = juz 30 done
   }
-  return juzOfPosition(nextS, nextA) > endJuz ? endJuz : null;
+  const nextJuz = juzOfPosition(nextS, nextA);
+  // Ended exactly on the last ayah: that juz is done. Ran across a
+  // boundary: the juz it crossed out of is done.
+  if (nextJuz > endJuz) return endJuz;
+  if (endJuz > startJuz) return endJuz - 1;
+  return null;
 }
 
 /** "Sabaq: Revise Para 17 — then Al-Mu'minun 1–6". The continuation is

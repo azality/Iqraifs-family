@@ -1,9 +1,15 @@
-// The school's own para table (Ambreen/Muneeb, 10 Sep 2026), written
-// out in full as the authority for every juz boundary. It exists so the
-// end-of-para consolidation can never silently drift: if anyone edits
-// JUZ_STARTS, these 30 rows fail.
+// The school's para table, written out in full as the authority for
+// every para boundary. It exists so the end-of-para consolidation can
+// never silently drift: if anyone edits JUZ_STARTS, these 30 rows fail.
 //
-// Each row is the juz, its traditional name, where it STARTS and where
+// Indo-Pak mushaf (14 Sep 2026). The first version of this table (10 Sep)
+// was the Madani juz list, and six rows disagreed with the paras the
+// qaris actually teach — Muhammad Umar finished At-Tawbah 93, the end of
+// Para 10 in his Quran, and was handed ayah 94 instead of the revision.
+// Each para opens on the words it is NAMED for, which is how every row
+// below can be checked by eye: "Ya'tazirun" is 9:94, not 9:93.
+//
+// Each row is the para, its traditional name, where it STARTS and where
 // it FINISHES. The finish of one and the start of the next must be
 // adjacent — the test proves that too, so the table cannot disagree
 // with itself.
@@ -25,15 +31,15 @@ type Row = {
 const SCHOOL_TABLE: Row[] = [
   { juz: 1,  name: "Alif Lam Meem",        start: [1, 1],    finish: [2, 141] },
   { juz: 2,  name: "Sayaqool",             start: [2, 142],  finish: [2, 252] },
-  { juz: 3,  name: "Tilkal Rusul",         start: [2, 253],  finish: [3, 92] },
-  { juz: 4,  name: "Lan Tana Loo",         start: [3, 93],   finish: [4, 23] },
+  { juz: 3,  name: "Tilkal Rusul",         start: [2, 253],  finish: [3, 91] },
+  { juz: 4,  name: "Lan Tana Loo",         start: [3, 92],   finish: [4, 23] },
   { juz: 5,  name: "Wal Mohsanat",         start: [4, 24],   finish: [4, 147] },
-  { juz: 6,  name: "La Yuhibbullah",       start: [4, 148],  finish: [5, 81] },
-  { juz: 7,  name: "Wa Iza Samiu",         start: [5, 82],   finish: [6, 110] },
+  { juz: 6,  name: "La Yuhibbullah",       start: [4, 148],  finish: [5, 82] },
+  { juz: 7,  name: "Wa Iza Samiu",         start: [5, 83],   finish: [6, 110] },
   { juz: 8,  name: "Wa Lau Annana",        start: [6, 111],  finish: [7, 87] },
   { juz: 9,  name: "Qalal Malao",          start: [7, 88],   finish: [8, 40] },
-  { juz: 10, name: "Wa A'lamu",            start: [8, 41],   finish: [9, 92] },
-  { juz: 11, name: "Yatazeroon",           start: [9, 93],   finish: [11, 5] },
+  { juz: 10, name: "Wa A'lamu",            start: [8, 41],   finish: [9, 93] },
+  { juz: 11, name: "Yatazeroon",           start: [9, 94],   finish: [11, 5] },
   { juz: 12, name: "Wa Mamin Da'abat",     start: [11, 6],   finish: [12, 52] },
   { juz: 13, name: "Wa Ma Ubrioo",         start: [12, 53],  finish: [14, 52] },
   { juz: 14, name: "Rubama",               start: [15, 1],   finish: [16, 128] },
@@ -41,11 +47,11 @@ const SCHOOL_TABLE: Row[] = [
   { juz: 16, name: "Qal Alam",             start: [18, 75],  finish: [20, 135] },
   { juz: 17, name: "Aqtarabo",             start: [21, 1],   finish: [22, 78] },
   { juz: 18, name: "Qadd Aflaha",          start: [23, 1],   finish: [25, 20] },
-  { juz: 19, name: "Wa Qalallazina",       start: [25, 21],  finish: [27, 55] },
-  { juz: 20, name: "A'man Khalaq",         start: [27, 56],  finish: [29, 45] },
-  { juz: 21, name: "Utlu Ma Oohi",         start: [29, 46],  finish: [33, 30] },
-  { juz: 22, name: "Wa Man Yaqnut",        start: [33, 31],  finish: [36, 27] },
-  { juz: 23, name: "Wa Ma Li",             start: [36, 28],  finish: [39, 31] },
+  { juz: 19, name: "Wa Qalallazina",       start: [25, 21],  finish: [27, 59] },
+  { juz: 20, name: "A'man Khalaq",         start: [27, 60],  finish: [29, 44] },
+  { juz: 21, name: "Utlu Ma Oohi",         start: [29, 45],  finish: [33, 30] },
+  { juz: 22, name: "Wa Man Yaqnut",        start: [33, 31],  finish: [36, 21] },
+  { juz: 23, name: "Wa Ma Li",             start: [36, 22],  finish: [39, 31] },
   { juz: 24, name: "Faman Azlamu",         start: [39, 32],  finish: [41, 46] },
   { juz: 25, name: "Ilayhi Yuruddu",       start: [41, 47],  finish: [45, 37] },
   { juz: 26, name: "Ha Meem",              start: [46, 1],   finish: [51, 30] },
@@ -121,5 +127,20 @@ describe("the school's para table", () => {
     // juz 26 finishes at 51:30 and juz 27 opens at 51:31.
     expect(paraFinishedBySabaq(51, 22, 30)).toBe(26);
     expect(juzOfPosition(51, 31)).toBe(27);
+  });
+
+  it("Muhammad Umar's case: At-Tawbah 84–93 closes Para 10", () => {
+    // Pilot, 14 Sep: "Para 10 finishes on ayah 93" — tomorrow must be the
+    // Para 10 revision, not At-Tawbah 94.
+    expect(paraFinishedBySabaq(9, 84, 93)).toBe(10);
+    expect(juzOfPosition(9, 94)).toBe(11);
+  });
+
+  it("a portion that runs past a para's end still closes that para", () => {
+    // At-Tawbah 88–97 reads through 9:93 into Para 11.
+    expect(paraFinishedBySabaq(9, 88, 97)).toBe(10);
+    // Staying inside one para never fires.
+    expect(paraFinishedBySabaq(9, 94, 103)).toBeNull();
+    expect(paraFinishedBySabaq(9, 75, 83)).toBeNull();
   });
 });
