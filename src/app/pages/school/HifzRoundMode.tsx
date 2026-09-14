@@ -51,6 +51,7 @@ import {
   type SectionHifzSummaryRow,
 } from "../../../utils/schoolApi";
 import { SURAHS, getSurah, surahDisplayName } from "../../../utils/quranSurahs";
+import { QaidaTakhtiCard } from "./QaidaTakhtiCard";
 import { PARA_EXTENT_OPTIONS, juzExtentShortKey, formatJuzExtent } from "../../../utils/hifzExtent";
 import {
   serializeNextSabaq,
@@ -85,6 +86,12 @@ interface Props {
   onExit: () => void;
   /** Fired after any entries are written — parent bumps its reloadKey. */
   onSaved: () => void;
+  /** Takhtis in the school's Qaida — a qaida-track child in the intake
+   *  class gets the takhti card inside this same round (one round for
+   *  the whole class, Muneeb 14 Sep). */
+  qaidaLessonCount?: number;
+  /** The teacher confirms a qaida child's move to Nazra. */
+  onMoveTrack?: (row: SectionHifzSummaryRow, track: "nazra") => Promise<void> | void;
 }
 
 type KindKey = "sabaq" | "sabqi" | "manzil";
@@ -177,9 +184,11 @@ const SCOPE_KINDS: Record<RoundScope, KindKey[]> = {
   manzil: ["manzil"],
 };
 
-type HeardFlags = { sabaq: boolean; sabqi: boolean; manzil: boolean };
+type HeardFlags = { sabaq: boolean; sabqi: boolean; manzil: boolean; qaida: boolean };
 
-export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: Props) {
+export function HifzRoundMode({
+  orgId, sectionLabel, roster, onExit, onSaved, qaidaLessonCount = 17, onMoveTrack,
+}: Props) {
   const { t, i18n } = useTranslation();
   const lang = i18n.language ?? "en";
   const [queue, setQueue] = useState<string[]>(() => roster.map((r) => r.studentId));
@@ -191,6 +200,7 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
     for (const r of roster) {
       m[r.studentId] = {
         sabaq: !!r.today?.sabaq, sabqi: !!r.today?.sabqi, manzil: !!r.today?.manzil,
+        qaida: !!r.today?.qaida,
       };
     }
     return m;
@@ -214,11 +224,12 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
     setHeardToday((prev) => {
       const next = { ...prev };
       for (const r of roster) {
-        const p = next[r.studentId] ?? { sabaq: false, sabqi: false, manzil: false };
+        const p = next[r.studentId] ?? { sabaq: false, sabqi: false, manzil: false, qaida: false };
         next[r.studentId] = {
           sabaq: p.sabaq || !!r.today?.sabaq,
           sabqi: p.sabqi || !!r.today?.sabqi,
           manzil: p.manzil || !!r.today?.manzil,
+          qaida: p.qaida || !!r.today?.qaida,
         };
       }
       return next;
@@ -232,6 +243,9 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
     if (absentSet.has(id)) return true;
     const h = heardToday[id];
     if (!h) return false;
+    // A qaida child has ONE hearing a day — their takhti — whatever
+    // scope the round is running in.
+    if (rosterById.get(id)?.quranTrack === "qaida") return h.qaida;
     if (scope === "sabaq") return h.sabaq;
     if (scope === "revision") return h.sabqi || h.manzil;
     if (scope === "sabqi") return h.sabqi;
@@ -870,6 +884,7 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
             touched.some((t) => t.key === "sabqi"),
           manzil: m[currentId]?.manzil || skippedNow.includes("manzil") ||
             touched.some((t) => t.key === "manzil"),
+          qaida: m[currentId]?.qaida ?? false,
         },
       }));
       setCurrentOverride(null);
@@ -1066,6 +1081,32 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
             </button>
           </div>
 
+          {/* A qaida-track child (intake class): the takhti card replaces
+              the trio — same round, different hearing. */}
+          {current.quranTrack === "qaida" ? (
+            <div className="mt-4">
+              <QaidaTakhtiCard
+                orgId={orgId}
+                student={current}
+                lessonCount={qaidaLessonCount}
+                onSaved={onSaved}
+                onDone={() => {
+                  recordElapsed(current.studentId);
+                  setHeardToday((prev) => ({
+                    ...prev,
+                    [current.studentId]: {
+                      ...(prev[current.studentId] ?? { sabaq: false, sabqi: false, manzil: false, qaida: false }),
+                      qaida: true,
+                    },
+                  }));
+                  setCurrentOverride(null);
+                }}
+                onSkip={skipForNow}
+                onMoveTrack={onMoveTrack}
+              />
+            </div>
+          ) : (
+            <>
           {/* Kind rows — filtered by the round's Hearing scope. */}
           <div className="mt-4 flex flex-col gap-2.5">
             {KIND_META.filter((m) => SCOPE_KINDS[scope].includes(m.key)).map((meta) => {
@@ -1743,6 +1784,8 @@ export function HifzRoundMode({ orgId, sectionLabel, roster, onExit, onSaved }: 
               </span>
             </Button>
           </div>
+            </>
+          )}
         </div>
       </div>
     </div>

@@ -27,6 +27,7 @@ import {
   type SectionHifzSummaryRow,
 } from "../../../utils/schoolApi";
 import { HifzLogEntry } from "./HifzLogEntry";
+import { QaidaTakhtiCard } from "./QaidaTakhtiCard";
 import { HifzRoundMode } from "./HifzRoundMode";
 import { QuranRoundMode } from "./QuranRoundMode";
 import { getSurah } from "../../../utils/quranSurahs";
@@ -91,10 +92,9 @@ export function SectionHifzOverview() {
   // assignments, para break, manzil skip — for hifz/revision students.
   // Which one the teacher started; null on non-mixed rosters and
   // ?round=1 deep links (those keep the old combined behavior).
-  const [roundKind, setRoundKind] = useState<"nazra" | "hifz" | null>(null);
-  // One-off logging for a reading child in a hifz intake class: the
-  // HifzLogEntry dialog has no qaida/nazra kinds, so their Log button
-  // runs the per-child round screen for JUST that child instead.
+  // One-off logging for a reading child in an ACADEMIC Quran/Nazra
+  // group: their Log button runs the per-child round screen for JUST
+  // that child (the round IS that group's logging surface).
   const [roundQueue, setRoundQueue] = useState<SectionHifzSummaryRow[] | null>(null);
   useEffect(() => {
     if (!orgId || !sectionId) return;
@@ -219,45 +219,35 @@ export function SectionHifzOverview() {
   if (roundActive && sorted.length > 0) {
     // A nazra group reads; it does not memorize. Same round loop, but
     // the screen is position-and-advance rather than sabaq/sabqi/manzil.
-    // A MIXED hifz roster (intake class) also takes the per-child round:
-    // QuranRoundMode already picks each child's card by track — the
-    // qaida lesson, the nazra loop, or the full trio.
-    // Mixed roster + "Start hifz round": the hifz/revision students get
-    // the same full HifzRoundMode as a pure hifz class, so every hifz
-    // feature exists in exactly one place. The reading round hears only
-    // the qaida/nazra children. A ?round=1 deep link (roundKind null)
-    // keeps the old combined per-child screen.
-    const useNazraRound =
-      roundQueue !== null || isNazraGroup || (mixedRoster && roundKind !== "hifz");
-    const nazraSubset =
-      mixedRoster && roundKind === "nazra"
-        ? sorted.filter(isReader)
-        : sorted;
-    const hifzSubset = mixedRoster
-      ? sorted.filter((s) => s.quranTrack === "hifz" || s.quranTrack === "revision")
-      : sorted;
+    // A hifz section — mixed intake roster included — has exactly ONE
+    // round: HifzRoundMode over the whole class (Muneeb, 14 Sep: "we
+    // should only have log hifz and start today's round"). A qaida
+    // child gets the takhti card inside it; a nazra reader is heard as
+    // sabaq/sabqi — the school's own words for the reading pair.
+    const useNazraRound = roundQueue !== null || isNazraGroup;
     return useNazraRound ? (
       <QuranRoundMode
         orgId={orgId}
         groupLabel={sectionLabel || "Nazra"}
-        roster={(roundQueue ?? nazraSubset).map((r) =>
+        roster={(roundQueue ?? sorted).map((r) =>
           dismissedHafiz.has(r.studentId) ? { ...r, needsHafizConfirmation: false } : r,
         )}
-        onClose={() => { setRoundActive(false); setRoundQueue(null); setRoundKind(null); }}
+        onClose={() => { setRoundActive(false); setRoundQueue(null); }}
         onSaved={() => setReloadKey((k) => k + 1)}
         onConfirmHafiz={confirmHafiz}
         onDismissHafiz={(row) => setDismissedHafiz((p) => new Set(p).add(row.studentId))}
         qaidaLessonCount={qaidaLessonCount}
         onMoveTrack={changeTrack}
-        nazraParasBeforeHifz={isHifzSection ? hifzNazraParas ?? undefined : undefined}
       />
     ) : (
       <HifzRoundMode
         orgId={orgId}
         sectionLabel={sectionLabel || t("hifzTeach.progressTitle")}
-        roster={hifzSubset}
-        onExit={() => { setRoundActive(false); setRoundKind(null); }}
+        roster={sorted}
+        onExit={() => setRoundActive(false)}
         onSaved={() => setReloadKey((k) => k + 1)}
+        qaidaLessonCount={qaidaLessonCount}
+        onMoveTrack={changeTrack}
       />
     );
   }
@@ -340,10 +330,12 @@ export function SectionHifzOverview() {
     );
   };
 
-  // A reading child (qaida / nazra) logs through the round screen — the
-  // hifz log dialog has no reading kinds.
+  // In a hifz section EVERY child logs through the one dialog — a qaida
+  // child gets the takhti card, a nazra reader logs sabaq/sabqi (their
+  // reading pair). Only an ACADEMIC Quran/Nazra group still opens the
+  // per-child round screen, which is that group's whole system.
   const openLog = (s: SectionHifzSummaryRow) => {
-    if (isReader(s)) {
+    if (!isHifzSection && isReader(s)) {
       setRoundQueue([s]);
       setRoundActive(true);
       return;
@@ -561,34 +553,15 @@ export function SectionHifzOverview() {
         rightSlot={
           <div className="flex items-center gap-2 flex-wrap">
             {/* Pilot (hifz teachers): one tap starts the daily round —
-                the dialog opens on the first student and "Save · next
-                student" walks the whole class. */}
-            {sorted.length > 0 && !mixedRoster && (
+                even a mixed intake roster gets a single round; each
+                child's card follows their track inside it. */}
+            {sorted.length > 0 && (
               <Button
                 size="sm"
                 className="bg-emerald-600 text-white hover:bg-emerald-700"
                 onClick={() => setRoundActive(true)}
               >
                 {isNazraGroup ? "Start today's Nazra round" : t("hifzTeach.startRound")}
-              </Button>
-            )}
-            {/* Mixed (intake) roster: two sittings, one button each. */}
-            {sorted.length > 0 && mixedRoster && readerCount > 0 && (
-              <Button
-                size="sm"
-                className="bg-emerald-600 text-white hover:bg-emerald-700"
-                onClick={() => { setRoundKind("nazra"); setRoundActive(true); }}
-              >
-                {t("hifzTeach.startNazraRound", { n: readerCount })}
-              </Button>
-            )}
-            {sorted.length > 0 && mixedRoster && sorted.length - readerCount > 0 && (
-              <Button
-                size="sm"
-                className="bg-emerald-700 text-white hover:bg-emerald-800"
-                onClick={() => { setRoundKind("hifz"); setRoundActive(true); }}
-              >
-                {t("hifzTeach.startHifzRound", { n: sorted.length - readerCount })}
               </Button>
             )}
             <Link to={`/school/orgs/${orgId}/admin/classes`}>
@@ -617,14 +590,35 @@ export function SectionHifzOverview() {
       {logTarget && (() => {
         const idx = logRoster.findIndex((r) => r.studentId === logTarget.studentId);
         const next = idx >= 0 && idx < logRoster.length - 1 ? logRoster[idx + 1] : null;
+        // A qaida child's log IS the takhti card — same card as the
+        // round, in the same dialog frame as everyone else's log.
+        if (logTarget.quranTrack === "qaida") {
+          return (
+            <Dialog open onOpenChange={(v) => { if (!v) setLogTarget(null); }}>
+              <DialogContent className="max-w-md">
+                <DialogHeader>
+                  <DialogTitle>{t("hifzTeach.dialogTitle", { name: logTarget.studentName })}</DialogTitle>
+                </DialogHeader>
+                <QaidaTakhtiCard
+                  orgId={orgId}
+                  student={logTarget}
+                  lessonCount={qaidaLessonCount ?? 17}
+                  onSaved={() => setReloadKey((k) => k + 1)}
+                  onDone={() => (next ? setLogTarget(next) : setLogTarget(null))}
+                  onMoveTrack={changeTrack}
+                />
+              </DialogContent>
+            </Dialog>
+          );
+        }
         return (
           <HifzLogEntry
             orgId={orgId}
             studentId={logTarget.studentId}
             studentName={logTarget.studentName}
-            // A reading child in the intake hifz class never reaches this
-            // dialog (their Log opens the round); everyone here is hifz.
-            hifzOnly={isHifzSection && !isReader(logTarget)}
+            // A nazra reader in the intake class logs through this same
+            // dialog: their sabaq/sabqi ARE the reading pair (check 75).
+            hifzOnly={isHifzSection}
             positionLabel={idx >= 0 ? t("hifzTeach.studentOf", { n: idx + 1, total: logRoster.length }) : null}
             onNextStudent={next ? () => setLogTarget(next) : null}
             open={!!logTarget}
