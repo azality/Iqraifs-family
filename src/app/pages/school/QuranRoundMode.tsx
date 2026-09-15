@@ -47,6 +47,7 @@ import {
 } from "../../components/ui/select";
 import {
   postHifzEntry,
+  clearHifzAbsence,
   type HifzQuality,
   type QuranTrack,
   type SectionHifzSummaryRow,
@@ -122,6 +123,13 @@ export function QuranRoundMode({
   const [err, setErr] = useState<string | null>(null);
   const [heardIds, setHeardIds] = useState<Set<string>>(
     () => new Set(roster.filter((s) => s.today?.nazra || s.today?.qaida).map((s) => s.studentId)),
+  );
+  // Marked absent today (the bare missed marker) — seeded from the
+  // summary so a reopened round remembers, undoable when the child
+  // turns up late. Same behaviour as the hifz round (Aina Maqsood,
+  // 15 Sep) — the regular school's reading rounds get it too.
+  const [absentIds, setAbsentIds] = useState<Set<string>>(
+    () => new Set(roster.filter((s) => s.today?.absent).map((s) => s.studentId)),
   );
   // Move-up asks the teacher answered "Not yet" to, this round.
   const [notYet, setNotYet] = useState<Set<string>>(new Set());
@@ -209,6 +217,41 @@ export function QuranRoundMode({
   const goNext = () => {
     setJustFinished(null);
     setIdx((i) => Math.min(i + 1, roster.length - 1));
+  };
+
+  // Absent today / turned up after all — mirrors the hifz round.
+  const markAbsent = async () => {
+    if (!student) return;
+    setBusy(true); setErr(null);
+    try {
+      await postHifzEntry(orgId, {
+        studentId: student.studentId,
+        kind: "sabaq",
+        surahNumber: 1, ayahFrom: 1, ayahTo: 1,
+        missed: true,
+      } as any);
+      setAbsentIds((prev) => new Set(prev).add(student.studentId));
+      onSaved();
+      if (idx < roster.length - 1) goNext();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not mark absent.");
+    } finally { setBusy(false); }
+  };
+  const undoAbsent = async () => {
+    if (!student) return;
+    if (!window.confirm(`${student.studentName} is here after all? Clear today's absent mark.`)) return;
+    setBusy(true); setErr(null);
+    try {
+      await clearHifzAbsence(orgId, student.studentId);
+      setAbsentIds((prev) => {
+        const next = new Set(prev);
+        next.delete(student.studentId);
+        return next;
+      });
+      onSaved();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not clear the absent mark.");
+    } finally { setBusy(false); }
   };
 
   const afterSave = (finishedTo: QuranTrack | null) => {
@@ -340,8 +383,17 @@ export function QuranRoundMode({
             </p>
           </div>
           <div className="flex flex-none items-center gap-2">
+            {!absentIds.has(student.studentId) && (
+              <button
+                type="button" onClick={markAbsent} disabled={busy}
+                className="rounded-lg border border-amber-300/60 bg-amber-400/20 px-2.5 py-1 text-[11px] font-semibold text-amber-100 hover:bg-amber-400/30 disabled:opacity-50"
+              >
+                Absent
+              </button>
+            )}
             <span className="rounded-full bg-white/15 px-2.5 py-1 text-[11px] font-semibold tabular-nums">
               {doneCount}/{roster.length} heard
+              {absentIds.size > 0 ? ` · ${absentIds.size} absent` : ""}
             </span>
             <button type="button" onClick={onClose} aria-label="Close round"
               className="rounded-md p-1 text-emerald-100 hover:bg-white/10">
@@ -425,6 +477,30 @@ export function QuranRoundMode({
         </div>
       )}
 
+      {/* Marked absent today: the card is the undo, not a hearing form. */}
+      {absentIds.has(student.studentId) ? (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-4">
+          <p className="text-sm font-semibold text-amber-900">
+            {student.studentName} is marked absent today.
+          </p>
+          <p className="mt-0.5 text-[12px] text-amber-800">
+            Came after all? Clear the mark and hear them — the roll call
+            also clears it when they're saved Present or Late.
+          </p>
+          {err && <p className="mt-2 text-xs font-medium text-rose-700">{err}</p>}
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button size="sm" disabled={busy}
+              className="bg-amber-600 hover:bg-amber-700"
+              onClick={undoAbsent}>
+              Clear absent — they're here
+            </Button>
+            <Button size="sm" variant="outline" disabled={busy || idx >= roster.length - 1}
+              onClick={goNext}>
+              Next child
+            </Button>
+          </div>
+        </div>
+      ) : (
       <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-4">
         {/* A hafiz in this group gets the trio, not a reading portion.
             The track came from the roster, so nobody has to remember. */}
@@ -604,6 +680,7 @@ export function QuranRoundMode({
           </Button>
         </div>
       </div>
+      )}
 
       {/* The rest of the group, so she can jump rather than only walk. */}
       <div className="rounded-xl border border-slate-200 bg-white">
@@ -622,9 +699,13 @@ export function QuranRoundMode({
               >
                 <span className="min-w-0 flex-1 truncate font-medium text-slate-800">{s.studentName}</span>
                 <span className="truncate text-[11px] text-slate-500">{positionLabel(s)}</span>
-                {heardIds.has(s.studentId) && (
+                {absentIds.has(s.studentId) ? (
+                  <span className="flex-none rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 ring-1 ring-amber-300">
+                    Absent
+                  </span>
+                ) : heardIds.has(s.studentId) ? (
                   <Check className="h-3.5 w-3.5 flex-none text-emerald-600" aria-label="heard today" />
-                )}
+                ) : null}
               </button>
             </li>
           ))}
