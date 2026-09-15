@@ -2532,13 +2532,15 @@ await check("57. parent inbox: two-way, reading is not answering, owned, and age
   }
 });
 
-await check("58. an approved student absence reaches the register", async () => {
+await check("58. a student absence notice reaches the register the moment it is filed", async () => {
   // "Time off & absences" claimed one queue for teacher leave AND student
   // absence notices. The queue was right; the student half was a dead
   // end. Nothing anywhere read subject_type='student', so a parent filed
   // a notice, an admin approved it, and the next morning the teacher
   // marked the child absent exactly as if nothing had been said
-  // (pilot review, 7 Sep).
+  // (pilot review, 7 Sep). Since 14 Sep (Muneeb) the notice counts the
+  // MOMENT it is filed: pending shows as pending, approval upgrades the
+  // label, and only rejection removes it.
   const pTok2 = (await (await pinLogin(PARENT_PHONE, "3456")).json()).token;
   assert(!!pTok2, "parent PIN login failed");
   const today = new Intl.DateTimeFormat("en-CA", {
@@ -2574,19 +2576,20 @@ await check("58. an approved student absence reaches the register", async () => 
     assert(typeof mine.subjectName === "string" && mine.subjectName.length > 0,
       "the queue must name the student, not just an id");
 
-    // 3. Before approval the register knows nothing. Re-mint the teacher
-    //    first: check 34 rotates qa-teacher's password, so the token from
-    //    the top of the file is stale by now (the same trap check 53
-    //    dodged) - and a 401 body has no notifiedAbsences, which would
-    //    sail through this NEGATIVE assertion and only trip the positive
-    //    one in step 5, pointing at the wrong culprit.
+    // 3. The register hears about it BEFORE any approval - the family's
+    //    report counts the moment it is filed, labelled pending.
+    //    Re-mint the teacher first: check 34 rotates qa-teacher's
+    //    password, so the token from the top of the file is stale by
+    //    now (the same trap check 53 dodged).
     const t3 = await ensureUser("qa-teacher@azality.com", "QA Teacher", "class_teacher");
     const beforeResp = await api(t3.token,
       `/school/orgs/${ORG}/sections/${sandboxSec.id}/attendance?date=${today}`);
     assert(beforeResp.status === 200, `register read ${beforeResp.status}`);
     const before = await beforeResp.json();
-    const notedBefore = (before.notifiedAbsences ?? []).some((n: any) => n.studentId === pStu1);
-    assert(!notedBefore, "an UNAPPROVED notice must not excuse anyone");
+    const pendingHit = (before.notifiedAbsences ?? []).find((n: any) => n.studentId === pStu1);
+    assert(pendingHit, "a freshly FILED notice must already show on the register");
+    assert(pendingHit.status === "pending",
+      `and be labelled pending: ${JSON.stringify(pendingHit)}`);
 
     // 4. Admin approves.
     const dec = await api(principal.token, `/school/orgs/${ORG}/time-off/${reqId}/decide`, {
@@ -2603,6 +2606,7 @@ await check("58. an approved student absence reaches the register", async () => 
     const hit = (after.notifiedAbsences ?? []).find((n: any) => n.studentId === pStu1);
     assert(hit, "an APPROVED absence must show on the register for that date");
     assert(hit.reason === "QA absence notice", `reason should carry through, got ${hit.reason}`);
+    assert(hit.status === "approved", `approval must upgrade the label: ${JSON.stringify(hit)}`);
 
     // 6. ...and only for the dates it covers.
     const other = new Intl.DateTimeFormat("en-CA", {
@@ -2612,6 +2616,16 @@ await check("58. an approved student absence reaches the register", async () => 
       `/school/orgs/${ORG}/sections/${sandboxSec.id}/attendance?date=${other}`)).json();
     assert(!(far.notifiedAbsences ?? []).some((n: any) => n.studentId === pStu1),
       "the absence must not leak onto dates it does not cover");
+
+    // 7. Rejection is the one thing that removes it.
+    const rej = await api(principal.token, `/school/orgs/${ORG}/time-off/${reqId}/decide`, {
+      method: "PATCH", body: JSON.stringify({ decision: "rejected" }),
+    });
+    assert(rej.status === 200, `reject ${rej.status}`);
+    const gone = await (await api(t3.token,
+      `/school/orgs/${ORG}/sections/${sandboxSec.id}/attendance?date=${today}`)).json();
+    assert(!(gone.notifiedAbsences ?? []).some((n: any) => n.studentId === pStu1),
+      "a REJECTED notice must not excuse anyone");
   } finally {
     if (reqId) await admin.from("time_off_request").delete().eq("id", reqId);
   }
