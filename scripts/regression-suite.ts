@@ -4395,6 +4395,58 @@ await check("86. a signed-off column locks its marks until unticked", async () =
   }
 });
 
+await check("87. a family's leave report reaches roll call, the bell, and the teacher's home", async () => {
+  // Muneeb (14 Sep): a parent files an absence/vacation from the portal
+  // and, WITHOUT waiting on the office, (1) roll call defaults those
+  // days to excused with a "parent reported" note, (2) the class
+  // teacher's bell carries it, (3) TeacherHome's needs-attention lists
+  // it. Approval upgrades the label, never gates the visibility.
+  const tt = await ensureUser("qa-teacher@azality.com", "QA Teacher", "class_teacher");
+  const today = new Date().toISOString().slice(0, 10);
+  const inTwo = new Date(Date.now() + 2 * 86400e3).toISOString().slice(0, 10);
+  let requestId = "";
+  try {
+    const file = await fetch(`${FUNC}/school/pin-me/students/${pStu1}/time-off`, {
+      method: "POST",
+      headers: { apikey: ANON, "X-Pin-Token": parToken, "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: "vacation", startDate: today, endDate: inTwo, reason: "QA family trip" }),
+    });
+    const fj = await file.json();
+    assert(file.status === 201, `file leave ${file.status}: ${JSON.stringify(fj).slice(0, 120)}`);
+    requestId = fj.id;
+
+    // 1. Roll call for today shows the pending report.
+    const att = await (await api(tt.token,
+      `/school/orgs/${ORG}/sections/${sandboxSec.id}/attendance?date=${today}`)).json();
+    const notice = (att.notifiedAbsences ?? []).find((n: any) => n.studentId === pStu1);
+    assert(notice, `roll call must list the reported leave: ${JSON.stringify(att.notifiedAbsences)}`);
+    assert(notice.status === "pending", `fresh report is pending: ${JSON.stringify(notice)}`);
+
+    // 2. The class teacher's bell carries it.
+    const bell = await (await api(tt.token, `/school/orgs/${ORG}/me/notifications`)).json();
+    const alert = (bell.alerts ?? []).find((a: any) => a.key === `student_leave:${requestId}`);
+    assert(alert, `bell must carry the leave: ${JSON.stringify((bell.alerts ?? []).map((a: any) => a.kind))}`);
+
+    // 3. TeacherHome's needs-attention list.
+    const mine = await (await api(tt.token, `/school/orgs/${ORG}/me/student-leaves`)).json();
+    const row = (mine.leaves ?? []).find((l: any) => l.requestId === requestId);
+    assert(row && row.status === "pending", `student-leaves must list it: ${JSON.stringify(mine.leaves)}`);
+
+    // Approval upgrades the label; the notice stays.
+    const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+    const dec = await api(admin2.token, `/school/orgs/${ORG}/time-off/${requestId}/decide`, {
+      method: "PATCH", body: JSON.stringify({ decision: "approved" }),
+    });
+    assert(dec.status === 200, `approve ${dec.status}`);
+    const att2 = await (await api(tt.token,
+      `/school/orgs/${ORG}/sections/${sandboxSec.id}/attendance?date=${today}`)).json();
+    const notice2 = (att2.notifiedAbsences ?? []).find((n: any) => n.studentId === pStu1);
+    assert(notice2?.status === "approved", `approved leave keeps the notice: ${JSON.stringify(notice2)}`);
+  } finally {
+    if (requestId) await admin.from("time_off_request").delete().eq("id", requestId);
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

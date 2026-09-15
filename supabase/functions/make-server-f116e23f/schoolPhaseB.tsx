@@ -340,31 +340,36 @@ export function installPhaseB(school: Hono): void {
       .eq("attendance_date", date);
     if (error) return c.json({ error: error.message }, 500);
 
-    // Approved student absences covering this date.
-    //
-    // Without this the feature quietly misled parents: a parent filed an
-    // absence notice, an admin approved it, and the next morning the
-    // teacher marked the child absent exactly as if nothing had been
-    // said - nothing downstream read subject_type='student' at all
-    // (pilot review, 7 Sep). Teacher leave was consumed by two
-    // dashboards; the student half stopped at the queue.
+    // Student absences covering this date — PENDING included since
+    // 14 Sep (Muneeb: the parent's report should reach roll call
+    // "automatically"): the moment a family files from the portal, the
+    // register defaults those days to excused and says who told the
+    // school, without waiting on the office's approval queue. The
+    // teacher's own hand still wins - they can override before saving,
+    // and a rejected/cancelled request disappears from here.
+    // (Approved-only before that: pilot review, 7 Sep.)
     const { data: notified } = await serviceRoleClient
       .from("time_off_request")
-      .select("subject_id, reason")
+      .select("subject_id, reason, status, kind, start_date, end_date")
       .eq("org_id", orgId)
       .eq("subject_type", "student")
-      .eq("status", "approved")
+      .in("status", ["pending", "approved"])
       .lte("start_date", date)
       .gte("end_date", date);
 
     return c.json({
       date,
       sectionId,
-      // The register shows these as "parent notified" and defaults them
-      // to excused; the teacher can still override.
+      // The register shows these as "leave approved" / "parent
+      // reported" and defaults them to excused; the teacher can still
+      // override.
       notifiedAbsences: (notified ?? []).map((r: any) => ({
         studentId: r.subject_id,
         reason: r.reason ?? null,
+        status: r.status,
+        kind: r.kind,
+        startDate: r.start_date,
+        endDate: r.end_date,
       })),
       entries: (data ?? []).map((r: any) => ({
         id: r.id,

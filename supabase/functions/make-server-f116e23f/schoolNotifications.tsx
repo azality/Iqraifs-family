@@ -82,6 +82,12 @@ export const ALERT_KINDS: AlertKindDef[] = [
     describe: "A subject you teach has no topics set for the current term.",
   },
   {
+    kind: "student_leave",
+    tier: "policy",
+    label: "Student leave reported",
+    describe: "A family in one of your classes reports an absence or vacation, upcoming or ongoing.",
+  },
+  {
     kind: "announcement_posted",
     tier: "activity",
     label: "Announcement posted",
@@ -225,6 +231,49 @@ export function installNotifications(school: Hono): void {
             title: `Roll call not taken — ${label}`,
             body: "Attendance for today hasn't been recorded yet.",
             href: `/school/orgs/${orgId}/sections/${sec.id}/attendance`,
+          });
+        }
+      }
+    }
+
+    // ── Student leave reported (class teacher, their own sections) ─────
+    // The family filed it from the portal; roll call defaults those
+    // days to excused. The teacher should hear it from the bell, not
+    // from an empty desk (Muneeb, 14 Sep).
+    if (mySections.length > 0) {
+      const { data: leaves } = await serviceRoleClient
+        .from("time_off_request")
+        .select("id, subject_id, kind, start_date, end_date, reason, status")
+        .eq("org_id", orgId)
+        .eq("subject_type", "student")
+        .in("status", ["pending", "approved"])
+        .gte("end_date", today)
+        .limit(100);
+      const leaveRows = (leaves ?? []) as any[];
+      if (leaveRows.length > 0) {
+        const { data: kids } = await serviceRoleClient
+          .from("student")
+          .select("id, full_name, class_section_id")
+          .in("id", leaveRows.map((r) => r.subject_id))
+          .in("class_section_id", mySections);
+        const kidById = new Map(((kids ?? []) as any[]).map((s) => [s.id, s]));
+        for (const r of leaveRows) {
+          const kid = kidById.get(r.subject_id);
+          if (!kid) continue;
+          const span = r.start_date === r.end_date
+            ? r.start_date
+            : `${r.start_date} → ${r.end_date}`;
+          push({
+            key: `student_leave:${r.id}`,
+            kind: "student_leave",
+            title: `${kid.full_name} — ${String(r.kind).replace(/_/g, " ")} ${span}`,
+            body:
+              (r.reason ? `"${r.reason}" — ` : "") +
+              (r.status === "approved"
+                ? "approved by the office."
+                : "reported by the family.") +
+              " Roll call defaults these days to excused.",
+            href: `/school/orgs/${orgId}/sections/${kid.class_section_id}/attendance`,
           });
         }
       }

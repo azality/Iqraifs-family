@@ -18,8 +18,13 @@
 
 import type { Hono, Context } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
-import { hasAdminOrPrincipal as isAdminOrPrincipal } from "./schoolAuth.ts";
+import {
+  hasAdminOrPrincipal as isAdminOrPrincipal,
+  hasAnyRoleInOrg,
+  teacherSectionIds,
+} from "./schoolAuth.ts";
 import { verifyPinToken } from "./schoolPhaseA.tsx";
+import { todayInOrgTz } from "./tz.ts";
 
 // Inclusive list of ISO dates between start and end (YYYY-MM-DD).
 // Capped at 60 days so a runaway "vacation for the next decade"
@@ -240,6 +245,58 @@ export function installTimeOff(school: Hono): void {
       .eq("subject_id", studentId)
       .order("created_at", { ascending: false });
     return c.json({ requests: (data ?? []).map(toJson) });
+  });
+
+  // ─── Class teacher: leaves reported for MY sections ───────────────
+  // Feeds TeacherHome's Needs attention: children of the caller's own
+  // sections with an upcoming or ongoing reported leave (pending or
+  // approved - a family's report counts the moment it is filed).
+  school.get("/orgs/:orgId/me/student-leaves", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    if (!(await hasAnyRoleInOrg(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    const mySections = await teacherSectionIds(userId, orgId);
+    if (mySections.length === 0) return c.json({ leaves: [] });
+
+    const today = todayInOrgTz();
+    const { data: reqs } = await serviceRoleClient
+      .from("time_off_request")
+      .select("id, subject_id, kind, start_date, end_date, reason, status")
+      .eq("org_id", orgId)
+      .eq("subject_type", "student")
+      .in("status", ["pending", "approved"])
+      .gte("end_date", today)
+      .order("start_date")
+      .limit(100);
+    const rows = (reqs ?? []) as any[];
+    if (rows.length === 0) return c.json({ leaves: [] });
+
+    const { data: kids } = await serviceRoleClient
+      .from("student")
+      .select("id, full_name, class_section_id, class_section:class_section_id(name, class:class_id(name))")
+      .in("id", rows.map((r) => r.subject_id))
+      .in("class_section_id", mySections);
+    const kidById = new Map(((kids ?? []) as any[]).map((s) => [s.id, s]));
+
+    return c.json({
+      leaves: rows.flatMap((r) => {
+        const kid = kidById.get(r.subject_id);
+        if (!kid) return [];
+        return [{
+          requestId: r.id,
+          studentId: r.subject_id,
+          studentName: kid.full_name,
+          sectionId: kid.class_section_id,
+          sectionLabel: `${kid.class_section?.class?.name ?? ""} ${kid.class_section?.name ?? ""}`.trim(),
+          kind: r.kind,
+          startDate: r.start_date,
+          endDate: r.end_date,
+          reason: r.reason ?? null,
+          status: r.status,
+        }];
+      }),
+    });
   });
 
   // ─── Admin: list all + decide ────────────────────────────────────
