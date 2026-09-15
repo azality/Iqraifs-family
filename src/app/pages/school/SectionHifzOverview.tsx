@@ -300,6 +300,30 @@ export function SectionHifzOverview() {
     </span>
   );
 
+  // The Absent chip is the undo — a child who came late (Aina Maqsood,
+  // 15 Sep) gets their mark cleared right here, hifz or reader alike.
+  // Marking Present/Late on the roll call clears it too.
+  const absentUndoChip = (s: SectionHifzSummaryRow) => (
+    <button
+      type="button"
+      onClick={async (e) => {
+        e.stopPropagation();
+        if (!window.confirm(`${s.studentName} is here after all? Clear today's absent mark.`)) return;
+        try {
+          await clearHifzAbsence(orgId, s.studentId);
+          toast.success(`${s.studentName} is no longer marked absent.`);
+          setReloadKey((k) => k + 1);
+        } catch (err) {
+          toast.error(err instanceof Error ? err.message : "Could not clear the absent mark.");
+        }
+      }}
+      className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold bg-amber-100 text-amber-800 ring-1 ring-amber-300 hover:bg-amber-200"
+      title="Marked absent today — tap to clear if they came after all"
+    >
+      Absent ×
+    </button>
+  );
+
   // Nazra has its own daily pair (Qari Usman, 8 Sep): sabaq = today's
   // NEW reading portion, sabqi = revision of what was read. Two chips,
   // like the hifz trio — one "Pending" undersold the routine. An old
@@ -307,6 +331,8 @@ export function SectionHifzOverview() {
   // Heard/Pending chip. A Qaida child has one lesson a day — one chip.
   const nazraTodayChips = (s: SectionHifzSummaryRow) => {
     const t2 = s.today;
+    // Marked absent and not heard since — same undo as the hifz rows.
+    if (t2?.absent && !t2?.nazra && !t2?.qaida) return absentUndoChip(s);
     if (s.quranTrack === "qaida") return heardChip(t2?.qaida, "Qaida takhti");
     if (t2?.nazraSabaq === undefined && t2?.nazraSabqi === undefined) {
       return heardChip(t2?.nazra, "Nazra");
@@ -446,30 +472,8 @@ export function SectionHifzOverview() {
         const t = s.today ?? { sabaq: false, sabqi: false, manzil: false };
         // Marked absent and heard nothing since: say so, instead of
         // three grey "pending" chips that invite chasing an empty desk.
-        // The chip is the undo — a child who came late (Aina Maqsood,
-        // 15 Sep) gets their absent mark cleared right here. Marking
-        // Present/Late on the roll call clears it too.
         if (t.absent && !t.sabaq && !t.sabqi && !t.manzil) {
-          return (
-            <button
-              type="button"
-              onClick={async (e) => {
-                e.stopPropagation();
-                if (!window.confirm(`${s.studentName} is here after all? Clear today's absent mark.`)) return;
-                try {
-                  await clearHifzAbsence(orgId, s.studentId);
-                  toast.success(`${s.studentName} is no longer marked absent.`);
-                  setReloadKey((k) => k + 1);
-                } catch (err) {
-                  toast.error(err instanceof Error ? err.message : "Could not clear the absent mark.");
-                }
-              }}
-              className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold bg-amber-100 text-amber-800 ring-1 ring-amber-300 hover:bg-amber-200"
-              title="Marked absent today — tap to clear if they came after all"
-            >
-              Absent ×
-            </button>
-          );
+          return absentUndoChip(s);
         }
         const chip = (done: boolean, label: string) => (
           <span
