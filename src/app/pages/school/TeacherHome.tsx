@@ -41,6 +41,8 @@ import {
   getMyTeacherSnapshot,
   getMyTeacherTimetable,
   getMyUpcoming,
+  getMyStudentLeaves,
+  type MyStudentLeave,
   type MySectionSubject,
   type MyExamMarksTodo,
   type MyTimetableCell,
@@ -148,6 +150,7 @@ export function TeacherHome({ orgId, me }: Props) {
   // column incomplete) — the nudge chips on the subject cards below.
   const [marksTodos, setMarksTodos] = useState<MyExamMarksTodo[]>([]);
   const [signOffs, setSignOffs] = useState<MyMarksSignOff[]>([]);
+  const [studentLeaves, setStudentLeaves] = useState<MyStudentLeave[]>([]);
   const [snapshot, setSnapshot] = useState<TeacherSnapshot | null>(null);
   const [todayCells, setTodayCells] = useState<MyTimetableCell[]>([]);
   const [upcoming, setUpcoming] = useState<import("../../../utils/schoolApi").LessonPrepItem[] | null>(null);
@@ -228,6 +231,16 @@ export function TeacherHome({ orgId, me }: Props) {
       })
       .catch(() => {
         /* older server / no exams — chips just don't show */
+      });
+    // Reported student leaves for my sections — a family filing from
+    // the portal must reach the class teacher here, not stay in the
+    // office queue (Muneeb, 14 Sep).
+    getMyStudentLeaves(orgId)
+      .then((r) => {
+        if (!cancelled) setStudentLeaves(r.leaves ?? []);
+      })
+      .catch(() => {
+        /* older server — the row just doesn't show */
       });
     return () => {
       cancelled = true;
@@ -461,7 +474,7 @@ export function TeacherHome({ orgId, me }: Props) {
           sees what needs THEIR hand before scrolling past today's plan:
           marks still to enter, columns done but unsigned, and sections
           whose attendance is slipping (Muneeb, 12 Sep). */}
-      {(sectionsToWatch.length > 0 || marksTodos.length > 0 || signOffs.length > 0) && (
+      {(sectionsToWatch.length > 0 || marksTodos.length > 0 || signOffs.length > 0 || studentLeaves.length > 0) && (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
             {t("teacherHome.needsAttention")}
@@ -507,6 +520,33 @@ export function TeacherHome({ orgId, me }: Props) {
                       <div className="mt-0.5 text-xs text-slate-500">
                         {so.sectionLabel ? `${so.sectionLabel} · ` : ""}
                         {t("teacherHome.attnSignOffHint")}
+                      </div>
+                    </div>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+                  </Link>
+                </li>
+              ))}
+              {studentLeaves.map((lv) => (
+                <li key={`leave-${lv.requestId}`}>
+                  <Link
+                    to={`/school/orgs/${orgId}/sections/${lv.sectionId}/attendance`}
+                    className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-sky-800">
+                        {t("teacherHome.attnLeave", {
+                          name: lv.studentName,
+                          kind: lv.kind.replace(/_/g, " "),
+                        })}
+                      </div>
+                      <div className="mt-0.5 text-xs text-slate-500">
+                        {lv.sectionLabel ? `${lv.sectionLabel} · ` : ""}
+                        {lv.startDate === lv.endDate ? lv.startDate : `${lv.startDate} → ${lv.endDate}`}
+                        {" · "}
+                        {lv.status === "approved"
+                          ? t("teacherHome.attnLeaveApproved")
+                          : t("teacherHome.attnLeaveReported")}
+                        {lv.reason ? ` · ${lv.reason}` : ""}
                       </div>
                     </div>
                     <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />

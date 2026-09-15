@@ -79,7 +79,7 @@ export function AttendanceRollCall() {
   // studentId -> reason. An absence the parent filed and an admin
   // approved, covering this date. Before this the notice stopped at the
   // office and the register never heard about it.
-  const [notified, setNotified] = useState<Map<string, string | null>>(new Map());
+  const [notified, setNotified] = useState<Map<string, { reason: string | null; status: string }>>(new Map());
 
   const max = todayIso();
   const min = minDateIso();
@@ -134,8 +134,11 @@ export function AttendanceRollCall() {
         const js = new Date(`${date}T00:00:00`).getDay();
         const dow = js === 0 ? 7 : js;
         const offDayNow = scheduledDays !== null && !scheduledDays.has(dow);
-        const notifiedMap = new Map<string, string | null>(
-          (r.notifiedAbsences ?? []).map((n) => [n.studentId, n.reason]),
+        const notifiedMap = new Map<string, { reason: string | null; status: string }>(
+          (r.notifiedAbsences ?? []).map((n) => [
+            n.studentId,
+            { reason: n.reason, status: n.status ?? "approved" },
+          ]),
         );
         setNotified(notifiedMap);
         for (const s of students) {
@@ -472,8 +475,10 @@ export function AttendanceRollCall() {
                       </div>
                       {notified.has(s.id) && (
                         <div className="mt-1 inline-flex items-center rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700 ring-1 ring-sky-200">
-                          Parent notified
-                          {notified.get(s.id) ? ` · ${notified.get(s.id)}` : ""}
+                          {notified.get(s.id)!.status === "approved"
+                            ? "Leave approved"
+                            : "Parent reported"}
+                          {notified.get(s.id)!.reason ? ` · ${notified.get(s.id)!.reason}` : ""}
                         </div>
                       )}
                     </button>

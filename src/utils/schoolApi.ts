@@ -715,6 +715,25 @@ export const getMyExamMarksTodo = (
 ): Promise<{ todos: MyExamMarksTodo[]; signOffs?: MyMarksSignOff[] }> =>
   apiCall(`/school/orgs/${orgId}/me/exam-marks-todo`);
 
+/** A reported leave for a child of one of MY sections — upcoming or
+ *  ongoing. pending = the family filed it; approved = the office agreed. */
+export interface MyStudentLeave {
+  requestId: string;
+  studentId: string;
+  studentName: string;
+  sectionId: string;
+  sectionLabel: string;
+  kind: string;
+  startDate: string;
+  endDate: string;
+  reason: string | null;
+  status: "pending" | "approved";
+}
+export const getMyStudentLeaves = (
+  orgId: string,
+): Promise<{ leaves: MyStudentLeave[] }> =>
+  apiCall(`/school/orgs/${orgId}/me/student-leaves`);
+
 // --- Teacher snapshot (Phase 6b) ----------------------------------------
 
 export interface TeacherSnapshot {
@@ -3362,7 +3381,16 @@ export interface SectionAttendanceResponse {
    *  APPROVED covering this date. The register marks them and defaults
    *  them to excused — otherwise the notice reached the office and never
    *  reached the person taking the register. */
-  notifiedAbsences?: Array<{ studentId: string; reason: string | null }>;
+  /** Student leaves covering this date — pending (family reported) or
+   *  approved (office agreed). The register defaults these to excused. */
+  notifiedAbsences?: Array<{
+    studentId: string;
+    reason: string | null;
+    status?: "pending" | "approved";
+    kind?: string;
+    startDate?: string;
+    endDate?: string;
+  }>;
 }
 
 export const postSectionAttendance = (
