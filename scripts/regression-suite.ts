@@ -4461,6 +4461,75 @@ await check("87. a family's leave report reaches roll call, the bell, and the te
   }
 });
 
+await check("88. an absent mark can be undone - by roll call or by hand", async () => {
+  // Aina Maqsood (15 Sep): marked absent in the hifz round, came late,
+  // the teacher fixed the roll call - and the hifz roster kept saying
+  // Absent, because the round's marker is its own record. Now: saving
+  // Present/Late on the roll call clears the day's bare marker, the
+  // clear endpoint does the same by hand, and a reasoned skip survives
+  // both (a decision, not an absence).
+  const tt = await ensureUser("qa-teacher@azality.com", "QA Teacher", "class_teacher");
+  const today = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Karachi", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(new Date());
+  const summaryUrl = `/school/orgs/${ORG}/sections/${sandboxSec.id}/hifz-progress/summary`;
+  const absentOf = async () => {
+    const j = await (await api(tt.token, summaryUrl)).json();
+    return (j.students ?? []).find((s: any) => s.studentId === pStu1)?.today?.absent;
+  };
+  const markAbsent = async () => {
+    const r = await api(tt.token, `/school/orgs/${ORG}/hifz-progress`, {
+      method: "POST",
+      body: JSON.stringify({ studentId: pStu1, kind: "sabaq", surahNumber: 1, ayahFrom: 1, ayahTo: 1, missed: true }),
+    });
+    assert(r.status === 201, `mark absent ${r.status}`);
+    return (await r.json()).entry.id;
+  };
+  const made: string[] = [];
+  try {
+    // 1. Roll call Present/Late clears the marker.
+    made.push(await markAbsent());
+    assert((await absentOf()) === true, "marker should read as absent");
+    const save = await api(tt.token, `/school/orgs/${ORG}/sections/${sandboxSec.id}/attendance`, {
+      method: "POST",
+      body: JSON.stringify({ date: today, entries: [{ studentId: pStu1, status: "late" }] }),
+    });
+    const sj = await save.json();
+    assert(save.status === 200, `roll call save ${save.status}: ${JSON.stringify(sj).slice(0, 120)}`);
+    assert(sj.hifzAbsenceCleared >= 1, `save should clear the marker: ${JSON.stringify(sj)}`);
+    assert((await absentOf()) === false, "absent must be gone after Present/Late");
+
+    // 2. The by-hand undo does the same...
+    made.push(await markAbsent());
+    const clear = await api(tt.token, `/school/orgs/${ORG}/students/${pStu1}/hifz-absence/clear`, {
+      method: "POST", body: JSON.stringify({}),
+    });
+    const cj = await clear.json();
+    assert(clear.status === 200 && cj.cleared >= 1, `clear ${clear.status}: ${JSON.stringify(cj)}`);
+    assert((await absentOf()) === false, "absent must be gone after the undo");
+
+    // 3. ...while a reasoned skip is a decision and survives both.
+    const skip = await api(tt.token, `/school/orgs/${ORG}/hifz-progress`, {
+      method: "POST",
+      body: JSON.stringify({ studentId: pStu1, kind: "sabqi", surahNumber: 1, ayahFrom: 1, ayahTo: 1, missed: true, missedTargetReason: "short day" }),
+    });
+    assert(skip.status === 201, `skip ${skip.status}`);
+    const skipId = (await skip.json()).entry.id;
+    made.push(skipId);
+    await api(tt.token, `/school/orgs/${ORG}/students/${pStu1}/hifz-absence/clear`, {
+      method: "POST", body: JSON.stringify({}),
+    });
+    const { data: still } = await admin.from("hifz_progress").select("id").eq("id", skipId).maybeSingle();
+    assert(still, "a reasoned skip must survive the clear");
+  } finally {
+    for (const id of made) {
+      await admin.from("hifz_progress").delete().eq("id", id);
+    }
+    await admin.from("school_attendance").delete()
+      .eq("student_id", pStu1).eq("attendance_date", today);
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

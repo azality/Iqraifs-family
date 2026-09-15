@@ -301,9 +301,40 @@ export function installPhaseB(school: Hono): void {
       }
     }
 
+    // A child saved Present/Late contradicts a same-day hifz absence
+    // marker (the round's "Absent" button writes a bare missed sabaq).
+    // Clear those markers so the two registers agree — Aina Maqsood
+    // (15 Sep) was marked absent in the round, came late, the teacher
+    // fixed the roll call, and the hifz roster kept saying Absent.
+    // Deliberate reasoned skips (missed WITH a reason) are decisions,
+    // not absences, and stay untouched.
+    let hifzAbsenceCleared = 0;
+    const hereIds = results
+      .filter((r) => r.ok)
+      .map((r) => r.studentId)
+      .filter((id) => {
+        const e = body.entries.find((x: any) => x.studentId === id);
+        return e && (e.status === "present" || e.status === "late");
+      });
+    if (hereIds.length > 0) {
+      const tz = await orgTimezone(orgId);
+      const { startUtc, endUtc } = zonedDayRangeUtc(body.date, tz);
+      const { data: gone } = await serviceRoleClient
+        .from("hifz_progress")
+        .delete()
+        .eq("org_id", orgId)
+        .in("student_id", hereIds)
+        .eq("missed", true)
+        .is("missed_target_reason", null)
+        .gte("recorded_at", startUtc)
+        .lt("recorded_at", endUtc)
+        .select("id");
+      hifzAbsenceCleared = (gone ?? []).length;
+    }
+
     const failed = results.filter((r) => !r.ok).length;
     return c.json(
-      { inserted, updated, failed, results },
+      { inserted, updated, failed, results, hifzAbsenceCleared },
       failed > 0 ? 207 : 200,
     );
   });

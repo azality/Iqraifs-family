@@ -47,6 +47,7 @@ import {
   getOrganization,
   getStudentHifz,
   postHifzEntry,
+  clearHifzAbsence,
   type HifzEntryInput,
   type HifzQuality,
   type SectionHifzSummaryRow,
@@ -556,6 +557,27 @@ export function HifzRoundMode({
     setCurrentOverride(null);
   };
 
+  // The opposite of markAbsent: the child turned up after all (Aina
+  // Maqsood came late, 15 Sep). Clears the day's bare missed marker
+  // server-side and puts them back in the queue.
+  const undoAbsent = async (id: string) => {
+    const r = rosterById.get(id);
+    if (!r) return;
+    if (!window.confirm(t("hifzRound.absentUndoConfirm", { name: r.studentName }))) return;
+    try {
+      await clearHifzAbsence(orgId, id);
+      setAbsentSet((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      onSaved();
+      toast.success(t("hifzRound.absentUndone", { name: r.studentName }));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("hifzRound.absentFailed"));
+    }
+  };
+
   const markAbsent = async () => {
     if (!currentId || !current) return;
     setSaving(true);
@@ -1063,7 +1085,14 @@ export function HifzRoundMode({
                     });
                     setDragId(null);
                   }}
-                  onClick={() => { if (!done && !saving) setCurrentOverride(id); }}
+                  onClick={() => {
+                    // Marked absent but turned up after all (came late):
+                    // the rail row is the undo — clears the day's marker
+                    // and puts the child back in the queue.
+                    if (isAbsent) { void undoAbsent(id); return; }
+                    if (!done && !saving) setCurrentOverride(id);
+                  }}
+                  title={isAbsent ? t("hifzRound.absentUndoHint") : undefined}
                   className={
                     "flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 " +
                     (isNow ? "bg-emerald-50 ring-1 ring-emerald-200" : done ? "opacity-60" : "hover:bg-slate-50")

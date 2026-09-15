@@ -1423,6 +1423,71 @@ export function installPhaseC(school: Hono): void {
 
     return c.json({ ok: true });
   });
+
+  // ─── Clear a day's absence marker ───────────────────────────────────
+  // The round's "Absent" button writes a bare missed-sabaq marker. When
+  // the child turns up late (Aina Maqsood, 15 Sep), the teacher needs
+  // the opposite button — and marking Present/Late on the roll call
+  // clears it too (schoolPhaseB). Deletes only BARE markers (missed,
+  // no reason) on that org-local day; a reasoned per-kind skip is a
+  // decision, not an absence, and stays.
+  school.post("/orgs/:orgId/students/:studentId/hifz-absence/clear", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    const studentId = c.req.param("studentId");
+    let body: any = {};
+    try { body = await c.req.json(); } catch { /* date optional */ }
+
+    const { data: stu } = await serviceRoleClient
+      .from("student")
+      .select("id, org_id, class_section_id, hifz_group_id")
+      .eq("id", studentId)
+      .maybeSingle();
+    if (!stu) return c.json({ error: "student not found" }, 404);
+    if ((stu as any).org_id !== orgId) return c.json({ error: "student not in this org" }, 404);
+
+    // Same gate as writing hifz progress: admin/principal, the section's
+    // teacher, its dedicated hifz teacher, or the hifz group's teacher.
+    let allowed = await hasAdminOrPrincipal(userId, orgId);
+    if (!allowed && (stu as any).class_section_id) {
+      const gate = await requireTeacherOfSection(userId, orgId, (stu as any).class_section_id);
+      allowed = gate.ok;
+    }
+    if (!allowed && (stu as any).class_section_id) {
+      const { data: sec } = await serviceRoleClient
+        .from("class_section").select("hifz_teacher_user_id")
+        .eq("id", (stu as any).class_section_id).maybeSingle();
+      if (sec && (sec as any).hifz_teacher_user_id === userId) allowed = true;
+    }
+    if (!allowed && (stu as any).hifz_group_id) {
+      const { data: grp } = await serviceRoleClient
+        .from("hifz_group").select("hifz_teacher_user_id, org_id")
+        .eq("id", (stu as any).hifz_group_id).maybeSingle();
+      if (grp && (grp as any).org_id === orgId && (grp as any).hifz_teacher_user_id === userId) {
+        allowed = true;
+      }
+    }
+    if (!allowed) return c.json({ error: "forbidden" }, 403);
+
+    const tz = await orgTimezone(orgId);
+    const date = typeof body?.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.date)
+      ? body.date
+      : todayInOrgTz(tz);
+    const { startUtc, endUtc } = zonedDayRangeUtc(date, tz);
+    const { data: gone, error } = await serviceRoleClient
+      .from("hifz_progress")
+      .delete()
+      .eq("org_id", orgId)
+      .eq("student_id", studentId)
+      .eq("missed", true)
+      .is("missed_target_reason", null)
+      .gte("recorded_at", startUtc)
+      .lt("recorded_at", endUtc)
+      .select("id");
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ ok: true, cleared: (gone ?? []).length });
+  });
 }
 
 // -----------------------------------------------------------------------------

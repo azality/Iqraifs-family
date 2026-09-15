@@ -3989,6 +3989,18 @@ export const postHifzEntry = (
     body: JSON.stringify(body),
   });
 
+/** Undo a day's "Absent" mark (the round's bare missed marker) — the
+ *  child turned up after all. Defaults to today; reasoned skips stay. */
+export const clearHifzAbsence = (
+  orgId: string,
+  studentId: string,
+  date?: string,
+): Promise<{ ok: boolean; cleared: number }> =>
+  apiCall(`/school/orgs/${orgId}/students/${studentId}/hifz-absence/clear`, {
+    method: "POST",
+    body: JSON.stringify(date ? { date } : {}),
+  });
+
 export const getStudentHifz = (
   orgId: string,
   studentId: string,
