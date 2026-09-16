@@ -358,6 +358,111 @@ export function classToken(label: string): string | null {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Subject-heading detection — both uploads put EVERY line under the one
+// subject the admin picked, but the school's own Word files often hold
+// several subjects ("English (Grammar):- Grade:- 01", "Science :-",
+// "*اسلامیات*"). Uploaded as Mathematics, that file would pour English and
+// Science lessons into maths with no warning (Muneeb, 16 Sep). These
+// helpers find headings naming a DIFFERENT subject so the UI can stop and ask.
+
+/** Known subjects and the ways the school writes them. The first entry is
+ *  the display name. Science branches sit inside Science on purpose: a
+ *  Class VI science file has "PHYSICAL SCIENCE" sections, while Class IX's
+ *  separate Physics/Chemistry/Biology are their own subjects. */
+const SUBJECT_ALIASES: ReadonlyArray<ReadonlyArray<string>> = [
+  ["Mathematics", "math", "maths", "mathematics", "ریاضی", "حساب"],
+  ["English", "english", "انگریزی"],
+  ["Urdu", "urdu", "اردو"],
+  ["Sindhi", "sindhi", "سندھی"],
+  ["Science", "science", "general science", "biological science", "physical science", "earth science", "سائنس"],
+  ["Physics", "physics", "طبیعیات"],
+  ["Chemistry", "chemistry", "کیمیا"],
+  ["Biology", "biology", "حیاتیات"],
+  ["Social Studies", "social studies", "social study", "sst", "معاشرتی علوم"],
+  ["Pakistan Studies", "pakistan studies", "pak studies", "مطالعہ پاکستان"],
+  ["Islamiat", "islamiat", "islamiyat", "islamic studies", "اسلامیات"],
+  ["Deeniyat", "deeniyat", "diniyat", "دینیات"],
+  ["Quran", "quran", "قرآن"],
+  ["Computer", "computer", "computers", "computer science", "کمپیوٹر"],
+  ["G.K", "gk", "general knowledge", "معلومات عامہ"],
+  ["EVS", "evs", "environmental studies"],
+  ["Arabic", "arabic", "عربی"],
+  ["Art & Craft", "art", "art craft", "art and craft", "drawing"],
+];
+
+/** Lowercase, drop apostrophes and dots INSIDE words ("Math’s" → maths,
+ *  "S.st" → sst, "G.K" → gk), everything else non-letter → space. */
+function normSubject(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/['’`.]/g, "")
+    .replace(/[^\p{L}]+/gu, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+const ALIAS_TO_GROUP = new Map<string, number>();
+SUBJECT_ALIASES.forEach((group, gi) => {
+  for (const a of group.slice(1)) ALIAS_TO_GROUP.set(normSubject(a), gi);
+});
+
+/** Same subject? Known aliases compare by group ("Maths" = "Mathematics");
+ *  otherwise one name's words inside the other's counts as the same
+ *  ("English" and "English Core Reader"). */
+export function sameSubject(a: string, b: string): boolean {
+  const na = normSubject(a);
+  const nb = normSubject(b);
+  if (!na || !nb) return false;
+  const ga = ALIAS_TO_GROUP.get(na);
+  const gb = ALIAS_TO_GROUP.get(nb);
+  if (ga !== undefined && gb !== undefined) return ga === gb;
+  const wa = new Set(na.split(" "));
+  const wb = new Set(nb.split(" "));
+  return [...wa].every((w) => wb.has(w)) || [...wb].every((w) => wa.has(w));
+}
+
+export interface SubjectHeading {
+  /** Display name ("Science", or the school's own subject name). */
+  label: string;
+  /** The first line where it appeared, trimmed for display. */
+  example: string;
+}
+
+/** Heading lines that name a subject, one entry per distinct subject.
+ *  A line counts only when NOTHING but the subject is left after removing
+ *  class headings, decoration (* " :- ( )), "syllabus/outline/نصاب" and
+ *  a trailing part letter ('English "A"', "اردو : الف") — so a topic like
+ *  "G.K: Oral Q/A + Assignment" is never mistaken for a heading.
+ *  extraNames: the school's own subject names, for subjects not in the
+ *  built-in list. */
+export function detectSubjectHeadings(text: string, extraNames: string[] = []): SubjectHeading[] {
+  const extra = new Map<string, string>();
+  for (const n of extraNames) {
+    const nn = normSubject(n);
+    if (nn && !ALIAS_TO_GROUP.has(nn)) extra.set(nn, n.trim());
+  }
+  const found = new Map<string, SubjectHeading>();
+  for (const raw of text.split(/\n/)) {
+    if (raw.length > 90) continue;
+    let s = raw.replace(CLASS_HEADING_RE, " ").replace(/\([^)]*\)/g, " ");
+    s = normSubject(s)
+      .replace(/\b(syllabus|outline|subject)\b/g, " ")
+      .replace(/(^|\s)نصاب(\s|$)/g, " ")
+      .trim()
+      .replace(/\s+/g, " ")
+      // Part letters: English "A"/"B", Urdu الف/ب.
+      .replace(/\s(a|b|c|الف|ب)$/, "")
+      .trim();
+    if (!s) continue;
+    const gi = ALIAS_TO_GROUP.get(s);
+    const label = gi !== undefined ? SUBJECT_ALIASES[gi][0] : extra.get(s);
+    if (!label || found.has(label)) continue;
+    found.set(label, { label, example: raw.replace(/\s{2,}/g, " ").trim().slice(0, 60) });
+  }
+  return [...found.values()];
+}
+
 /** Extract syllabus text from an uploaded file. Supports .docx and plain
  *  text (.txt/.csv); old binary .doc gets a friendly save-as-docx error. */
 export async function extractSyllabusText(file: File): Promise<string> {

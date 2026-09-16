@@ -36,6 +36,8 @@ import {
   splitSyllabusFile,
   parseTopicLines,
   classToken,
+  detectSubjectHeadings,
+  sameSubject,
 } from "../../../../utils/docxText";
 
 interface Props {
@@ -96,6 +98,13 @@ export function FullSyllabusUploadDialog({ orgId, classes, open, onClose }: Prop
   const [reading, setReading] = useState(false);
   const [rows, setRows] = useState<ReviewRow[]>([]);
   const [fileName, setFileName] = useState("");
+  // The file's raw text, kept for the other-subjects check: class headings
+  // like "Science :- Grade:- 01" are consumed by the split, so the rows
+  // alone can't show them.
+  const [rawText, setRawText] = useState("");
+  // Which other-subject set the admin confirmed ("these really are all
+  // Mathematics topics"). Keyed by the set, so a new file asks again.
+  const [ackKey, setAckKey] = useState("");
   const [saving, setSaving] = useState(false);
   const [progress, setProgress] = useState("");
   const [results, setResults] = useState<RowResult[] | null>(null);
@@ -127,6 +136,17 @@ export function FullSyllabusUploadDialog({ orgId, classes, open, onClose }: Prop
       }
     return [...names.entries()].sort((a, b) => b[1] - a[1]).map(([n]) => n);
   }, [subjectsByClass]);
+
+  // Headings naming a subject OTHER than the one typed. Every section goes
+  // under that one subject, so a mixed file would pour English and Science
+  // lessons into, say, Mathematics.
+  const otherSubjects = useMemo(() => {
+    const want = subjectName.trim();
+    if (!rawText || !want) return [];
+    return detectSubjectHeadings(rawText, subjectNames).filter((h) => !sameSubject(h.label, want));
+  }, [rawText, subjectName, subjectNames]);
+  const otherKey = `${fileName}|${subjectName.trim().toLowerCase()}|${otherSubjects.map((h) => h.label).join(",")}`;
+  const otherAcknowledged = otherSubjects.length === 0 || ackKey === otherKey;
 
   const tokenToClass = useMemo(() => {
     const map = new Map<string, AdminClass>();
@@ -196,6 +216,8 @@ export function FullSyllabusUploadDialog({ orgId, classes, open, onClose }: Prop
         return;
       }
       setFileName(file.name);
+      setRawText(text);
+      setAckKey("");
       buildRows(text);
     } catch (e: any) {
       toast.error(e?.message || "Could not read that file");
@@ -212,6 +234,12 @@ export function FullSyllabusUploadDialog({ orgId, classes, open, onClose }: Prop
   const handleSave = async () => {
     if (!subjectName.trim()) {
       toast.error("Type the subject name first (e.g. Mathematics).");
+      return;
+    }
+    if (!otherAcknowledged) {
+      toast.error(
+        `This file also has ${otherSubjects.map((h) => h.label).join(", ")} headings — split it by subject, or confirm in the red box that everything is ${subjectName.trim()}.`,
+      );
       return;
     }
     const missing = includable.filter((r) => !subjectFor(r.classId));
@@ -269,6 +297,8 @@ export function FullSyllabusUploadDialog({ orgId, classes, open, onClose }: Prop
     setRows([]);
     setResults(null);
     setFileName("");
+    setRawText("");
+    setAckKey("");
   };
 
   return (
@@ -321,6 +351,36 @@ export function FullSyllabusUploadDialog({ orgId, classes, open, onClose }: Prop
         </div>
 
         {loadingMeta && <p className="text-xs text-slate-500">Loading your classes…</p>}
+
+        {otherSubjects.length > 0 && (
+          <div className="rounded-md border border-rose-300 bg-rose-50 p-2.5">
+            <p className="text-xs font-semibold text-rose-800">
+              This file looks like it has other subjects too:{" "}
+              {otherSubjects.map((h) => h.label).join(", ")}
+            </p>
+            <ul className="mt-1 space-y-0.5">
+              {otherSubjects.slice(0, 4).map((h) => (
+                <li key={h.label} className="truncate text-[11px] text-rose-700">
+                  “{h.example}”
+                </li>
+              ))}
+            </ul>
+            <p className="mt-1.5 text-[11px] text-rose-800">
+              Every section below will be saved under <b>{subjectName.trim()}</b>. Upload one
+              file per subject instead — or, if these really are {subjectName.trim()} topics,
+              confirm:
+            </p>
+            <label className="mt-1.5 inline-flex cursor-pointer items-center gap-1.5 text-[11px] font-medium text-rose-900">
+              <input
+                type="checkbox"
+                checked={ackKey === otherKey}
+                onChange={(e) => setAckKey(e.target.checked ? otherKey : "")}
+                className="h-3.5 w-3.5 rounded border-rose-300"
+              />
+              I checked — everything in this file is {subjectName.trim()}
+            </label>
+          </div>
+        )}
 
         {rows.length > 0 && (
           <div className="space-y-1.5">
@@ -422,7 +482,7 @@ export function FullSyllabusUploadDialog({ orgId, classes, open, onClose }: Prop
             <Button variant="outline" size="sm" onClick={() => { reset(); onClose(); }} disabled={saving}>
               {results ? "Close" : "Cancel"}
             </Button>
-            <Button size="sm" onClick={handleSave} disabled={saving || !includable.length}>
+            <Button size="sm" onClick={handleSave} disabled={saving || !includable.length || !otherAcknowledged}>
               {saving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
               Add all sections
             </Button>
