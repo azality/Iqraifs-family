@@ -195,6 +195,169 @@ export function detectClassSections(text: string): ClassSection[] {
   return sections;
 }
 
+// ---------------------------------------------------------------------------
+// Whole-file split — ONE uploaded file holding a subject's syllabus for many
+// classes and assessments ("maths, Class 1-7, 1st + 2nd Assessment") is cut
+// into (class, assessment) buckets by its own headings. Deterministic string
+// work: recognizing structure the school WROTE needs no AI and no credits.
+
+export interface SyllabusBucket {
+  /** Normalized class heading ("Class 1") — null for preamble before any. */
+  classLabel: string | null;
+  /** Normalized assessment heading ("1st Assessment") — null if none. */
+  assessmentLabel: string | null;
+  /** Topic lines (bullets already split for table-shaped class rows). */
+  lines: string[];
+}
+
+const ASSESS_RE =
+  /\b(1st|2nd|3rd|4th|first|second|third|fourth)\s*(assessment|assesment|term|semester|exam)\b|\b(whole\s*year|annual|mid\s*term|final\s*term)\b/i;
+const ORDINAL: Record<string, string> = { first: "1st", second: "2nd", third: "3rd", fourth: "4th" };
+
+function normalizeAssessment(m: RegExpMatchArray): string {
+  if (m[3]) {
+    const w = m[3].toLowerCase().replace(/\s+/g, " ");
+    return w === "whole year" ? "Whole year" : w[0].toUpperCase() + w.slice(1);
+  }
+  const ord = ORDINAL[m[1].toLowerCase()] ?? m[1].toLowerCase();
+  const noun = m[2].toLowerCase() === "assesment" ? "assessment" : m[2].toLowerCase();
+  return `${ord} ${noun[0].toUpperCase()}${noun.slice(1)}`;
+}
+
+/** A line COUNTS as an assessment heading only when, once the matched part
+ *  and filler (a class heading, "syllabus", the subject's own name, years,
+ *  punctuation) are removed, (almost) nothing is left — so a topic like
+ *  "Revision for 1st assessment week" is never swallowed as a heading. */
+function assessmentHeading(line: string, extraFiller?: RegExp | null): string | null {
+  const m = line.match(ASSESS_RE);
+  if (!m) return null;
+  let rest = line
+    .replace(ASSESS_RE, " ")
+    .replace(CLASS_HEADING_RE, " ")
+    .replace(/\bsyllabus\b|\bfor\b|\bof\b|\bclass(?:es)?\b|\bgrade\b|\bstd\b/gi, " ");
+  if (extraFiller) rest = rest.replace(extraFiller, " ");
+  rest = rest.replace(/[\d\s:.,()\-–—_/&]+/g, "");
+  return rest.length <= 2 ? normalizeAssessment(m) : null;
+}
+
+function normalizeClassHeading(m: RegExpMatchArray): string {
+  const word = m[1][0].toUpperCase() + m[1].slice(1).toLowerCase();
+  let which = m[2].replace(/\s+/g, " ").trim();
+  if (/^\d+$/.test(which)) which = String(parseInt(which, 10));
+  else if (/^[ivx]+$/i.test(which)) which = which.toUpperCase();
+  else which = which[0].toUpperCase() + which.slice(1).toLowerCase();
+  return `${word} ${which}`;
+}
+
+/** Split a whole multi-class file into (class, assessment) buckets.
+ *  Whichever heading kind appears FIRST is the outer grouping; an outer
+ *  heading resets the inner one, so both orders work:
+ *  "Class 1 / 1st / 2nd / Class 2 / …" and "1st / Class 1..7 / 2nd / …". */
+export function splitSyllabusFile(
+  text: string,
+  opts: {
+    /** The subject the file is for ("Mathematics", "Social Studies") — its
+     *  words count as heading filler, so "Mathematics syllabus for 1st
+     *  Assessment" registers as an assessment heading. */
+    subjectName?: string;
+  } = {},
+): SyllabusBucket[] {
+  const subjectWords = (opts.subjectName ?? "")
+    .split(/\s+/)
+    .map((w) => w.replace(/[^\p{L}\p{N}]/gu, ""))
+    .filter((w) => w.length >= 2)
+    .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const extraFiller = subjectWords.length ? new RegExp(`\\b(?:${subjectWords.join("|")})\\b`, "gi") : null;
+  const lines = text.split(/\n/);
+  const buckets = new Map<string, SyllabusBucket>();
+  const push = (cls: string | null, assess: string | null, ls: string[]) => {
+    const clean = ls.map((l) => l.replace(/\s+$/, "")).filter((l) => l.replace(/\t/g, "").trim());
+    if (!clean.length) return;
+    const key = `${(cls ?? "").toLowerCase()}||${(assess ?? "").toLowerCase()}`;
+    const b = buckets.get(key);
+    if (b) b.lines.push(...clean);
+    else buckets.set(key, { classLabel: cls, assessmentLabel: assess, lines: [...clean] });
+  };
+
+  let curClass: string | null = null;
+  let curAssess: string | null = null;
+  let outer: "class" | "assessment" | null = null;
+
+  for (const line of lines) {
+    const cm = line.match(CLASS_HEADING_RE);
+    const tabIdx = line.indexOf("\t");
+    const inlineRow =
+      cm && cm.index === 0 && tabIdx > 0 && line.slice(tabIdx + 1).replace(/\t/g, "").trim().length > 0;
+    if (inlineRow) {
+      // Table shape: "Class IV<TAB>·topic ·topic" — a content row that
+      // names its own class; it does not change the running state.
+      push(normalizeClassHeading(cm!), curAssess, splitInlineRow(line));
+      continue;
+    }
+    const ah = assessmentHeading(line, extraFiller);
+    if (cm) {
+      outer ??= "class";
+      curClass = normalizeClassHeading(cm);
+      if (outer === "class") curAssess = ah; // reset (or set, if combined "Class 1 – 1st Assessment")
+      else if (ah) curAssess = ah;
+      continue;
+    }
+    if (ah) {
+      outer ??= "assessment";
+      curAssess = ah;
+      if (outer === "assessment") curClass = null;
+      continue;
+    }
+    push(curClass, curAssess, [line]);
+  }
+  return [...buckets.values()];
+}
+
+/** Parse pasted/extracted topic lines the way the bulk box saves them:
+ *  bullets and "1." prefixes stripped; "topic — detail" / "topic :: detail" /
+ *  tab-separated split into name + description. Shared by the per-subject
+ *  panel and the whole-file upload so the two never drift. */
+export function parseTopicLines(source: string): Array<{ name: string; description?: string }> {
+  return source
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^[\s\-\*\d\.\)]+/, "").trim())
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const m = /^(.+?)(?:\t+| — | :: )(.+)$/.exec(line);
+      return m ? { name: m[1].trim(), description: m[2].trim() } : { name: line };
+    });
+}
+
+/** Canonical token for matching a heading label to a real class name:
+ *  "Class 1", "Grade:- 01", "Class I", "One" all become "1";
+ *  "Reception" stays "reception". Returns null when nothing class-like. */
+const NUMBER_WORDS: Record<string, string> = {
+  one: "1", two: "2", three: "3", four: "4", five: "5",
+  six: "6", seven: "7", eight: "8", nine: "9", ten: "10",
+};
+const ROMAN: Record<string, string> = {
+  i: "1", ii: "2", iii: "3", iv: "4", v: "5", vi: "6", vii: "7",
+  viii: "8", ix: "9", x: "10", xi: "11", xii: "12",
+};
+export function classToken(label: string): string | null {
+  const m = label.match(CLASS_HEADING_RE);
+  let which = (m ? m[2] : label).trim().toLowerCase().replace(/\s+/g, " ");
+  if (m && m[1].toLowerCase() === "hifz") return `hifz-${ROMAN[which] ?? which.replace(/^0+/, "")}`;
+  if (/^\d+$/.test(which)) return String(parseInt(which, 10));
+  if (ROMAN[which]) return ROMAN[which];
+  if (NUMBER_WORDS[which]) return NUMBER_WORDS[which];
+  if (/^(reception|junior|senior|nursery|prep|kg)$/.test(which)) return which;
+  if (/^catch\s*-?\s*up$/.test(which)) return "catch-up";
+  if (!m) {
+    // No "class/grade" word — try the bare name ("Reception", "Catch Up").
+    const bare = label.trim().toLowerCase();
+    if (/^(reception|junior|senior|nursery|prep|kg)$/.test(bare)) return bare;
+    if (/^catch\s*-?\s*up$/.test(bare)) return "catch-up";
+    if (/^\d{1,2}$/.test(bare)) return String(parseInt(bare, 10));
+  }
+  return null;
+}
+
 /** Extract syllabus text from an uploaded file. Supports .docx and plain
  *  text (.txt/.csv); old binary .doc gets a friendly save-as-docx error. */
 export async function extractSyllabusText(file: File): Promise<string> {
