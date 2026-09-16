@@ -100,6 +100,9 @@ function flatItemsForRole(
         I("dashboard", t("toolbar.dashboard"), `/school/orgs/${orgId}`, Home),
         I("academics-day", "Daily academics", `/school/orgs/${orgId}/admin/academics-day`, ListChecks),
         I("teaching-overview", "Teaching overview", `/school/orgs/${orgId}/admin/teaching-overview`, GraduationCap),
+        // Their wing's classes + syllabus (Upload syllabus included) —
+        // the page filters to the wing (16 Sep).
+        I("classes", t("toolbar.classes"), `/school/orgs/${orgId}/admin/classes`, BookOpen),
         I("weekly-digest", "Weekly digest", `/school/orgs/${orgId}/admin/weekly-digest`, ListChecks),
         I("hifz-program", "Hifz program", `/school/orgs/${orgId}/admin/hifz-program`, BookMarked),
         I("my-schedule", t("toolbar.mySchedule"), `/school/orgs/${orgId}/my-schedule`, Calendar),

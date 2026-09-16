@@ -18,6 +18,7 @@ export {
   PERMISSION_KEYS,
   PERMISSION_KEYS as PERMISSIONS, // historical frontend name
   OVERRIDABLE_ROLE_TEMPLATES,
+  WING_SCOPED_KEYS,
   DEFAULT_PERMISSIONS,
   resolveEffectivePermission,
   resolveEffectivePermission as getEffectivePermission, // historical name

@@ -42,6 +42,11 @@ interface Props {
   orgId: string;
   /** Teachers eligible to be assigned to teach a subject (class_teacher + visiting_teacher). */
   teachers: AdminTeacher[];
+  /** False for a wing incharge: they run the syllabus (wing-scoped
+   *  define_curriculum) but not the subject list, marks split or teacher
+   *  assignment, which still need the school-wide key — hiding those
+   *  controls beats offering buttons that answer 403. */
+  structureEditable?: boolean;
 }
 
 const COMMON_SUBJECTS = [
@@ -55,7 +60,7 @@ const COMMON_SUBJECTS = [
   "Computer",
 ];
 
-export function ClassSubjectsManager({ classId, orgId, teachers }: Props) {
+export function ClassSubjectsManager({ classId, orgId, teachers, structureEditable = true }: Props) {
   const [subjects, setSubjects] = useState<ClassSubject[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -231,7 +236,7 @@ export function ClassSubjectsManager({ classId, orgId, teachers }: Props) {
             </p>
           </div>
         </div>
-        {!adding && (
+        {!adding && structureEditable && (
           <Button size="sm" variant="outline" onClick={() => setAdding(true)} disabled={saving}>
             <Plus className="mr-1 h-3.5 w-3.5" /> Add subject
           </Button>
@@ -284,7 +289,9 @@ export function ClassSubjectsManager({ classId, orgId, teachers }: Props) {
 
       {!loading && subjects.length === 0 && !adding && (
         <p className="mt-3 text-xs text-slate-500">
-          No subjects yet. Click "Add subject" to define Math, Science, English…
+          {structureEditable
+            ? 'No subjects yet. Click "Add subject" to define Math, Science, English…'
+            : "No subjects yet — ask the principal or admin to add this class's subjects."}
         </p>
       )}
 
@@ -329,7 +336,7 @@ export function ClassSubjectsManager({ classId, orgId, teachers }: Props) {
                       <span className="text-sm font-medium text-slate-900">
                         {s.name}
                       </span>
-                      <div className="flex items-center gap-1">
+                      {structureEditable && <div className="flex items-center gap-1">
                         <button
                           type="button"
                           onClick={() => {
@@ -360,7 +367,7 @@ export function ClassSubjectsManager({ classId, orgId, teachers }: Props) {
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
-                      </div>
+                      </div>}
                     </>
                   )}
                 </div>
@@ -376,7 +383,7 @@ export function ClassSubjectsManager({ classId, orgId, teachers }: Props) {
                         <span className="text-xs font-medium text-slate-700 min-w-[60px]">
                           {sec.sectionName ?? "Section"}
                         </span>
-                        <select
+                        {structureEditable ? <select
                           value={sec.teacherUserId ?? ""}
                           onChange={(e) =>
                             handleTeacherChange(sec.sectionSubjectId, e.target.value)
@@ -389,7 +396,11 @@ export function ClassSubjectsManager({ classId, orgId, teachers }: Props) {
                               {t.full_name}
                             </option>
                           ))}
-                        </select>
+                        </select> : (
+                          <span className="flex-1 min-w-[160px] text-xs text-slate-600">
+                            {sec.teacherName ?? "Unassigned"}
+                          </span>
+                        )}
                         {/* Pilot (Muneeb): "how can I go to the individual
                             subject within that class" — deep-link into the
                             section page with this subject expanded. */}

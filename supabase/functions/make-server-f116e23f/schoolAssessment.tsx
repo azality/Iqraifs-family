@@ -27,7 +27,7 @@
 
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
-import { hasAnyRoleInOrg as hasAnyOrgRole, hasAdminOrPrincipal as isAdminOrPrincipal, isInchargeInOrg } from "./schoolAuth.ts";
+import { hasAnyRoleInOrg as hasAnyOrgRole, hasAdminOrPrincipal as isAdminOrPrincipal, isInchargeOfClass } from "./schoolAuth.ts";
 import { orgTimezone, todayInOrgTz } from "./tz.ts";
 import * as kv from "./kv_store.tsx";
 
@@ -288,7 +288,9 @@ export function installAssessment(school: Hono): void {
     const isSectionTeacher =
       (sec as any).class_teacher_user_id === userId ||
       (sec as any).hifz_teacher_user_id === userId;
-    if (!isOffice && !isSectionTeacher && !(await isInchargeInOrg(userId, orgId))) {
+    // Incharge: their OWN wing's sections only. The old check accepted any
+    // incharge for every section in the school (permissions audit, 16 Sep).
+    if (!isOffice && !isSectionTeacher && !(await isInchargeOfClass(userId, orgId, (sec as any).class?.id))) {
       return c.json({ error: "the tabulation sheet is for the office, the incharge and the class teacher" }, 403);
     }
 
