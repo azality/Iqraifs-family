@@ -100,24 +100,88 @@ export async function paymentsByFeeId(feeIds: string[]): Promise<Map<string, any
 
 /** Per-student outstanding across ALL periods (unpaid + partial money),
  *  sandbox excluded like every org rollup. */
+export interface OwedPeriod {
+  feeStatusId: string;
+  period: string;
+  owed: number;
+  partial: boolean;
+  dueDate: string | null;
+}
+export interface StudentOutstandingRow {
+  total: number;
+  months: number;
+  oldestPeriod: string | null;
+  /** Which months are owed, oldest first — the aging chips (13a). */
+  owedPeriods: OwedPeriod[];
+  lastPayment: { paidOn: string; amount: number; method: string | null } | null;
+}
+
 export async function outstandingByStudent(
   orgId: string,
-): Promise<Record<string, { total: number; months: number; oldestPeriod: string | null }>> {
+): Promise<Record<string, StudentOutstandingRow>> {
   const { data } = await serviceRoleClient
     .from("fee_status")
-    .select("student_id, period, amount_due, amount_paid, status, student:student_id(class_section:class_section_id(schedule_key))")
+    .select("id, student_id, period, amount_due, amount_paid, status, due_date, student:student_id(class_section:class_section_id(schedule_key))")
     .eq("org_id", orgId)
     .in("status", ["unpaid", "partial"]);
-  const out: Record<string, { total: number; months: number; oldestPeriod: string | null }> = {};
+  const out: Record<string, StudentOutstandingRow> = {};
   for (const r of (data ?? []) as any[]) {
     if (r.student?.class_section?.schedule_key === "sandbox") continue;
     const owed = Math.max(0, (Number(r.amount_due) || 0) - (Number(r.amount_paid) || 0));
     if (owed <= 0) continue;
-    const cur = out[r.student_id] ?? { total: 0, months: 0, oldestPeriod: null };
+    const cur = out[r.student_id] ?? { total: 0, months: 0, oldestPeriod: null, owedPeriods: [], lastPayment: null };
     cur.total += owed;
     cur.months += 1;
     if (!cur.oldestPeriod || r.period < cur.oldestPeriod) cur.oldestPeriod = r.period;
+    cur.owedPeriods.push({
+      feeStatusId: r.id,
+      period: r.period,
+      owed,
+      partial: (Number(r.amount_paid) || 0) > 0,
+      dueDate: r.due_date ?? null,
+    });
     out[r.student_id] = cur;
+  }
+  for (const v of Object.values(out)) v.owedPeriods.sort((a, b) => (a.period < b.period ? -1 : 1));
+  // Last payment per owing student, for the "Last payment" column.
+  const ids = Object.keys(out);
+  if (ids.length) {
+    const { data: pays } = await serviceRoleClient
+      .from("fee_payment")
+      .select("student_id, amount, paid_on, method")
+      .eq("org_id", orgId)
+      .in("student_id", ids)
+      .is("voided_at", null)
+      .order("paid_on", { ascending: false });
+    for (const p of (pays ?? []) as any[]) {
+      const cur = out[p.student_id];
+      if (cur && !cur.lastPayment) {
+        cur.lastPayment = { paidOn: p.paid_on, amount: Number(p.amount) || 0, method: p.method ?? null };
+      }
+    }
+  }
+  return out;
+}
+
+/** Concession label per student ("waived" / "-500 vs the class plan"),
+ *  from student_fee_override joined to its plan — so the office never
+ *  chases a zakat case for the full amount (design 13a). */
+export async function concessionByStudent(
+  orgId: string,
+): Promise<Record<string, string>> {
+  const { data } = await serviceRoleClient
+    .from("student_fee_override")
+    .select("student_id, override_amount, waived, plan:class_fee_plan_id(amount, archived_at)")
+    .eq("org_id", orgId);
+  const out: Record<string, string> = {};
+  for (const r of (data ?? []) as any[]) {
+    if (r.plan?.archived_at) continue;
+    if (r.waived) { out[r.student_id] = "waived"; continue; }
+    const planAmt = Number(r.plan?.amount ?? 0);
+    const ov = r.override_amount === null || r.override_amount === undefined ? null : Number(r.override_amount);
+    if (ov !== null && planAmt > 0 && ov < planAmt && !out[r.student_id]) {
+      out[r.student_id] = `−${Math.round(planAmt - ov).toLocaleString()}`;
+    }
   }
   return out;
 }
@@ -273,6 +337,104 @@ export function installFeePayments(school: Hono): void {
     if (error) return c.json({ error: error.message }, 500);
     const updated = await recomputeFeeFromLedger(feeId);
     return c.json({ payment: paymentToJson(pay), fee: updated }, 201);
+  });
+
+  // POST /school/orgs/:orgId/students/:studentId/fee-payments
+  //
+  // The counter flow (design 13b): the office takes ONE amount from the
+  // guardian and the system settles owed months OLDEST FIRST, splitting
+  // across months as needed - partial payments are the norm, not an edge
+  // case. Optional feeStatusId pins the whole amount to one month
+  // instead. Anything left after every owed month is settled goes onto
+  // the newest owed month as an advance (kept simple, visible in the
+  // ledger). Returns the per-month allocations + updated fee rows.
+  school.post("/orgs/:orgId/students/:studentId/fee-payments", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    const studentId = c.req.param("studentId");
+    if (!(await userCanInOrg(userId, orgId, "mark_fees_status"))) {
+      return c.json({ error: "forbidden", code: "FORBIDDEN_PERMISSION" }, 403);
+    }
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    const amount = Number(body?.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return c.json({ error: "amount must be a positive number" }, 400);
+    }
+    const paidOn = body?.paidOn ?? todayInOrgTz();
+    if (!isIsoDate(paidOn)) return c.json({ error: "paidOn must be YYYY-MM-DD" }, 400);
+    const method = body?.method ?? null;
+    if (method !== null && !PAYMENT_METHODS.has(method)) {
+      return c.json({ error: "method must be cash, bank, online or other" }, 400);
+    }
+    const reference = typeof body?.reference === "string" ? body.reference.trim() || null : null;
+    const notes = typeof body?.notes === "string" ? body.notes.trim() || null : null;
+
+    const { data: stu } = await serviceRoleClient
+      .from("student").select("id, org_id").eq("id", studentId).maybeSingle();
+    if (!stu || (stu as any).org_id !== orgId) return c.json({ error: "student not found" }, 404);
+
+    // Which months take the money.
+    let targets: Array<{ id: string; owed: number }> = [];
+    if (body?.feeStatusId) {
+      const { data: fee } = await serviceRoleClient
+        .from("fee_status").select("id, org_id, student_id, amount_due, amount_paid")
+        .eq("id", body.feeStatusId).maybeSingle();
+      if (!fee || (fee as any).org_id !== orgId || (fee as any).student_id !== studentId) {
+        return c.json({ error: "fee not found" }, 404);
+      }
+      targets = [{ id: (fee as any).id, owed: Number.POSITIVE_INFINITY }];
+    } else {
+      const { data: owedRows } = await serviceRoleClient
+        .from("fee_status")
+        .select("id, period, amount_due, amount_paid")
+        .eq("student_id", studentId)
+        .in("status", ["unpaid", "partial"])
+        .order("period", { ascending: true });
+      targets = ((owedRows ?? []) as any[])
+        .map((r) => ({ id: r.id, owed: Math.max(0, (Number(r.amount_due) || 0) - (Number(r.amount_paid) || 0)) }))
+        .filter((r) => r.owed > 0);
+      if (targets.length === 0) {
+        return c.json({ error: "nothing outstanding - pass feeStatusId to record against a specific month", code: "NOTHING_OUTSTANDING" }, 400);
+      }
+      // Whatever exceeds every owed month rides the newest owed month.
+      targets[targets.length - 1].owed = Number.POSITIVE_INFINITY;
+    }
+
+    let left = amount;
+    const allocations: Array<{ feeStatusId: string; amount: number }> = [];
+    for (const tgt of targets) {
+      if (left <= 0) break;
+      const take = Math.min(left, tgt.owed);
+      if (take <= 0) continue;
+      allocations.push({ feeStatusId: tgt.id, amount: take });
+      left -= take;
+    }
+
+    const fees: any[] = [];
+    const payments: any[] = [];
+    for (const a of allocations) {
+      const { data: pay, error } = await serviceRoleClient
+        .from("fee_payment")
+        .insert({
+          org_id: orgId,
+          fee_status_id: a.feeStatusId,
+          student_id: studentId,
+          amount: a.amount,
+          paid_on: paidOn,
+          method,
+          reference,
+          notes,
+          recorded_by: userId,
+        })
+        .select()
+        .single();
+      if (error) return c.json({ error: error.message }, 500);
+      payments.push(paymentToJson(pay));
+      fees.push(await recomputeFeeFromLedger(a.feeStatusId));
+    }
+    return c.json({ allocations, payments, fees }, 201);
   });
 
   // POST /school/orgs/:orgId/fee-payments/:paymentId/void

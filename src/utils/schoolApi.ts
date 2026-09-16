@@ -4600,10 +4600,20 @@ export interface FeePayment {
   voidReason: string | null;
 }
 
+export interface OwedPeriod {
+  feeStatusId: string;
+  period: string;
+  owed: number;
+  partial: boolean;
+  dueDate: string | null;
+}
 export interface StudentOutstanding {
   total: number;
   months: number;
   oldestPeriod: string | null;
+  /** Owed months oldest-first — the aging chips (design 13a). */
+  owedPeriods?: OwedPeriod[];
+  lastPayment?: { paidOn: string; amount: number; method: string | null } | null;
 }
 
 export interface FeeStatus {
@@ -4664,7 +4674,12 @@ export const listStudentFees = (
 export const listOrgFees = (
   orgId: string,
   opts: { period?: string; status?: FeeStatusValue; sectionId?: string } = {},
-): Promise<{ fees: FeeStatus[]; outstandingByStudent?: Record<string, StudentOutstanding> }> => {
+): Promise<{
+  fees: FeeStatus[];
+  outstandingByStudent?: Record<string, StudentOutstanding>;
+  /** "waived" or "−500"-style label per student with a fee concession. */
+  concessionByStudent?: Record<string, string>;
+}> => {
   const q = new URLSearchParams();
   if (opts.period) q.append("period", opts.period);
   if (opts.status) q.append("status", opts.status);
@@ -4681,6 +4696,19 @@ export const addFeePayment = (
   body: { amount: number; paidOn?: string; method?: string | null; reference?: string; notes?: string },
 ): Promise<{ payment: FeePayment; fee: FeeStatus }> =>
   apiCall(`/school/orgs/${orgId}/fees/${feeId}/payments`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+/** The counter flow (design 13b): one amount from the guardian, settled
+ *  across the student's owed months OLDEST FIRST (split as needed).
+ *  Optional feeStatusId pins the whole amount to one month. */
+export const allocateStudentFeePayment = (
+  orgId: string,
+  studentId: string,
+  body: { amount: number; paidOn?: string; method?: string | null; reference?: string; notes?: string; feeStatusId?: string },
+): Promise<{ allocations: Array<{ feeStatusId: string; amount: number }>; payments: FeePayment[]; fees: FeeStatus[] }> =>
+  apiCall(`/school/orgs/${orgId}/students/${studentId}/fee-payments`, {
     method: "POST",
     body: JSON.stringify(body),
   });

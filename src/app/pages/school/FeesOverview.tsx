@@ -1,4 +1,16 @@
-// FeesOverview — admin surface listing fee statuses across the org for a period.
+// FeesOverview — the school-wide fees page, rebuilt around AGING
+// (design handoff redesign-13-fees, 13a/13b, 17 Sep):
+//
+//   ONE ROW PER STUDENT, ranked by months behind — not one row per
+//   month, where a family three months behind appeared three times.
+//   Aging buckets (paid / due this month / 2 months / defaulters 3+)
+//   double as filters; arrears render as month chips; concessions show
+//   on the row so the office never chases a zakat case for the full
+//   amount; "Record payment" takes ONE amount and settles owed months
+//   oldest-first (the counter flow — partial payments are the norm).
+//
+// No fake features: late fines and SMS don't exist in the product, so
+// reminders are the established copy-a-WhatsApp-message pattern.
 
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
@@ -20,8 +32,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../../components/ui/dialog";
-import { Pencil, Trash2, Banknote } from "lucide-react";
-import { HeroCard, KpiTile, DataTable, type DataTableColumn, NoAccessRedirect } from "../../components/school-ui";
+import { FileText, MessageSquare } from "lucide-react";
+import { HeroCard, NoAccessRedirect } from "../../components/school-ui";
 import {
   getSchoolMe,
   isOrgAdmin,
@@ -30,23 +42,33 @@ import {
   listOrgFees,
   bulkGenerateFees,
   type BulkFeeGenerateResult,
-  addFeePayment,
-  voidFeePayment,
-  deleteFee,
+  allocateStudentFeePayment,
   type AdminClass,
   type FeeStatus,
-  type FeePayment,
   type FeeStatusValue,
   type StudentOutstanding,
+  type OwedPeriod,
   type SchoolMeResponse,
 } from "../../../utils/schoolApi";
 import { useOrgPermissionState } from "./useOrgPermission";
+
+export const fmtRs = (n: number) => `Rs ${Math.round(n).toLocaleString()}`;
+
+const MONTH_SHORT = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+export const shortPeriod = (period: string): string => {
+  const m = /^(\d{4})-(\d{2})$/.exec(period);
+  return m ? MONTH_SHORT[Number(m[2])] || period : period;
+};
+export const longPeriod = (period: string): string => {
+  try {
+    return new Date(`${period}-01T00:00:00`).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  } catch { return period; }
+};
 
 function currentPeriod(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
-
 function periodOptions(): string[] {
   const out: string[] = [];
   const now = new Date();
@@ -57,34 +79,26 @@ function periodOptions(): string[] {
   return out;
 }
 
+// ─── Status badge (kept for the ledger page) ─────────────────────────
 const STATUS_LABEL: Record<FeeStatusValue, string> = {
-  unpaid: "Unpaid",
-  paid: "Paid",
-  partial: "Partial",
-  waived: "Waived",
+  unpaid: "Unpaid", paid: "Paid", partial: "Partial", waived: "Waived",
 };
-
 const STATUS_BADGE: Record<FeeStatusValue, string> = {
   unpaid: "bg-slate-100 text-slate-700",
   paid: "bg-emerald-100 text-emerald-700",
   partial: "bg-amber-100 text-amber-700",
   waived: "bg-indigo-100 text-indigo-700",
 };
-
-/** Overdue is a VIEW, not a stored status: unpaid/partial past its due
- *  date. The old code kept "overdue" in the status vocabulary, which the
- *  server rejects with 400 and which nothing ever set (fees review). */
 export function isOverdue(f: FeeStatus): boolean {
   if (f.status === "paid" || f.status === "waived") return false;
   if (!f.due_date) return false;
   return f.due_date < new Date().toISOString().slice(0, 10);
 }
-
 export function FeeStatusBadge({ fee }: { fee: FeeStatus }) {
   if (isOverdue(fee)) {
     return (
       <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-rose-100 text-rose-700">
-        Overdue{fee.status === "partial" ? " - partial" : ""}
+        Overdue{fee.status === "partial" ? " · partial" : ""}
       </span>
     );
   }
@@ -96,73 +110,94 @@ export function FeeStatusBadge({ fee }: { fee: FeeStatus }) {
   );
 }
 
-export const fmtRs = (n: number) => `Rs ${Math.round(n).toLocaleString()}`;
+// ─── 13b: Record payment — one amount, applied oldest month first ─────
+export interface AllocateTarget {
+  studentId: string;
+  name: string;
+  gr?: string | null;
+  owedPeriods: OwedPeriod[];
+  total: number;
+  /** Pin the whole amount to one month (ledger-row entry point). */
+  pinFee?: { feeStatusId: string; period: string; owed: number } | null;
+}
 
-// Record-payment dialog (17 Sep). Replaces "Mark paid": shows the month's
-// due / paid-so-far / REMAINING (prefilled), captures amount + date +
-// method + slip reference, lists every earlier installment with a void
-// link, and never disappears — the old dialog hardcoded status "paid" on
-// any amount and then hid its own button, so a partial payment could
-// neither be completed nor corrected.
-export function RecordPaymentDialog({
-  fee,
+const METHODS: Array<{ v: string; l: string }> = [
+  { v: "cash", l: "Cash" }, { v: "bank", l: "Bank" }, { v: "online", l: "Online" }, { v: "other", l: "Other" },
+];
+
+export function AllocatePaymentDialog({
+  target,
   onClose,
   onSaved,
   orgId,
 }: {
-  fee: FeeStatus | null;
+  target: AllocateTarget | null;
   onClose: () => void;
   onSaved: () => void;
   orgId: string;
 }) {
   const [amount, setAmount] = useState("");
   const [paidOn, setPaidOn] = useState("");
-  const [method, setMethod] = useState<string>("cash");
+  const [method, setMethod] = useState("cash");
   const [reference, setReference] = useState("");
   const [notes, setNotes] = useState("");
-  const [payments, setPayments] = useState<FeePayment[]>([]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (!fee) return;
-    const due = fee.amount_due ?? 0;
-    const paid = fee.amount_paid ?? 0;
-    const remaining = Math.max(0, due - paid);
-    setAmount(remaining > 0 ? String(remaining) : "");
+    if (!target) return;
+    const prefill = target.pinFee ? target.pinFee.owed : target.total;
+    setAmount(prefill > 0 ? String(prefill) : "");
     setPaidOn(new Date().toISOString().slice(0, 10));
     setMethod("cash");
     setReference("");
     setNotes("");
-    setPayments(fee.payments ?? []);
-  }, [fee]);
+  }, [target]);
 
-  if (!fee) return null;
-  const due = fee.amount_due ?? 0;
-  const paid = fee.amount_paid ?? 0;
-  const remaining = Math.max(0, due - paid);
+  if (!target) return null;
+  const amt = parseFloat(amount) || 0;
+
+  // Live mirror of the server's oldest-first split, so the office sees
+  // exactly what settles and what stays pending before saving.
+  const preview = (() => {
+    if (target.pinFee) {
+      return [{
+        period: target.pinFee.period,
+        applied: Math.min(amt, target.pinFee.owed || amt),
+        owed: target.pinFee.owed,
+        advance: Math.max(0, amt - target.pinFee.owed),
+      }];
+    }
+    let left = amt;
+    return target.owedPeriods.map((p, i) => {
+      const last = i === target.owedPeriods.length - 1;
+      const applied = Math.min(left, last ? Number.POSITIVE_INFINITY : p.owed);
+      left -= applied;
+      return {
+        period: p.period,
+        applied: Math.min(applied, p.owed),
+        owed: p.owed,
+        advance: last ? Math.max(0, applied - p.owed) : 0,
+      };
+    });
+  })();
 
   const submit = async () => {
-    const amt = parseFloat(amount);
     if (!Number.isFinite(amt) || amt <= 0) {
       toast.error("Enter the amount received.");
       return;
     }
     setSaving(true);
     try {
-      const r = await addFeePayment(orgId, fee.id, {
+      const r = await allocateStudentFeePayment(orgId, target.studentId, {
         amount: amt,
         paidOn: paidOn || undefined,
         method,
         reference: reference.trim() || undefined,
         notes: notes.trim() || undefined,
+        ...(target.pinFee ? { feeStatusId: target.pinFee.feeStatusId } : {}),
       });
-      const nowPaid = r.fee?.amount_paid ?? paid + amt;
-      const left = Math.max(0, due - nowPaid);
-      toast.success(
-        left > 0
-          ? `Recorded ${fmtRs(amt)} — ${fmtRs(left)} still due for ${fee.period}`
-          : `Recorded ${fmtRs(amt)} — ${fee.period} settled`,
-      );
+      const settled = r.allocations.length;
+      toast.success(`Recorded ${fmtRs(amt)} across ${settled} month${settled === 1 ? "" : "s"} for ${target.name}`);
       onClose();
       onSaved();
     } catch (e) {
@@ -172,77 +207,89 @@ export function RecordPaymentDialog({
     }
   };
 
-  const voidOne = async (p: FeePayment) => {
-    if (!confirm(`Void the ${fmtRs(p.amount)} payment from ${p.paidOn}? The month's total recalculates.`)) return;
-    const reason = prompt("Reason (optional):") ?? "";
-    try {
-      await voidFeePayment(orgId, p.id, reason.trim() || undefined);
-      toast.success("Payment voided");
-      onClose();
-      onSaved();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
-    }
-  };
-
   return (
-    <Dialog open={!!fee} onOpenChange={(v) => !v && onClose()}>
+    <Dialog open={!!target} onOpenChange={(v) => !v && onClose()}>
       <DialogContent>
-        <DialogHeader><DialogTitle>Record payment</DialogTitle></DialogHeader>
-        <p className="text-sm text-slate-600 -mt-1">
-          {fee.student_name ?? fee.student_id} · {fee.period}
+        <DialogHeader><DialogTitle>Record payment · {target.name}</DialogTitle></DialogHeader>
+        <p className="-mt-1 text-xs text-slate-500">
+          {target.gr ? `GR# ${target.gr} · ` : ""}
+          {target.pinFee
+            ? `${longPeriod(target.pinFee.period)} · ${fmtRs(target.pinFee.owed)} owed this month`
+            : `outstanding ${fmtRs(target.total)} · ${target.owedPeriods.length} month${target.owedPeriods.length === 1 ? "" : "s"}`}
         </p>
-        <div className="grid grid-cols-3 gap-2 rounded-lg bg-slate-50 p-2 text-center">
-          <div><div className="text-[10px] font-bold uppercase text-slate-400">Due</div><div className="text-sm font-bold tabular-nums">{fmtRs(due)}</div></div>
-          <div><div className="text-[10px] font-bold uppercase text-slate-400">Paid</div><div className="text-sm font-bold tabular-nums text-emerald-700">{fmtRs(paid)}</div></div>
-          <div><div className="text-[10px] font-bold uppercase text-slate-400">Remaining</div><div className={`text-sm font-bold tabular-nums ${remaining > 0 ? "text-rose-600" : "text-emerald-700"}`}>{fmtRs(remaining)}</div></div>
-        </div>
         <div className="grid grid-cols-2 gap-2">
-          <div><Label>Amount received</Label><Input type="number" step="0.01" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus /></div>
-          <div><Label>Date</Label><Input type="date" value={paidOn} onChange={(e) => setPaidOn(e.target.value)} /></div>
+          <div>
+            <Label>Amount received</Label>
+            <Input type="number" step="0.01" inputMode="decimal" value={amount}
+              onChange={(e) => setAmount(e.target.value)} autoFocus className="text-lg font-bold" />
+          </div>
           <div>
             <Label>Method</Label>
-            <select
-              value={method}
-              onChange={(e) => setMethod(e.target.value)}
-              className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm"
-            >
-              <option value="cash">Cash</option>
-              <option value="bank">Bank deposit</option>
-              <option value="online">Online transfer</option>
-              <option value="other">Other</option>
-            </select>
+            <div className="mt-1 flex gap-1">
+              {METHODS.map((m) => (
+                <button key={m.v} type="button" onClick={() => setMethod(m.v)}
+                  className={"flex-1 rounded-lg py-2 text-xs font-bold " +
+                    (method === m.v ? "bg-slate-900 text-white" : "border border-slate-200 text-slate-600 hover:bg-slate-50")}>
+                  {m.l}
+                </button>
+              ))}
+            </div>
           </div>
+          <div><Label>Date</Label><Input type="date" value={paidOn} onChange={(e) => setPaidOn(e.target.value)} /></div>
           <div><Label>Slip / reference #</Label><Input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="optional" /></div>
         </div>
-        <div><Label>Notes</Label><Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="optional" /></div>
-        {payments.length > 0 && (
-          <div className="rounded-lg border border-slate-200">
-            <div className="border-b border-slate-100 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-400">
-              Payments so far
+        {preview.length > 0 && amt > 0 && (
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <div className="mb-2 text-[10px] font-extrabold uppercase tracking-wide text-slate-500">
+              Applied oldest first
             </div>
-            {payments.map((p) => (
-              <div key={p.id} className={`flex items-center justify-between px-2.5 py-1.5 text-xs ${p.voidedAt ? "text-slate-400 line-through" : "text-slate-700"}`}>
-                <span className="tabular-nums">{p.paidOn}{p.method ? ` · ${p.method}` : ""}{p.reference ? ` · ${p.reference}` : ""}</span>
-                <span className="flex items-center gap-2">
-                  <b className="tabular-nums">{fmtRs(p.amount)}</b>
-                  {!p.voidedAt && (
-                    <button type="button" className="text-rose-600 underline" onClick={() => void voidOne(p)}>
-                      void
-                    </button>
-                  )}
-                </span>
-              </div>
-            ))}
+            <div className="space-y-1.5">
+              {preview.map((p) => {
+                const pct = p.owed > 0 ? Math.min(100, Math.round((p.applied / p.owed) * 100)) : 100;
+                const settled = p.owed > 0 && p.applied >= p.owed;
+                return (
+                  <div key={p.period} className="flex items-center gap-2.5">
+                    <span className="w-28 text-xs text-slate-600">{longPeriod(p.period)}</span>
+                    <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-200">
+                      <span className={`block h-full ${settled ? "bg-emerald-500" : "bg-amber-500"}`} style={{ width: `${pct}%` }} />
+                    </span>
+                    <span className={`w-40 text-right text-xs font-bold tabular-nums ${settled ? "text-emerald-700" : p.applied > 0 ? "text-amber-800" : "text-slate-400"}`}>
+                      {p.applied <= 0
+                        ? `${fmtRs(p.owed)} pending`
+                        : settled
+                        ? `${fmtRs(p.applied)} · settled`
+                        : `${fmtRs(p.applied)} of ${fmtRs(p.owed)}`}
+                      {p.advance > 0 ? ` +${fmtRs(p.advance)} advance` : ""}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
+        <div><Label>Notes</Label><Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="optional" /></div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
-          <Button onClick={submit} disabled={saving}>{saving ? "Saving…" : "Record payment"}</Button>
+          <Button onClick={submit} disabled={saving}>{saving ? "Saving…" : "Save payment"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
+}
+
+// ─── 13a: the aging page ──────────────────────────────────────────────
+type Bucket = "all" | "paid" | "dueMonth" | "two" | "defaulters" | "concessions";
+
+interface StudentRow {
+  studentId: string;
+  name: string;
+  gr: string | null;
+  cls: string;
+  sec: string;
+  monthlyFee: number | null;
+  current: FeeStatus | null;
+  out: StudentOutstanding | null;
+  concession: string | null;
 }
 
 export function FeesOverview() {
@@ -251,22 +298,17 @@ export function FeesOverview() {
   const [me, setMe] = useState<SchoolMeResponse | null>(null);
   const [meLoading, setMeLoading] = useState(true);
   const [period, setPeriod] = useState(currentPeriod());
-  const [sectionFilter, setSectionFilter] = useState<string>("__all__");
-  const [statusFilter, setStatusFilter] = useState<string>("__all__");
+  const [sectionFilter, setSectionFilter] = useState("__all__");
+  const [bucket, setBucket] = useState<Bucket>("all");
   const [fees, setFees] = useState<FeeStatus[]>([]);
-  // Design 4e: empty month becomes onboarding — a dry-run of the bulk
-  // generator previews what "Generate" would create.
-  const [dryInfo, setDryInfo] = useState<BulkFeeGenerateResult | null>(null);
-  const [generating, setGenerating] = useState(false);
-  // Which classes to bill (7 Sep: Ambreen wanted vouchers for Catch Up
-  // only — the button billed the whole school). "__all__" = every class.
-  const [genClassId, setGenClassId] = useState<string>("__all__");
+  const [outstanding, setOutstanding] = useState<Record<string, StudentOutstanding>>({});
+  const [concessions, setConcessions] = useState<Record<string, string>>({});
   const [feesLoaded, setFeesLoaded] = useState(false);
   const [classes, setClasses] = useState<AdminClass[]>([]);
-  const [payFee, setPayFee] = useState<FeeStatus | null>(null);
-  // What each family owes across EVERY month - "unpaid August + September
-  // should show 8000, not 4000" (fees review, 17 Sep).
-  const [outstanding, setOutstanding] = useState<Record<string, StudentOutstanding>>({});
+  const [payTarget, setPayTarget] = useState<AllocateTarget | null>(null);
+  const [dryInfo, setDryInfo] = useState<BulkFeeGenerateResult | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [genClassId, setGenClassId] = useState("__all__");
 
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
@@ -274,21 +316,14 @@ export function FeesOverview() {
 
   const refresh = () => {
     if (!orgId) return;
-    // "overdue" is a view, not a stored status (the server 400s on it) -
-    // fetch everything and filter client-side by due date.
-    const serverStatus =
-      statusFilter !== "__all__" && statusFilter !== "overdue"
-        ? (statusFilter as FeeStatusValue)
-        : undefined;
     listOrgFees(orgId, {
       period,
-      status: serverStatus,
       sectionId: sectionFilter !== "__all__" ? sectionFilter : undefined,
     })
       .then((r) => {
-        const rows = statusFilter === "overdue" ? r.fees.filter(isOverdue) : r.fees;
-        setFees(rows);
+        setFees(r.fees);
         setOutstanding(r.outstandingByStudent ?? {});
+        setConcessions(r.concessionByStudent ?? {});
         setFeesLoaded(true);
       })
       .catch((e) => toast.error(e instanceof Error ? e.message : String(e)));
@@ -299,16 +334,14 @@ export function FeesOverview() {
     listClasses(orgId).then(setClasses).catch(() => {});
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orgId, period, sectionFilter, statusFilter]);
+  }, [orgId, period, sectionFilter]);
 
-  const monthEmpty =
-    feesLoaded && fees.length === 0 && statusFilter === "__all__" && sectionFilter === "__all__";
+  const monthEmpty = feesLoaded && fees.length === 0 && sectionFilter === "__all__";
   useEffect(() => {
     if (!orgId || !monthEmpty) { setDryInfo(null); return; }
     let cancelled = false;
     bulkGenerateFees(orgId, {
-      period,
-      dryRun: true,
+      period, dryRun: true,
       ...(genClassId !== "__all__" ? { classIds: [genClassId] } : {}),
     })
       .then((r) => { if (!cancelled) setDryInfo(r); })
@@ -316,6 +349,7 @@ export function FeesOverview() {
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId, period, monthEmpty, genClassId]);
+
   const runGenerate = async () => {
     setGenerating(true);
     try {
@@ -323,9 +357,10 @@ export function FeesOverview() {
         period,
         ...(genClassId !== "__all__" ? { classIds: [genClassId] } : {}),
       });
+      const prot = (r as any).protected ?? 0;
       toast.success(
-        `${r.created} voucher${r.created === 1 ? "" : "s"} created` +
-          (r.skipped > 0 ? ` · ${r.skipped} skipped (no fee plan)` : "") +
+        `${r.created} voucher${r.created === 1 ? "" : "s"} created · ${r.updated} refreshed` +
+          (prot > 0 ? ` · ${prot} kept as-is (payments recorded)` : "") +
           (r.waived > 0 ? ` · ${r.waived} waived` : ""),
       );
       refresh();
@@ -335,11 +370,6 @@ export function FeesOverview() {
       setGenerating(false);
     }
   };
-  const monthLabel = (() => {
-    try {
-      return new Date(`${period}-01T00:00:00`).toLocaleDateString(undefined, { month: "long", year: "numeric" });
-    } catch { return period; }
-  })();
 
   const sectionOptions = useMemo(() => {
     const out: Array<{ id: string; label: string }> = [];
@@ -347,144 +377,164 @@ export function FeesOverview() {
     return out;
   }, [classes]);
 
-  const totals = useMemo(() => {
-    let due = 0, paid = 0, paidCount = 0, unpaidCount = 0;
+  // One row per STUDENT, from the month's vouchers enriched with the
+  // all-months outstanding map. (A student owing earlier months but with
+  // no voucher this month can't be named from this payload — surfaced
+  // as a count below the table.)
+  const rows = useMemo<StudentRow[]>(() => {
+    const byStudent = new Map<string, StudentRow>();
     for (const f of fees) {
-      due += f.amount_due ?? 0;
-      paid += f.amount_paid ?? 0;
-      if (f.status === "paid" || f.status === "waived") paidCount++;
-      else unpaidCount++;
+      byStudent.set(f.student_id, {
+        studentId: f.student_id,
+        name: f.student_name ?? f.student_id,
+        gr: f.gr_number ?? null,
+        cls: f.class_name ?? "—",
+        sec: f.section_name ?? "",
+        monthlyFee: f.amount_due,
+        current: f,
+        out: outstanding[f.student_id] ?? null,
+        concession: concessions[f.student_id] ?? null,
+      });
     }
-    return { due, paid, paidCount, unpaidCount };
-  }, [fees]);
-  const outstandingTotal = useMemo(
-    () => Object.values(outstanding).reduce((n, o) => n + o.total, 0),
-    [outstanding],
-  );
+    const list = [...byStudent.values()];
+    list.sort((a, b) => {
+      const am = a.out?.months ?? 0, bm = b.out?.months ?? 0;
+      if (bm !== am) return bm - am;
+      return (b.out?.total ?? 0) - (a.out?.total ?? 0);
+    });
+    return list;
+  }, [fees, outstanding, concessions]);
 
-  // Permission-aware gate. isOrgAdmin still short-circuits for
-  // principal/admin; other roles resolve through the effective matrix
-  // (mark_fees_status) so the Permissions editor's toggles govern this page.
-  // While the matrix fetch is in flight we render nothing rather than
-  // bouncing a legitimately-permitted user.
+  const offListCount = useMemo(() => {
+    const inRows = new Set(fees.map((f) => f.student_id));
+    return Object.keys(outstanding).filter((id) => !inRows.has(id)).length;
+  }, [fees, outstanding]);
+
+  const stats = useMemo(() => {
+    let dueMonth = 0, paidMonth = 0, paidFullAmt = 0, partialAmt = 0;
+    let paidN = 0, partialN = 0;
+    const b = {
+      paid: { n: 0, amt: 0 },
+      dueMonth: { n: 0, amt: 0 },
+      two: { n: 0, amt: 0 },
+      defaulters: { n: 0, amt: 0 },
+    };
+    for (const r of rows) {
+      if (r.current && r.current.status !== "waived") {
+        dueMonth += r.current.amount_due ?? 0;
+        paidMonth += r.current.amount_paid ?? 0;
+        if (r.current.status === "paid") { paidFullAmt += r.current.amount_paid ?? 0; paidN++; }
+        if (r.current.status === "partial") { partialAmt += r.current.amount_paid ?? 0; partialN++; }
+      }
+      const m = r.out?.months ?? 0;
+      const owed = r.out?.total ?? 0;
+      if (m === 0) { b.paid.n++; b.paid.amt += r.current?.amount_paid ?? 0; }
+      else if (m === 1) { b.dueMonth.n++; b.dueMonth.amt += owed; }
+      else if (m === 2) { b.two.n++; b.two.amt += owed; }
+      else { b.defaulters.n++; b.defaulters.amt += owed; }
+    }
+    const pct = dueMonth > 0 ? Math.round((paidMonth / dueMonth) * 100) : 0;
+    return { dueMonth, paidMonth, paidFullAmt, partialAmt, paidN, partialN, pct, b };
+  }, [rows]);
+
+  const filtered = useMemo(() => {
+    switch (bucket) {
+      case "paid": return rows.filter((r) => (r.out?.months ?? 0) === 0);
+      case "dueMonth": return rows.filter((r) => (r.out?.months ?? 0) >= 1);
+      case "two": return rows.filter((r) => (r.out?.months ?? 0) >= 2);
+      case "defaulters": return rows.filter((r) => (r.out?.months ?? 0) >= 3);
+      case "concessions": return rows.filter((r) => !!r.concession);
+      default: return rows;
+    }
+  }, [rows, bucket]);
+
   const viewerRole = me ? viewerRoleForOrg(me, orgId) : null;
   const perm = useOrgPermissionState(orgId, viewerRole, "mark_fees_status");
-
   if (meLoading) return null;
   if (!isOrgAdmin(me, orgId) && !perm.allowed) {
     if (perm.loading) return null;
     return <NoAccessRedirect />;
   }
 
-  const handleDelete = async (f: FeeStatus) => {
-    if (!confirm(`Delete fee record for ${f.student_name ?? f.student_id} (${f.period})?`)) return;
-    try {
-      await deleteFee(orgId, f.id);
-      toast.success("Fee record deleted");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not delete the fee record.");
+  const openPayment = (r: StudentRow) => {
+    const owedPeriods = r.out?.owedPeriods ?? [];
+    if (owedPeriods.length === 0 && r.current) {
+      // Nothing owed — allow an advance against this month's voucher.
+      setPayTarget({
+        studentId: r.studentId, name: r.name, gr: r.gr, total: 0, owedPeriods: [],
+        pinFee: { feeStatusId: r.current.id, period: r.current.period, owed: 0 },
+      });
+      return;
     }
-    refresh();
+    setPayTarget({ studentId: r.studentId, name: r.name, gr: r.gr, total: r.out?.total ?? 0, owedPeriods });
   };
 
-  const columns: Array<DataTableColumn<FeeStatus>> = [
-    {
-      key: "student",
-      header: "Student",
-      cell: (f) => (
-        <div>
-          <div className="font-medium text-slate-900">{f.student_name ?? f.student_id}</div>
-          <div className="text-xs text-slate-500">{f.gr_number ?? ""}</div>
-        </div>
-      ),
-    },
-    {
-      key: "class",
-      header: "Class",
-      width: "w-28",
-      cell: (f) => (
-        <span className="text-xs text-slate-600">{f.class_name ?? "—"}</span>
-      ),
-    },
-    {
-      key: "section",
-      header: "Section",
-      width: "w-24",
-      cell: (f) => (
-        <span className="text-xs text-slate-600">{f.section_name ?? "—"}</span>
-      ),
-    },
-    { key: "period", header: "Period", width: "w-24", cell: (f) => <span className="text-xs tabular-nums">{f.period}</span> },
-    { key: "status", header: "Status", width: "w-24", cell: (f) => <FeeStatusBadge fee={f} /> },
-    { key: "due", header: "Due", align: "right", width: "w-24", cell: (f) => <span className="tabular-nums">{f.amount_due ?? "—"}</span> },
-    { key: "paid", header: "Paid", align: "right", width: "w-24", cell: (f) => <span className="tabular-nums">{f.amount_paid ?? "—"}</span> },
-    {
-      key: "outstanding",
-      header: "Owes (all months)",
-      align: "right",
-      width: "w-32",
-      cell: (f) => {
-        const o = outstanding[f.student_id];
-        if (!o || o.total <= 0) return <span className="text-xs text-emerald-600">clear</span>;
-        return (
-          <span className="tabular-nums font-semibold text-rose-600" title={`${o.months} month${o.months === 1 ? "" : "s"} since ${o.oldestPeriod ?? ""}`}>
-            {fmtRs(o.total)}
-            {o.months > 1 && <span className="ml-1 text-[10px] font-normal text-rose-400">×{o.months}</span>}
-          </span>
-        );
-      },
-    },
-    { key: "dueDate", header: "Due date", width: "w-28", cell: (f) => <span className="text-xs text-slate-600 tabular-nums">{f.due_date ?? "—"}</span> },
-    {
-      key: "receipt",
-      header: "Receipt",
-      width: "w-20",
-      cell: (f) =>
-        f.receipt_url ? (
-          <a href={f.receipt_url} target="_blank" rel="noreferrer" className="text-indigo-600 text-xs underline" onClick={(e) => e.stopPropagation()}>
-            View
-          </a>
-        ) : (
-          <span className="text-xs text-slate-400">—</span>
-        ),
-    },
-    {
-      key: "actions",
-      header: "",
-      align: "right",
-      width: "w-32",
-      cell: (f) => (
-        <div className="inline-flex gap-0.5" onClick={(e) => e.stopPropagation()}>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0"
-            title={f.status === "paid" ? "Payments / corrections" : "Record payment"}
-            onClick={() => setPayFee(f)}
-          >
-            <Banknote className={`h-3.5 w-3.5 ${f.status === "paid" ? "text-slate-400" : "text-emerald-600"}`} />
-          </Button>
-          <Link to={`/school/orgs/${orgId}/students/${f.student_id}/fees`} onClick={(e) => e.stopPropagation()}>
-            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Edit">
-              <Pencil className="h-3.5 w-3.5" />
-            </Button>
-          </Link>
-          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleDelete(f)}>
-            <Trash2 className="h-3.5 w-3.5 text-rose-600" />
-          </Button>
-        </div>
-      ),
-    },
-  ];
+  const reminderText = (r: StudentRow): string => {
+    const months = (r.out?.owedPeriods ?? []).map((p) => longPeriod(p.period)).join(", ");
+    return `Assalam o Alaikum! ${r.name} (GR# ${r.gr ?? "—"}) ki school fees ${fmtRs(r.out?.total ?? 0)} baqaya hai (${months}). Barah-e-karam jald ada karein ya office se rabta karein. Shukriya — Iqra Islamic Foundation School`;
+  };
+  const copyReminder = (r: StudentRow) => {
+    navigator.clipboard.writeText(reminderText(r))
+      .then(() => toast.success(`Reminder copied for ${r.name} — paste into WhatsApp`))
+      .catch(() => toast.error("Could not copy"));
+  };
+  const copyBulkReminders = () => {
+    const list = rows.filter((r) => (r.out?.months ?? 0) >= 2);
+    const text = list.map((r) =>
+      `${r.name} (GR# ${r.gr ?? "—"}, ${r.cls} ${r.sec}) — ${fmtRs(r.out?.total ?? 0)} · ${r.out?.months} months`,
+    ).join("\n");
+    navigator.clipboard.writeText(`Fees follow-up list — ${longPeriod(period)}\n${text}`)
+      .then(() => toast.success(`Follow-up list copied (${list.length} students)`))
+      .catch(() => toast.error("Could not copy"));
+  };
+
+  const receiptUrl = (feeId: string) =>
+    `${import.meta.env.VITE_SUPABASE_URL ?? "https://ybrkbrrkcqpzpjnjdyib.supabase.co"}/functions/v1/make-server-f116e23f/school/orgs/${orgId}/fees/${feeId}/receipt`;
+
+  const dueDates = fees.map((f) => f.due_date).filter(Boolean) as string[];
+  const dueDate = dueDates.length ? dueDates.sort()[0] : null;
+
+  const monthChips = (r: StudentRow) => {
+    const owed = r.out?.owedPeriods ?? [];
+    if (owed.length === 0) {
+      if (r.current?.status === "waived") {
+        return <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">waived</span>;
+      }
+      return (
+        <span className="rounded-md bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
+          paid{r.current?.paid_date ? ` ${r.current.paid_date.slice(5)}` : ""}
+        </span>
+      );
+    }
+    return owed.map((p) => {
+      const isCurrent = p.period === period;
+      const cls = isCurrent ? "bg-amber-100 text-amber-800" : "bg-rose-100 text-rose-700";
+      return (
+        <span key={p.period} className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${cls}`}
+          title={`${longPeriod(p.period)} — ${fmtRs(p.owed)} owed`}>
+          {shortPeriod(p.period)}{p.partial ? " ·p" : ""}
+        </span>
+      );
+    });
+  };
+
+  const bucketCard = (key: Bucket, n: number, label: string, amt: number, tone: { bg: string; bd: string; fg: string }) => (
+    <button type="button" onClick={() => setBucket(bucket === key ? "all" : key)}
+      className={`flex min-w-[130px] flex-1 flex-col items-start gap-0.5 rounded-xl border px-3.5 py-2 text-left transition-shadow ${tone.bg} ${tone.bd} ${bucket === key ? "ring-2 ring-indigo-400" : "hover:shadow-sm"}`}>
+      <span className={`text-lg font-extrabold ${tone.fg}`}>{n} <span className="text-[11px] font-semibold text-slate-500">students</span></span>
+      <span className={`text-xs font-bold ${tone.fg}`}>{label}</span>
+      <span className="text-[11px] text-slate-500">{fmtRs(amt)}</span>
+    </button>
+  );
 
   return (
     <div className="space-y-4">
       <HeroCard
-        title="Fees"
-        subtitle="Fee status across the org"
+        title={`Fees · ${longPeriod(period)}`}
+        subtitle={dueDate ? `Vouchers due ${dueDate}` : "Fee status across the school"}
         rightSlot={
           <div className="flex flex-wrap items-center gap-2">
-            <Select value={period} onValueChange={setPeriod}>
+            <Select value={period} onValueChange={(v) => { setPeriod(v); setBucket("all"); }}>
               <SelectTrigger className="h-9 w-32 bg-white/10 border-white/20 text-white"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {periodOptions().map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
@@ -510,7 +560,7 @@ export function FeesOverview() {
       {monthEmpty ? (
         <div className="rounded-xl border bg-white px-6 py-9 text-center" style={{ borderColor: "rgba(20,22,58,.08)" }}>
           <div className="text-[15px] font-extrabold text-slate-900">
-            No vouchers generated for {monthLabel} yet
+            No vouchers generated for {longPeriod(period)} yet
           </div>
           <p className="mx-auto mt-1.5 max-w-md text-[13px] leading-relaxed text-slate-500">
             {dryInfo
@@ -518,8 +568,6 @@ export function FeesOverview() {
               : "Vouchers are created from each class's monthly fee plan, honoring per-student overrides."}
           </p>
           <div className="mt-4 flex flex-wrap items-center justify-center gap-2.5">
-            {/* Scope: one class or the whole school — Ambreen only
-                wanted Catch Up billed and got everyone (7 Sep). */}
             <Select value={genClassId} onValueChange={setGenClassId}>
               <SelectTrigger className="h-10 w-44"><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -528,78 +576,165 @@ export function FeesOverview() {
               </SelectContent>
             </Select>
             <Button className="bg-indigo-600 hover:bg-indigo-700" onClick={runGenerate} disabled={generating}>
-              {generating
-                ? "Generating…"
-                : `Generate ${monthLabel} vouchers${genClassId !== "__all__" ? ` — ${classes.find((c) => c.id === genClassId)?.name ?? ""}` : ""}`}
+              {generating ? "Generating…" : `Generate ${longPeriod(period)} vouchers`}
             </Button>
             <Link to={`/school/orgs/${orgId}/admin/fees/plans`}>
               <Button variant="outline">Review fee plans first</Button>
             </Link>
           </div>
-          {dryInfo && dryInfo.skipped > 0 && (
-            <div className="mt-4 inline-block rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11.5px] text-amber-800">
-              {dryInfo.skipped} student{dryInfo.skipped === 1 ? "" : "s"} in classes with no fee plan will be skipped.
-            </div>
-          )}
         </div>
       ) : (
-      <>
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <KpiTile variant="light" label="Students" value={fees.length} hint="this period" />
-        <KpiTile variant="light" label="Paid" value={totals.paidCount} hint={`${totals.unpaidCount} unpaid`} />
-        <KpiTile variant="light" label="Total due" value={totals.due} hint="this period" />
-        <KpiTile variant="light" label="Collected" value={totals.paid} hint="this period" />
-        <KpiTile
-          variant="light"
-          label="Outstanding"
-          value={fmtRs(outstandingTotal)}
-          hint={`all months · ${Object.keys(outstanding).length} students`}
-        />
-      </div>
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        {/* Collection bar + aging buckets */}
+        <div className="flex flex-wrap items-center gap-5 border-b border-slate-100 px-5 py-4">
+          <div className="flex min-w-[300px] flex-[1.4] flex-col gap-1.5">
+            <div className="flex items-baseline justify-between">
+              <span className="text-[11px] font-extrabold uppercase tracking-wide text-slate-500">
+                {longPeriod(period)} collection
+              </span>
+              <span className="text-xs text-slate-600">
+                <b className="text-base text-slate-900">{fmtRs(stats.paidMonth)}</b> of {fmtRs(stats.dueMonth)} · <b>{stats.pct}%</b>
+              </span>
+            </div>
+            <div className="flex h-2.5 overflow-hidden rounded-full bg-slate-100">
+              <span className="bg-emerald-500" style={{ width: `${stats.dueMonth > 0 ? (stats.paidFullAmt / stats.dueMonth) * 100 : 0}%` }} />
+              <span className="bg-emerald-300" style={{ width: `${stats.dueMonth > 0 ? (stats.partialAmt / stats.dueMonth) * 100 : 0}%` }} />
+            </div>
+            <span className="text-[11px] text-slate-400">
+              Solid = paid in full ({stats.paidN}) · light = partial ({stats.partialN})
+            </span>
+          </div>
+          {bucketCard("paid", stats.b.paid.n, `Paid · ${shortPeriod(period)}`, stats.b.paid.amt,
+            { bg: "bg-emerald-50", bd: "border-emerald-200", fg: "text-emerald-800" })}
+          {bucketCard("dueMonth", stats.b.dueMonth.n, "Due · this month only", stats.b.dueMonth.amt,
+            { bg: "bg-slate-50", bd: "border-slate-200", fg: "text-slate-700" })}
+          {bucketCard("two", stats.b.two.n, "2 months behind", stats.b.two.amt,
+            { bg: "bg-amber-50", bd: "border-amber-200", fg: "text-amber-800" })}
+          {bucketCard("defaulters", stats.b.defaulters.n, "Defaulters · 3+ months", stats.b.defaulters.amt,
+            { bg: "bg-rose-50", bd: "border-rose-200", fg: "text-rose-700" })}
+        </div>
 
-      <div className="flex gap-2 flex-wrap items-center rounded-xl border border-slate-200 bg-white p-2 shadow-sm">
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="h-9 w-44"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__all__">All statuses</SelectItem>
-            <SelectItem value="unpaid">Unpaid</SelectItem>
-            <SelectItem value="paid">Paid</SelectItem>
-            <SelectItem value="partial">Partial</SelectItem>
-            <SelectItem value="overdue">Overdue (past due date)</SelectItem>
-            <SelectItem value="waived">Waived</SelectItem>
-          </SelectContent>
-        </Select>
-        {/* Bill more classes after a partial run — generating Catch Up
-            first no longer strands the rest of the school (re-running an
-            already-billed class just refreshes its amounts, never
-            doubles). */}
-        <div className="ml-auto flex items-center gap-2">
-          <Select value={genClassId} onValueChange={setGenClassId}>
-            <SelectTrigger className="h-9 w-40"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__all__">Whole school</SelectItem>
-              {classes.map((c) => <SelectItem key={c.id} value={c.id}>{c.name} only</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <Button variant="outline" size="sm" onClick={runGenerate} disabled={generating}>
-            {generating ? "Generating…" : "Generate vouchers"}
-          </Button>
+        {/* Filter pills + actions */}
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-5 py-2.5">
+          {([
+            ["all", `All ${rows.length}`],
+            ["dueMonth", `Unpaid · ${rows.filter((r) => (r.out?.months ?? 0) >= 1).length}`],
+            ["two", `2+ months · ${rows.filter((r) => (r.out?.months ?? 0) >= 2).length}`],
+            ["defaulters", `Defaulters (3+) · ${stats.b.defaulters.n}`],
+            ["concessions", `Concessions · ${rows.filter((r) => !!r.concession).length}`],
+          ] as Array<[Bucket, string]>).map(([k, l]) => (
+            <button key={k} type="button" onClick={() => setBucket(k)}
+              className={"rounded-full px-3 py-1 text-xs font-semibold " +
+                (bucket === k ? "bg-slate-900 text-white" : "border border-slate-200 text-slate-600 hover:bg-slate-50")}>
+              {l}
+            </button>
+          ))}
+          <div className="ml-auto flex items-center gap-2">
+            {rows.some((r) => (r.out?.months ?? 0) >= 2) && (
+              <button type="button" onClick={copyBulkReminders}
+                className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100">
+                Copy follow-up list · 2+ months ({rows.filter((r) => (r.out?.months ?? 0) >= 2).length})
+              </button>
+            )}
+            <Select value={genClassId} onValueChange={setGenClassId}>
+              <SelectTrigger className="h-8 w-36 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">Whole school</SelectItem>
+                {classes.map((c) => <SelectItem key={c.id} value={c.id}>{c.name} only</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Button variant="outline" size="sm" onClick={runGenerate} disabled={generating}>
+              {generating ? "Generating…" : "Generate vouchers"}
+            </Button>
+          </div>
+        </div>
+
+        {/* One row per student */}
+        <div className="overflow-x-auto px-5 pb-3">
+          <table className="w-full min-w-[900px] border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 text-left text-[10.5px] font-extrabold uppercase tracking-wide text-slate-400">
+                <th className="py-2.5 pr-3">Student</th>
+                <th className="py-2.5 pr-3">Class</th>
+                <th className="py-2.5 pr-3">Monthly fee</th>
+                <th className="py-2.5 pr-3">Behind</th>
+                <th className="py-2.5 pr-3 text-right">Outstanding</th>
+                <th className="py-2.5 pr-3">Last payment</th>
+                <th className="py-2.5" />
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((r) => {
+                const months = r.out?.months ?? 0;
+                const owedFg = months >= 3 ? "text-rose-600" : months === 2 ? "text-amber-700" : months === 1 ? "text-slate-700" : "text-slate-300";
+                return (
+                  <tr key={r.studentId} className="cursor-pointer border-b border-slate-100 hover:bg-slate-50"
+                    onClick={() => navigate(`/school/orgs/${orgId}/students/${r.studentId}/fees`)}>
+                    <td className="py-2 pr-3">
+                      <div className="text-[13px] font-semibold text-slate-900">{r.name}</div>
+                      <div className="text-[11px] text-slate-400">GR# {r.gr ?? "—"}</div>
+                    </td>
+                    <td className="py-2 pr-3 text-xs text-slate-600">{r.cls} {r.sec}</td>
+                    <td className="py-2 pr-3">
+                      <span className="text-xs text-slate-800 tabular-nums">{r.monthlyFee != null ? fmtRs(r.monthlyFee) : "—"}</span>
+                      {r.concession && (
+                        <span className="ml-1.5 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
+                          {r.concession}
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-2 pr-3"><span className="flex flex-wrap items-center gap-1">{monthChips(r)}</span></td>
+                    <td className={`py-2 pr-3 text-right text-[13px] font-bold tabular-nums ${owedFg}`}>
+                      {months > 0 ? fmtRs(r.out!.total) : "—"}
+                    </td>
+                    <td className="py-2 pr-3 text-xs text-slate-500 tabular-nums">
+                      {r.out?.lastPayment
+                        ? `${r.out.lastPayment.paidOn.slice(5)} · ${r.out.lastPayment.method ?? fmtRs(r.out.lastPayment.amount)}`
+                        : r.current?.paid_date
+                        ? `${r.current.paid_date.slice(5)} · ${fmtRs(r.current.amount_paid ?? 0)}`
+                        : "—"}
+                    </td>
+                    <td className="py-2" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex justify-end gap-1.5">
+                        <button type="button" onClick={() => openPayment(r)}
+                          className="rounded-lg bg-indigo-600 px-2.5 py-1 text-[11.5px] font-bold text-white hover:bg-indigo-700">
+                          Payment
+                        </button>
+                        {r.current && (
+                          <a href={receiptUrl(r.current.id)} target="_blank" rel="noreferrer"
+                            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-[11.5px] font-semibold text-slate-600 hover:bg-slate-50">
+                            <FileText className="h-3 w-3" /> Voucher
+                          </a>
+                        )}
+                        {months > 0 && (
+                          <button type="button" onClick={() => copyReminder(r)} title="Copy WhatsApp reminder"
+                            className="rounded-lg border border-slate-200 px-2 py-1 text-slate-500 hover:bg-slate-50">
+                            <MessageSquare className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {filtered.length === 0 && (
+            <div className="py-8 text-center text-sm text-slate-400">No students in this view.</div>
+          )}
+          <div className="py-2.5 text-[11.5px] text-slate-400">
+            Sorted by months behind, then amount — paid-up students sit at the bottom.
+            {offListCount > 0 && (
+              <span className="ml-1 text-amber-700">
+                {offListCount} student{offListCount === 1 ? "" : "s"} owe from earlier months but have no {shortPeriod(period)} voucher — generate this month to bring them onto the list.
+              </span>
+            )}
+          </div>
         </div>
       </div>
-
-      <DataTable
-        columns={columns}
-        rows={fees}
-        rowKey={(f) => f.id}
-        emptyMessage="No fee records."
-        onRowClick={(f) =>
-          navigate(`/school/orgs/${orgId}/students/${f.student_id}/fees`)
-        }
-      />
-      </>
       )}
 
-      <RecordPaymentDialog fee={payFee} onClose={() => setPayFee(null)} onSaved={refresh} orgId={orgId} />
+      <AllocatePaymentDialog target={payTarget} onClose={() => setPayTarget(null)} onSaved={refresh} orgId={orgId} />
     </div>
   );
 }

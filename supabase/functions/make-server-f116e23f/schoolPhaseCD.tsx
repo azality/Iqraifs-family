@@ -23,6 +23,7 @@ import { todayInOrgTz } from "./tz.ts";
 import {
   paymentsByFeeId,
   outstandingByStudent,
+  concessionByStudent,
   recomputeFeeFromLedger,
   renderFeeReceiptHtml,
 } from "./schoolFeePayments.tsx";
@@ -968,9 +969,11 @@ export function installPhaseCD(school: Hono): void {
     // office was challenged on ("unpaid August + September should show
     // 8000, not 4000", 17 Sep).
     const outstanding = await outstandingByStudent(orgId);
+    const concessions = await concessionByStudent(orgId);
 
     return c.json({
       outstandingByStudent: outstanding,
+      concessionByStudent: concessions,
       fees: rows.map((r: any) => ({
         ...feeToJson(r),
         // Hydrated display fields. Snake_case to match the rest of the
