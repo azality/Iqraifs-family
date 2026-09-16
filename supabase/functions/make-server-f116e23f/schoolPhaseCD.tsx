@@ -1141,13 +1141,12 @@ export function installPhaseCD(school: Hono): void {
       orgSettings,
       payments: payMap.get(feeId) ?? [],
     });
-    return new Response(html, {
-      status: 200,
-      headers: {
-        "content-type": "text/html; charset=utf-8",
-        "cache-control": "no-store",
-      },
-    });
+    // c.html, not a raw Response: headers set on a bare Response were
+    // arriving as text/plain through the mount/middleware chain (the
+    // suite's receipt-must-be-HTML assertion caught it, 17 Sep) - Hono's
+    // own helpers survive it, exactly like c.json everywhere else.
+    c.header("cache-control", "no-store");
+    return c.html(html);
   });
 
   // (Legacy inline receipt template removed - renderFeeReceiptHtml in
