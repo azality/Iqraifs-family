@@ -186,6 +186,20 @@ export async function concessionByStudent(
   return out;
 }
 
+/** Which bank account this class's fees go to — the school banks per
+ *  class group (settings.fee_bank_accounts, set in Org Settings). Same
+ *  resolution the parent portal's fees page uses. */
+export function bankAccountFromSettings(
+  settings: any,
+  classId: string | null | undefined,
+): { bank: string | null; title: string | null; accountNumber: string | null } | null {
+  if (!classId) return null;
+  const accounts = (settings?.fee_bank_accounts ?? []) as any[];
+  const acct = accounts.find((a) => Array.isArray(a?.classIds) && a.classIds.includes(classId));
+  if (!acct) return null;
+  return { bank: acct.bank ?? null, title: acct.title ?? null, accountNumber: acct.accountNumber ?? null };
+}
+
 const esc = (s: unknown) =>
   String(s ?? "").replace(/[&<>"']/g, (ch) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
@@ -201,6 +215,8 @@ export function renderFeeReceiptHtml(opts: {
   orgName: string;
   orgSettings: any;
   payments: any[]; // paymentToJson shapes, non-void first-class
+  /** Where to deposit — printed while a balance remains (17 Sep). */
+  bankAccount?: { bank: string | null; title: string | null; accountNumber: string | null } | null;
 }): string {
   const { feeId, fee, student, orgName, orgSettings } = opts;
   const logoUrl = orgSettings.logo_url || "";
@@ -279,6 +295,14 @@ ${live.length > 0 ? `  <h3 style="margin-top:12px;">Payments</h3>\n${payRows}` :
   <div class="row"><span>Amount paid</span><span>${amountPaid.toFixed(2)}</span></div>
   <div class="row grand"><span>${balance > 0 ? "Balance remaining" : "Balance"}</span><span>${balance.toFixed(2)}</span></div>
 </div>
+
+${balance > 0 && opts.bankAccount?.accountNumber ? `<div class="totals" style="margin-top:16px;">
+  <h3>How to pay</h3>
+  ${opts.bankAccount.bank ? `<div class="row"><span>Bank</span><span>${esc(opts.bankAccount.bank)}</span></div>` : ""}
+  ${opts.bankAccount.title ? `<div class="row"><span>Account title</span><span>${esc(opts.bankAccount.title)}</span></div>` : ""}
+  <div class="row"><span>Account number</span><span style="font-family:monospace;letter-spacing:.5px;">${esc(opts.bankAccount.accountNumber)}</span></div>
+  <div class="row" style="color:#64748b;font-size:12px;"><span>Deposit at the bank, or pay cash at the school office — both are accepted.</span><span></span></div>
+</div>` : ""}
 
 ${status === "paid" ? `<div class="stamp">PAID</div>` : ""}
 

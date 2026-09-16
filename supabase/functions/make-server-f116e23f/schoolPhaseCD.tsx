@@ -26,6 +26,7 @@ import {
   concessionByStudent,
   recomputeFeeFromLedger,
   renderFeeReceiptHtml,
+  bankAccountFromSettings,
 } from "./schoolFeePayments.tsx";
 // PR K: migrate fee + grade gates from hasAdminOrPrincipal to userCanInOrg
 // so financial_staff / class_teacher can act per their permission template.
@@ -1105,7 +1106,7 @@ export function installPhaseCD(school: Hono): void {
 
     const { data: fee, error: feeErr } = await serviceRoleClient
       .from("fee_status")
-      .select("*, students:student_id(id, full_name, gr_number, class_section:class_section_id(name))")
+      .select("*, students:student_id(id, full_name, gr_number, class_section:class_section_id(name, class_id))")
       .eq("id", feeId)
       .maybeSingle();
     if (feeErr) return c.json({ error: feeErr.message }, 500);
@@ -1129,6 +1130,10 @@ export function installPhaseCD(school: Hono): void {
     const orgSettings = (org as any)?.settings ?? {};
     const payMap = await paymentsByFeeId([feeId]);
     const html = renderFeeReceiptHtml({
+      bankAccount: bankAccountFromSettings(
+        (org as any)?.settings ?? {},
+        (fee as any).students?.class_section?.class_id ?? null,
+      ),
       feeId,
       fee: fee as any,
       student: (fee as any).students || {},

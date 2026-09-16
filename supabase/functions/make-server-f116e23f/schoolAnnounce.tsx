@@ -21,7 +21,7 @@
 // =============================================================================
 
 import type { Hono, Context } from "npm:hono";
-import { paymentsByFeeId, renderFeeReceiptHtml } from "./schoolFeePayments.tsx";
+import { paymentsByFeeId, renderFeeReceiptHtml, bankAccountFromSettings } from "./schoolFeePayments.tsx";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { userHasRoleRow, hasAdminOrPrincipal, hasAnyRoleInOrg, teachesSubjectInSection } from "./schoolAuth.ts";
 import { verifyPinToken } from "./schoolPhaseA.tsx";
@@ -923,7 +923,7 @@ export function installAnnounce(school: Hono): void {
     const feeId = c.req.param("feeId");
     const { data: fee } = await serviceRoleClient
       .from("fee_status")
-      .select("*, students:student_id(id, full_name, gr_number, class_section:class_section_id(name))")
+      .select("*, students:student_id(id, full_name, gr_number, class_section:class_section_id(name, class_id))")
       .eq("id", feeId)
       .maybeSingle();
     if (!fee || (fee as any).org_id !== subject.orgId) {
@@ -937,6 +937,10 @@ export function installAnnounce(school: Hono): void {
       .from("organizations").select("name, settings").eq("id", subject.orgId).maybeSingle();
     const payMap = await paymentsByFeeId([feeId]);
     const html = renderFeeReceiptHtml({
+      bankAccount: bankAccountFromSettings(
+        (org as any)?.settings ?? {},
+        (fee as any).students?.class_section?.class_id ?? null,
+      ),
       feeId,
       fee: fee as any,
       student: (fee as any).students || {},
