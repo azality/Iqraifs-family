@@ -5,7 +5,20 @@
       <meta charset="UTF-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       <title>ILM Network</title>
-    
+
+    <!-- Link previews (WhatsApp/Facebook read these without running the
+         app). Defaults are the platform's; the Cloudflare Worker
+         (worker/index.js) rewrites them to the SCHOOL's own name and
+         logo when the URL names one (?org=<slug> or /<slug>), so a
+         shared login link previews as the school parents know. -->
+    <meta name="description" content="The school platform for homework, grades, attendance and Hifz progress." />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="ILM Network" />
+    <meta property="og:title" content="ILM Network" />
+    <meta property="og:description" content="The school platform for homework, grades, attendance and Hifz progress." />
+    <meta property="og:image" content="https://iqraifs.com/brand/og-image.png" />
+    <meta name="twitter:card" content="summary" />
+
     <!-- Favicons -->
     <link rel="icon" type="image/svg+xml" href="/brand/favicon.svg" />
     <link rel="icon" href="/favicon.ico" sizes="any" />
