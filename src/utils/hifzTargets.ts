@@ -207,13 +207,11 @@ export function parseNextSabaq(
   return parseNextSabaqParts(text)?.[0] ?? null;
 }
 
-/** "Sabqi: Para 5" → 5. Surah-list sabqi targets return null (they
- *  don't fit the round's single-range portion model). */
+/** First para of a "Sabqi: Para …" target (old single shape or the
+ *  extent/multi-para form) — kept for single-slot consumers. Surah-list
+ *  sabqi targets return null (they don't fit that model). */
 export function parseNextSabqiPara(text: string): number | null {
-  const m = /^Sabqi:\s*Para\s+(\d{1,2})\s*$/i.exec(text.trim());
-  if (!m) return null;
-  const juz = Number(m[1]);
-  return juz >= 1 && juz <= 30 ? juz : null;
+  return parseNextSabqiParas(text)?.[0]?.juz ?? null;
 }
 
 /** End-of-para consolidation (Muneeb, 10 Sep): when a sabaq finishes a
@@ -299,6 +297,44 @@ export function serializeNextSabqiSurahs(parts: SabqiPart[]): string {
 
 export function serializeNextSabqiPara(juz: number): string {
   return `Sabqi: Para ${juz}`;
+}
+
+/** One para of a sabqi assignment, with how much of it to hear — the
+ *  same extent vocabulary the manzil uses. A sabqi can span paras with
+ *  different portions ("finish Para 19's last ¼ + Para 20 to ½",
+ *  Muneeb 16 Sep), so targets serialize as " + "-joined parts. */
+export interface SabqiParaPart {
+  juz: number;
+  extent: AssignExtent;
+}
+
+/** "Sabqi: Para 19 (last ¼ — salasa → end) + Para 20 (first ½ — nisf)".
+ *  A full para keeps the bare "Para N" shape older readers know. */
+export function serializeNextSabqiParas(parts: SabqiParaPart[]): string {
+  const bits = parts
+    .filter((p) => p.juz >= 1 && p.juz <= 30)
+    .map((p) => (p.extent === "full" ? `Para ${p.juz}` : `Para ${p.juz} (${EXTENT_SUFFIX[p.extent]})`));
+  return bits.length ? `Sabqi: ${bits.join(" + ")}` : "";
+}
+
+/** Parses both the old "Sabqi: Para 5" and the extent/multi-para form.
+ *  Surah-list sabqi targets return null — they have their own parser. */
+export function parseNextSabqiParas(text: string): SabqiParaPart[] | null {
+  const t = text.trim();
+  if (!/^Sabqi:\s*Para\s+\d/i.test(t)) return null;
+  const segs = t.replace(/^Sabqi:\s*/i, "").split(/\s*\+\s*/);
+  const out: SabqiParaPart[] = [];
+  for (const seg of segs) {
+    const m = /^Para\s+(\d{1,2})(?:\s*\((.+)\))?$/i.exec(seg.trim());
+    if (!m) return null;
+    const juz = Number(m[1]);
+    if (juz < 1 || juz > 30) return null;
+    const suffix = (m[2] ?? "").trim();
+    const found = (Object.entries(EXTENT_SUFFIX) as Array<[AssignExtent, string]>)
+      .find(([, s]) => s === suffix);
+    out.push({ juz, extent: found ? found[0] : "full" });
+  }
+  return out.length ? out : null;
 }
 
 const EXTENT_SUFFIX: Record<AssignExtent, string> = {

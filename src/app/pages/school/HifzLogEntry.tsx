@@ -58,14 +58,17 @@ import {
   nextManzilAfter,
   isRepeatRating,
   JUZ_STARTS,
-  parseNextSabqiPara,
+  parseNextSabqiParas,
   parseNextManzil,
   nextSabaqAfter,
   serializeNextSabqiSurahs,
-  serializeNextSabqiPara,
+  serializeNextSabqiParas,
   serializeNextManzil,
+  serializeNextManzilParts,
   type AssignExtent,
   type SabqiPart,
+  type SabqiParaPart,
+  type ManzilPart,
 } from "../../../utils/hifzTargets";
 
 interface Props {
@@ -159,11 +162,17 @@ export function HifzLogEntry({
   // is always a para plus how much of it to hear.
   const [assignSabqiUnit, setAssignSabqiUnit] = useState<"surah" | "para">("surah");
   const [assignSabqiJuz, setAssignSabqiJuz] = useState<number>(1);
+  // How much of the assigned sabqi para, plus any FURTHER paras — a
+  // sabqi can span paras with different portions ("finish Para 19's
+  // last ¼ + Para 20 to ½", Muneeb 16 Sep). Same shape for manzil.
+  const [assignSabqiExtent, setAssignSabqiExtent] = useState<AssignExtent>("full");
+  const [assignSabqiMore, setAssignSabqiMore] = useState<SabqiParaPart[]>([]);
   const [assignSabqiParts, setAssignSabqiParts] = useState<SabqiPart[]>([
     { surah: 1, from: null, to: null },
   ]);
   const [assignManzilJuz, setAssignManzilJuz] = useState<number>(1);
   const [assignManzilExtent, setAssignManzilExtent] = useState<AssignExtent>("full");
+  const [assignManzilMore, setAssignManzilMore] = useState<ManzilPart[]>([]);
   // Per-kind standing assignments: "Assigned last time" must match the
   // tab the teacher is on (Muneeb, 9 Sep) — a sabqi target showing on
   // the sabaq tab reads as the wrong lesson. Targets are prefixed by
@@ -178,7 +187,7 @@ export function HifzLogEntry({
   // manzil's juz + 1). Applied every time the teacher enters the tab so
   // the shared juz field never leaks between kinds.
   const [kindSeed, setKindSeed] = useState<{
-    sabqi: { juz: number } | null;
+    sabqi: { juz: number; extent: AssignExtent } | null;
     manzil: { juz: number; extent: AssignExtent; source: "assigned" | "rotation" } | null;
   }>({ sabqi: null, manzil: null });
   // Org setting (default ON): end-of-para consolidation break — when the
@@ -274,6 +283,9 @@ export function HifzLogEntry({
     setAssignSurah(1);
     setAssignFrom(1);
     setAssignTo(1);
+    setAssignSabqiExtent("full");
+    setAssignSabqiMore([]);
+    setAssignManzilMore([]);
     setLastAssignedByKind({ sabaq: null, sabqi: null, manzil: null });
     setKindSeed({ sabqi: null, manzil: null });
     setSabaqRevisionDay(null);
@@ -324,12 +336,15 @@ export function HifzLogEntry({
         // rule as Round Mode, so the two surfaces stay in step.
         const entries = r.entries;
         const sabqiTargetIdx = entries.findIndex(
-          (e) => parseNextSabqiPara((e.nextTarget ?? "").trim()) !== null,
+          (e) => parseNextSabqiParas((e.nextTarget ?? "").trim()) !== null,
         );
         const lastSabqiIdx = entries.findIndex((e) => e.kind === "sabqi" && !e.missed);
         const sabqiSeed =
           sabqiTargetIdx >= 0 && (lastSabqiIdx === -1 || lastSabqiIdx >= sabqiTargetIdx)
-            ? { juz: parseNextSabqiPara(entries[sabqiTargetIdx].nextTarget!.trim())! }
+            ? (() => {
+                const sv = parseNextSabqiParas(entries[sabqiTargetIdx].nextTarget!.trim())!;
+                return { juz: sv[0].juz, extent: sv[0].extent };
+              })()
             : null;
         const manzilTargetIdx = entries.findIndex(
           (e) => parseNextManzil((e.nextTarget ?? "").trim()) !== null,
@@ -358,7 +373,7 @@ export function HifzLogEntry({
       if (kindSeed.sabqi) {
         setSabqiMode("para");
         setRevJuz(kindSeed.sabqi.juz);
-        setRevExtent("full");
+        setRevExtent(kindSeed.sabqi.extent);
       }
     } else if (kind === "manzil") {
       if (kindSeed.manzil) {
@@ -487,10 +502,16 @@ export function HifzLogEntry({
     let structuredNext: string | undefined;
     if (assignOn) {
       if (kind === "manzil") {
-        structuredNext = serializeNextManzil(assignManzilJuz, assignManzilExtent);
+        structuredNext = serializeNextManzilParts([
+          { juz: assignManzilJuz, extent: assignManzilExtent },
+          ...assignManzilMore,
+        ]);
       } else if (kind === "sabqi") {
         structuredNext = assignSabqiUnit === "para"
-          ? serializeNextSabqiPara(assignSabqiJuz)
+          ? serializeNextSabqiParas([
+              { juz: assignSabqiJuz, extent: assignSabqiExtent },
+              ...assignSabqiMore,
+            ])
           : serializeNextSabqiSurahs(assignSabqiParts);
         if (!structuredNext) structuredNext = undefined;
       } else {
@@ -1049,6 +1070,48 @@ export function HifzLogEntry({
                       </SelectContent>
                     </Select>
                   </div>
+                  {/* Further paras, each with its own portion — "finish
+                      Para 19's last ¼ + Para 20 to ½" (16 Sep). */}
+                  {assignManzilMore.map((part, i) => (
+                    <div key={i} className="flex flex-wrap items-center gap-1.5">
+                      <Select value={String(part.juz)}
+                        onValueChange={(v) => { setAssignTouched(true);
+                          setAssignManzilMore((prev) => prev.map((x, xi) => (xi === i ? { ...x, juz: Number(v) } : x))); }}>
+                        <SelectTrigger className="h-8 w-28 bg-white text-[12px]"><SelectValue /></SelectTrigger>
+                        <SelectContent className="max-h-64">
+                          {Array.from({ length: 30 }, (_, i2) => i2 + 1).map((j) => (
+                            <SelectItem key={j} value={String(j)}>{t("hifzTeach.juzN", { n: j })}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Select value={part.extent}
+                        onValueChange={(v) => { setAssignTouched(true);
+                          setAssignManzilMore((prev) => prev.map((x, xi) => (xi === i ? { ...x, extent: v as AssignExtent } : x))); }}>
+                        <SelectTrigger className="h-8 w-52 bg-white text-[12px]"><SelectValue /></SelectTrigger>
+                        <SelectContent className="max-h-64">
+                          {PARA_EXTENT_OPTIONS.map((o) => (
+                            <SelectItem key={o.value} value={o.value}>{t(o.labelKey)}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <button type="button" aria-label={t("common.delete")}
+                        onClick={() => setAssignManzilMore((prev) => prev.filter((_, xi) => xi !== i))}
+                        className="px-1.5 text-xs font-bold text-rose-700 hover:bg-rose-50">
+                        &times;
+                      </button>
+                    </div>
+                  ))}
+                  {assignManzilMore.length < 3 && (
+                    <button type="button"
+                      onClick={() => { setAssignTouched(true);
+                        setAssignManzilMore((prev) => [...prev, {
+                          juz: (((prev[prev.length - 1]?.juz ?? assignManzilJuz) % 30) + 1),
+                          extent: "half" as AssignExtent,
+                        }]); }}
+                      className="rounded border border-indigo-200 px-2 py-0.5 text-[11px] font-medium text-indigo-700 hover:bg-indigo-50">
+                      {t("hifzTeach.assignAddPara")}
+                    </button>
+                  )}
                   <p className="text-[11px] text-indigo-800">{t("hifzTeach.assignManzilHint")}</p>
                 </div>
               )}
@@ -1073,17 +1136,74 @@ export function HifzLogEntry({
                   </div>
 
                   {assignSabqiUnit === "para" ? (
-                    <Select
-                      value={String(assignSabqiJuz)}
-                      onValueChange={(v) => { setAssignTouched(true); setAssignSabqiJuz(Number(v)); }}
-                    >
-                      <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
-                      <SelectContent className="max-h-64">
-                        {Array.from({ length: 30 }, (_, i) => i + 1).map((j) => (
-                          <SelectItem key={j} value={String(j)}>{t("hifzTeach.juzN", { n: j })}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Select
+                          value={String(assignSabqiJuz)}
+                          onValueChange={(v) => { setAssignTouched(true); setAssignSabqiJuz(Number(v)); }}
+                        >
+                          <SelectTrigger className="h-8 w-28 bg-white text-[12px]"><SelectValue /></SelectTrigger>
+                          <SelectContent className="max-h-64">
+                            {Array.from({ length: 30 }, (_, i) => i + 1).map((j) => (
+                              <SelectItem key={j} value={String(j)}>{t("hifzTeach.juzN", { n: j })}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Select
+                          value={assignSabqiExtent}
+                          onValueChange={(v) => { setAssignTouched(true); setAssignSabqiExtent(v as AssignExtent); }}
+                        >
+                          <SelectTrigger className="h-8 w-52 bg-white text-[12px]"><SelectValue /></SelectTrigger>
+                          <SelectContent className="max-h-64">
+                            {PARA_EXTENT_OPTIONS.map((o) => (
+                              <SelectItem key={o.value} value={o.value}>{t(o.labelKey)}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {/* Further paras — "finish Para 19's last ¼ + Para
+                          20 to ½" (16 Sep). */}
+                      {assignSabqiMore.map((part, i) => (
+                        <div key={i} className="flex flex-wrap items-center gap-1.5">
+                          <Select value={String(part.juz)}
+                            onValueChange={(v) => { setAssignTouched(true);
+                              setAssignSabqiMore((prev) => prev.map((x, xi) => (xi === i ? { ...x, juz: Number(v) } : x))); }}>
+                            <SelectTrigger className="h-8 w-28 bg-white text-[12px]"><SelectValue /></SelectTrigger>
+                            <SelectContent className="max-h-64">
+                              {Array.from({ length: 30 }, (_, i2) => i2 + 1).map((j) => (
+                                <SelectItem key={j} value={String(j)}>{t("hifzTeach.juzN", { n: j })}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Select value={part.extent}
+                            onValueChange={(v) => { setAssignTouched(true);
+                              setAssignSabqiMore((prev) => prev.map((x, xi) => (xi === i ? { ...x, extent: v as AssignExtent } : x))); }}>
+                            <SelectTrigger className="h-8 w-52 bg-white text-[12px]"><SelectValue /></SelectTrigger>
+                            <SelectContent className="max-h-64">
+                              {PARA_EXTENT_OPTIONS.map((o) => (
+                                <SelectItem key={o.value} value={o.value}>{t(o.labelKey)}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <button type="button" aria-label={t("common.delete")}
+                            onClick={() => setAssignSabqiMore((prev) => prev.filter((_, xi) => xi !== i))}
+                            className="px-1.5 text-xs font-bold text-rose-700 hover:bg-rose-50">
+                            &times;
+                          </button>
+                        </div>
+                      ))}
+                      {assignSabqiMore.length < 3 && (
+                        <button type="button"
+                          onClick={() => { setAssignTouched(true);
+                            setAssignSabqiMore((prev) => [...prev, {
+                              juz: (((prev[prev.length - 1]?.juz ?? assignSabqiJuz) % 30) + 1),
+                              extent: "half" as AssignExtent,
+                            }]); }}
+                          className="rounded border border-indigo-200 px-2 py-0.5 text-[11px] font-medium text-indigo-700 hover:bg-indigo-50">
+                          {t("hifzTeach.assignAddPara")}
+                        </button>
+                      )}
+                    </div>
                   ) : (
                     <div className="space-y-2">
                       {assignSabqiParts.map((part, i) => {

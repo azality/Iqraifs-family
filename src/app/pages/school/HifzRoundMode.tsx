@@ -65,18 +65,18 @@ import {
   paraFinishedBySabaq,
   serializeSabaqParaRevision,
   parseSabaqParaRevision,
-  parseNextSabqiPara,
+  parseNextSabqiParas,
+  serializeNextSabqiParas,
   parseNextManzilParts,
   serializeNextManzilParts,
   nextManzilAfter,
   isRepeatRating,
   type ManzilPart,
+  type SabqiParaPart,
   JUZ_STARTS,
   juzOfPosition,
   nextSabaqAfter,
   serializeNextSabqiSurahs,
-  serializeNextSabqiPara,
-  serializeNextManzil,
   type AssignExtent,
   type SabqiPart,
 } from "../../../utils/hifzTargets";
@@ -299,12 +299,20 @@ export function HifzRoundMode({
   // leaving the round: "sabqi kal Surah Nas tak", "manzil para 30, half".
   // Null = automatic. Reset per student.
   const [ovSabaq, setOvSabaq] = useState<{ surah: number; from: number; to: number } | null>(null);
-  const [ovSabqi, setOvSabqi] = useState<{ unit: "surah" | "para"; parts: SabqiPart[]; juz: number } | null>(null);
-  const [ovManzil, setOvManzil] = useState<{ juz: number; extent: AssignExtent } | null>(null);
+  // Sabqi override: by surahs, or by PARAS — each para with its own
+  // extent ("finish Para 19's last ¼ + Para 20 to ½", Muneeb 16 Sep).
+  const [ovSabqi, setOvSabqi] = useState<{ unit: "surah" | "para"; parts: SabqiPart[]; paras: SabqiParaPart[] } | null>(null);
+  // Manzil override: a LIST of (para, extent) slices, not just one —
+  // same 16 Sep ask.
+  const [ovManzil, setOvManzil] = useState<ManzilPart[] | null>(null);
   // Second manzil slice — a sitting that straddles paras ("second half
   // of 16 + first half of 17", Muneeb 10 Sep). Saved as its own entry;
   // null = single-para sitting like before.
   const [manzilPart2, setManzilPart2] = useState<ManzilPart | null>(null);
+  // Second sabqi para heard in the same sitting — seeded when a stored
+  // sabqi target spans two paras; saved as its own entry like the
+  // manzil's second slice.
+  const [sabqiPart2, setSabqiPart2] = useState<SabqiParaPart | null>(null);
   // Second sabaq segment — a lesson that closes one surah and opens the
   // next ("Yunus 107–109 + Hud 1–5", Muneeb 10 Sep). sabaqPart2 is what
   // was HEARD today (prefilled from a two-part target, saved as its own
@@ -352,6 +360,7 @@ export function HifzRoundMode({
     setOvSabqi(null);
     setOvManzil(null);
     setManzilPart2(null);
+    setSabqiPart2(null);
     setSabaqPart2(null);
     setSabaqPart2Quality("");
     setOvSabaq2(null);
@@ -433,14 +442,15 @@ export function HifzRoundMode({
         // a day that already happened. (Entries are newest-first, so
         // "newer" = smaller index.)
         const sabqiTargetIdx = entries.findIndex(
-          (e) => parseNextSabqiPara((e.nextTarget ?? "").trim()) !== null,
+          (e) => parseNextSabqiParas((e.nextTarget ?? "").trim()) !== null,
         );
         const lastSabqiIdx = entries.findIndex((e) => e.kind === "sabqi" && !e.missed);
         if (sabqiTargetIdx >= 0 && (lastSabqiIdx === -1 || lastSabqiIdx >= sabqiTargetIdx)) {
-          const j = parseNextSabqiPara(entries[sabqiTargetIdx].nextTarget!.trim())!;
+          const svParts = parseNextSabqiParas(entries[sabqiTargetIdx].nextTarget!.trim())!;
           next.sabqi.portion = {
-            ...emptyPortion(), mode: "para", juz: j, extent: "full",
+            ...emptyPortion(), mode: "para", juz: svParts[0].juz, extent: svParts[0].extent,
           };
+          setSabqiPart2(svParts[1] ?? null);
         }
         // Manzil: the daily cycle over older memorized juz — last
         // manzil's juz + 1, wrapping after 30. Logged per juz. A stored
@@ -688,7 +698,7 @@ export function HifzRoundMode({
     if (key === "sabqi") {
       if (ovSabqi) {
         const txt = ovSabqi.unit === "para"
-          ? serializeNextSabqiPara(ovSabqi.juz)
+          ? serializeNextSabqiParas(ovSabqi.paras)
           : serializeNextSabqiSurahs(ovSabqi.parts);
         if (txt) return { text: txt, auto: false };
       }
@@ -696,7 +706,7 @@ export function HifzRoundMode({
       return { text: t("hifzRound.tomorrowSabqiAuto"), auto: true };
     }
     if (ovManzil) {
-      return { text: serializeNextManzil(ovManzil.juz, ovManzil.extent), auto: false };
+      return { text: serializeNextManzilParts(ovManzil), auto: false };
     }
     if (k.quality === "") return null;
     // Manzil follows the rating like the sabaq does (Muneeb, 10 Sep):
@@ -818,12 +828,16 @@ export function HifzRoundMode({
         // Sabqi and manzil normally need no assignment at all — sabqi
         // follows the sabaq and manzil rotates. An override is the
         // teacher departing from the method on purpose, so it is stored
-        // and will win over the derived suggestion at prefill.
+        // and will win over the derived suggestion at prefill. Like the
+        // manzil's, a two-para sabqi target must ride the LAST-saved
+        // sabqi entry (prefill reads the newest one).
+        let sabqiTarget: string | undefined;
+        const sabqiTwoSlices = meta.key === "sabqi" && sabqiPart2 !== null && p.mode === "para";
         if (meta.key === "sabqi" && ovSabqi) {
-          const target = ovSabqi.unit === "para"
-            ? serializeNextSabqiPara(ovSabqi.juz)
-            : serializeNextSabqiSurahs(ovSabqi.parts);
-          if (target) input.nextTarget = target;
+          sabqiTarget = (ovSabqi.unit === "para"
+            ? serializeNextSabqiParas(ovSabqi.paras)
+            : serializeNextSabqiSurahs(ovSabqi.parts)) || undefined;
+          if (!sabqiTwoSlices && sabqiTarget) input.nextTarget = sabqiTarget;
         }
         // Manzil target — mirror of tomorrowText's derivation. With a
         // two-slice sitting the target must ride the LAST-saved manzil
@@ -834,7 +848,7 @@ export function HifzRoundMode({
           p.mode === "para" && p.extent !== "to_surah";
         if (meta.key === "manzil") {
           if (ovManzil) {
-            manzilTarget = serializeNextManzil(ovManzil.juz, ovManzil.extent);
+            manzilTarget = serializeNextManzilParts(ovManzil);
           } else if (manzilTwoSlices) {
             const mRepeat = isRepeatRating(k.quality);
             const parts: ManzilPart[] = [
@@ -847,7 +861,7 @@ export function HifzRoundMode({
           } else if (p.mode === "para" && p.extent !== "to_surah") {
             const mRepeat = isRepeatRating(k.quality);
             const d = nextManzilAfter(p.juz, p.extent as AssignExtent, mRepeat);
-            manzilTarget = serializeNextManzil(d.juz, d.extent);
+            manzilTarget = serializeNextManzilParts([{ juz: d.juz, extent: d.extent }]);
           }
           if (!manzilTwoSlices) input.nextTarget = manzilTarget;
         }
@@ -877,6 +891,22 @@ export function HifzRoundMode({
             // "Memorized extra lesson" praise, written server-side.
             extraSabaq: true,
             extraLabel: `${surahDisplayName(sabaqPart2.surahNumber, lang)} ${sabaqPart2.from}–${sabaqPart2.to}`,
+          });
+        }
+        if (sabqiTwoSlices) {
+          // The second para is its own entry; any override target rides
+          // it so prefill (which reads the newest sabqi row) sees it.
+          const startS2 = JUZ_STARTS[sabqiPart2!.juz - 1];
+          await postHifzEntry(orgId, {
+            studentId: currentId,
+            surahNumber: startS2.surah,
+            ayahFrom: startS2.ayah,
+            ayahTo: startS2.ayah,
+            kind: "sabqi",
+            quality: STORED_QUALITY[k.quality],
+            juzNumber: sabqiPart2!.juz,
+            juzExtent: sabqiPart2!.extent,
+            nextTarget: sabqiTarget,
           });
         }
         if (manzilTwoSlices) {
@@ -1411,7 +1441,53 @@ export function HifzRoundMode({
                       </button>
                     )
                   )}
-{/* Straddling sitting — a second manzil slice in another
+{/* A second sabqi para in the same sitting — mirrors the
+                      manzil's straddling slice. */}
+                  {meta.key === "sabqi" && k.portion.mode === "para" && skipReasons.sabqi == null && (
+                    sabqiPart2 ? (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <span className="text-[11px] font-semibold text-slate-500">{t("hifzRound.plusPara")}</span>
+                        <Select
+                          value={String(sabqiPart2.juz)}
+                          onValueChange={(v) => setSabqiPart2({ ...sabqiPart2, juz: Number(v) })}
+                        >
+                          <SelectTrigger className="h-8 w-28 bg-white text-[12px]"><SelectValue /></SelectTrigger>
+                          <SelectContent className="max-h-64">
+                            {Array.from({ length: 30 }, (_, i) => i + 1).map((j) => (
+                              <SelectItem key={j} value={String(j)}>{t("hifzTeach.juzN", { n: j })}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Select
+                          value={sabqiPart2.extent}
+                          onValueChange={(v) => setSabqiPart2({ ...sabqiPart2, extent: v as AssignExtent })}
+                        >
+                          <SelectTrigger className="h-8 w-56 bg-white text-[12px]"><SelectValue /></SelectTrigger>
+                          <SelectContent className="max-h-64">
+                            {PARA_EXTENT_OPTIONS.map((o) => (
+                              <SelectItem key={o.value} value={o.value}>{t(o.labelKey)}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <button
+                          type="button"
+                          onClick={() => setSabqiPart2(null)}
+                          className="text-[11px] text-slate-400 underline hover:text-slate-600"
+                        >
+                          {t("hifzRound.removePara")}
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setSabqiPart2({ juz: (k.portion.juz % 30) + 1, extent: "half" })}
+                        className="mt-1.5 mr-3 text-[11px] font-semibold text-indigo-600 hover:underline"
+                      >
+                        + {t("hifzRound.addSecondPara")}
+                      </button>
+                    )
+                  )}
+                  {/* Straddling sitting — a second manzil slice in another
                       para ("second half of 16 + first half of 17"). */}
                   {meta.key === "manzil" && skipReasons.manzil == null && (
                     manzilPart2 ? (
@@ -1578,7 +1654,10 @@ export function HifzRoundMode({
                     const cur = ovSabqi ?? {
                       unit: "surah" as const,
                       parts: [{ surah: kinds.sabaq.portion.surah, from: null, to: null }],
-                      juz: kinds.sabqi.portion.juz,
+                      paras: [{
+                        juz: kinds.sabqi.portion.juz,
+                        extent: "full" as AssignExtent,
+                      }] as SabqiParaPart[],
                     };
                     const set = (patch: Partial<typeof cur>) => setOvSabqi({ ...cur, ...patch });
                     return (
@@ -1593,14 +1672,53 @@ export function HifzRoundMode({
                           ))}
                         </div>
                         {cur.unit === "para" ? (
-                          <Select value={String(cur.juz)} onValueChange={(v) => set({ juz: Number(v) })}>
-                            <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
-                            <SelectContent className="max-h-64">
-                              {Array.from({ length: 30 }, (_, i) => i + 1).map((j) => (
-                                <SelectItem key={j} value={String(j)}>{t("hifzTeach.juzN", { n: j })}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          // Paras with portions: "finish Para 19's last ¼ +
+                          // Para 20 to ½" (Muneeb, 16 Sep).
+                          <div className="space-y-1.5">
+                            {cur.paras.map((part, i) => {
+                              const setPart = (patch: Partial<SabqiParaPart>) =>
+                                set({ paras: cur.paras.map((x, xi) => (xi === i ? { ...x, ...patch } : x)) });
+                              return (
+                                <div key={i} className="flex flex-wrap items-center gap-1.5">
+                                  <Select value={String(part.juz)} onValueChange={(v) => setPart({ juz: Number(v) })}>
+                                    <SelectTrigger className="h-8 w-28 bg-white text-[12px]"><SelectValue /></SelectTrigger>
+                                    <SelectContent className="max-h-64">
+                                      {Array.from({ length: 30 }, (_, i2) => i2 + 1).map((j) => (
+                                        <SelectItem key={j} value={String(j)}>{t("hifzTeach.juzN", { n: j })}</SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  <Select value={part.extent} onValueChange={(v) => setPart({ extent: v as AssignExtent })}>
+                                    <SelectTrigger className="h-8 w-56 bg-white text-[12px]"><SelectValue /></SelectTrigger>
+                                    <SelectContent className="max-h-64">
+                                      {PARA_EXTENT_OPTIONS.map((o) => (
+                                        <SelectItem key={o.value} value={o.value}>{t(o.labelKey)}</SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  {cur.paras.length > 1 && (
+                                    <button type="button" aria-label={t("common.delete")}
+                                      onClick={() => set({ paras: cur.paras.filter((_, xi) => xi !== i) })}
+                                      className="px-1.5 text-xs font-bold text-rose-700 hover:bg-rose-50">
+                                      &times;
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })}
+                            {cur.paras.length < 4 && (
+                              <button type="button"
+                                onClick={() => set({
+                                  paras: [...cur.paras, {
+                                    juz: (cur.paras[cur.paras.length - 1].juz % 30) + 1,
+                                    extent: "half" as AssignExtent,
+                                  }],
+                                })}
+                                className="rounded border border-indigo-200 px-2 py-0.5 text-[11px] font-medium text-indigo-700 hover:bg-indigo-50">
+                                {t("hifzRound.assignAddPara")}
+                              </button>
+                            )}
+                          </div>
                         ) : (
                           <div className="space-y-1.5">
                             {cur.parts.map((part, i) => {
@@ -1663,26 +1781,53 @@ export function HifzRoundMode({
                   })()}
 
                   {nextOpen === meta.key && meta.key === "manzil" && (() => {
-                    const cur = ovManzil ?? { juz: (kinds.manzil.portion.juz % 30) + 1, extent: "full" as AssignExtent };
-                    const set = (patch: Partial<typeof cur>) => setOvManzil({ ...cur, ...patch });
+                    // A list of (para, portion) slices — "finish Para 19's
+                    // last ¼ + Para 20 to ½" (Muneeb, 16 Sep).
+                    const cur: ManzilPart[] = ovManzil ?? [
+                      { juz: (kinds.manzil.portion.juz % 30) + 1, extent: "full" as AssignExtent },
+                    ];
+                    const set = (parts: ManzilPart[]) => setOvManzil(parts);
                     return (
-                      <div className="mt-2 grid grid-cols-2 gap-2 rounded-lg border border-indigo-100 bg-indigo-50/40 p-2">
-                        <Select value={String(cur.juz)} onValueChange={(v) => set({ juz: Number(v) })}>
-                          <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
-                          <SelectContent className="max-h-64">
-                            {Array.from({ length: 30 }, (_, i) => i + 1).map((j) => (
-                              <SelectItem key={j} value={String(j)}>{t("hifzTeach.juzN", { n: j })}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <Select value={cur.extent} onValueChange={(v) => set({ extent: v as AssignExtent })}>
-                          <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            {PARA_EXTENT_OPTIONS.map((o) => (
-                              <SelectItem key={o.value} value={o.value}>{t(o.labelKey)}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                      <div className="mt-2 space-y-1.5 rounded-lg border border-indigo-100 bg-indigo-50/40 p-2">
+                        {cur.map((part, i) => (
+                          <div key={i} className="flex flex-wrap items-center gap-1.5">
+                            <Select value={String(part.juz)}
+                              onValueChange={(v) => set(cur.map((x, xi) => (xi === i ? { ...x, juz: Number(v) } : x)))}>
+                              <SelectTrigger className="h-8 w-28 bg-white text-[12px]"><SelectValue /></SelectTrigger>
+                              <SelectContent className="max-h-64">
+                                {Array.from({ length: 30 }, (_, i2) => i2 + 1).map((j) => (
+                                  <SelectItem key={j} value={String(j)}>{t("hifzTeach.juzN", { n: j })}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <Select value={part.extent}
+                              onValueChange={(v) => set(cur.map((x, xi) => (xi === i ? { ...x, extent: v as AssignExtent } : x)))}>
+                              <SelectTrigger className="h-8 w-56 bg-white text-[12px]"><SelectValue /></SelectTrigger>
+                              <SelectContent className="max-h-64">
+                                {PARA_EXTENT_OPTIONS.map((o) => (
+                                  <SelectItem key={o.value} value={o.value}>{t(o.labelKey)}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            {cur.length > 1 && (
+                              <button type="button" aria-label={t("common.delete")}
+                                onClick={() => set(cur.filter((_, xi) => xi !== i))}
+                                className="px-1.5 text-xs font-bold text-rose-700 hover:bg-rose-50">
+                                &times;
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                        {cur.length < 4 && (
+                          <button type="button"
+                            onClick={() => set([...cur, {
+                              juz: (cur[cur.length - 1].juz % 30) + 1,
+                              extent: "half" as AssignExtent,
+                            }])}
+                            className="rounded border border-indigo-200 px-2 py-0.5 text-[11px] font-medium text-indigo-700 hover:bg-indigo-50">
+                            {t("hifzRound.assignAddPara")}
+                          </button>
+                        )}
                       </div>
                     );
                   })()}
