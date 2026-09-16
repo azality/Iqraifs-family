@@ -93,15 +93,12 @@ export function installTimeOff(school: Hono): void {
     const userId = getAuthUserId(c);
     if (!userId) return c.json({ error: "unauthenticated" }, 401);
     const orgId = c.req.param("orgId");
-    // Teacher must have at least one role in this org.
-    const { data: roles } = await serviceRoleClient
-      .from("user_roles")
-      .select("id")
-      .eq("user_id", userId)
-      .eq("scope_id", orgId)
-      .is("revoked_at", null)
-      .limit(1);
-    if (!roles || roles.length === 0) return c.json({ error: "not a member of this org" }, 403);
+    // Any active role in this org — hasAnyRoleInOrg resolves class-scoped
+    // rows too. The old raw query matched scope_id = orgId only, so a PURE
+    // incharge (class-scoped rows) couldn't request time off (audit, 16 Sep).
+    if (!(await hasAnyRoleInOrg(userId, orgId))) {
+      return c.json({ error: "not a member of this org" }, 403);
+    }
 
     let body: any;
     try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }

@@ -1318,6 +1318,21 @@ export function installPhaseA(school: Hono) {
       .from("student").select("*").eq("id", studentId).eq("org_id", orgId).maybeSingle();
     if (error) return c.json({ error: error.message }, 500);
     if (!student) return c.json({ error: "not found" }, 404);
+    // Permissions audit (16 Sep): the LIST route scopes non-manage_students
+    // callers to their own sections, but this detail route answered for any
+    // student in the org — the roster scoping was hollow. Same rule here,
+    // plus mark_fees_status (finance opens student fee pages for families
+    // they chase org-wide, without holding manage_students).
+    if (
+      !(await userCanInOrg(userId, orgId, "manage_students")) &&
+      !(await userCanInOrg(userId, orgId, "mark_fees_status"))
+    ) {
+      const allowed = await teacherSectionIds(userId, orgId);
+      const secId = (student as any).class_section_id;
+      if (!secId || !allowed.includes(secId)) {
+        return c.json({ error: "You can only view students of sections you teach.", code: "SECTION_NOT_YOURS" }, 403);
+      }
+    }
     const { data: links } = await serviceRoleClient
       .from("student_parent")
       .select("is_primary, parent:parent_id(*)")
@@ -3627,7 +3642,9 @@ export function installPhaseA(school: Hono) {
   school.get("/orgs/:orgId/link-codes", async (c) => {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
-    if (!(await requireAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    // Same key as the POST above (permissions audit, 16 Sep): office staff
+    // who can ISSUE link codes could not list the ones they issued.
+    if (!(await userCanInOrg(userId, orgId, "manage_students"))) return c.json({ error: "forbidden" }, 403);
     const studentId = c.req.query("studentId");
     const unusedOnly = c.req.query("unusedOnly") === "true";
     let q = serviceRoleClient.from("link_code").select("*").eq("org_id", orgId);

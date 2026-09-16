@@ -870,9 +870,11 @@ export function installPhaseCD(school: Hono): void {
     if (!stu) return c.json({ error: "student not found" }, 404);
     if (stu.org_id !== orgId) return c.json({ error: "student not in this org" }, 404);
 
-    // Authorization: any org role can read, OR a parent linked to this student
-    // (via student_parent.user_id mapping is not present — we use child_id_map).
-    let authorized = await hasAnyRoleInOrg(userId, orgId);
+    // Authorization: staff holding mark_fees_status (principal/admin
+    // short-circuit), OR a parent linked to this student (via child_id_map).
+    // Permissions audit (16 Sep): was any-role — any teacher could read
+    // any family's payment history.
+    let authorized = await userCanInOrg(userId, orgId, "mark_fees_status");
     if (!authorized) {
       const ids = await callerLinkedStudentIds({ kind: "user", userId }, orgId);
       authorized = ids.includes(studentId);
@@ -901,8 +903,11 @@ export function installPhaseCD(school: Hono): void {
     const status = c.req.query("status");
     const sectionId = c.req.query("sectionId");
 
-    if (!(await hasAnyRoleInOrg(userId, orgId))) {
-      return c.json({ error: "forbidden" }, 403);
+    // Permissions audit (16 Sep): was any-role — every teacher could read
+    // every family's fee ledger. Reads follow the same mark_fees_status
+    // key as writes (principal/admin short-circuit inside userCanInOrg).
+    if (!(await userCanInOrg(userId, orgId, "mark_fees_status"))) {
+      return c.json({ error: "forbidden", code: "FORBIDDEN_PERMISSION" }, 403);
     }
     if (status && !FEE_STATUSES.has(status)) {
       return c.json({ error: "invalid status" }, 400);
@@ -1271,7 +1276,11 @@ ${status === "paid" ? `<div class="stamp">PAID</div>` : ""}
     }
     const isAdmin = await hasAdminOrPrincipal(userId, orgId);
     const callerRoles = await getOrgRoles(userId, orgId);
-    const TEACHING_ROLES = new Set(["class_teacher", "visiting_teacher", "teacher"]);
+    // "incharge" counts as teaching (audit, 16 Sep): it's wing-scoped by
+    // design, and leaving it out made e.g. a class_teacher who is ALSO an
+    // incharge org-wide. isTeacherOfSection below admits wing sections, so
+    // section-scoped incharge forms still work.
+    const TEACHING_ROLES = new Set(["class_teacher", "visiting_teacher", "teacher", "incharge"]);
     const orgWideForms = isAdmin || Array.from(callerRoles).some((r) => !TEACHING_ROLES.has(r));
     if (!orgWideForms) {
       if (body.audienceKind !== "class_section") {

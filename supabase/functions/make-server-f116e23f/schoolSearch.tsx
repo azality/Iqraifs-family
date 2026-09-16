@@ -11,16 +11,18 @@
 //   - classes/sections (class name → each section, deep-linked)
 //   - curriculum topics (name — deep-linked to the class subjects panel)
 //
-// Returns grouped results with a deep-link path for each row. Any
-// staff org-role can search; results aren't further scope-filtered yet
-// (a class teacher still sees other sections' students in search; that
-// matches the F4-style "I need to look something up across the org"
-// expectation). Tighten if a pilot school flags it.
+// Returns grouped results with a deep-link path for each row. Any staff
+// org-role can search, but the PRIVATE groups (students, parents, message
+// threads) are scoped the same way as GET /students (permissions audit,
+// 16 Sep): callers without manage_students or mark_fees_status only see
+// students of sections they teach, parents linked to those students, and
+// threads about them. Teachers/classes/topics stay org-wide — they're the
+// "look something up across the org" part and carry no family data.
 // =============================================================================
 
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
-import { hasAnyRoleInOrg as hasAnyOrgRole } from "./schoolAuth.ts";
+import { hasAnyRoleInOrg as hasAnyOrgRole, userCanInOrg, teacherSectionIds } from "./schoolAuth.ts";
 
 export function installSchoolSearch(school: Hono): void {
   school.get("/orgs/:orgId/search", async (c) => {
@@ -37,36 +39,61 @@ export function installSchoolSearch(school: Hono): void {
     const limit = Math.min(parseInt(c.req.query("limit") ?? "20", 10) || 20, 50);
     const ilike = `%${q.replace(/[%_]/g, "\\$&")}%`;
 
+    // null = org-wide; [] / ids = the only sections whose students,
+    // parents and threads this caller may see.
+    let allowedSections: string[] | null = null;
+    if (
+      !(await userCanInOrg(userId, orgId, "manage_students")) &&
+      !(await userCanInOrg(userId, orgId, "mark_fees_status"))
+    ) {
+      allowedSections = await teacherSectionIds(userId, orgId);
+    }
+    const sectionAllowed = (secId: string | null | undefined) =>
+      allowedSections === null || (!!secId && allowedSections.includes(secId));
+
     // ── Students ──
-    const { data: students } = await serviceRoleClient
-      .from("student")
-      .select("id, full_name, gr_number, class_section:class_section_id(name, class:class_id(name))")
-      .eq("org_id", orgId)
-      .or(`full_name.ilike.${ilike},gr_number.ilike.${ilike}`)
-      .limit(limit);
+    let students: any[] = [];
+    if (allowedSections === null || allowedSections.length > 0) {
+      let sq = serviceRoleClient
+        .from("student")
+        .select("id, full_name, gr_number, class_section_id, class_section:class_section_id(name, class:class_id(name))")
+        .eq("org_id", orgId)
+        .or(`full_name.ilike.${ilike},gr_number.ilike.${ilike}`);
+      if (allowedSections !== null) sq = sq.in("class_section_id", allowedSections);
+      students = (await sq.limit(limit)).data ?? [];
+    }
 
     // ── Parents ──
-    const { data: parents } = await serviceRoleClient
-      .from("parent")
-      .select("id, full_name, phone, email")
-      .eq("org_id", orgId)
-      .or(`full_name.ilike.${ilike},phone.ilike.${ilike},email.ilike.${ilike}`)
-      .limit(limit);
+    let parents: any[] = [];
+    if (allowedSections === null || allowedSections.length > 0) {
+      parents = (await serviceRoleClient
+        .from("parent")
+        .select("id, full_name, phone, email")
+        .eq("org_id", orgId)
+        .or(`full_name.ilike.${ilike},phone.ilike.${ilike},email.ilike.${ilike}`)
+        .limit(limit)).data ?? [];
+    }
 
     // For each surfaced parent, fetch their linked students so we can
-    // deep-link the result row to "Parent → Hassan Ali".
+    // deep-link the result row to "Parent → Hassan Ali". Scoped callers
+    // only keep parents with at least one child in their sections, and
+    // the children list itself is trimmed to those sections.
     const parentIds = (parents ?? []).map((p: any) => p.id);
     const linkedByParent = new Map<string, Array<{ id: string; fullName: string }>>();
     if (parentIds.length > 0) {
       const { data: links } = await serviceRoleClient
         .from("student_parent")
-        .select("parent_id, student:student_id(id, full_name)")
+        .select("parent_id, student:student_id(id, full_name, class_section_id)")
         .in("parent_id", parentIds);
       for (const l of (links ?? []) as any[]) {
+        if (!l.student || !sectionAllowed(l.student.class_section_id)) continue;
         const arr = linkedByParent.get(l.parent_id) ?? [];
-        if (l.student) arr.push({ id: l.student.id, fullName: l.student.full_name });
+        arr.push({ id: l.student.id, fullName: l.student.full_name });
         linkedByParent.set(l.parent_id, arr);
       }
+    }
+    if (allowedSections !== null) {
+      parents = parents.filter((p: any) => (linkedByParent.get(p.id) ?? []).length > 0);
     }
 
     // ── Teachers / staff ── org role holders matched on name/email.
@@ -164,14 +191,18 @@ export function installSchoolSearch(school: Hono): void {
       if (topics.length >= 10) break;
     }
 
-    // ── Message threads ──
-    const { data: threads } = await serviceRoleClient
+    // ── Message threads ── scoped callers only see threads about a
+    // student in their sections (a thread with no student stays private).
+    const { data: threadRows } = await serviceRoleClient
       .from("message_thread")
-      .select("id, subject, last_message_at, student:student_id(id, full_name)")
+      .select("id, subject, last_message_at, student:student_id(id, full_name, class_section_id)")
       .eq("org_id", orgId)
       .ilike("subject", ilike)
       .order("last_message_at", { ascending: false, nullsFirst: false })
       .limit(limit);
+    const threads = ((threadRows ?? []) as any[]).filter(
+      (t) => allowedSections === null || (t.student && sectionAllowed(t.student.class_section_id)),
+    );
 
     return c.json({
       query: q,

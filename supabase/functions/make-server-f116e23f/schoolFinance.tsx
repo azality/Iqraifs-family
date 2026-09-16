@@ -11,7 +11,7 @@
 
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
-import { hasAnyRoleInOrg as hasAnyOrgRole } from "./schoolAuth.ts";
+import { userCanInOrg } from "./schoolAuth.ts";
 import { todayInOrgTz } from "./tz.ts";
 
 function currentPeriod(): string {
@@ -24,8 +24,11 @@ export function installFinance(school: Hono) {
     const userId = getAuthUserId(c);
     if (!userId) return c.json({ error: "unauthenticated" }, 401);
     const orgId = c.req.param("orgId");
-    if (!(await hasAnyOrgRole(userId, orgId))) {
-      return c.json({ error: "forbidden" }, 403);
+    // Permissions audit (16 Sep): was any-role — every teacher could read
+    // the whole school's collection numbers and overdue families. Fee data
+    // follows the mark_fees_status key (principal/admin short-circuit).
+    if (!(await userCanInOrg(userId, orgId, "mark_fees_status"))) {
+      return c.json({ error: "forbidden", code: "FORBIDDEN_PERMISSION" }, 403);
     }
 
     const period = c.req.query("period") || currentPeriod();
