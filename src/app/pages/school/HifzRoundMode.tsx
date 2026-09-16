@@ -260,8 +260,10 @@ export function HifzRoundMode({
   }, [roster]);
 
   // "Done for this round" — absent, or already heard for the scoped
-  // kind(s). Revision uses OR: a deliberately-untouched manzil shouldn't
-  // drag the student back into the queue.
+  // kind(s). Revision needs BOTH: the qari runs a sabqi round then a
+  // manzil round, so a child with sabqi heard but manzil pending must
+  // stay in the queue (Musayyab, 16 Sep — unreachable with OR). A
+  // deliberately-untouched kind is what Skip-with-a-reason is for.
   const doneFor = (id: string, s: RoundScope): boolean => {
     if (absentSet.has(id)) return true;
     const h = heardToday[id];
@@ -270,17 +272,18 @@ export function HifzRoundMode({
     // scope the round is running in.
     if (rosterById.get(id)?.quranTrack === "qaida") return h.qaida;
     if (s === "sabaq") return h.sabaq;
-    if (s === "revision") return h.sabqi || h.manzil;
+    if (s === "revision") return h.sabqi && h.manzil;
     if (s === "sabqi") return h.sabqi;
     if (s === "manzil") return h.manzil;
     return h.sabaq || h.sabqi || h.manzil;
   };
   const doneForScope = (id: string): boolean => doneFor(id, scope);
 
+  // A rail tap ALWAYS opens that student — even one already "done", so
+  // a missing kind (Musayyab: manzil after sabaq + sabqi) can still be
+  // heard; per-kind "already logged" notes guard against double entry.
   const currentId =
-    currentOverride && !doneForScope(currentOverride)
-      ? currentOverride
-      : queue.find((id) => !doneForScope(id)) ?? null;
+    currentOverride ?? queue.find((id) => !doneForScope(id)) ?? null;
   const current = currentId ? rosterById.get(currentId) ?? null : null;
 
   // ── Per-student form state ────────────────────────────────────────────
@@ -331,9 +334,10 @@ export function HifzRoundMode({
   // Manzil opt-out (teacher feedback, 11 Sep): skip today's manzil for
   // this student WITH a reason. Saves a missed-manzil marker; prefill
   // ignores missed rows, so tomorrow re-suggests the same juz.
-  // Skip-with-a-reason, keyed by kind. Manzil had this first; sabqi
-  // needs the same (Muneeb, 10 Sep), so it is one mechanism rather than
-  // two copies that drift. Sabaq keeps its own "missed today" checkbox.
+  // Skip-with-a-reason, keyed by kind. Manzil had it first, then sabqi
+  // (10 Sep), now sabaq too (16 Sep) — one mechanism, no copies that
+  // drift. A reasoned missed sabaq is a deliberate skip; only a BARE
+  // missed sabaq means absent (the round's Absent button).
   const [skipOpenFor, setSkipOpenFor] = useState<KindKey | null>(null);
   const [skipReasons, setSkipReasons] = useState<Partial<Record<KindKey, string>>>({});
   const [skipDraft, setSkipDraft] = useState("");
@@ -954,7 +958,8 @@ export function HifzRoundMode({
       setHeardToday((m) => ({
         ...m,
         [currentId]: {
-          sabaq: m[currentId]?.sabaq || touched.some((t) => t.key === "sabaq"),
+          sabaq: m[currentId]?.sabaq || skippedNow.includes("sabaq") ||
+            touched.some((t) => t.key === "sabaq"),
           sabqi: m[currentId]?.sabqi || skippedNow.includes("sabqi") ||
             touched.some((t) => t.key === "sabqi"),
           manzil: m[currentId]?.manzil || skippedNow.includes("manzil") ||
@@ -1007,7 +1012,10 @@ export function HifzRoundMode({
     // Sep). Count what each kind still has pending and offer to
     // continue there.
     const pendingSabaq = queue.filter((id) => !doneFor(id, "sabaq")).length;
-    const pendingRevision = queue.filter((id) => !doneFor(id, "revision")).length;
+    // Per kind, not "revision": after the sabqi round, only the manzil
+    // stragglers matter — the combined count hid them (16 Sep).
+    const pendingSabqi = queue.filter((id) => !doneFor(id, "sabqi")).length;
+    const pendingManzil = queue.filter((id) => !doneFor(id, "manzil")).length;
     return (
       <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-8 text-center">
         <div className="text-2xl font-extrabold text-emerald-900">
@@ -1021,7 +1029,7 @@ export function HifzRoundMode({
           {t("hifzRound.completeStats", { heard: heardCount - absent, absent })}
         </p>
         <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-          {scope === "all" && pendingSabaq > 0 && (
+          {scope !== "sabaq" && pendingSabaq > 0 && (
             <Button
               variant="outline"
               className="border-emerald-300 text-emerald-900"
@@ -1030,13 +1038,22 @@ export function HifzRoundMode({
               {t("hifzRound.continueSabaq", { n: pendingSabaq })}
             </Button>
           )}
-          {scope === "all" && pendingRevision > 0 && (
+          {scope !== "sabqi" && pendingSabqi > 0 && (
             <Button
               variant="outline"
               className="border-emerald-300 text-emerald-900"
-              onClick={() => setScope("revision")}
+              onClick={() => setScope("sabqi")}
             >
-              {t("hifzRound.continueRevision", { n: pendingRevision })}
+              {t("hifzRound.continueSabqi", { n: pendingSabqi })}
+            </Button>
+          )}
+          {scope !== "manzil" && pendingManzil > 0 && (
+            <Button
+              variant="outline"
+              className="border-emerald-300 text-emerald-900"
+              onClick={() => setScope("manzil")}
+            >
+              {t("hifzRound.continueManzil", { n: pendingManzil })}
             </Button>
           )}
           {scope !== "all" && (
@@ -1120,7 +1137,7 @@ export function HifzRoundMode({
                     // the rail row is the undo — clears the day's marker
                     // and puts the child back in the queue.
                     if (isAbsent) { void undoAbsent(id); return; }
-                    if (!done && !saving) setCurrentOverride(id);
+                    if (!saving) setCurrentOverride(id);
                   }}
                   title={isAbsent ? t("hifzRound.absentUndoHint") : undefined}
                   className={
@@ -1319,7 +1336,7 @@ export function HifzRoundMode({
                   </div>
                   {/* Skip-with-a-reason. Manzil first (11 Sep), sabqi too
                       from 10 Sep — same control, keyed by kind. */}
-                  {(meta.key === "manzil" || meta.key === "sabqi") && (
+                  {(meta.key === "manzil" || meta.key === "sabqi" || meta.key === "sabaq") && (
                     skipReasons[meta.key] != null ? (
                       <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5">
                         <span className="text-[11.5px] font-medium text-amber-900">
