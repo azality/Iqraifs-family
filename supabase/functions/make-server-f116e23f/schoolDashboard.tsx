@@ -672,17 +672,36 @@ export function installDashboard(school: Hono): void {
     // Hifz progress — org-wide avg ayahs memorized per active student that has
     // at least one hifz entry. We dedupe (surah, ayah) pairs per student so
     // overlapping re-recordings don't inflate the total.
-    const { data: hifzRowsRaw } = await serviceRoleClient
-      .from("hifz_progress")
-      .select("student_id, surah_number, ayah_from, ayah_to, kind")
-      .eq("org_id", orgId)
-      .eq("kind", "memorized");
-    const hifzRowsAll = (hifzRowsRaw ?? []) as Array<{
+    //
+    // New memorization is logged as SABAQ (the report card's rule). This
+    // tile used to count kind "memorized" only — a kind the round and the
+    // log dialog never write — so it read 0 forever while 800+ sabaq
+    // lessons sat in the table (Muneeb, 16 Sep). Missed markers and
+    // para-mode rows (a revision day stored as a one-ayah juz-start marker,
+    // juz_extent set) are not memorization. Paged: the table is past
+    // PostgREST's 1000-row cap.
+    const hifzRowsAll: Array<{
       student_id: string;
       surah_number: number;
       ayah_from: number;
       ayah_to: number;
-    }>;
+    }> = [];
+    for (let from = 0; ; from += 1000) {
+      const { data: page } = await serviceRoleClient
+        .from("hifz_progress")
+        .select("student_id, surah_number, ayah_from, ayah_to")
+        .eq("org_id", orgId)
+        .in("kind", ["sabaq", "memorized"])
+        .eq("missed", false)
+        .is("juz_extent", null)
+        .not("ayah_from", "is", null)
+        .not("ayah_to", "is", null)
+        .order("id")
+        .range(from, from + 999);
+      const rows = (page ?? []) as any[];
+      hifzRowsAll.push(...rows);
+      if (rows.length < 1000) break;
+    }
     // Restrict hifz to students in scoped sections (when teacher-scoped).
     const scopedStudentIds: Set<string> | null = isOrgView
       ? null
