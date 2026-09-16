@@ -1,0 +1,307 @@
+// =============================================================================
+// Fee payment ledger (Muneeb, 17 Sep 2026).
+//
+// Every payment is its own fee_payment row - amount, date, method, slip
+// reference, who recorded it. A month's fee_status.amount_paid is the SUM
+// of its non-void payments (kept as a cache, recomputed on every ledger
+// write), and status is DERIVED - paid when settled, partial when some
+// money is in, unpaid when none - never hand-picked. "waived" is the one
+// manual status and survives recomputes.
+//
+// Corrections are VOIDS, never deletes: the ledger is append-only, so a
+// mistaken entry stays visible with who voided it and why.
+//
+//   POST /school/orgs/:orgId/fees/:feeId/payments        record a payment
+//   POST /school/orgs/:orgId/fee-payments/:paymentId/void undo one
+//
+// Both gated by mark_fees_status (same as every fee write).
+// =============================================================================
+
+import type { Hono } from "npm:hono";
+import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
+import { userCanInOrg } from "./schoolAuth.ts";
+import { todayInOrgTz } from "./tz.ts";
+
+export const PAYMENT_METHODS = new Set(["cash", "bank", "online", "other"]);
+
+export function paymentToJson(r: any) {
+  return {
+    id: r.id,
+    feeStatusId: r.fee_status_id,
+    studentId: r.student_id,
+    amount: Number(r.amount),
+    paidOn: r.paid_on,
+    method: r.method ?? null,
+    reference: r.reference ?? null,
+    notes: r.notes ?? null,
+    recordedBy: r.recorded_by ?? null,
+    createdAt: r.created_at,
+    voidedAt: r.voided_at ?? null,
+    voidReason: r.void_reason ?? null,
+  };
+}
+
+/** Derived month status from the ledger. Waived is manual and sticky. */
+export function deriveFeeStatus(
+  due: number,
+  paid: number,
+  currentStatus: string | null | undefined,
+): string {
+  if (currentStatus === "waived") return "waived";
+  if (paid <= 0) return "unpaid";
+  if (due > 0 && paid >= due) return "paid";
+  return "partial";
+}
+
+/** Recompute a fee row's cached amount_paid / paid_date / status from its
+ *  non-void payments. Returns the updated fee_status row. */
+export async function recomputeFeeFromLedger(feeId: string): Promise<any> {
+  const { data: fee } = await serviceRoleClient
+    .from("fee_status").select("*").eq("id", feeId).maybeSingle();
+  if (!fee) return null;
+  const { data: pays } = await serviceRoleClient
+    .from("fee_payment")
+    .select("amount, paid_on")
+    .eq("fee_status_id", feeId)
+    .is("voided_at", null);
+  let sum = 0;
+  let latest: string | null = null;
+  for (const p of (pays ?? []) as any[]) {
+    sum += Number(p.amount) || 0;
+    if (!latest || p.paid_on > latest) latest = p.paid_on;
+  }
+  const status = deriveFeeStatus(Number((fee as any).amount_due ?? 0), sum, (fee as any).status);
+  const { data: upd } = await serviceRoleClient
+    .from("fee_status")
+    .update({ amount_paid: sum, paid_date: latest, status })
+    .eq("id", feeId)
+    .select()
+    .single();
+  return upd;
+}
+
+/** Fetch payments (newest first) for a set of fee ids, grouped by fee id. */
+export async function paymentsByFeeId(feeIds: string[]): Promise<Map<string, any[]>> {
+  const out = new Map<string, any[]>();
+  if (feeIds.length === 0) return out;
+  const { data } = await serviceRoleClient
+    .from("fee_payment")
+    .select("*")
+    .in("fee_status_id", feeIds)
+    .order("paid_on", { ascending: false })
+    .order("created_at", { ascending: false });
+  for (const r of (data ?? []) as any[]) {
+    const arr = out.get(r.fee_status_id) ?? [];
+    arr.push(paymentToJson(r));
+    out.set(r.fee_status_id, arr);
+  }
+  return out;
+}
+
+/** Per-student outstanding across ALL periods (unpaid + partial money),
+ *  sandbox excluded like every org rollup. */
+export async function outstandingByStudent(
+  orgId: string,
+): Promise<Record<string, { total: number; months: number; oldestPeriod: string | null }>> {
+  const { data } = await serviceRoleClient
+    .from("fee_status")
+    .select("student_id, period, amount_due, amount_paid, status, student:student_id(class_section:class_section_id(schedule_key))")
+    .eq("org_id", orgId)
+    .in("status", ["unpaid", "partial"]);
+  const out: Record<string, { total: number; months: number; oldestPeriod: string | null }> = {};
+  for (const r of (data ?? []) as any[]) {
+    if (r.student?.class_section?.schedule_key === "sandbox") continue;
+    const owed = Math.max(0, (Number(r.amount_due) || 0) - (Number(r.amount_paid) || 0));
+    if (owed <= 0) continue;
+    const cur = out[r.student_id] ?? { total: 0, months: 0, oldestPeriod: null };
+    cur.total += owed;
+    cur.months += 1;
+    if (!cur.oldestPeriod || r.period < cur.oldestPeriod) cur.oldestPeriod = r.period;
+    out[r.student_id] = cur;
+  }
+  return out;
+}
+
+const esc = (s: unknown) =>
+  String(s ?? "").replace(/[&<>"']/g, (ch) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[ch]!));
+
+/** Print-ready receipt HTML — shared by the staff route (family-JWT auth)
+ *  and the parent-portal route (PIN auth), so the payer can finally print
+ *  their own receipt. Lists every installment with its date and method. */
+export function renderFeeReceiptHtml(opts: {
+  feeId: string;
+  fee: any;
+  student: any;
+  orgName: string;
+  orgSettings: any;
+  payments: any[]; // paymentToJson shapes, non-void first-class
+}): string {
+  const { feeId, fee, student, orgName, orgSettings } = opts;
+  const logoUrl = orgSettings.logo_url || "";
+  const motto = orgSettings.school_motto || "";
+  const address = orgSettings.address || "";
+  const contactEmail = orgSettings.contact_email || "";
+  const themeColor = orgSettings.theme_color || "#0f766e";
+  const sectionName = student?.class_section?.name || "—";
+  const studentName = student?.full_name || "—";
+  const rollNumber = student?.roll_number || "—";
+  const amountDue = Number(fee.amount_due ?? 0);
+  const amountPaid = Number(fee.amount_paid ?? 0);
+  const balance = Math.max(0, amountDue - amountPaid);
+  const paidDate = fee.paid_date || fee.updated_at?.slice(0, 10) || "";
+  const period = fee.period || "—";
+  const status = fee.status || "—";
+  const live = opts.payments.filter((p) => !p.voidedAt);
+  const payRows = live
+    .map((p) => `<div class="row"><span>${esc(p.paidOn)}${p.method ? ` · ${esc(p.method)}` : ""}${p.reference ? ` · ref ${esc(p.reference)}` : ""}</span><span>${Number(p.amount).toFixed(2)}</span></div>`)
+    .join("\n");
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Receipt — ${esc(studentName)} — ${esc(period)}</title>
+<style>
+  @page { size: A4; margin: 18mm; }
+  body { font-family: -apple-system, system-ui, sans-serif; color: #0f172a; max-width: 720px; margin: 0 auto; padding: 24px; }
+  header { display: flex; align-items: center; gap: 16px; border-bottom: 3px solid ${esc(themeColor)}; padding-bottom: 16px; }
+  header img { height: 56px; max-width: 120px; object-fit: contain; }
+  header h1 { margin: 0; font-size: 22px; color: ${esc(themeColor)}; }
+  header p { margin: 4px 0 0; font-size: 12px; color: #475569; }
+  .meta { margin-top: 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; font-size: 13px; }
+  .meta div { display: flex; justify-content: space-between; border-bottom: 1px dotted #cbd5e1; padding: 4px 0; }
+  .meta dt { color: #64748b; }
+  .meta dd { margin: 0; font-weight: 600; }
+  .totals { margin-top: 24px; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; }
+  .totals .row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 14px; }
+  .totals .row.grand { border-top: 2px solid #e2e8f0; margin-top: 8px; padding-top: 12px; font-size: 16px; font-weight: 700; }
+  .totals h3 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; color: #64748b; }
+  .stamp { margin-top: 36px; padding: 12px 16px; background: ${esc(themeColor)}; color: white; border-radius: 6px; display: inline-block; font-weight: 700; letter-spacing: 0.5px; }
+  footer { margin-top: 40px; font-size: 11px; color: #64748b; border-top: 1px solid #e2e8f0; padding-top: 10px; }
+  .print-btn { background: ${esc(themeColor)}; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-size: 14px; cursor: pointer; }
+  @media print { .no-print { display: none; } }
+</style>
+</head>
+<body>
+<header>
+  ${logoUrl ? `<img src="${esc(logoUrl)}" alt="logo" />` : ""}
+  <div>
+    <h1>${esc(orgName)}</h1>
+    ${motto ? `<p><em>${esc(motto)}</em></p>` : ""}
+    ${address ? `<p>${esc(address)}</p>` : ""}
+    ${contactEmail ? `<p>${esc(contactEmail)}</p>` : ""}
+  </div>
+</header>
+
+<h2 style="margin-top:24px;font-size:18px;">Fee Receipt</h2>
+
+<dl class="meta">
+  <div><dt>Receipt ID</dt><dd>${esc(feeId.slice(0, 8))}</dd></div>
+  <div><dt>Date</dt><dd>${esc(paidDate)}</dd></div>
+  <div><dt>Student</dt><dd>${esc(studentName)}</dd></div>
+  <div><dt>Roll #</dt><dd>${esc(rollNumber)}</dd></div>
+  <div><dt>Class</dt><dd>${esc(sectionName)}</dd></div>
+  <div><dt>Period</dt><dd>${esc(period)}</dd></div>
+</dl>
+
+<div class="totals">
+  <div class="row"><span>Amount due</span><span>${amountDue.toFixed(2)}</span></div>
+${live.length > 0 ? `  <h3 style="margin-top:12px;">Payments</h3>\n${payRows}` : ""}
+  <div class="row"><span>Amount paid</span><span>${amountPaid.toFixed(2)}</span></div>
+  <div class="row grand"><span>${balance > 0 ? "Balance remaining" : "Balance"}</span><span>${balance.toFixed(2)}</span></div>
+</div>
+
+${status === "paid" ? `<div class="stamp">PAID</div>` : ""}
+
+<div class="no-print" style="margin-top:24px;">
+  <button class="print-btn" onclick="window.print()">Print / Save as PDF</button>
+</div>
+
+<footer>
+  Generated ${todayInOrgTz()} · This receipt is computer-generated and does not require a signature.
+</footer>
+</body>
+</html>`;
+}
+
+const isIsoDate = (s: unknown): boolean =>
+  typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
+
+export function installFeePayments(school: Hono): void {
+  // POST /school/orgs/:orgId/fees/:feeId/payments
+  school.post("/orgs/:orgId/fees/:feeId/payments", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    const feeId = c.req.param("feeId");
+    if (!(await userCanInOrg(userId, orgId, "mark_fees_status"))) {
+      return c.json({ error: "forbidden", code: "FORBIDDEN_PERMISSION" }, 403);
+    }
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    const amount = Number(body?.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return c.json({ error: "amount must be a positive number" }, 400);
+    }
+    const paidOn = body?.paidOn ?? todayInOrgTz();
+    if (!isIsoDate(paidOn)) return c.json({ error: "paidOn must be YYYY-MM-DD" }, 400);
+    const method = body?.method ?? null;
+    if (method !== null && !PAYMENT_METHODS.has(method)) {
+      return c.json({ error: "method must be cash, bank, online or other" }, 400);
+    }
+    const { data: fee } = await serviceRoleClient
+      .from("fee_status").select("id, org_id, student_id").eq("id", feeId).maybeSingle();
+    if (!fee || (fee as any).org_id !== orgId) return c.json({ error: "fee not found" }, 404);
+
+    const { data: pay, error } = await serviceRoleClient
+      .from("fee_payment")
+      .insert({
+        org_id: orgId,
+        fee_status_id: feeId,
+        student_id: (fee as any).student_id,
+        amount,
+        paid_on: paidOn,
+        method,
+        reference: typeof body?.reference === "string" ? body.reference.trim() || null : null,
+        notes: typeof body?.notes === "string" ? body.notes.trim() || null : null,
+        recorded_by: userId,
+      })
+      .select()
+      .single();
+    if (error) return c.json({ error: error.message }, 500);
+    const updated = await recomputeFeeFromLedger(feeId);
+    return c.json({ payment: paymentToJson(pay), fee: updated }, 201);
+  });
+
+  // POST /school/orgs/:orgId/fee-payments/:paymentId/void
+  school.post("/orgs/:orgId/fee-payments/:paymentId/void", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    const paymentId = c.req.param("paymentId");
+    if (!(await userCanInOrg(userId, orgId, "mark_fees_status"))) {
+      return c.json({ error: "forbidden", code: "FORBIDDEN_PERMISSION" }, 403);
+    }
+    let body: any;
+    try { body = await c.req.json(); } catch { body = {}; }
+    const { data: pay } = await serviceRoleClient
+      .from("fee_payment").select("id, org_id, fee_status_id, voided_at").eq("id", paymentId).maybeSingle();
+    if (!pay || (pay as any).org_id !== orgId) return c.json({ error: "payment not found" }, 404);
+    if ((pay as any).voided_at) return c.json({ error: "payment is already voided" }, 409);
+    const { error } = await serviceRoleClient
+      .from("fee_payment")
+      .update({
+        voided_at: new Date().toISOString(),
+        voided_by: userId,
+        void_reason: typeof body?.reason === "string" ? body.reason.trim() || null : null,
+      })
+      .eq("id", paymentId);
+    if (error) return c.json({ error: error.message }, 500);
+    const updated = await recomputeFeeFromLedger((pay as any).fee_status_id);
+    return c.json({ ok: true, fee: updated });
+  });
+}
+
+export default installFeePayments;

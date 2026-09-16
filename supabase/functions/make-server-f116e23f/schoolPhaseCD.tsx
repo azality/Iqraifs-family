@@ -20,6 +20,12 @@ import {
 } from "./middleware.tsx";
 import { verifyPinToken } from "./schoolPhaseA.tsx";
 import { todayInOrgTz } from "./tz.ts";
+import {
+  paymentsByFeeId,
+  outstandingByStudent,
+  recomputeFeeFromLedger,
+  renderFeeReceiptHtml,
+} from "./schoolFeePayments.tsx";
 // PR K: migrate fee + grade gates from hasAdminOrPrincipal to userCanInOrg
 // so financial_staff / class_teacher can act per their permission template.
 import {
@@ -839,6 +845,19 @@ export function installPhaseCD(school: Hono): void {
           recorded_by: userId,
           import_batch_id: batchId,
         });
+      if (!error && amountPaidNum > 0) {
+        // Keep the ledger consistent: the opening balance becomes one
+        // synthetic payment so history starts truthful.
+        const { data: newFee } = await serviceRoleClient
+          .from("fee_status").select("id").eq("student_id", studentId).eq("period", period).maybeSingle();
+        if (newFee) {
+          await serviceRoleClient.from("fee_payment").insert({
+            org_id: orgId, fee_status_id: (newFee as any).id, student_id: studentId,
+            amount: amountPaidNum, paid_on: r.paidDate || todayInOrgTz(),
+            notes: "opening balance import", recorded_by: userId,
+          });
+        }
+      }
       if (error) {
         const msg = (error as any).code === "23505"
           ? `fee for ${gr} / ${period} already exists`
@@ -891,7 +910,13 @@ export function installPhaseCD(school: Hono): void {
 
     const { data, error } = await q;
     if (error) return c.json({ error: error.message }, 500);
-    return c.json({ studentId, fees: (data ?? []).map(feeToJson) });
+    // Ledger alongside each month, so "when was it paid, and how much
+    // each time" is first-class (17 Sep).
+    const payMap = await paymentsByFeeId((data ?? []).map((r: any) => r.id));
+    return c.json({
+      studentId,
+      fees: (data ?? []).map((r: any) => ({ ...feeToJson(r), payments: payMap.get(r.id) ?? [] })),
+    });
   });
 
   // GET /school/orgs/:orgId/fees?period&status&sectionId
@@ -939,7 +964,13 @@ export function installPhaseCD(school: Hono): void {
       rows = rows.filter((r: any) => r.student?.class_section_id === sectionId);
     }
 
+    // What each family owes RIGHT NOW across every month - the number the
+    // office was challenged on ("unpaid August + September should show
+    // 8000, not 4000", 17 Sep).
+    const outstanding = await outstandingByStudent(orgId);
+
     return c.json({
+      outstandingByStudent: outstanding,
       fees: rows.map((r: any) => ({
         ...feeToJson(r),
         // Hydrated display fields. Snake_case to match the rest of the
@@ -993,21 +1024,21 @@ export function installPhaseCD(school: Hono): void {
       );
     }
 
+    // The payment LEDGER owns amount_paid and paid_date now (17 Sep):
+    // record money via POST /fees/:feeId/payments, undo via void. Status
+    // is derived from the ledger; the one manual state left is waived.
+    if (body.amountPaid !== undefined || body.paidDate !== undefined) {
+      return c.json({
+        error: "payments are recorded in the ledger now - POST /fees/:feeId/payments (void to correct)",
+        code: "USE_PAYMENT_LEDGER",
+      }, 400);
+    }
     const update: Record<string, unknown> = {};
+    let rederive = false;
     if (body.status !== undefined) {
       if (!FEE_STATUSES.has(body.status)) return c.json({ error: "invalid status" }, 400);
-      update.status = body.status;
-    }
-    if (body.amountPaid !== undefined) {
-      if (body.amountPaid === null) {
-        update.amount_paid = null;
-      } else {
-        const n = Number(body.amountPaid);
-        if (!Number.isFinite(n) || n < 0) {
-          return c.json({ error: "amountPaid must be non-negative number" }, 400);
-        }
-        update.amount_paid = n;
-      }
+      if (body.status === "waived") update.status = "waived";
+      else rederive = true; // un-waive: fall back to the ledger-derived state
     }
     if (body.amountDue !== undefined) {
       if (body.amountDue === null) {
@@ -1020,12 +1051,6 @@ export function installPhaseCD(school: Hono): void {
         update.amount_due = n;
       }
     }
-    if (body.paidDate !== undefined) {
-      if (body.paidDate !== null && !isIsoDate(body.paidDate)) {
-        return c.json({ error: "paidDate must be YYYY-MM-DD or null" }, 400);
-      }
-      update.paid_date = body.paidDate;
-    }
     if (body.dueDate !== undefined) {
       if (body.dueDate !== null && !isIsoDate(body.dueDate)) {
         return c.json({ error: "dueDate must be YYYY-MM-DD or null" }, 400);
@@ -1035,17 +1060,26 @@ export function installPhaseCD(school: Hono): void {
     if (body.receiptUrl !== undefined) update.receipt_url = body.receiptUrl ?? null;
     if (body.notes !== undefined) update.notes = body.notes ?? null;
 
-    if (Object.keys(update).length === 0) {
+    if (Object.keys(update).length === 0 && !rederive) {
       return c.json({ error: "no updatable fields supplied" }, 400);
     }
 
-    const { data: upd, error: updErr } = await serviceRoleClient
-      .from("fee_status")
-      .update(update)
-      .eq("id", feeId)
-      .select()
-      .single();
-    if (updErr) return c.json({ error: updErr.message }, 500);
+    let upd: any = null;
+    if (Object.keys(update).length > 0) {
+      const { data, error: updErr } = await serviceRoleClient
+        .from("fee_status")
+        .update(update)
+        .eq("id", feeId)
+        .select()
+        .single();
+      if (updErr) return c.json({ error: updErr.message }, 500);
+      upd = data;
+    }
+    if (rederive || body.amountDue !== undefined) {
+      // amount_due changed (or waived lifted): the derived status may
+      // flip (a paid month re-opens when its due rises).
+      upd = (await recomputeFeeFromLedger(feeId)) ?? upd;
+    }
     return c.json({ fee: feeToJson(upd) });
   });
 
@@ -1090,95 +1124,15 @@ export function installPhaseCD(school: Hono): void {
       .maybeSingle();
     const orgName = (org as any)?.name ?? "School";
     const orgSettings = (org as any)?.settings ?? {};
-    const logoUrl = orgSettings.logo_url || "";
-    const motto = orgSettings.school_motto || "";
-    const address = orgSettings.address || "";
-    const contactEmail = orgSettings.contact_email || "";
-    const themeColor = orgSettings.theme_color || "#0f766e";
-
-    const student = (fee as any).students || {};
-    const sectionName = student?.class_section?.name || "—";
-    const studentName = student?.full_name || "—";
-    const rollNumber = student?.roll_number || "—";
-
-    const amountDue = Number((fee as any).amount_due ?? 0);
-    const amountPaid = Number((fee as any).amount_paid ?? 0);
-    const balance = Math.max(0, amountDue - amountPaid);
-    const paidDate = (fee as any).paid_date || (fee as any).updated_at?.slice(0, 10) || "";
-    const period = (fee as any).period || "—";
-    const status = (fee as any).status || "—";
-
-    // Escape user-controlled strings to prevent XSS in the printed receipt.
-    const esc = (s: unknown) =>
-      String(s ?? "").replace(/[&<>"']/g, (ch) => ({
-        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-      }[ch]!));
-
-    const html = `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8" />
-<title>Receipt — ${esc(studentName)} — ${esc(period)}</title>
-<style>
-  @page { size: A4; margin: 18mm; }
-  body { font-family: -apple-system, system-ui, sans-serif; color: #0f172a; max-width: 720px; margin: 0 auto; padding: 24px; }
-  header { display: flex; align-items: center; gap: 16px; border-bottom: 3px solid ${esc(themeColor)}; padding-bottom: 16px; }
-  header img { height: 56px; max-width: 120px; object-fit: contain; }
-  header h1 { margin: 0; font-size: 22px; color: ${esc(themeColor)}; }
-  header p { margin: 4px 0 0; font-size: 12px; color: #475569; }
-  .meta { margin-top: 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; font-size: 13px; }
-  .meta div { display: flex; justify-content: space-between; border-bottom: 1px dotted #cbd5e1; padding: 4px 0; }
-  .meta dt { color: #64748b; }
-  .meta dd { margin: 0; font-weight: 600; }
-  .totals { margin-top: 24px; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; }
-  .totals .row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 14px; }
-  .totals .row.grand { border-top: 2px solid #e2e8f0; margin-top: 8px; padding-top: 12px; font-size: 16px; font-weight: 700; }
-  .stamp { margin-top: 36px; padding: 12px 16px; background: ${esc(themeColor)}; color: white; border-radius: 6px; display: inline-block; font-weight: 700; letter-spacing: 0.5px; }
-  footer { margin-top: 40px; font-size: 11px; color: #64748b; border-top: 1px solid #e2e8f0; padding-top: 10px; }
-  .print-btn { background: ${esc(themeColor)}; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-size: 14px; cursor: pointer; }
-  @media print { .no-print { display: none; } }
-</style>
-</head>
-<body>
-<header>
-  ${logoUrl ? `<img src="${esc(logoUrl)}" alt="logo" />` : ""}
-  <div>
-    <h1>${esc(orgName)}</h1>
-    ${motto ? `<p><em>${esc(motto)}</em></p>` : ""}
-    ${address ? `<p>${esc(address)}</p>` : ""}
-    ${contactEmail ? `<p>${esc(contactEmail)}</p>` : ""}
-  </div>
-</header>
-
-<h2 style="margin-top:24px;font-size:18px;">Fee Receipt</h2>
-
-<dl class="meta">
-  <div><dt>Receipt ID</dt><dd>${esc(feeId.slice(0, 8))}</dd></div>
-  <div><dt>Date</dt><dd>${esc(paidDate)}</dd></div>
-  <div><dt>Student</dt><dd>${esc(studentName)}</dd></div>
-  <div><dt>Roll #</dt><dd>${esc(rollNumber)}</dd></div>
-  <div><dt>Class</dt><dd>${esc(sectionName)}</dd></div>
-  <div><dt>Period</dt><dd>${esc(period)}</dd></div>
-</dl>
-
-<div class="totals">
-  <div class="row"><span>Amount due</span><span>${amountDue.toFixed(2)}</span></div>
-  <div class="row"><span>Amount paid</span><span>${amountPaid.toFixed(2)}</span></div>
-  <div class="row grand"><span>${balance > 0 ? "Balance remaining" : "Balance"}</span><span>${balance.toFixed(2)}</span></div>
-</div>
-
-${status === "paid" ? `<div class="stamp">PAID</div>` : ""}
-
-<div class="no-print" style="margin-top:24px;">
-  <button class="print-btn" onclick="window.print()">Print / Save as PDF</button>
-</div>
-
-<footer>
-  Generated ${todayInOrgTz()} · This receipt is computer-generated and does not require a signature.
-</footer>
-</body>
-</html>`;
-
+    const payMap = await paymentsByFeeId([feeId]);
+    const html = renderFeeReceiptHtml({
+      feeId,
+      fee: fee as any,
+      student: (fee as any).students || {},
+      orgName,
+      orgSettings,
+      payments: payMap.get(feeId) ?? [],
+    });
     return new Response(html, {
       status: 200,
       headers: {
@@ -1187,6 +1141,11 @@ ${status === "paid" ? `<div class="stamp">PAID</div>` : ""}
       },
     });
   });
+
+  // (Legacy inline receipt template removed - renderFeeReceiptHtml in
+  // schoolFeePayments.tsx is the one copy, shared with the parent
+  // portal's PIN-authenticated receipt route.)
+
 
   // -------------------------------------------------------------------------
   // Helpers used by the receipt visibility check above.

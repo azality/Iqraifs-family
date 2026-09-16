@@ -20,7 +20,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../../components/ui/dialog";
-import { Pencil, Trash2, CheckCircle2 } from "lucide-react";
+import { Pencil, Trash2, Banknote } from "lucide-react";
 import { HeroCard, KpiTile, DataTable, type DataTableColumn, NoAccessRedirect } from "../../components/school-ui";
 import {
   getSchoolMe,
@@ -30,11 +30,14 @@ import {
   listOrgFees,
   bulkGenerateFees,
   type BulkFeeGenerateResult,
-  updateFee,
+  addFeePayment,
+  voidFeePayment,
   deleteFee,
   type AdminClass,
   type FeeStatus,
+  type FeePayment,
   type FeeStatusValue,
+  type StudentOutstanding,
   type SchoolMeResponse,
 } from "../../../utils/schoolApi";
 import { useOrgPermissionState } from "./useOrgPermission";
@@ -55,22 +58,37 @@ function periodOptions(): string[] {
 }
 
 const STATUS_LABEL: Record<FeeStatusValue, string> = {
-  pending: "Pending",
+  unpaid: "Unpaid",
   paid: "Paid",
   partial: "Partial",
-  overdue: "Overdue",
   waived: "Waived",
 };
 
 const STATUS_BADGE: Record<FeeStatusValue, string> = {
-  pending: "bg-slate-100 text-slate-700",
+  unpaid: "bg-slate-100 text-slate-700",
   paid: "bg-emerald-100 text-emerald-700",
   partial: "bg-amber-100 text-amber-700",
-  overdue: "bg-rose-100 text-rose-700",
   waived: "bg-indigo-100 text-indigo-700",
 };
 
-export function FeeStatusBadge({ status }: { status: FeeStatusValue }) {
+/** Overdue is a VIEW, not a stored status: unpaid/partial past its due
+ *  date. The old code kept "overdue" in the status vocabulary, which the
+ *  server rejects with 400 and which nothing ever set (fees review). */
+export function isOverdue(f: FeeStatus): boolean {
+  if (f.status === "paid" || f.status === "waived") return false;
+  if (!f.due_date) return false;
+  return f.due_date < new Date().toISOString().slice(0, 10);
+}
+
+export function FeeStatusBadge({ fee }: { fee: FeeStatus }) {
+  if (isOverdue(fee)) {
+    return (
+      <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-rose-100 text-rose-700">
+        Overdue{fee.status === "partial" ? " - partial" : ""}
+      </span>
+    );
+  }
+  const status = (fee.status in STATUS_BADGE ? fee.status : "unpaid") as FeeStatusValue;
   return (
     <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGE[status]}`}>
       {STATUS_LABEL[status]}
@@ -78,38 +96,88 @@ export function FeeStatusBadge({ status }: { status: FeeStatusValue }) {
   );
 }
 
-interface MarkPaidState {
-  fee: FeeStatus;
-  amountPaid: string;
-  paidDate: string;
-  receiptUrl: string;
-}
+export const fmtRs = (n: number) => `Rs ${Math.round(n).toLocaleString()}`;
 
-export function MarkPaidDialog({
-  state,
+// Record-payment dialog (17 Sep). Replaces "Mark paid": shows the month's
+// due / paid-so-far / REMAINING (prefilled), captures amount + date +
+// method + slip reference, lists every earlier installment with a void
+// link, and never disappears — the old dialog hardcoded status "paid" on
+// any amount and then hid its own button, so a partial payment could
+// neither be completed nor corrected.
+export function RecordPaymentDialog({
+  fee,
   onClose,
   onSaved,
   orgId,
 }: {
-  state: MarkPaidState | null;
+  fee: FeeStatus | null;
   onClose: () => void;
   onSaved: () => void;
   orgId: string;
 }) {
-  const [form, setForm] = useState<MarkPaidState | null>(state);
-  useEffect(() => setForm(state), [state]);
-  if (!form) return null;
+  const [amount, setAmount] = useState("");
+  const [paidOn, setPaidOn] = useState("");
+  const [method, setMethod] = useState<string>("cash");
+  const [reference, setReference] = useState("");
+  const [notes, setNotes] = useState("");
+  const [payments, setPayments] = useState<FeePayment[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!fee) return;
+    const due = fee.amount_due ?? 0;
+    const paid = fee.amount_paid ?? 0;
+    const remaining = Math.max(0, due - paid);
+    setAmount(remaining > 0 ? String(remaining) : "");
+    setPaidOn(new Date().toISOString().slice(0, 10));
+    setMethod("cash");
+    setReference("");
+    setNotes("");
+    setPayments(fee.payments ?? []);
+  }, [fee]);
+
+  if (!fee) return null;
+  const due = fee.amount_due ?? 0;
+  const paid = fee.amount_paid ?? 0;
+  const remaining = Math.max(0, due - paid);
 
   const submit = async () => {
+    const amt = parseFloat(amount);
+    if (!Number.isFinite(amt) || amt <= 0) {
+      toast.error("Enter the amount received.");
+      return;
+    }
+    setSaving(true);
     try {
-      const amt = parseFloat(form.amountPaid);
-      await updateFee(orgId, form.fee.id, {
-        amountPaid: isNaN(amt) ? undefined : amt,
-        paidDate: form.paidDate || undefined,
-        receiptUrl: form.receiptUrl || undefined,
-        status: "paid",
+      const r = await addFeePayment(orgId, fee.id, {
+        amount: amt,
+        paidOn: paidOn || undefined,
+        method,
+        reference: reference.trim() || undefined,
+        notes: notes.trim() || undefined,
       });
-      toast.success("Marked paid");
+      const nowPaid = r.fee?.amount_paid ?? paid + amt;
+      const left = Math.max(0, due - nowPaid);
+      toast.success(
+        left > 0
+          ? `Recorded ${fmtRs(amt)} — ${fmtRs(left)} still due for ${fee.period}`
+          : `Recorded ${fmtRs(amt)} — ${fee.period} settled`,
+      );
+      onClose();
+      onSaved();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const voidOne = async (p: FeePayment) => {
+    if (!confirm(`Void the ${fmtRs(p.amount)} payment from ${p.paidOn}? The month's total recalculates.`)) return;
+    const reason = prompt("Reason (optional):") ?? "";
+    try {
+      await voidFeePayment(orgId, p.id, reason.trim() || undefined);
+      toast.success("Payment voided");
       onClose();
       onSaved();
     } catch (e) {
@@ -118,18 +186,59 @@ export function MarkPaidDialog({
   };
 
   return (
-    <Dialog open={!!state} onOpenChange={(v) => !v && onClose()}>
+    <Dialog open={!!fee} onOpenChange={(v) => !v && onClose()}>
       <DialogContent>
-        <DialogHeader><DialogTitle>Mark fee paid</DialogTitle></DialogHeader>
-        <div className="space-y-2">
-          <p className="text-sm text-slate-600">{form.fee.student_name ?? form.fee.student_id} · {form.fee.period}</p>
-          <div><Label>Amount paid</Label><Input type="number" step="0.01" value={form.amountPaid} onChange={(e) => setForm({ ...form, amountPaid: e.target.value })} /></div>
-          <div><Label>Paid date</Label><Input type="date" value={form.paidDate} onChange={(e) => setForm({ ...form, paidDate: e.target.value })} /></div>
-          <div><Label>Receipt URL</Label><Input value={form.receiptUrl} onChange={(e) => setForm({ ...form, receiptUrl: e.target.value })} placeholder="https://…" /></div>
+        <DialogHeader><DialogTitle>Record payment</DialogTitle></DialogHeader>
+        <p className="text-sm text-slate-600 -mt-1">
+          {fee.student_name ?? fee.student_id} · {fee.period}
+        </p>
+        <div className="grid grid-cols-3 gap-2 rounded-lg bg-slate-50 p-2 text-center">
+          <div><div className="text-[10px] font-bold uppercase text-slate-400">Due</div><div className="text-sm font-bold tabular-nums">{fmtRs(due)}</div></div>
+          <div><div className="text-[10px] font-bold uppercase text-slate-400">Paid</div><div className="text-sm font-bold tabular-nums text-emerald-700">{fmtRs(paid)}</div></div>
+          <div><div className="text-[10px] font-bold uppercase text-slate-400">Remaining</div><div className={`text-sm font-bold tabular-nums ${remaining > 0 ? "text-rose-600" : "text-emerald-700"}`}>{fmtRs(remaining)}</div></div>
         </div>
+        <div className="grid grid-cols-2 gap-2">
+          <div><Label>Amount received</Label><Input type="number" step="0.01" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus /></div>
+          <div><Label>Date</Label><Input type="date" value={paidOn} onChange={(e) => setPaidOn(e.target.value)} /></div>
+          <div>
+            <Label>Method</Label>
+            <select
+              value={method}
+              onChange={(e) => setMethod(e.target.value)}
+              className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm"
+            >
+              <option value="cash">Cash</option>
+              <option value="bank">Bank deposit</option>
+              <option value="online">Online transfer</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div><Label>Slip / reference #</Label><Input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="optional" /></div>
+        </div>
+        <div><Label>Notes</Label><Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="optional" /></div>
+        {payments.length > 0 && (
+          <div className="rounded-lg border border-slate-200">
+            <div className="border-b border-slate-100 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+              Payments so far
+            </div>
+            {payments.map((p) => (
+              <div key={p.id} className={`flex items-center justify-between px-2.5 py-1.5 text-xs ${p.voidedAt ? "text-slate-400 line-through" : "text-slate-700"}`}>
+                <span className="tabular-nums">{p.paidOn}{p.method ? ` · ${p.method}` : ""}{p.reference ? ` · ${p.reference}` : ""}</span>
+                <span className="flex items-center gap-2">
+                  <b className="tabular-nums">{fmtRs(p.amount)}</b>
+                  {!p.voidedAt && (
+                    <button type="button" className="text-rose-600 underline" onClick={() => void voidOne(p)}>
+                      void
+                    </button>
+                  )}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={submit}>Save</Button>
+          <Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button onClick={submit} disabled={saving}>{saving ? "Saving…" : "Record payment"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -154,7 +263,10 @@ export function FeesOverview() {
   const [genClassId, setGenClassId] = useState<string>("__all__");
   const [feesLoaded, setFeesLoaded] = useState(false);
   const [classes, setClasses] = useState<AdminClass[]>([]);
-  const [markPaid, setMarkPaid] = useState<MarkPaidState | null>(null);
+  const [payFee, setPayFee] = useState<FeeStatus | null>(null);
+  // What each family owes across EVERY month - "unpaid August + September
+  // should show 8000, not 4000" (fees review, 17 Sep).
+  const [outstanding, setOutstanding] = useState<Record<string, StudentOutstanding>>({});
 
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
@@ -162,12 +274,23 @@ export function FeesOverview() {
 
   const refresh = () => {
     if (!orgId) return;
+    // "overdue" is a view, not a stored status (the server 400s on it) -
+    // fetch everything and filter client-side by due date.
+    const serverStatus =
+      statusFilter !== "__all__" && statusFilter !== "overdue"
+        ? (statusFilter as FeeStatusValue)
+        : undefined;
     listOrgFees(orgId, {
       period,
-      status: statusFilter !== "__all__" ? (statusFilter as FeeStatusValue) : undefined,
+      status: serverStatus,
       sectionId: sectionFilter !== "__all__" ? sectionFilter : undefined,
     })
-      .then((r) => { setFees(r.fees); setFeesLoaded(true); })
+      .then((r) => {
+        const rows = statusFilter === "overdue" ? r.fees.filter(isOverdue) : r.fees;
+        setFees(rows);
+        setOutstanding(r.outstandingByStudent ?? {});
+        setFeesLoaded(true);
+      })
       .catch((e) => toast.error(e instanceof Error ? e.message : String(e)));
   };
 
@@ -229,11 +352,15 @@ export function FeesOverview() {
     for (const f of fees) {
       due += f.amount_due ?? 0;
       paid += f.amount_paid ?? 0;
-      if (f.status === "paid") paidCount++;
+      if (f.status === "paid" || f.status === "waived") paidCount++;
       else unpaidCount++;
     }
     return { due, paid, paidCount, unpaidCount };
   }, [fees]);
+  const outstandingTotal = useMemo(
+    () => Object.values(outstanding).reduce((n, o) => n + o.total, 0),
+    [outstanding],
+  );
 
   // Permission-aware gate. isOrgAdmin still short-circuits for
   // principal/admin; other roles resolve through the effective matrix
@@ -288,9 +415,25 @@ export function FeesOverview() {
       ),
     },
     { key: "period", header: "Period", width: "w-24", cell: (f) => <span className="text-xs tabular-nums">{f.period}</span> },
-    { key: "status", header: "Status", width: "w-24", cell: (f) => <FeeStatusBadge status={f.status} /> },
+    { key: "status", header: "Status", width: "w-24", cell: (f) => <FeeStatusBadge fee={f} /> },
     { key: "due", header: "Due", align: "right", width: "w-24", cell: (f) => <span className="tabular-nums">{f.amount_due ?? "—"}</span> },
     { key: "paid", header: "Paid", align: "right", width: "w-24", cell: (f) => <span className="tabular-nums">{f.amount_paid ?? "—"}</span> },
+    {
+      key: "outstanding",
+      header: "Owes (all months)",
+      align: "right",
+      width: "w-32",
+      cell: (f) => {
+        const o = outstanding[f.student_id];
+        if (!o || o.total <= 0) return <span className="text-xs text-emerald-600">clear</span>;
+        return (
+          <span className="tabular-nums font-semibold text-rose-600" title={`${o.months} month${o.months === 1 ? "" : "s"} since ${o.oldestPeriod ?? ""}`}>
+            {fmtRs(o.total)}
+            {o.months > 1 && <span className="ml-1 text-[10px] font-normal text-rose-400">×{o.months}</span>}
+          </span>
+        );
+      },
+    },
     { key: "dueDate", header: "Due date", width: "w-28", cell: (f) => <span className="text-xs text-slate-600 tabular-nums">{f.due_date ?? "—"}</span> },
     {
       key: "receipt",
@@ -312,24 +455,15 @@ export function FeesOverview() {
       width: "w-32",
       cell: (f) => (
         <div className="inline-flex gap-0.5" onClick={(e) => e.stopPropagation()}>
-          {f.status !== "paid" && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 w-7 p-0"
-              title="Mark paid"
-              onClick={() =>
-                setMarkPaid({
-                  fee: f,
-                  amountPaid: String(f.amount_due ?? ""),
-                  paidDate: new Date().toISOString().slice(0, 10),
-                  receiptUrl: "",
-                })
-              }
-            >
-              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-            </Button>
-          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0"
+            title={f.status === "paid" ? "Payments / corrections" : "Record payment"}
+            onClick={() => setPayFee(f)}
+          >
+            <Banknote className={`h-3.5 w-3.5 ${f.status === "paid" ? "text-slate-400" : "text-emerald-600"}`} />
+          </Button>
           <Link to={`/school/orgs/${orgId}/students/${f.student_id}/fees`} onClick={(e) => e.stopPropagation()}>
             <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Edit">
               <Pencil className="h-3.5 w-3.5" />
@@ -410,11 +544,17 @@ export function FeesOverview() {
         </div>
       ) : (
       <>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <KpiTile variant="light" label="Students" value={fees.length} hint="this period" />
         <KpiTile variant="light" label="Paid" value={totals.paidCount} hint={`${totals.unpaidCount} unpaid`} />
-        <KpiTile variant="light" label="Total due" value={totals.due} hint="amount" />
-        <KpiTile variant="light" label="Collected" value={totals.paid} hint="amount" />
+        <KpiTile variant="light" label="Total due" value={totals.due} hint="this period" />
+        <KpiTile variant="light" label="Collected" value={totals.paid} hint="this period" />
+        <KpiTile
+          variant="light"
+          label="Outstanding"
+          value={fmtRs(outstandingTotal)}
+          hint={`all months · ${Object.keys(outstanding).length} students`}
+        />
       </div>
 
       <div className="flex gap-2 flex-wrap items-center rounded-xl border border-slate-200 bg-white p-2 shadow-sm">
@@ -422,10 +562,10 @@ export function FeesOverview() {
           <SelectTrigger className="h-9 w-44"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="__all__">All statuses</SelectItem>
-            <SelectItem value="pending">Pending</SelectItem>
+            <SelectItem value="unpaid">Unpaid</SelectItem>
             <SelectItem value="paid">Paid</SelectItem>
             <SelectItem value="partial">Partial</SelectItem>
-            <SelectItem value="overdue">Overdue</SelectItem>
+            <SelectItem value="overdue">Overdue (past due date)</SelectItem>
             <SelectItem value="waived">Waived</SelectItem>
           </SelectContent>
         </Select>
@@ -459,7 +599,7 @@ export function FeesOverview() {
       </>
       )}
 
-      <MarkPaidDialog state={markPaid} onClose={() => setMarkPaid(null)} onSaved={refresh} orgId={orgId} />
+      <RecordPaymentDialog fee={payFee} onClose={() => setPayFee(null)} onSaved={refresh} orgId={orgId} />
     </div>
   );
 }

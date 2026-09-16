@@ -21,6 +21,7 @@
 // =============================================================================
 
 import type { Hono, Context } from "npm:hono";
+import { paymentsByFeeId, renderFeeReceiptHtml } from "./schoolFeePayments.tsx";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { userHasRoleRow, hasAdminOrPrincipal, hasAnyRoleInOrg, teachesSubjectInSection } from "./schoolAuth.ts";
 import { verifyPinToken } from "./schoolPhaseA.tsx";
@@ -897,7 +898,56 @@ export function installAnnounce(school: Hono): void {
       }
     }
 
-    return c.json({ fees: (data ?? []).map(feeToJson), bankAccount });
+    const payMap = await paymentsByFeeId((data ?? []).map((r: any) => r.id));
+    return c.json({
+      fees: (data ?? []).map((r: any) => ({ ...feeToJson(r), payments: payMap.get(r.id) ?? [] })),
+      bankAccount,
+    });
+  });
+
+  // GET /school/pin-me/fees/:feeId/receipt - the PAYER's own printable
+  // receipt (17 Sep). The staff route authenticates with a family JWT,
+  // which a PIN-signed parent doesn't hold, so parents could see fees
+  // but never print one. Same shared renderer, PIN-gated to a parent of
+  // the fee's student.
+  school.get("/pin-me/fees/:feeId/receipt", async (c) => {
+    const auth = await requirePin(c);
+    if ((auth as any).__error) {
+      const e = auth as any;
+      return c.json(e.body, e.status);
+    }
+    const subject = auth as PinTokenPayload;
+    if (subject.subjectType !== "parent") {
+      return c.json({ error: "fees are visible to parents only" }, 403);
+    }
+    const feeId = c.req.param("feeId");
+    const { data: fee } = await serviceRoleClient
+      .from("fee_status")
+      .select("*, students:student_id(id, full_name, roll_number, class_section:class_section_id(name))")
+      .eq("id", feeId)
+      .maybeSingle();
+    if (!fee || (fee as any).org_id !== subject.orgId) {
+      return c.json({ error: "fee not found" }, 404);
+    }
+    const accessible = await resolveAccessibleStudents(subject);
+    if (!accessible.includes((fee as any).student_id)) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const { data: org } = await serviceRoleClient
+      .from("organizations").select("name, settings").eq("id", subject.orgId).maybeSingle();
+    const payMap = await paymentsByFeeId([feeId]);
+    const html = renderFeeReceiptHtml({
+      feeId,
+      fee: fee as any,
+      student: (fee as any).students || {},
+      orgName: (org as any)?.name ?? "School",
+      orgSettings: (org as any)?.settings ?? {},
+      payments: payMap.get(feeId) ?? [],
+    });
+    return new Response(html, {
+      status: 200,
+      headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
+    });
   });
 }
 

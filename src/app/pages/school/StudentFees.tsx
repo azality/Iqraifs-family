@@ -14,7 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../../components/ui/dialog";
-import { Plus, CheckCircle2, Trash2, FileText } from "lucide-react";
+import { Plus, Banknote, Trash2, FileText } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -34,7 +34,7 @@ import {
   type SchoolMeResponse,
   type StudentWithParents,
 } from "../../../utils/schoolApi";
-import { FeeStatusBadge, MarkPaidDialog } from "./FeesOverview";
+import { FeeStatusBadge, RecordPaymentDialog, fmtRs } from "./FeesOverview";
 
 export function StudentFees() {
   const { orgId = "", studentId = "" } = useParams();
@@ -59,12 +59,7 @@ export function StudentFees() {
     dueDate: "",
     notes: "",
   });
-  const [markPaid, setMarkPaid] = useState<{
-    fee: FeeStatus;
-    amountPaid: string;
-    paidDate: string;
-    receiptUrl: string;
-  } | null>(null);
+  const [payFee, setPayFee] = useState<FeeStatus | null>(null);
 
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
@@ -169,7 +164,7 @@ export function StudentFees() {
         </div>
       ),
     },
-    { key: "status", header: "Status", width: "w-24", cell: (f) => <FeeStatusBadge status={f.status} /> },
+    { key: "status", header: "Status", width: "w-24", cell: (f) => <FeeStatusBadge fee={f} /> },
     {
       key: "due",
       header: "Due",
@@ -193,8 +188,20 @@ export function StudentFees() {
     },
     {
       key: "paidDate",
-      header: "Paid date",
-      cell: (f) => <span className="text-xs text-slate-600 tabular-nums">{f.paid_date ?? "—"}</span>,
+      header: "Payments",
+      cell: (f) => {
+        const live = (f.payments ?? []).filter((p) => !p.voidedAt);
+        if (live.length === 0) return <span className="text-xs text-slate-400">—</span>;
+        return (
+          <div className="space-y-0.5">
+            {live.map((p) => (
+              <div key={p.id} className="text-xs text-slate-600 tabular-nums">
+                {p.paidOn} · {fmtRs(p.amount)}{p.method ? ` · ${p.method}` : ""}
+              </div>
+            ))}
+          </div>
+        );
+      },
     },
     {
       key: "receipt",
@@ -211,7 +218,7 @@ export function StudentFees() {
             </a>
           );
         }
-        if (f.status === "paid") {
+        if ((f.payments ?? []).some((p) => !p.voidedAt) || f.status === "paid") {
           // Backend endpoint at /school/orgs/:orgId/fees/:feeId/receipt
           const url = `${import.meta.env.VITE_SUPABASE_URL ?? "https://ybrkbrrkcqpzpjnjdyib.supabase.co"}/functions/v1/make-server-f116e23f/school/orgs/${orgId}/fees/${f.id}/receipt`;
           return (
@@ -229,24 +236,15 @@ export function StudentFees() {
       align: "right",
       cell: (f) => (
         <div className="inline-flex gap-0.5" onClick={(e) => e.stopPropagation()}>
-          {f.status !== "paid" && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 w-7 p-0"
-              title="Mark paid"
-              onClick={() =>
-                setMarkPaid({
-                  fee: f,
-                  amountPaid: String(f.amount_due ?? ""),
-                  paidDate: new Date().toISOString().slice(0, 10),
-                  receiptUrl: "",
-                })
-              }
-            >
-              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-            </Button>
-          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0"
+            title={f.status === "paid" ? "Payments / corrections" : "Record payment"}
+            onClick={() => setPayFee(f)}
+          >
+            <Banknote className={`h-3.5 w-3.5 ${f.status === "paid" ? "text-slate-400" : "text-emerald-600"}`} />
+          </Button>
           <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleDelete(f)}>
             <Trash2 className="h-3.5 w-3.5 text-rose-600" />
           </Button>
@@ -266,6 +264,39 @@ export function StudentFees() {
           </Link>
         }
       />
+
+      {/* The one page with every month in hand finally answers "what does
+          this family owe" (fees review, 17 Sep). */}
+      {fees.length > 0 && (() => {
+        let billed = 0, paid = 0, owed = 0, owedMonths = 0;
+        for (const f of fees) {
+          billed += f.amount_due ?? 0;
+          paid += f.amount_paid ?? 0;
+          if (f.status !== "waived") {
+            const o = Math.max(0, (f.amount_due ?? 0) - (f.amount_paid ?? 0));
+            if (o > 0) { owed += o; owedMonths += 1; }
+          }
+        }
+        return (
+          <div className="grid grid-cols-3 gap-3">
+            <div className="rounded-xl border border-slate-200 bg-white p-3 text-center">
+              <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Billed (all months)</div>
+              <div className="text-lg font-extrabold tabular-nums text-slate-900">{fmtRs(billed)}</div>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-white p-3 text-center">
+              <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Paid</div>
+              <div className="text-lg font-extrabold tabular-nums text-emerald-700">{fmtRs(paid)}</div>
+            </div>
+            <div className={`rounded-xl border p-3 text-center ${owed > 0 ? "border-rose-200 bg-rose-50" : "border-emerald-200 bg-emerald-50"}`}>
+              <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Outstanding</div>
+              <div className={`text-lg font-extrabold tabular-nums ${owed > 0 ? "text-rose-700" : "text-emerald-700"}`}>
+                {fmtRs(owed)}
+              </div>
+              {owedMonths > 0 && <div className="text-[10px] text-rose-500">{owedMonths} month{owedMonths === 1 ? "" : "s"} pending</div>}
+            </div>
+          </div>
+        );
+      })()}
 
       <div className="flex justify-end">
         <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" onClick={openAdd}>
@@ -361,7 +392,7 @@ export function StudentFees() {
         </DialogContent>
       </Dialog>
 
-      <MarkPaidDialog state={markPaid} onClose={() => setMarkPaid(null)} onSaved={refresh} orgId={orgId} />
+      <RecordPaymentDialog fee={payFee} onClose={() => setPayFee(null)} onSaved={refresh} orgId={orgId} />
     </div>
   );
 }

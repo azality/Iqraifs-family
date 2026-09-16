@@ -1389,6 +1389,18 @@ export function installPhaseA(school: Hono) {
         .from("fee_status").select("status, amount_due")
         .eq("student_id", studentId).eq("period", period).limit(1).maybeSingle();
       if (fee) quickFacts.feeStatus = fee.status;
+      // Arrears across ALL months - "paid this month" showed a green
+      // tick over three months of unpaid fees (fees review, 17 Sep).
+      const { data: owedRows } = await serviceRoleClient
+        .from("fee_status").select("amount_due, amount_paid")
+        .eq("student_id", studentId).in("status", ["unpaid", "partial"]);
+      let owedTotal = 0;
+      let owedMonths = 0;
+      for (const r of (owedRows ?? []) as any[]) {
+        const owed = Math.max(0, (Number(r.amount_due) || 0) - (Number(r.amount_paid) || 0));
+        if (owed > 0) { owedTotal += owed; owedMonths += 1; }
+      }
+      quickFacts.feeOutstanding = { total: owedTotal, months: owedMonths };
     } catch {
       // enrichment only
     }

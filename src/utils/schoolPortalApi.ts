@@ -515,6 +515,25 @@ export const getMyStudentFees = (
 }> =>
   pinApiCall(`/school/pin-me/students/${studentId}/fees`);
 
+/** Open the print-ready receipt for one month in a new tab. The route is
+ *  PIN-authenticated via header, which a plain link can't carry - fetch
+ *  the HTML and open it as a blob URL. */
+export const openMyFeeReceipt = async (feeId: string): Promise<void> => {
+  const headers: Record<string, string> = {
+    apikey: publicAnonKey,
+    Authorization: `Bearer ${publicAnonKey}`,
+  };
+  const token = getPinToken();
+  if (token) headers["X-Pin-Token"] = token;
+  const res = await fetch(`${API_BASE}/school/pin-me/fees/${feeId}/receipt`, { headers });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+    throw new Error((body as any).error || `Request failed: ${res.status}`);
+  }
+  const blob = new Blob([await res.text()], { type: "text/html" });
+  window.open(URL.createObjectURL(blob), "_blank", "noopener");
+};
+
 // ─── Timetable (PR feat/timetable-consumers) ───────────────────────────
 // Parent + student portal weekly view of the student's section
 // timetable. Slots come from the org skeleton; entries fall back to

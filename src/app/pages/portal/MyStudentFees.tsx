@@ -11,8 +11,10 @@ import {
   type DataTableColumn,
 } from "../../components/school-ui";
 import { usePinAuth } from "../../contexts/PinAuthContext";
+import { toast } from "sonner";
 import {
   getMyStudentFees,
+  openMyFeeReceipt,
   type FeeStatus,
 } from "../../../utils/schoolPortalApi";
 
@@ -20,22 +22,32 @@ type Status = FeeStatus["status"];
 
 const STATUS_BADGE: Record<Status, string> = {
   paid: "bg-emerald-100 text-emerald-700 border-emerald-200",
-  pending: "bg-rose-100 text-rose-700 border-rose-200",
+  unpaid: "bg-rose-100 text-rose-700 border-rose-200",
   partial: "bg-amber-100 text-amber-700 border-amber-200",
-  overdue: "bg-rose-100 text-rose-700 border-rose-200",
   waived: "bg-slate-100 text-slate-700 border-slate-200",
 };
 
 const STATUS_LABEL_KEY: Record<Status, string> = {
   paid: "portal.fees.stPaid",
-  pending: "portal.fees.stPending",
+  unpaid: "portal.fees.stPending",
   partial: "portal.fees.stPartial",
-  overdue: "portal.fees.stOverdue",
   waived: "portal.fees.stWaived",
 };
 
-function FeeStatusPill({ status }: { status: Status }) {
+const isOverdue = (f: FeeStatus): boolean =>
+  f.status !== "paid" && f.status !== "waived" &&
+  !!f.due_date && f.due_date < new Date().toISOString().slice(0, 10);
+
+function FeeStatusPill({ fee }: { fee: FeeStatus }) {
   const { t } = useTranslation();
+  if (isOverdue(fee)) {
+    return (
+      <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium border bg-rose-100 text-rose-700 border-rose-200">
+        {t("portal.fees.stOverdue")}
+      </span>
+    );
+  }
+  const status = (fee.status in STATUS_BADGE ? fee.status : "unpaid") as Status;
   return (
     <span
       className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium border ${STATUS_BADGE[status]}`}
@@ -44,6 +56,15 @@ function FeeStatusPill({ status }: { status: Status }) {
     </span>
   );
 }
+
+// "2026-08" -> "Aug 2026" for the row label; parents kept seeing raw
+// period strings while the admin page had pretty labels.
+const MONTH_SHORT = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const periodLabel = (period: string): string => {
+  const m = /^(\d{4})-(\d{2})$/.exec(period);
+  if (!m) return period;
+  return `${MONTH_SHORT[Number(m[2])] || period} ${m[1]}`;
+};
 
 export function MyStudentFees() {
   const { t } = useTranslation();
@@ -83,18 +104,25 @@ export function MyStudentFees() {
   }, [studentId]);
 
   const summary = useMemo(() => {
-    if (!fees) return { paid: 0, unpaid: 0, totalDue: 0, totalPaid: 0 };
+    if (!fees) return { paid: 0, unpaid: 0, totalDue: 0, totalPaid: 0, balance: 0 };
     let paid = 0;
     let unpaid = 0;
     let totalDue = 0;
     let totalPaid = 0;
+    // The number the family actually needs: what they OWE right now,
+    // summed across every month (unpaid August + September = 8,000, not
+    // "4,000 · August" - fees review, 17 Sep).
+    let balance = 0;
     for (const f of fees) {
       if (f.status === "paid" || f.status === "waived") paid += 1;
       else unpaid += 1;
       totalDue += f.amount_due ?? 0;
       totalPaid += f.amount_paid ?? 0;
+      if (f.status !== "waived") {
+        balance += Math.max(0, (f.amount_due ?? 0) - (f.amount_paid ?? 0));
+      }
     }
-    return { paid, unpaid, totalDue, totalPaid };
+    return { paid, unpaid, totalDue, totalPaid, balance };
   }, [fees]);
 
   const columns: Array<DataTableColumn<FeeStatus>> = [
@@ -102,13 +130,18 @@ export function MyStudentFees() {
       key: "period",
       header: t("portal.fees.colPeriod"),
       width: "w-28",
-      cell: (f) => <span className="font-mono text-xs">{f.period}</span>,
+      cell: (f) => (
+        <div>
+          <div className="text-sm font-medium text-slate-800">{periodLabel(f.period)}</div>
+          <div className="font-mono text-[10px] text-slate-400">{f.period}</div>
+        </div>
+      ),
     },
     {
       key: "status",
       header: t("portal.fees.colStatus"),
       width: "w-24",
-      cell: (f) => <FeeStatusPill status={f.status} />,
+      cell: (f) => <FeeStatusPill fee={f} />,
     },
     {
       key: "due",
@@ -124,11 +157,21 @@ export function MyStudentFees() {
       key: "paid",
       header: t("portal.fees.colPaid"),
       align: "right",
-      cell: (f) => (
-        <span className="tabular-nums">
-          {f.amount_paid != null ? `Rs. ${Number(f.amount_paid).toLocaleString("en-PK")}` : "—"}
-        </span>
-      ),
+      cell: (f) => {
+        const live = (f.payments ?? []).filter((p) => !p.voidedAt);
+        return (
+          <div>
+            <span className="tabular-nums">
+              {f.amount_paid != null ? `Rs. ${Number(f.amount_paid).toLocaleString("en-PK")}` : "—"}
+            </span>
+            {live.map((p) => (
+              <div key={p.id} className="text-[10px] tabular-nums text-slate-400">
+                {p.paidOn} · Rs. {Number(p.amount).toLocaleString("en-PK")}
+              </div>
+            ))}
+          </div>
+        );
+      },
     },
     {
       key: "dueDate",
@@ -142,19 +185,34 @@ export function MyStudentFees() {
     {
       key: "receipt",
       header: t("portal.fees.colReceipt"),
-      cell: (f) =>
-        f.receipt_url ? (
-          <a
-            href={f.receipt_url}
-            target="_blank"
-            rel="noreferrer"
-            className="text-indigo-600 text-xs underline"
-          >
-            {t("portal.fees.view")}
-          </a>
-        ) : (
-          <span className="text-xs text-slate-400">—</span>
-        ),
+      cell: (f) => {
+        if (f.receipt_url) {
+          return (
+            <a
+              href={f.receipt_url}
+              target="_blank"
+              rel="noreferrer"
+              className="text-indigo-600 text-xs underline"
+            >
+              {t("portal.fees.view")}
+            </a>
+          );
+        }
+        // The payer can print their own receipt now (17 Sep) - any month
+        // with money recorded gets the school-branded printable page.
+        if ((f.payments ?? []).some((p) => !p.voidedAt)) {
+          return (
+            <button
+              type="button"
+              className="text-indigo-600 text-xs underline"
+              onClick={() => openMyFeeReceipt(f.id).catch((e) => toast.error(e instanceof Error ? e.message : String(e)))}
+            >
+              {t("portal.fees.printReceipt")}
+            </button>
+          );
+        }
+        return <span className="text-xs text-slate-400">—</span>;
+      },
     },
   ];
 
@@ -171,19 +229,25 @@ export function MyStudentFees() {
         </div>
       )}
 
+      {/* Balance FIRST - the old tiles showed gross billed-ever and made
+          the family do the subtraction (fees review, 17 Sep). */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <KpiTile
+          variant="light"
+          label={t("portal.fees.balanceDue")}
+          icon={summary.balance > 0 ? AlertCircle : CheckCircle2}
+          value={`Rs. ${summary.balance.toLocaleString("en-PK")}`}
+          hint={
+            summary.balance > 0
+              ? t("portal.fees.monthsPending", { n: summary.unpaid })
+              : t("portal.fees.allSettled")
+          }
+        />
         <KpiTile
           variant="light"
           label={t("portal.fees.stPaid")}
           icon={CheckCircle2}
           value={summary.paid}
-          hint={t("portal.fees.hintPeriods")}
-        />
-        <KpiTile
-          variant="light"
-          label={t("portal.fees.unpaid")}
-          icon={AlertCircle}
-          value={summary.unpaid}
           hint={t("portal.fees.hintPeriods")}
         />
         <KpiTile
