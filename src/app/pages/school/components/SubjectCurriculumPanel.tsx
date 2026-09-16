@@ -50,7 +50,7 @@ import { TopicResourcesPanel } from "./TopicResourcesPanel";
 import { SyllabusCameraDialog } from "./SyllabusCameraDialog";
 import { Textarea } from "../../../components/ui/textarea";
 import { Sparkles, Library, Copy, Camera, FileUp } from "lucide-react";
-import { extractSyllabusText, detectClassSections, sectionLines, type ClassSection } from "../../../../utils/docxText";
+import { extractSyllabusText, detectClassSections, sectionLines, parseTopicLines, type ClassSection } from "../../../../utils/docxText";
 
 /** Downscale a phone photo before upload — Claude reads at most ~1568px
  *  on the long edge, so anything bigger only costs bandwidth. */
@@ -448,17 +448,9 @@ export function SubjectCurriculumPanel({
     // Each line: "topic", or "topic — details" / "topic :: details" /
     // tab-separated (a Word/Excel paste). The details land as the
     // topic's description — how answers, hadith meanings and dua texts
-    // ride along without a developer (15 Sep).
-    const names = source
-      .split(/\r?\n/)
-      .map((line) => line.replace(/^[\s\-\*\d\.\)]+/, "").trim()) // strip bullets / "1." prefixes
-      .filter((line) => line.length > 0)
-      .map((line) => {
-        const m = /^(.+?)(?:\t+| — | :: )(.+)$/.exec(line);
-        return m
-          ? { name: m[1].trim(), description: m[2].trim() }
-          : { name: line };
-      });
+    // ride along without a developer (15 Sep). Parsing is shared with
+    // the whole-file upload dialog so the two surfaces never drift.
+    const names = parseTopicLines(source);
     if (names.length === 0) {
       toast.error("No topics found in the text");
       return;

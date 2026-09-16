@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import { ClassSubjectsManager } from "./components/ClassSubjectsManager";
+import { FullSyllabusUploadDialog } from "./components/FullSyllabusUploadDialog";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -46,6 +47,7 @@ import {
   ClipboardCheck,
   Table2,
   ListChecks,
+  FileUp,
 } from "lucide-react";
 import { useOrgPermissionState } from "./useOrgPermission";
 import {
@@ -80,6 +82,7 @@ export function ManageClasses() {
   const [bellSchedules, setBellSchedules] = useState<BellSchedule[]>([]);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [addOpen, setAddOpen] = useState(false);
+  const [syllabusUploadOpen, setSyllabusUploadOpen] = useState(false);
   const [newClassName, setNewClassName] = useState("");
   const [newClassKind, setNewClassKind] = useState<"academic" | "hifz">("academic");
   const [editing, setEditing] = useState<AdminClass | null>(null);
@@ -258,6 +261,16 @@ export function ManageClasses() {
               <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">← Admin</Button>
             </Link>
             {canManage && (
+              <Button
+                onClick={() => setSyllabusUploadOpen(true)}
+                size="sm"
+                variant="outline"
+                className="bg-white/10 border-white/20 text-white hover:bg-white/20"
+              >
+                <FileUp className="h-4 w-4 mr-1" /> Upload syllabus
+              </Button>
+            )}
+            {canManage && (
               <Button onClick={() => setAddOpen(true)} size="sm" className="bg-white text-slate-900 hover:bg-slate-100">
                 <Plus className="h-4 w-4 mr-1" /> Add Class
               </Button>
@@ -265,6 +278,15 @@ export function ManageClasses() {
           </div>
         }
       />
+
+      {canManage && (
+        <FullSyllabusUploadDialog
+          orgId={orgId}
+          classes={orderedClasses.filter((c) => !isHifzClass(c))}
+          open={syllabusUploadOpen}
+          onClose={() => setSyllabusUploadOpen(false)}
+        />
+      )}
 
       {error && <p className="text-sm text-rose-600">{error}</p>}
 
