@@ -40,14 +40,72 @@ function assert(cond: unknown, msg: string) {
 }
 
 async function api(token: string | null, path: string, init: RequestInit = {}): Promise<Response> {
-  const headers: Record<string, string> = { apikey: ANON, ...(init.headers as any ?? {}) };
-  if (token) headers.Authorization = `Bearer ${token}`;
-  if (init.body && typeof init.body === "string") headers["Content-Type"] = "application/json";
-  return await fetch(`${FUNC}${path}`, { ...init, headers });
+  const doFetch = async (tok: string | null) => {
+    const headers: Record<string, string> = { apikey: ANON, ...(init.headers as any ?? {}) };
+    if (tok) headers.Authorization = `Bearer ${tok}`;
+    if (init.body && typeof init.body === "string") headers["Content-Type"] = "application/json";
+    return await fetch(`${FUNC}${path}`, { ...init, headers });
+  };
+  const res = await doFetch(token);
+  // Self-healing auth (16 Sep): under the project's new asymmetric
+  // signing keys the server revokes sessions on schedules this suite
+  // cannot fully predict (password rotations, same-second cutoffs,
+  // sweeps minutes later). Rather than out-guessing it: a 401 on a
+  // token WE minted re-logs that user in once, updates the shared
+  // token object so every later check gets the fresh one, and retries
+  // this request. A 401 on an unknown token stays a 401 - negative
+  // auth checks expect 403s, so this never masks a real gate.
+  if (res.status === 401 && token && tokenOwners.has(token)) {
+    const owner = tokenOwners.get(token)!;
+    const fresh = await reLogin(owner.email);
+    if (fresh) return await doFetch(fresh);
+  }
+  return res;
 }
 
 // ── Scaffolding ─────────────────────────────────────────────────────────
+// One ensure per user per run. ensureUser rotates the password, and
+// since the project moved to asymmetric signing keys (16 Sep) a
+// rotation revokes the user's earlier sessions - so a mid-run
+// re-ensure was 401-ing every token minted at the top of the file
+// (solo runs failed checks 30/33/34 with 401s where 403s were
+// expected). Passwords still rotate once per run; repeats reuse the
+// run's token.
+const ensuredUsers = new Map<string, { id: string; token: string }>();
+// token -> which QA user minted it, so api() can heal a revoked one.
+const tokenOwners = new Map<string, { email: string; name: string; role: string }>();
+
+/** Rotate + re-sign-in one already-ensured user, updating the SAME
+ *  cached object in place so `teacher.token` etc. refresh everywhere. */
+async function reLogin(email: string): Promise<string | null> {
+  const entry = ensuredUsers.get(email);
+  const owner = [...tokenOwners.values()].find((o) => o.email === email);
+  if (!entry || !owner) return null;
+  const { data: listed } = await admin.auth.admin.listUsers({ page: 1, perPage: 500 });
+  const u = listed.users.find((x: any) => (x.email ?? "").toLowerCase() === email);
+  if (!u) return null;
+  const password = crypto.randomUUID();
+  await admin.auth.admin.updateUserById(u.id, { password });
+  const anon = createClient(URL_, ANON) as any;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const { data: sess, error: sErr } = await anon.auth.signInWithPassword({ email, password });
+    if (sErr) return null;
+    const probe = await fetch(`${FUNC}/school/orgs/${ORG}/terms`, {
+      headers: { apikey: ANON, Authorization: `Bearer ${sess.session.access_token}` },
+    });
+    if (probe.status !== 401) {
+      entry.token = sess.session.access_token;
+      tokenOwners.set(entry.token, owner);
+      return entry.token;
+    }
+    await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
+  }
+  return null;
+}
+
 async function ensureUser(email: string, name: string, role: string): Promise<{ id: string; token: string }> {
+  const cached = ensuredUsers.get(email);
+  if (cached) return cached;
   const { data: listed } = await admin.auth.admin.listUsers({ page: 1, perPage: 500 });
   let u = listed.users.find((x: any) => (x.email ?? "").toLowerCase() === email);
   const password = crypto.randomUUID();
@@ -64,9 +122,25 @@ async function ensureUser(email: string, name: string, role: string): Promise<{ 
     await admin.from("user_roles").insert({ user_id: u.id, role_type: role, scope_type: "organization", scope_id: ORG, granted_by: u.id });
   }
   const anon = createClient(URL_, ANON) as any;
-  const { data: sess, error: sErr } = await anon.auth.signInWithPassword({ email, password });
-  if (sErr) throw new Error(`signin ${email}: ${sErr.message}`);
-  return { id: u.id, token: sess.session.access_token };
+  // Asymmetric-keys race (16 Sep): rotating the password revokes
+  // sessions with a same-second cutoff, so a token minted in the same
+  // instant can be born revoked. Sign in, PROBE the token against a
+  // real endpoint, and retry with backoff until it's genuinely live.
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const { data: sess, error: sErr } = await anon.auth.signInWithPassword({ email, password });
+    if (sErr) throw new Error(`signin ${email}: ${sErr.message}`);
+    const probe = await fetch(`${FUNC}/school/orgs/${ORG}/terms`, {
+      headers: { apikey: ANON, Authorization: `Bearer ${sess.session.access_token}` },
+    });
+    if (probe.status !== 401) {
+      const out = { id: u.id, token: sess.session.access_token };
+      ensuredUsers.set(email, out);
+      tokenOwners.set(out.token, { email, name, role });
+      return out;
+    }
+    await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
+  }
+  throw new Error(`token for ${email} stayed revoked after retries`);
 }
 
 console.log("== IFS regression suite ==");
@@ -1299,6 +1373,13 @@ await check("34. staff profile admin: profile patch, temp-password reset + force
   assert(clear.status === 200, `password-changed ${clear.status}`);
   const { data: cleared } = await admin.auth.admin.getUserById(teacher.id);
   assert(!cleared?.user?.app_metadata?.must_change_password, "flag not cleared");
+
+  // The reset above revoked every earlier qa-teacher session (asymmetric
+  // signing keys, 16 Sep). Re-mint and refresh the run cache so
+  // teacher.token keeps working for every later check.
+  ensuredUsers.delete("qa-teacher@azality.com");
+  const fresh = await ensureUser("qa-teacher@azality.com", "QA Teacher", "class_teacher");
+  teacher.token = fresh.token;
 });
 
 await check("35. teacher performance: admin-gated aggregate, sane shape", async () => {
