@@ -5229,9 +5229,14 @@ await check("97. counter flow: one amount settles owed months oldest-first", asy
 
     // The printable receipt renders (it selected a roll_number column
     // that never existed - latent behind the old 401 until 17 Sep).
+    // NOTE: assert on the BODY, not content-type - the Supabase gateway
+    // forcibly rewrites HTML responses to text/plain + a sandbox CSP
+    // (anti-phishing for the functions domain), whatever the function
+    // sets. That is why the app opens receipts via fetch -> blob.
     const rc = await api(admin2.token, `/school/orgs/${ORG}/fees/${sepId}/receipt`);
-    assert(rc.status === 200, `receipt should render, got ${rc.status}: ${(await rc.text()).slice(0, 120)}`);
-    assert((rc.headers.get("content-type") ?? "").includes("text/html"), "receipt must be HTML");
+    const rcBody = await rc.text();
+    assert(rc.status === 200, `receipt should render, got ${rc.status}: ${rcBody.slice(0, 120)}`);
+    assert(rcBody.trimStart().startsWith("<!doctype html"), `receipt body must be the HTML page, got: ${rcBody.slice(0, 80)}`);
 
     // Nothing outstanding -> unpinned refuses instead of inventing a target.
     const a3 = await api(admin2.token, `/school/orgs/${ORG}/students/${pStu1}/fee-payments`, {
