@@ -4558,7 +4558,8 @@ await check("89. paste-many carries details: 'topic — answer' lines save the d
       method: "POST", body: JSON.stringify({ names: entries }),
     });
     const j = await r.json();
-    assert(r.status === 200 && j.added === 2, `bulk ${r.status}: ${JSON.stringify(j).slice(0, 140)}`);
+    // 201 when rows were inserted; 200 only on the nothing-to-add paths.
+    assert(r.status === 201 && j.added === 2, `bulk ${r.status}: ${JSON.stringify(j).slice(0, 140)}`);
     const { data: tops } = await admin.from("curriculum_topic")
       .select("name, description, display_order").eq("curriculum_id", cur.id).order("display_order");
     assert(tops?.length === 2, `expected 2 topics, got ${tops?.length}`);
