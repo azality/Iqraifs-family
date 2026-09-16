@@ -46,6 +46,7 @@
 // =============================================================================
 
 import type { Hono } from "npm:hono";
+import Anthropic from "npm:@anthropic-ai/sdk";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { userCanInOrg, hasAnyRoleInOrg as hasAnyOrgRole } from "./schoolAuth.ts";
 
@@ -728,6 +729,96 @@ export function installCurriculum(school: Hono) {
       },
       201,
     );
+  });
+
+  // ---------------------------------------------------------------------------
+  // POST /school/class-curriculum/:id/topics/from-photo
+  // Body: { imageBase64, mediaType } — a photo of the syllabus page.
+  //
+  // The scaling ask (Muneeb, 15 Sep): schools share syllabi as WhatsApp
+  // photos of handwritten notebooks. Claude reads the page into
+  // "topic — detail" lines; the CLIENT drops them into the Paste many
+  // box for the teacher to review and correct — nothing saves without
+  // a human, and saving goes through the same idempotent bulk endpoint.
+  // Reads cost roughly a cent per page (Opus 5); the key lives in the
+  // ANTHROPIC_API_KEY function secret and never reaches a browser.
+  // ---------------------------------------------------------------------------
+  school.post("/class-curriculum/:id/topics/from-photo", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const curriculumId = c.req.param("id");
+    const ctx = await curriculumOrgId(curriculumId);
+    if (!ctx) return c.json({ error: "curriculum not found" }, 404);
+    if (!(await userCanInOrg(userId, ctx.orgId, "define_curriculum"))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON body" }, 400); }
+    const imageBase64 = typeof body?.imageBase64 === "string" ? body.imageBase64 : "";
+    const mediaType = typeof body?.mediaType === "string" ? body.mediaType : "";
+    if (!imageBase64) return c.json({ error: "imageBase64 required" }, 400);
+    if (imageBase64.length > 8_000_000) {
+      return c.json({ error: "photo too large — retake or crop to the page" }, 400);
+    }
+    if (!["image/jpeg", "image/png", "image/webp"].includes(mediaType)) {
+      return c.json({ error: "mediaType must be image/jpeg, image/png or image/webp" }, 400);
+    }
+
+    const apiKey = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+    if (!apiKey) {
+      return c.json({ error: "photo import is not configured (ANTHROPIC_API_KEY missing)" }, 500);
+    }
+
+    const anthropic = new Anthropic({ apiKey });
+    let response: any;
+    try {
+      response = await anthropic.beta.messages.create({
+        model: "claude-opus-5",
+        max_tokens: 4096,
+        // Safety-classifier declines re-route to a fallback model
+        // server-side instead of failing the teacher's upload.
+        betas: ["server-side-fallback-2026-07-01"],
+        fallbacks: "default",
+        system:
+          "You transcribe ONE page of a school syllabus — often handwritten Urdu, Arabic or English " +
+          "from a teacher's notebook — into a plain list for import. Output ONLY the list: no headings, " +
+          "no commentary, no numbering, no code fences. One topic per line, in the page's own order, " +
+          "keeping the exact wording and script (never transliterate). When a line carries its own " +
+          "detail — the answer to a question, a hadith's meaning, a dua's Arabic text — write it as " +
+          "'topic — detail' with ' — ' between the halves. A page number that belongs to a title stays " +
+          "inside the title, e.g. 'Salam (p. 4)'. Skip crossed-out text, signatures, dates and " +
+          "decorations. If nothing on the page is readable, output nothing.",
+        messages: [{
+          role: "user",
+          content: [
+            { type: "image", source: { type: "base64", media_type: mediaType, data: imageBase64 } },
+            { type: "text", text: "Transcribe this syllabus page into import lines." },
+          ],
+        }],
+      } as any);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.log(`[from-photo] anthropic error: ${msg.slice(0, 300)}`);
+      return c.json({ error: `could not read the photo: ${msg.slice(0, 200)}` }, 502);
+    }
+
+    if (response?.stop_reason === "refusal") {
+      return c.json({ error: "the reader declined this image — try a clearer photo of just the page" }, 422);
+    }
+    const lines = (response?.content ?? [])
+      .filter((b: any) => b.type === "text")
+      .map((b: any) => b.text)
+      .join("\n")
+      .trim();
+    return c.json({
+      lines,
+      model: response?.model ?? null,
+      usage: {
+        inputTokens: response?.usage?.input_tokens ?? null,
+        outputTokens: response?.usage?.output_tokens ?? null,
+      },
+    });
   });
 
   // ---------------------------------------------------------------------------

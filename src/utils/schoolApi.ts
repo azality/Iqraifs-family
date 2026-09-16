@@ -623,6 +623,19 @@ export const addClassCurriculumTopic = (
  * already exist (case-insensitive vs current topics on this curriculum)
  * are silently skipped — re-applying a template is idempotent.
  */
+/** Claude reads a photo of a syllabus page into "topic — detail" lines
+ *  for the Paste many box. Nothing is saved — the teacher reviews the
+ *  lines and presses Add all like any other paste. */
+export const readSyllabusPhoto = (
+  curriculumId: string,
+  imageBase64: string,
+  mediaType: string,
+): Promise<{ lines: string; model: string | null; usage: { inputTokens: number | null; outputTokens: number | null } }> =>
+  apiCall(`/school/class-curriculum/${curriculumId}/topics/from-photo`, {
+    method: "POST",
+    body: JSON.stringify({ imageBase64, mediaType }),
+  });
+
 export const bulkAddClassCurriculumTopics = (
   curriculumId: string,
   names: Array<string | { name: string; description?: string | null }>,

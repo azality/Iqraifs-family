@@ -6,7 +6,7 @@
 // One Math/Grade 3/2026-27 syllabus applies to every section of Grade 3.
 // Teachers later log lessons against the topics defined here.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import {
   ChevronDown,
@@ -30,6 +30,7 @@ import {
   createClassCurriculum,
   addClassCurriculumTopic,
   bulkAddClassCurriculumTopics,
+  readSyllabusPhoto,
   copyCurriculumFromYear,
   updateClassCurriculumTopic,
   deleteClassCurriculumTopic,
@@ -47,7 +48,31 @@ import {
 import { templateForSubject } from "./curriculumTemplates";
 import { TopicResourcesPanel } from "./TopicResourcesPanel";
 import { Textarea } from "../../../components/ui/textarea";
-import { Sparkles, Library, Copy } from "lucide-react";
+import { Sparkles, Library, Copy, Camera } from "lucide-react";
+
+/** Downscale a phone photo before upload — Claude reads at most ~1568px
+ *  on the long edge, so anything bigger only costs bandwidth. */
+async function photoToBase64(file: File): Promise<{ base64: string; mediaType: string }> {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = () => reject(new Error("Could not open that image — try a JPG or PNG."));
+      i.src = url;
+    });
+    const MAX = 1568;
+    const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(img.width * scale));
+    canvas.height = Math.max(1, Math.round(img.height * scale));
+    canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+    return { base64: dataUrl.slice(dataUrl.indexOf(",") + 1), mediaType: "image/jpeg" };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
 
 interface Props {
   classSubjectId: string;
@@ -112,6 +137,34 @@ export function SubjectCurriculumPanel({
   // Bulk-add — paste many topics at once, one per line.
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkText, setBulkText] = useState("");
+  // Photo import: Claude reads the page into the paste box; the teacher
+  // reviews before anything saves.
+  const [photoReading, setPhotoReading] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handlePhotoPicked = async (file: File | null) => {
+    if (!file) return;
+    setPhotoReading(true);
+    try {
+      const { base64, mediaType } = await photoToBase64(file);
+      const cur = await ensureCurriculum();
+      if (!cur) return;
+      const r = await readSyllabusPhoto(cur.id, base64, mediaType);
+      if (!r.lines) {
+        toast.error("Couldn't read anything on that photo — try a straighter, better-lit shot.");
+        return;
+      }
+      const n = r.lines.split(/\r?\n/).filter((s) => s.trim()).length;
+      setBulkText((prev) => (prev.trim() ? `${prev.replace(/\s+$/, "")}\n${r.lines}` : r.lines));
+      setBulkOpen(true);
+      toast.success(`Read ${n} line${n === 1 ? "" : "s"} from the photo — check them, then Add all.`);
+    } catch (e: any) {
+      toast.error(e?.message || "Could not read the photo");
+    } finally {
+      setPhotoReading(false);
+      if (photoInputRef.current) photoInputRef.current.value = "";
+    }
+  };
 
   // Inline rename
   const [editingTopicId, setEditingTopicId] = useState<string | null>(null);
@@ -941,6 +994,24 @@ export function SubjectCurriculumPanel({
                   >
                     <Library className="mr-1 h-3.5 w-3.5" />
                     Paste many
+                  </Button>
+                  {/* Photo of the notebook page → Claude reads it into the
+                      paste box; a human always reviews before Add all. */}
+                  <input
+                    ref={photoInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => void handlePhotoPicked(e.target.files?.[0] ?? null)}
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => photoInputRef.current?.click()}
+                    disabled={saving || photoReading}
+                  >
+                    <Camera className="mr-1 h-3.5 w-3.5" />
+                    {photoReading ? "Reading photo…" : "Read from photo"}
                   </Button>
                   <Button
                     size="sm"
