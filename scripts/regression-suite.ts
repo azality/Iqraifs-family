@@ -5227,6 +5227,12 @@ await check("97. counter flow: one amount settles owed months oldest-first", asy
     const sep2 = a2.fees.find((f: any) => f.id === sepId);
     assert(sep2.amount_paid === 4000 && sep2.status === "paid", `Sep pinned: ${sep2.amount_paid}/${sep2.status}`);
 
+    // The printable receipt renders (it selected a roll_number column
+    // that never existed - latent behind the old 401 until 17 Sep).
+    const rc = await api(admin2.token, `/school/orgs/${ORG}/fees/${sepId}/receipt`);
+    assert(rc.status === 200, `receipt should render, got ${rc.status}: ${(await rc.text()).slice(0, 120)}`);
+    assert((rc.headers.get("content-type") ?? "").includes("text/html"), "receipt must be HTML");
+
     // Nothing outstanding -> unpinned refuses instead of inventing a target.
     const a3 = await api(admin2.token, `/school/orgs/${ORG}/students/${pStu1}/fee-payments`, {
       method: "POST", body: JSON.stringify({ amount: 100 }),
