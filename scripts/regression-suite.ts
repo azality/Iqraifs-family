@@ -4828,6 +4828,31 @@ await check("93. an incharge runs their own wing's syllabus - and nothing leaks 
   const inch = await ensureUser("qa-incharge@azality.com", "QA Incharge", "class_teacher");
   const cleanup: Array<() => Promise<unknown>> = [];
   try {
+    // Checks 31/36 can leave a (possibly revoked) wing row for this same
+    // tuple, and the unique constraint counts revoked rows - clear it
+    // before inserting fresh (first run of 93: "duplicate key").
+    await admin.from("user_roles").delete()
+      .eq("user_id", inch.id).eq("role_type", "incharge")
+      .eq("scope_type", "class").eq("scope_id", sandboxClass.id);
+    // qa-incharge also holds org class_teacher (shared fixture). The
+    // outside-wing 403 below is only meaningful while class_teacher's
+    // define_curriculum is OFF - pin the override for the check's
+    // duration and restore exactly the prior row after (one key only).
+    const { data: prevOv } = await admin.from("role_template_override")
+      .select("allowed").eq("org_id", ORG)
+      .eq("role_template", "class_teacher").eq("permission_key", "define_curriculum")
+      .maybeSingle();
+    await admin.from("role_template_override").upsert(
+      { org_id: ORG, role_template: "class_teacher", permission_key: "define_curriculum", allowed: false },
+      { onConflict: "org_id,role_template,permission_key" },
+    );
+    cleanup.push(async () => prevOv
+      ? admin.from("role_template_override").upsert(
+          { org_id: ORG, role_template: "class_teacher", permission_key: "define_curriculum", allowed: (prevOv as any).allowed },
+          { onConflict: "org_id,role_template,permission_key" },
+        )
+      : admin.from("role_template_override").delete()
+          .eq("org_id", ORG).eq("role_template", "class_teacher").eq("permission_key", "define_curriculum"));
     const { data: wingRow, error: wErr } = await admin.from("user_roles").insert({
       user_id: inch.id, role_type: "incharge", scope_type: "class",
       scope_id: sandboxClass.id, granted_by: principal.id,
