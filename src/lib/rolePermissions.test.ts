@@ -8,6 +8,7 @@
 import { describe, it, expect } from "vitest";
 import {
   DEFAULT_PERMISSIONS,
+  WING_SCOPED_KEYS,
   PERMISSIONS,
   ROLES,
   getEffectivePermission,
@@ -106,5 +107,18 @@ describe("userCan", () => {
 
   it("empty roles set is always false", () => {
     expect(userCan([], "mark_attendance")).toBe(false);
+  });
+});
+
+describe("incharge — wing-scoped only", () => {
+  it("defaults grant incharge nothing outside the wing-aware keys", () => {
+    // Incharge cells are read only by userCanForClass for a class in the
+    // wing. A true default on any other key would be a permission that
+    // silently does nothing (or, if a route ever read it school-wide, a leak).
+    for (const key of PERMISSIONS) {
+      if (DEFAULT_PERMISSIONS.incharge[key]) {
+        expect(WING_SCOPED_KEYS).toContain(key);
+      }
+    }
   });
 });

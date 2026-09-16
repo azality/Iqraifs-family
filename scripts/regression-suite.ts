@@ -4819,6 +4819,92 @@ await check("92. dashboard hifz + resources tiles count what the school actually
   }
 });
 
+await check("93. an incharge runs their own wing's syllabus - and nothing leaks school-wide", async () => {
+  // Muneeb (16 Sep): Upload syllabus "should be granted to Incharge of
+  // their own wing". Incharge matrix cells are wing-scoped
+  // (userCanForClass); userCanInOrg ignores the incharge role, so an
+  // override can never open a school-wide door. Removing the staff
+  // member must also revoke their class-scoped wing rows.
+  const inch = await ensureUser("qa-incharge@azality.com", "QA Incharge", "class_teacher");
+  const cleanup: Array<() => Promise<unknown>> = [];
+  try {
+    const { data: wingRow, error: wErr } = await admin.from("user_roles").insert({
+      user_id: inch.id, role_type: "incharge", scope_type: "class",
+      scope_id: sandboxClass.id, granted_by: principal.id,
+    }).select("id").single();
+    if (wErr) throw new Error(`wing row: ${wErr.message}`);
+    cleanup.push(() => admin.from("user_roles").delete().eq("id", wingRow.id));
+
+    // Outside the wing: a throwaway class, so a wrongly-open gate writes
+    // test data, never a real class's syllabus.
+    const { data: outCls, error: ocErr } = await admin.from("class").insert({
+      org_id: ORG, name: `QA Outside Wing ${Date.now()}`, display_order: 999,
+    }).select("id").single();
+    if (ocErr) throw new Error(`outside class: ${ocErr.message}`);
+    cleanup.push(() => admin.from("class").delete().eq("id", outCls.id));
+    const { data: outCs, error: ocsErr } = await admin.from("class_subject").insert({
+      org_id: ORG, class_id: outCls.id, name: "QA Outside Subject", sort_order: 1, created_by: principal.id,
+    }).select("id").single();
+    if (ocsErr) throw new Error(`outside subject: ${ocsErr.message}`);
+    cleanup.push(() => admin.from("class_subject").delete().eq("id", outCs.id));
+    const { data: outSec, error: osErr } = await admin.from("class_section").insert({
+      class_id: outCls.id, name: "Z",
+    }).select("id").single();
+    if (osErr) throw new Error(`outside section: ${osErr.message}`);
+    cleanup.push(() => admin.from("class_section").delete().eq("id", outSec.id));
+
+    const year = "QA-WING";
+    const dropCurricula = async (csId: string) => {
+      const { data: curs } = await admin.from("curriculum").select("id")
+        .eq("class_subject_id", csId).eq("academic_year", year);
+      for (const cu of (curs ?? []) as any[]) {
+        await admin.from("curriculum_topic").delete().eq("curriculum_id", cu.id);
+        await admin.from("curriculum").delete().eq("id", cu.id);
+      }
+    };
+    cleanup.push(() => dropCurricula(qaCs.id));
+    cleanup.push(() => dropCurricula(outCs.id));
+
+    // 1. Inside the wing: create the year's curriculum and bulk-add topics
+    //    (the Upload syllabus path).
+    const mk = await api(inch.token, `/school/class-subjects/${qaCs.id}/curriculum`, {
+      method: "POST", body: JSON.stringify({ academicYear: year, title: "QA wing" }),
+    });
+    const mkj = await mk.json();
+    assert(mk.ok, `incharge creating their wing's curriculum: ${mk.status} ${JSON.stringify(mkj).slice(0, 120)}`);
+    const bulk = await api(inch.token, `/school/class-curriculum/${mkj.curriculum.id}/topics/bulk`, {
+      method: "POST", body: JSON.stringify({ names: ["QA wing topic"] }),
+    });
+    assert(bulk.ok, `incharge bulk-adding topics in their wing: ${bulk.status}`);
+
+    // 2. Outside the wing: refused before anything is written.
+    const outMk = await api(inch.token, `/school/class-subjects/${outCs.id}/curriculum`, {
+      method: "POST", body: JSON.stringify({ academicYear: year }),
+    });
+    assert(outMk.status === 403, `outside-wing curriculum must 403, got ${outMk.status}`);
+    const outTab = await api(inch.token, `/school/orgs/${ORG}/sections/${outSec.id}/tabulation`);
+    assert(outTab.status === 403, `outside-wing tabulation must 403, got ${outTab.status}`);
+
+    // 3. An incharge override on a school-wide key never opens a door.
+    await admin.from("role_template_override").upsert(
+      { org_id: ORG, role_template: "incharge", permission_key: "manage_students", allowed: true },
+      { onConflict: "org_id,role_template,permission_key" },
+    );
+    cleanup.push(() => admin.from("role_template_override").delete()
+      .eq("org_id", ORG).eq("role_template", "incharge").eq("permission_key", "manage_students"));
+    const leak = await api(inch.token, `/school/orgs/${ORG}/students-next-gr`);
+    assert(leak.status === 403, `an incharge override must not grant school-wide manage_students, got ${leak.status}`);
+
+    // 4. Removing the staff member revokes the wing row too.
+    const rm = await api(principal.token, `/school/orgs/${ORG}/teachers/${inch.id}`, { method: "DELETE" });
+    assert(rm.ok, `remove staff ${rm.status}`);
+    const { data: after } = await admin.from("user_roles").select("revoked_at").eq("id", wingRow.id).maybeSingle();
+    assert(after && after.revoked_at, "removing a staff member must revoke their incharge wing rows");
+  } finally {
+    for (const fn of cleanup.reverse()) await fn();
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

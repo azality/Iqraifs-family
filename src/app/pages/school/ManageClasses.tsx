@@ -49,7 +49,7 @@ import {
   ListChecks,
   FileUp,
 } from "lucide-react";
-import { useOrgPermissionState } from "./useOrgPermission";
+import { useOrgPermission, useOrgPermissionState } from "./useOrgPermission";
 import {
   getSchoolMe,
   isOrgAdmin,
@@ -77,7 +77,7 @@ export function ManageClasses() {
   const { orgId = "" } = useParams();
   const [me, setMe] = useState<SchoolMeResponse | null>(null);
   const [meLoading, setMeLoading] = useState(true);
-  const [classes, setClasses] = useState<AdminClass[]>([]);
+  const [allClasses, setClasses] = useState<AdminClass[]>([]);
   const [teachers, setTeachers] = useState<AdminTeacher[]>([]);
   const [bellSchedules, setBellSchedules] = useState<BellSchedule[]>([]);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -100,6 +100,23 @@ export function ManageClasses() {
   const viewerRole = me ? viewerRoleForOrg(me, orgId) : null;
   const perm = useOrgPermissionState(orgId, viewerRole, "view_all_classes");
   const canManage = isOrgAdmin(me, orgId);
+  // Wing incharge (16 Sep): runs their OWN wing's syllabus from here —
+  // Upload syllabus and topics — while class/section structure stays
+  // admin-only. Wing = their class-scoped incharge rows; the backend
+  // enforces the same wing via userCanForClass.
+  const wingClassIds = useMemo(
+    () => new Set((me?.roles ?? [])
+      .filter((r) => (r.role_type as string) === "incharge" && r.scope_type === "class")
+      .map((r) => r.scope_id)),
+    [me],
+  );
+  const inchargeCurriculum = useOrgPermission(orgId, "incharge", "define_curriculum");
+  const isWingViewer = !canManage && !perm.allowed && wingClassIds.size > 0;
+  const canWingCurriculum = !canManage && wingClassIds.size > 0 && inchargeCurriculum;
+  const classes = useMemo(
+    () => (isWingViewer ? allClasses.filter((c) => wingClassIds.has(c.id)) : allClasses),
+    [allClasses, isWingViewer, wingClassIds],
+  );
 
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
@@ -172,7 +189,7 @@ export function ManageClasses() {
   }, [classes, teachers, lbRows, ttProgress]);
 
   if (meLoading) return null;
-  if (!canManage && !perm.allowed) {
+  if (!canManage && !perm.allowed && wingClassIds.size === 0) {
     if (perm.loading) return null;
     return <NoAccessRedirect />;
   }
@@ -257,10 +274,12 @@ export function ManageClasses() {
         subtitle={`${classes.length} class${classes.length === 1 ? "" : "es"} · ${totalSections} section${totalSections === 1 ? "" : "s"}`}
         rightSlot={
           <div className="flex gap-2">
-            <Link to={`/school/orgs/${orgId}/admin`}>
-              <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">← Admin</Button>
+            <Link to={canManage ? `/school/orgs/${orgId}/admin` : `/school/orgs/${orgId}`}>
+              <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">
+                {canManage ? "← Admin" : "← Dashboard"}
+              </Button>
             </Link>
-            {canManage && (
+            {(canManage || (canWingCurriculum && orderedClasses.some((c) => !isHifzClass(c)))) && (
               <Button
                 onClick={() => setSyllabusUploadOpen(true)}
                 size="sm"
@@ -279,7 +298,7 @@ export function ManageClasses() {
         }
       />
 
-      {canManage && (
+      {(canManage || canWingCurriculum) && (
         <FullSyllabusUploadDialog
           orgId={orgId}
           classes={orderedClasses.filter((c) => !isHifzClass(c))}
@@ -330,13 +349,15 @@ export function ManageClasses() {
             <span className="text-[11px] text-slate-400">
               Dot = timetable completeness. Card opens the section dashboard.
             </span>
-            {canManage && (
+            {(canManage || canWingCurriculum) && (
               <button
                 type="button"
                 onClick={() => setManageOpen((v) => !v)}
                 className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
               >
-                {manageOpen ? "Hide structure editor" : "Manage structure — sections, teachers, subjects"}
+                {manageOpen
+                  ? canManage ? "Hide structure editor" : "Hide syllabus"
+                  : canManage ? "Manage structure — sections, teachers, subjects" : "Manage syllabus — subjects & topics"}
               </button>
             )}
           </div>
@@ -421,6 +442,7 @@ export function ManageClasses() {
                   <ClassSubjectsManager
                     classId={cls.id}
                     orgId={orgId}
+                    structureEditable={canManage}
                     teachers={teachers.filter(
                       (t) =>
                         t.role_template === "class_teacher" ||

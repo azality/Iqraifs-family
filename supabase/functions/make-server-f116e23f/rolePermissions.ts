@@ -84,15 +84,20 @@ export const OVERRIDABLE_ROLE_TEMPLATES: Exclude<SchoolRole, "principal">[] = [
  *    forms. NO fees, NO grades. (PR C #6 elevated mark_attendance to true.)
  *  Overrides from role_template_override (per org) win over these. */
 export const DEFAULT_PERMISSIONS: Record<SchoolRole, Record<PermissionKey, boolean>> = {
-  // Wing access is granted by explicit incharge checks (schoolAuth), not
-  // by this org-wide matrix — everything false here is intentional.
+  // Incharge cells mean "inside their OWN wing", never school-wide:
+  // userCanInOrg() ignores the incharge role entirely, and only
+  // userCanForClass() reads these cells, for a class in the wing. A key
+  // does nothing for incharge until its routes use userCanForClass —
+  // WING_SCOPED_KEYS lists the ones that do.
   incharge: {
     manage_students: false,
     mark_attendance: false,
     edit_grades: false,
     mark_fees_status: false,
     create_forms: false,
-    define_curriculum: false,
+    // Incharges run their wing's syllabus (Muneeb, 16 Sep: upload
+    // syllabus "should be granted to Incharge of their own wing").
+    define_curriculum: true,
     manage_teachers: false,
     view_all_classes: false,
     manage_public_site: false,
@@ -175,6 +180,13 @@ export const DEFAULT_PERMISSIONS: Record<SchoolRole, Record<PermissionKey, boole
     manage_public_site: false,
   },
 };
+
+/** Keys whose routes honour an incharge's WING (via userCanForClass). The
+ *  permissions editor only lets the Incharge column toggle these — any
+ *  other incharge cell would be a checkbox that does nothing. Add a key
+ *  here only when every route behind it resolves the class and calls
+ *  userCanForClass. */
+export const WING_SCOPED_KEYS: PermissionKey[] = ["define_curriculum"];
 
 /** Resolve effective permission. Override (per-org boolean) wins when set;
  *  otherwise fall through to the default. `null` for override means

@@ -3243,7 +3243,7 @@ export const listLinkCodes = async (
 // ─── Admin: Permissions ────────────────────────────────────────────────
 
 export interface PermissionRow {
-  roleTemplate: RoleTemplate | "admin";
+  roleTemplate: RoleTemplate | "admin" | "incharge" | "teacher";
   permissionKey: string;
   allowed: boolean;
 }

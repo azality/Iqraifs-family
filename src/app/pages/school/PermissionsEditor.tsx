@@ -1,12 +1,21 @@
-// Permissions matrix. Principal-only. Rows = permission keys, columns =
-// role templates. Each cell is a checkbox; "Save" sends the full state
-// back to the server as overrides (the server diffs against defaults).
+// Permissions — principal-only. Two parts:
+//
+//  1. The configurable matrix: rows = permission keys, columns = role
+//     templates. "Save" sends the full state back as overrides (the server
+//     diffs against defaults). Incharge cells are WING-scoped: they only
+//     apply inside the incharge's own wing, and only keys whose routes
+//     honour the wing (WING_SCOPED_KEYS) can be toggled.
+//
+//  2. "Fixed by role": everything the app gates with hardcoded role checks
+//     rather than a key. The page used to show only the matrix, which read
+//     as the whole story while ~25 features sat outside it (permissions
+//     audit, 16 Sep). Keep this list in step with the backend gates.
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
-import { ShieldCheck, Info } from "lucide-react";
+import { ShieldCheck, Info, Lock } from "lucide-react";
 import {
   HeroCard,
   cardBase,
@@ -23,35 +32,42 @@ import {
   type PermissionRow,
   type SchoolMeResponse,
 } from "../../../utils/schoolApi";
+import { WING_SCOPED_KEYS } from "../../../lib/rolePermissions";
 
 const PERMISSION_META: Record<string, { label: string; description: string }> = {
   manage_students: {
-    label: "Manage students",
-    description: "Add, edit, and delete student records. Includes bulk CSV upload.",
+    label: "Manage students & families",
+    description:
+      "Add, edit and remove students and parents, link families, bulk upload, and issue PIN logins and PIN slips.",
   },
   mark_attendance: {
-    label: "Mark attendance",
-    description: "Take daily attendance for a section (present / late / absent / excused).",
+    label: "Bulk attendance & office roll call",
+    description:
+      "Import attendance in bulk, and lets office staff take roll call for any section. Teachers and incharges always take roll call for their own sections, whatever this says.",
   },
   edit_grades: {
-    label: "Edit grades",
-    description: "Create assignments and enter / edit grades for students.",
+    label: "Grade assignments",
+    description:
+      "Enter and edit grades on assignments, for sections the person teaches. Exam marks and sign-off are separate — see Fixed by role below.",
   },
   mark_fees_status: {
-    label: "Mark fees status",
-    description: "Update fee status (paid / unpaid / partial / waived) and attach receipts.",
+    label: "Record fees",
+    description:
+      "Record fee payments, fee plans and per-student overrides. Deleting a fee record stays principal/admin only.",
   },
   create_forms: {
     label: "Create forms",
-    description: "Build and publish custom forms — permission slips, surveys, info collection.",
+    description:
+      "Build and publish forms — permission slips, surveys. Teachers can only send forms to sections they teach.",
   },
   define_curriculum: {
     label: "Define curriculum",
-    description: "Set up the per-section yearly curriculum and topics.",
+    description:
+      "Class subjects, marks split, syllabus topics and resources, and Upload syllabus. For Incharge: only their own wing's syllabus topics and uploads — not the subject list.",
   },
   manage_teachers: {
-    label: "Manage teachers",
-    description: "Add, edit, and assign teachers to class sections.",
+    label: "Add & remove staff",
+    description: "Add staff, remove them, and resend invites.",
   },
   view_all_classes: {
     label: "View all classes",
@@ -59,7 +75,7 @@ const PERMISSION_META: Record<string, { label: string; description: string }> = 
   },
   manage_public_site: {
     label: "Manage public site",
-    description: "Edit the school's public marketing page — hero, faculty wall, gallery, contact.",
+    description: "Edit the school's public page — hero, faculty wall, gallery, contact.",
   },
 };
 
@@ -68,13 +84,92 @@ function prettify(key: string): string {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
-const ROLE_COLUMNS: Array<{ key: PermissionRow["roleTemplate"]; label: string }> = [
+const ROLE_COLUMNS: Array<{ key: PermissionRow["roleTemplate"]; label: string; hint?: string }> = [
   { key: "admin", label: "Admin" },
+  {
+    key: "incharge",
+    label: "Incharge",
+    hint: "own wing",
+  },
   { key: "class_teacher", label: "Class Teacher" },
   { key: "visiting_teacher", label: "Visiting Teacher" },
   { key: "financial_staff", label: "Financial Staff" },
   { key: "office_staff", label: "Office / Reception" },
 ];
+
+// ─── Fixed by role ────────────────────────────────────────────────────
+// y = yes · wing = incharge's own wing only · own = their own sections /
+// subjects / records · n = no. "Teachers" covers class, subject, visiting
+// and hifz teachers acting on sections they teach.
+type Access = "y" | "wing" | "own" | "n";
+const FIXED_COLUMNS = ["Principal", "Admin", "Incharge", "Teachers", "Office", "Finance"] as const;
+
+const FIXED_FEATURES: Array<{ area: string; rows: Array<{ feature: string; note?: string; access: Access[] }> }> = [
+  {
+    area: "School structure",
+    rows: [
+      { feature: "Classes, sections & class teachers", access: ["y", "y", "n", "n", "n", "n"] },
+      { feature: "Hifz groups", access: ["y", "y", "n", "n", "n", "n"] },
+      { feature: "Timetable, bell schedules & substitutions", access: ["y", "y", "n", "n", "n", "n"] },
+      { feature: "Terms, datesheets & exams", access: ["y", "y", "n", "n", "n", "n"] },
+    ],
+  },
+  {
+    area: "Staff",
+    rows: [
+      { feature: "Incharge wings, staff profiles & password resets", access: ["y", "y", "n", "n", "n", "n"] },
+      { feature: "Add or remove admins", access: ["y", "n", "n", "n", "n", "n"] },
+      { feature: "Approve or reject time off", access: ["y", "y", "n", "n", "n", "n"] },
+    ],
+  },
+  {
+    area: "Daily teaching",
+    rows: [
+      { feature: "Roll call for a section", note: "Office needs Bulk attendance & office roll call", access: ["y", "y", "wing", "own", "y", "n"] },
+      { feature: "Lessons & assignments", access: ["y", "y", "wing", "own", "n", "n"] },
+      { feature: "Behaviour notes", access: ["y", "y", "wing", "own", "y", "n"] },
+      { feature: "Hifz log (sabaq, sabqi, manzil)", access: ["y", "y", "wing", "own", "n", "n"] },
+      { feature: "Early release & resolving attendance flags", note: "Teachers: class & hifz teacher of the section", access: ["y", "y", "n", "own", "y", "n"] },
+      { feature: "Request roster changes", access: ["y", "y", "wing", "own", "y", "n"] },
+      { feature: "Approve roster changes", access: ["y", "y", "n", "n", "n", "n"] },
+    ],
+  },
+  {
+    area: "Exams & report cards",
+    rows: [
+      { feature: "Enter exam marks & sign off a column", note: "Teachers: class teacher all columns, subject teacher their own", access: ["y", "y", "n", "own", "n", "n"] },
+      { feature: "Tabulation sheet", note: "Teachers: class & hifz teacher of the section", access: ["y", "y", "wing", "own", "n", "n"] },
+      { feature: "Report card comments", note: "Teachers: class teacher; principal's comment is principal/admin", access: ["y", "y", "n", "own", "n", "n"] },
+      { feature: "Finalize & publish report cards, grade scales", access: ["y", "y", "n", "n", "n", "n"] },
+    ],
+  },
+  {
+    area: "Communication",
+    rows: [
+      { feature: "Announcements", note: "Teachers: to their own sections or students", access: ["y", "y", "n", "own", "n", "n"] },
+      { feature: "Parent inbox", access: ["y", "y", "n", "n", "y", "n"] },
+    ],
+  },
+  {
+    area: "Money & settings",
+    rows: [
+      { feature: "Delete a fee record", access: ["y", "y", "n", "n", "n", "n"] },
+      { feature: "School settings — branding, hours, bank accounts, points league, photo-read limit", access: ["y", "y", "n", "n", "n", "n"] },
+      { feature: "Behaviour categories", access: ["y", "y", "n", "n", "n", "n"] },
+      { feature: "Year rollover, audit log, import rollback", access: ["y", "y", "n", "n", "n", "n"] },
+      { feature: "This permissions page, school name, ownership", access: ["y", "n", "n", "n", "n", "n"] },
+    ],
+  },
+];
+
+function AccessCell({ a }: { a: Access }) {
+  if (a === "y") return <span className="text-emerald-700 font-semibold">✓</span>;
+  if (a === "wing")
+    return <span className="rounded bg-indigo-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-indigo-700">wing</span>;
+  if (a === "own")
+    return <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-amber-800">own</span>;
+  return <span className="text-slate-300">—</span>;
+}
 
 export function PermissionsEditor() {
   const { orgId = "" } = useParams();
@@ -109,12 +204,15 @@ export function PermissionsEditor() {
     () =>
       Array.from(new Set(rows.map((r) => r.permissionKey)))
         .filter((k) => !HIDDEN_KEYS.has(k))
-        .sort(),
+        .sort((a, b) => (PERMISSION_META[a]?.label ?? a).localeCompare(PERMISSION_META[b]?.label ?? b)),
     [rows],
   );
 
   if (meLoading) return null;
   if (!isOrgPrincipal(me, orgId)) return <NoAccessRedirect to={`/school/orgs/${orgId}/admin`} message="Only the principal can edit role permissions." />;
+
+  const cellEditable = (pk: string, role: string) =>
+    role !== "incharge" || (WING_SCOPED_KEYS as string[]).includes(pk);
 
   const toggle = (permissionKey: string, roleTemplate: PermissionRow["roleTemplate"]) => {
     setRows((prev) => {
@@ -146,7 +244,7 @@ export function PermissionsEditor() {
     <div className="space-y-4">
       <HeroCard
         title="Role permissions"
-        subtitle="Toggle what each role can do — saved as overrides to the system defaults. Incharge: these toggles govern org-level features only (e.g. fees); which CLASSES an incharge sees comes from their wing (People → Teachers → crown icon)."
+        subtitle="Switch on what each role can do. Incharge switches apply only inside that person's own wing — set wings under People → Teachers → crown icon. Features that can't be switched yet are listed under Fixed by role."
         rightSlot={
           <div className="flex gap-2 items-center">
             <span className="inline-flex items-center gap-1 rounded-full bg-white/10 border border-white/20 px-2 py-0.5 text-xs text-white">
@@ -166,7 +264,7 @@ export function PermissionsEditor() {
       {error && <p className="text-sm text-rose-600">{error}</p>}
 
       <div className={`${cardBase} ${cardElev} overflow-x-auto`}>
-        <table className="w-full min-w-[640px] text-sm border-collapse">
+        <table className="w-full min-w-[760px] text-sm border-collapse">
           <thead className="bg-slate-50">
             <tr>
               <th className="sticky left-0 z-10 bg-slate-50 text-left px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-slate-500">
@@ -178,6 +276,11 @@ export function PermissionsEditor() {
                   className="px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-slate-500 text-center"
                 >
                   {c.label}
+                  {c.hint && (
+                    <span className="block text-[9.5px] font-semibold normal-case tracking-normal text-indigo-600">
+                      {c.hint}
+                    </span>
+                  )}
                 </th>
               ))}
             </tr>
@@ -205,6 +308,17 @@ export function PermissionsEditor() {
                   </span>
                 </td>
                 {ROLE_COLUMNS.map((col) => {
+                  if (!cellEditable(pk, col.key)) {
+                    return (
+                      <td
+                        key={col.key}
+                        className="px-3 py-2 text-center"
+                        title="Not available for wings yet — this permission works school-wide only."
+                      >
+                        <span className="text-slate-300">—</span>
+                      </td>
+                    );
+                  }
                   const row = keyed.get(`${pk}::${col.key}`);
                   const checked = !!row?.allowed;
                   return (
@@ -218,6 +332,7 @@ export function PermissionsEditor() {
                       <Checkbox
                         checked={checked}
                         onCheckedChange={() => toggle(pk, col.key)}
+                        aria-label={`${PERMISSION_META[pk]?.label || prettify(pk)} — ${col.label}`}
                       />
                     </td>
                   );
@@ -226,6 +341,66 @@ export function PermissionsEditor() {
             ))}
           </tbody>
         </table>
+      </div>
+
+      <div className={`${cardBase} ${cardElev}`}>
+        <div className="flex items-start gap-2 border-b border-slate-100 px-4 py-3">
+          <Lock className="mt-0.5 h-4 w-4 flex-none text-slate-400" />
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900">Fixed by role</h2>
+            <p className="text-xs text-slate-500">
+              These follow the person's role and can't be switched on or off here yet.{" "}
+              <b className="font-semibold text-indigo-700">wing</b> = only inside their own wing ·{" "}
+              <b className="font-semibold text-amber-800">own</b> = only sections or subjects they teach.
+            </p>
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px] text-sm border-collapse">
+            <thead className="bg-slate-50">
+              <tr>
+                <th className="text-left px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                  Feature
+                </th>
+                {FIXED_COLUMNS.map((c) => (
+                  <th
+                    key={c}
+                    className="px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-slate-500 text-center"
+                  >
+                    {c}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {FIXED_FEATURES.map((group) => (
+                <Fragment key={group.area}>
+                  <tr className="border-t border-slate-100">
+                    <td
+                      colSpan={FIXED_COLUMNS.length + 1}
+                      className="bg-slate-50/60 px-4 py-1.5 text-[10.5px] font-bold uppercase tracking-wide text-slate-500"
+                    >
+                      {group.area}
+                    </td>
+                  </tr>
+                  {group.rows.map((r) => (
+                    <tr key={`${group.area}:${r.feature}`} className="border-t border-slate-100">
+                      <td className="px-4 py-2 text-slate-700">
+                        {r.feature}
+                        {r.note && <span className="block text-[11px] text-slate-400">{r.note}</span>}
+                      </td>
+                      {r.access.map((a, i) => (
+                        <td key={i} className="px-3 py-2 text-center">
+                          <AccessCell a={a} />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

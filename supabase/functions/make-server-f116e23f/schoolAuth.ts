@@ -466,8 +466,27 @@ export async function userCanInOrg(
   if (await isAdminOf(userId, orgId)) return true;
   const roles = await getOrgRoles(userId, orgId);
   for (const r of roles) {
+    // Incharge grants are wing-scoped: they may only ever open a door
+    // through userCanForClass. Counting them here turned an incharge
+    // override into school-wide access.
+    if (r === "incharge") continue;
     if (await getEffectivePermission(orgId, r, key)) return true;
   }
   return false;
+}
+
+/** Permission KEY for one CLASS: anything userCanInOrg grants, plus the
+ *  incharge role's cell when the class is inside the caller's wing. Use
+ *  this for routes that act on a specific class (curriculum, subjects). */
+export async function userCanForClass(
+  userId: string,
+  orgId: string,
+  classId: string | null | undefined,
+  key: PermissionKey,
+): Promise<boolean> {
+  if (await userCanInOrg(userId, orgId, key)) return true;
+  if (!classId) return false;
+  if (!(await isInchargeOfClass(userId, orgId, classId))) return false;
+  return await getEffectivePermission(orgId, "incharge", key);
 }
 

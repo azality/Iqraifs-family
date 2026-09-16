@@ -171,6 +171,7 @@ import {
   PERMISSION_KEYS,
   DEFAULT_PERMISSIONS,
   OVERRIDABLE_ROLE_TEMPLATES,
+  WING_SCOPED_KEYS,
 } from "./rolePermissions.ts";
 import type { PermissionKey } from "./rolePermissions.ts";
 type RoleTemplate = (typeof OVERRIDABLE_ROLE_TEMPLATES)[number];
@@ -2442,6 +2443,27 @@ export function installPhaseA(school: Hono) {
         if (orgSectionIds.has((r as any).scope_id)) classRoleIds.push((r as any).id);
       }
     }
+    // Incharge wing rows are scoped to CLASS ids (not section ids), so the
+    // section lookup above never matched them — a removed incharge kept
+    // their wing (permissions audit, 16 Sep). Revoke the ones in this org.
+    const { data: inchargeRows } = await serviceRoleClient
+      .from("user_roles")
+      .select("id, scope_id")
+      .eq("user_id", targetUserId)
+      .eq("role_type", "incharge")
+      .eq("scope_type", "class")
+      .is("revoked_at", null);
+    if (inchargeRows && inchargeRows.length > 0) {
+      const { data: orgClasses } = await serviceRoleClient
+        .from("class")
+        .select("id")
+        .eq("org_id", orgId)
+        .in("id", inchargeRows.map((r: any) => r.scope_id));
+      const orgClassIds = new Set((orgClasses ?? []).map((cl: any) => cl.id));
+      for (const r of inchargeRows) {
+        if (orgClassIds.has((r as any).scope_id)) classRoleIds.push((r as any).id);
+      }
+    }
     if (classRoleIds.length > 0) {
       await serviceRoleClient
         .from("user_roles")
@@ -3747,6 +3769,10 @@ export function installPhaseA(school: Hono) {
       if (!validTemplates.has(o.roleTemplate)) return c.json({ error: `invalid roleTemplate: ${o.roleTemplate}` }, 400);
       if (!validKeys.has(o.permissionKey)) return c.json({ error: `invalid permissionKey: ${o.permissionKey}` }, 400);
       if (typeof o.allowed !== "boolean") return c.json({ error: "allowed must be boolean" }, 400);
+      // Incharge cells only mean something for keys whose routes honour
+      // the wing (userCanForClass). Silently storing others would be a
+      // toggle that changes nothing.
+      if (o.roleTemplate === "incharge" && !WING_SCOPED_KEYS.includes(o.permissionKey)) continue;
       rows.push({
         org_id: orgId,
         role_template: o.roleTemplate,
