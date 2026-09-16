@@ -5,6 +5,8 @@
 // uses, just hitting a different path prefix.
 
 import { apiCall } from "./api";
+import { projectId, publicAnonKey } from "/utils/supabase/info.tsx";
+import { supabase } from "/utils/supabase/client";
 import { supabase } from "/utils/supabase/client";
 import { projectId as _projectId, publicAnonKey as _publicAnonKey } from "/utils/supabase/info.tsx";
 const PUBLIC_INFO = { projectId: _projectId, publicAnonKey: _publicAnonKey };
@@ -4699,6 +4701,27 @@ export const addFeePayment = (
     method: "POST",
     body: JSON.stringify(body),
   });
+
+/** Open the print-ready receipt/voucher for one month in a new tab. The
+ *  route needs the staff JWT in a header, which a plain <a href> cannot
+ *  carry — clicking such a link returned a raw 401 "Invalid JWT" page
+ *  (Muneeb, 17 Sep). Fetch with auth, then open as a blob, same pattern
+ *  as the parent portal's openMyFeeReceipt. */
+export const openFeeReceipt = async (orgId: string, feeId: string): Promise<void> => {
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  if (!token) throw new Error("Your session has expired — sign in again.");
+  const res = await fetch(
+    `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f/school/orgs/${orgId}/fees/${feeId}/receipt`,
+    { headers: { apikey: publicAnonKey, Authorization: `Bearer ${token}` } },
+  );
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+    throw new Error((body as any).error || `Request failed: ${res.status}`);
+  }
+  const blob = new Blob([await res.text()], { type: "text/html" });
+  window.open(URL.createObjectURL(blob), "_blank", "noopener");
+};
 
 /** The counter flow (design 13b): one amount from the guardian, settled
  *  across the student's owed months OLDEST FIRST (split as needed).
