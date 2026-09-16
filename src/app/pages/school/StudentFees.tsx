@@ -1,6 +1,11 @@
-// StudentFees — admin per-student fee history with add / mark paid / delete.
+// StudentFees — the student's fee page as a RUNNING LEDGER (design
+// handoff redesign-13-fees, 13c, 17 Sep): charges down, payments down,
+// balance on the right — what every paper fee register in Pakistan
+// already is. Concessions and each installment appear as their own
+// lines so the balance is always explainable to a parent at the
+// counter. Corrections are voids on the payment lines.
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import { toast } from "sonner";
 import { Button } from "../../components/ui/button";
@@ -14,7 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../../components/ui/dialog";
-import { Plus, Banknote, Trash2, FileText } from "lucide-react";
+import { Plus, FileText, MessageSquare, Trash2 } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -22,7 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../components/ui/select";
-import { HeroCard, DataTable, type DataTableColumn, NoAccessRedirect } from "../../components/school-ui";
+import { HeroCard, NoAccessRedirect } from "../../components/school-ui";
 import {
   getSchoolMe,
   getStudent,
@@ -30,11 +35,31 @@ import {
   listStudentFees,
   createFee,
   deleteFee,
+  voidFeePayment,
   type FeeStatus,
+  type FeePayment,
   type SchoolMeResponse,
   type StudentWithParents,
 } from "../../../utils/schoolApi";
-import { FeeStatusBadge, RecordPaymentDialog, fmtRs } from "./FeesOverview";
+import {
+  AllocatePaymentDialog,
+  type AllocateTarget,
+  fmtRs,
+  longPeriod,
+} from "./FeesOverview";
+
+interface LedgerLine {
+  key: string;
+  date: string;
+  entry: string;
+  charge: number | null;
+  paid: number | null;
+  balance: number;
+  kind: "charge" | "payment" | "void" | "waive";
+  receiptFeeId?: string;
+  payment?: FeePayment;
+  fee?: FeeStatus;
+}
 
 export function StudentFees() {
   const { orgId = "", studentId = "" } = useParams();
@@ -43,23 +68,14 @@ export function StudentFees() {
   const [student, setStudent] = useState<StudentWithParents | null>(null);
   const [fees, setFees] = useState<FeeStatus[]>([]);
   const [addOpen, setAddOpen] = useState(false);
-  // Form defaults are set lazily when the dialog opens (see openAdd)
-  // so we can suggest "next month after the latest existing period" +
-  // pre-fill the same amount as last period (common convention).
-  const [form, setForm] = useState<{
-    year: string;
-    month: string;
-    amountDue: string;
-    dueDate: string;
-    notes: string;
-  }>({
+  const [payTarget, setPayTarget] = useState<AllocateTarget | null>(null);
+  const [form, setForm] = useState({
     year: String(new Date().getUTCFullYear()),
     month: String(new Date().getUTCMonth() + 1).padStart(2, "0"),
     amountDue: "",
     dueDate: "",
     notes: "",
   });
-  const [payFee, setPayFee] = useState<FeeStatus | null>(null);
 
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
@@ -72,36 +88,155 @@ export function StudentFees() {
       .then((r) => setFees(r.fees))
       .catch((e) => toast.error(e instanceof Error ? e.message : String(e)));
   };
-
   useEffect(refresh, [orgId, studentId]);
+
+  // ── Ledger assembly: sort events oldest-first, run the balance, then
+  //    display newest-first with the running balance on the right. ──
+  const { ledger, owedTotal, owedMonths, owedPeriods, monthlyFee } = useMemo(() => {
+    type Ev = Omit<LedgerLine, "balance" | "key">;
+    const evs: Ev[] = [];
+    for (const f of fees) {
+      const chargeDate = f.due_date ?? `${f.period}-01`;
+      evs.push({
+        date: chargeDate,
+        entry: `${longPeriod(f.period)} tuition${f.notes ? ` · ${f.notes}` : ""}`,
+        charge: f.amount_due ?? 0,
+        paid: null,
+        kind: "charge",
+        fee: f,
+      });
+      if (f.status === "waived") {
+        evs.push({
+          date: chargeDate,
+          entry: `Waived · ${longPeriod(f.period)}`,
+          charge: -(f.amount_due ?? 0),
+          paid: null,
+          kind: "waive",
+          fee: f,
+        });
+      }
+      for (const p of f.payments ?? []) {
+        if (p.voidedAt) {
+          evs.push({
+            date: p.paidOn,
+            entry: `Payment of ${fmtRs(p.amount)} voided${p.voidReason ? ` · ${p.voidReason}` : ""}`,
+            charge: null,
+            paid: null,
+            kind: "void",
+            payment: p,
+            fee: f,
+          });
+        } else {
+          evs.push({
+            date: p.paidOn,
+            entry: `Payment · ${p.method ?? "—"}${p.reference ? ` · ${p.reference}` : ""}`,
+            charge: null,
+            paid: p.amount,
+            kind: "payment",
+            receiptFeeId: f.id,
+            payment: p,
+            fee: f,
+          });
+        }
+      }
+    }
+    evs.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.kind === "charge" ? -1 : 1));
+    let bal = 0;
+    const lines: LedgerLine[] = evs.map((e, i) => {
+      bal += (e.charge ?? 0) - (e.paid ?? 0);
+      return { ...e, balance: bal, key: `${i}:${e.date}:${e.kind}` };
+    });
+    lines.reverse();
+
+    let owedTotal = 0, owedMonths = 0;
+    const owedPeriods = fees
+      .filter((f) => f.status === "unpaid" || f.status === "partial")
+      .map((f) => ({
+        feeStatusId: f.id,
+        period: f.period,
+        owed: Math.max(0, (f.amount_due ?? 0) - (f.amount_paid ?? 0)),
+        partial: (f.amount_paid ?? 0) > 0,
+        dueDate: f.due_date,
+      }))
+      .filter((p) => p.owed > 0)
+      .sort((a, b) => (a.period < b.period ? -1 : 1));
+    for (const p of owedPeriods) { owedTotal += p.owed; owedMonths += 1; }
+    const monthlyFee = fees[0]?.amount_due ?? null;
+    return { ledger: lines, owedTotal, owedMonths, owedPeriods, monthlyFee };
+  }, [fees]);
 
   if (meLoading) return null;
   if (!isOrgAdmin(me, orgId)) return <NoAccessRedirect />;
 
-  // Human label for a YYYY-MM period string, e.g. "2026-06" → "June 2026".
-  // Falls back to the raw string if it doesn't parse.
-  const periodLabel = (period: string): string => {
-    const m = /^(\d{4})-(\d{2})$/.exec(period);
-    if (!m) return period;
-    const [, y, mo] = m;
-    const idx = Number(mo) - 1;
-    const MONTHS = ["January","February","March","April","May","June",
-      "July","August","September","October","November","December"];
-    if (idx < 0 || idx > 11) return period;
-    return `${MONTHS[idx]} ${y}`;
+  const receiptUrl = (feeId: string) =>
+    `${import.meta.env.VITE_SUPABASE_URL ?? "https://ybrkbrrkcqpzpjnjdyib.supabase.co"}/functions/v1/make-server-f116e23f/school/orgs/${orgId}/fees/${feeId}/receipt`;
+
+  const openPayment = () => {
+    setPayTarget({
+      studentId,
+      name: student?.full_name ?? "Student",
+      gr: student?.gr_number,
+      total: owedTotal,
+      owedPeriods,
+      pinFee: owedPeriods.length === 0 && fees[0]
+        ? { feeStatusId: fees[0].id, period: fees[0].period, owed: 0 }
+        : null,
+    });
   };
 
-  // Pretty currency. Schools using PKR; we don't store currency yet, so
-  // hardcode for the pilot. TODO: org-level currency setting.
-  const fmtAmount = (n: number | null | undefined): string => {
-    if (n === null || n === undefined) return "—";
-    return `Rs. ${Number(n).toLocaleString("en-PK", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+  const voidOne = async (p: FeePayment) => {
+    if (!confirm(`Void the ${fmtRs(p.amount)} payment from ${p.paidOn}? The balance recalculates.`)) return;
+    const reason = prompt("Reason (optional):") ?? "";
+    try {
+      await voidFeePayment(orgId, p.id, reason.trim() || undefined);
+      toast.success("Payment voided");
+      refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const deleteMonth = async (f: FeeStatus) => {
+    if ((f.payments ?? []).some((p) => !p.voidedAt)) {
+      toast.error("This month has payments — void them first if the charge itself is wrong.");
+      return;
+    }
+    if (!confirm(`Delete the ${longPeriod(f.period)} charge?`)) return;
+    try {
+      await deleteFee(orgId, f.id);
+      refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const copyReminder = () => {
+    const months = owedPeriods.map((p) => longPeriod(p.period)).join(", ");
+    const text = `Assalam o Alaikum! ${student?.full_name ?? ""} (GR# ${student?.gr_number ?? "—"}) ki school fees ${fmtRs(owedTotal)} baqaya hai (${months}). Barah-e-karam jald ada karein ya office se rabta karein. Shukriya — Iqra Islamic Foundation School`;
+    navigator.clipboard.writeText(text)
+      .then(() => toast.success("Reminder copied — paste into WhatsApp"))
+      .catch(() => toast.error("Could not copy"));
+  };
+
+  const submitAdd = async () => {
+    const period = `${form.year}-${form.month}`;
+    try {
+      await createFee(orgId, studentId, {
+        period,
+        amountDue: form.amountDue ? parseFloat(form.amountDue) : undefined,
+        dueDate: form.dueDate || undefined,
+        notes: form.notes.trim() || undefined,
+      });
+      setAddOpen(false);
+      refresh();
+      toast.success(`${longPeriod(period)} charge added`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    }
   };
 
   const openAdd = () => {
-    // Default to the month AFTER the most recent existing period so the
-    // admin clicking + Add Period gets the natural next month preselected.
-    const latest = fees[0]?.period; // already sorted desc by period
+    const latest = fees[0]?.period;
     let year = new Date().getUTCFullYear();
     let month = new Date().getUTCMonth() + 1;
     if (latest) {
@@ -112,225 +247,132 @@ export function StudentFees() {
         if (month === 13) { month = 1; year += 1; }
       }
     }
-    // Pre-fill amount with the most recent period's due (common case:
-    // tuition is the same each month).
-    const lastAmount = fees[0]?.amount_due ?? "";
     setForm({
       year: String(year),
       month: String(month).padStart(2, "0"),
-      amountDue: lastAmount ? String(lastAmount) : "",
+      amountDue: fees[0]?.amount_due ? String(fees[0].amount_due) : "",
       dueDate: "",
       notes: "",
     });
     setAddOpen(true);
   };
 
-  const submitAdd = async () => {
-    const period = `${form.year}-${form.month}`;
-    if (!/^\d{4}-\d{2}$/.test(period)) {
-      toast.error("Pick a year and month");
-      return;
-    }
-    try {
-      await createFee(orgId, studentId, {
-        period,
-        amountDue: form.amountDue ? parseFloat(form.amountDue) : undefined,
-        dueDate: form.dueDate || undefined,
-        notes: form.notes.trim() || undefined,
-      });
-      setAddOpen(false);
-      refresh();
-      toast.success(`Fee period ${periodLabel(period)} added`);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
-    }
-  };
-
-  const handleDelete = async (f: FeeStatus) => {
-    if (!confirm(`Delete fee for ${f.period}?`)) return;
-    await deleteFee(orgId, f.id);
-    refresh();
-  };
-
-  const columns: Array<DataTableColumn<FeeStatus>> = [
-    {
-      key: "period",
-      header: "Period",
-      width: "w-32",
-      cell: (f) => (
-        <div>
-          <div className="font-medium text-slate-800">{periodLabel(f.period)}</div>
-          <div className="font-mono text-[10px] text-slate-400">{f.period}</div>
-        </div>
-      ),
-    },
-    { key: "status", header: "Status", width: "w-24", cell: (f) => <FeeStatusBadge fee={f} /> },
-    {
-      key: "due",
-      header: "Due",
-      align: "right",
-      cell: (f) => <span className="tabular-nums text-sm">{fmtAmount(f.amount_due)}</span>,
-    },
-    {
-      key: "paid",
-      header: "Paid",
-      align: "right",
-      cell: (f) => (
-        <span className={"tabular-nums text-sm " + (f.status === "paid" ? "text-emerald-700 font-medium" : "")}>
-          {fmtAmount(f.amount_paid)}
-        </span>
-      ),
-    },
-    {
-      key: "dueDate",
-      header: "Due date",
-      cell: (f) => <span className="text-xs text-slate-600 tabular-nums">{f.due_date ?? "—"}</span>,
-    },
-    {
-      key: "paidDate",
-      header: "Payments",
-      cell: (f) => {
-        const live = (f.payments ?? []).filter((p) => !p.voidedAt);
-        if (live.length === 0) return <span className="text-xs text-slate-400">—</span>;
-        return (
-          <div className="space-y-0.5">
-            {live.map((p) => (
-              <div key={p.id} className="text-xs text-slate-600 tabular-nums">
-                {p.paidOn} · {fmtRs(p.amount)}{p.method ? ` · ${p.method}` : ""}
-              </div>
-            ))}
-          </div>
-        );
-      },
-    },
-    {
-      key: "receipt",
-      header: "Receipt",
-      cell: (f) => {
-        // PR D #7 added a print-ready receipt endpoint. Always show a
-        // link for paid fees (the endpoint generates the receipt
-        // server-side from fee_status + org branding). Older rows with
-        // an external receipt_url still take precedence.
-        if (f.receipt_url) {
-          return (
-            <a href={f.receipt_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 text-indigo-600 text-xs underline">
-              <FileText className="h-3 w-3" /> View
-            </a>
-          );
-        }
-        if ((f.payments ?? []).some((p) => !p.voidedAt) || f.status === "paid") {
-          // Backend endpoint at /school/orgs/:orgId/fees/:feeId/receipt
-          const url = `${import.meta.env.VITE_SUPABASE_URL ?? "https://ybrkbrrkcqpzpjnjdyib.supabase.co"}/functions/v1/make-server-f116e23f/school/orgs/${orgId}/fees/${f.id}/receipt`;
-          return (
-            <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 text-indigo-600 text-xs underline">
-              <FileText className="h-3 w-3" /> Print
-            </a>
-          );
-        }
-        return <span className="text-xs text-slate-400">—</span>;
-      },
-    },
-    {
-      key: "actions",
-      header: "",
-      align: "right",
-      cell: (f) => (
-        <div className="inline-flex gap-0.5" onClick={(e) => e.stopPropagation()}>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0"
-            title={f.status === "paid" ? "Payments / corrections" : "Record payment"}
-            onClick={() => setPayFee(f)}
-          >
-            <Banknote className={`h-3.5 w-3.5 ${f.status === "paid" ? "text-slate-400" : "text-emerald-600"}`} />
-          </Button>
-          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleDelete(f)}>
-            <Trash2 className="h-3.5 w-3.5 text-rose-600" />
-          </Button>
-        </div>
-      ),
-    },
-  ];
-
   return (
     <div className="space-y-4">
       <HeroCard
-        title={student?.full_name ?? "Student fees"}
-        subtitle={student ? `GR# ${student.gr_number}` : ""}
+        title={`${student?.full_name ?? "Student"} · fee ledger`}
+        subtitle={[
+          student ? `GR# ${student.gr_number}` : "",
+          monthlyFee != null ? `Monthly ${fmtRs(monthlyFee)}` : "",
+        ].filter(Boolean).join(" · ")}
         rightSlot={
-          <Link to={`/school/orgs/${orgId}/admin/students/${studentId}`}>
-            <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">← Student</Button>
-          </Link>
+          <div className="flex items-center gap-2">
+            {owedTotal > 0 ? (
+              <span className="rounded-full border border-rose-300 bg-rose-50 px-3 py-1 text-xs font-bold text-rose-700">
+                Owes {fmtRs(owedTotal)} · {owedMonths} month{owedMonths === 1 ? "" : "s"}
+              </span>
+            ) : fees.length > 0 ? (
+              <span className="rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
+                All settled
+              </span>
+            ) : null}
+            <Link to={`/school/orgs/${orgId}/admin/students/${studentId}`}>
+              <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20">← Student</Button>
+            </Link>
+          </div>
         }
       />
 
-      {/* The one page with every month in hand finally answers "what does
-          this family owe" (fees review, 17 Sep). */}
-      {fees.length > 0 && (() => {
-        let billed = 0, paid = 0, owed = 0, owedMonths = 0;
-        for (const f of fees) {
-          billed += f.amount_due ?? 0;
-          paid += f.amount_paid ?? 0;
-          if (f.status !== "waived") {
-            const o = Math.max(0, (f.amount_due ?? 0) - (f.amount_paid ?? 0));
-            if (o > 0) { owed += o; owedMonths += 1; }
-          }
-        }
-        return (
-          <div className="grid grid-cols-3 gap-3">
-            <div className="rounded-xl border border-slate-200 bg-white p-3 text-center">
-              <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Billed (all months)</div>
-              <div className="text-lg font-extrabold tabular-nums text-slate-900">{fmtRs(billed)}</div>
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="overflow-x-auto px-5 pt-2">
+          <table className="w-full min-w-[640px] border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 text-left text-[10.5px] font-extrabold uppercase tracking-wide text-slate-400">
+                <th className="w-24 py-2.5 pr-3">Date</th>
+                <th className="py-2.5 pr-3">Entry</th>
+                <th className="w-24 py-2.5 pr-3 text-right">Charge</th>
+                <th className="w-24 py-2.5 pr-3 text-right">Paid</th>
+                <th className="w-24 py-2.5 text-right">Balance</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ledger.map((l) => (
+                <tr key={l.key} className={`border-b border-slate-100 ${l.kind === "payment" ? "bg-emerald-50/40" : ""} ${l.kind === "void" ? "opacity-60" : ""}`}>
+                  <td className="py-2 pr-3 text-[11.5px] text-slate-400 tabular-nums">{l.date}</td>
+                  <td className="py-2 pr-3 text-xs text-slate-700">
+                    <span className={l.kind === "void" ? "line-through" : ""}>{l.entry}</span>
+                    {l.kind === "payment" && l.receiptFeeId && (
+                      <a href={receiptUrl(l.receiptFeeId)} target="_blank" rel="noreferrer"
+                        className="ml-2 inline-flex items-center gap-0.5 text-[11px] text-indigo-600 underline">
+                        <FileText className="h-3 w-3" /> receipt
+                      </a>
+                    )}
+                    {l.kind === "payment" && l.payment && (
+                      <button type="button" onClick={() => void voidOne(l.payment!)}
+                        className="ml-2 text-[11px] text-rose-500 underline">
+                        void
+                      </button>
+                    )}
+                    {l.kind === "charge" && l.fee && (
+                      <button type="button" onClick={() => void deleteMonth(l.fee!)}
+                        title="Delete this month's charge"
+                        className="ml-2 align-middle text-slate-300 hover:text-rose-500">
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    )}
+                  </td>
+                  <td className="py-2 pr-3 text-right text-xs tabular-nums text-rose-700">
+                    {l.charge != null && l.charge !== 0 ? (l.charge < 0 ? `−${Math.abs(l.charge).toLocaleString()}` : l.charge.toLocaleString()) : ""}
+                  </td>
+                  <td className="py-2 pr-3 text-right text-xs font-semibold tabular-nums text-emerald-700">
+                    {l.paid != null ? l.paid.toLocaleString() : ""}
+                  </td>
+                  <td className="py-2 text-right text-xs font-bold tabular-nums text-slate-900">
+                    {l.balance.toLocaleString()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {ledger.length === 0 && (
+            <div className="py-8 text-center text-sm text-slate-400">
+              No fee records yet — add the first month's charge below.
             </div>
-            <div className="rounded-xl border border-slate-200 bg-white p-3 text-center">
-              <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Paid</div>
-              <div className="text-lg font-extrabold tabular-nums text-emerald-700">{fmtRs(paid)}</div>
-            </div>
-            <div className={`rounded-xl border p-3 text-center ${owed > 0 ? "border-rose-200 bg-rose-50" : "border-emerald-200 bg-emerald-50"}`}>
-              <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Outstanding</div>
-              <div className={`text-lg font-extrabold tabular-nums ${owed > 0 ? "text-rose-700" : "text-emerald-700"}`}>
-                {fmtRs(owed)}
-              </div>
-              {owedMonths > 0 && <div className="text-[10px] text-rose-500">{owedMonths} month{owedMonths === 1 ? "" : "s"} pending</div>}
-            </div>
-          </div>
-        );
-      })()}
-
-      <div className="flex justify-end">
-        <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" onClick={openAdd}>
-          <Plus className="h-4 w-4 mr-1" /> Add fee period
-        </Button>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2 border-t border-slate-100 px-5 py-3">
+          <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" onClick={openPayment} disabled={fees.length === 0}>
+            Record payment
+          </Button>
+          <Button size="sm" variant="outline" onClick={openAdd}>
+            <Plus className="mr-1 h-3.5 w-3.5" /> Add month
+          </Button>
+          {owedTotal > 0 && (
+            <button type="button" onClick={copyReminder}
+              className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100">
+              <MessageSquare className="h-3.5 w-3.5" /> Remind guardian
+            </button>
+          )}
+        </div>
       </div>
-
-      <DataTable columns={columns} rows={fees} rowKey={(f) => f.id} emptyMessage="No fee records." />
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add fee period</DialogTitle>
+            <DialogTitle>Add month's charge</DialogTitle>
             <p className="text-xs text-slate-500">
-              Creates a new monthly fee row for {student?.full_name ?? "this student"}. Pre-filled with the next month after the most recent period, and the same amount.
+              Adds a tuition charge for {student?.full_name ?? "this student"} — prefilled with the next month and the same amount.
             </p>
           </DialogHeader>
           <div className="space-y-3">
-            {/* Month + Year dropdowns instead of YYYY-MM text entry */}
             <div>
               <Label>Month *</Label>
               <div className="mt-1 grid grid-cols-2 gap-2">
                 <Select value={form.month} onValueChange={(v) => setForm({ ...form, month: v })}>
                   <SelectTrigger><SelectValue placeholder="Month" /></SelectTrigger>
                   <SelectContent>
-                    {[
-                      { v: "01", l: "January" }, { v: "02", l: "February" },
-                      { v: "03", l: "March" },   { v: "04", l: "April" },
-                      { v: "05", l: "May" },     { v: "06", l: "June" },
-                      { v: "07", l: "July" },    { v: "08", l: "August" },
-                      { v: "09", l: "September" }, { v: "10", l: "October" },
-                      { v: "11", l: "November" },  { v: "12", l: "December" },
-                    ].map((m) => (
-                      <SelectItem key={m.v} value={m.v}>{m.l}</SelectItem>
+                    {["01","02","03","04","05","06","07","08","09","10","11","12"].map((v) => (
+                      <SelectItem key={v} value={v}>{longPeriod(`2000-${v}`).replace(" 2000", "")}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -341,48 +383,25 @@ export function StudentFees() {
                       const now = new Date().getUTCFullYear();
                       const years: number[] = [];
                       for (let y = now - 1; y <= now + 2; y++) years.push(y);
-                      return years.map((y) => (
-                        <SelectItem key={y} value={String(y)}>{y}</SelectItem>
-                      ));
+                      return years.map((y) => <SelectItem key={y} value={String(y)}>{y}</SelectItem>);
                     })()}
                   </SelectContent>
                 </Select>
               </div>
-              <p className="mt-1 text-[11px] text-slate-500">
-                Will create: <span className="font-medium">{periodLabel(`${form.year}-${form.month}`)}</span>
-              </p>
             </div>
-
             <div>
               <Label>Amount due (Rs.)</Label>
-              <Input
-                type="number"
-                inputMode="decimal"
-                step="0.01"
-                min="0"
-                placeholder="e.g. 5000"
-                value={form.amountDue}
-                onChange={(e) => setForm({ ...form, amountDue: e.target.value })}
-              />
+              <Input type="number" inputMode="decimal" step="0.01" min="0" placeholder="e.g. 5000"
+                value={form.amountDue} onChange={(e) => setForm({ ...form, amountDue: e.target.value })} />
             </div>
-
             <div>
-              <Label>Due date <span className="text-slate-400 font-normal">(optional)</span></Label>
-              <Input
-                type="date"
-                value={form.dueDate}
-                onChange={(e) => setForm({ ...form, dueDate: e.target.value })}
-              />
+              <Label>Due date <span className="font-normal text-slate-400">(optional)</span></Label>
+              <Input type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} />
             </div>
-
             <div>
-              <Label>Notes <span className="text-slate-400 font-normal">(optional)</span></Label>
-              <Textarea
-                placeholder="e.g. Includes uniform fee"
-                value={form.notes}
-                onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                rows={2}
-              />
+              <Label>Notes <span className="font-normal text-slate-400">(optional)</span></Label>
+              <Textarea placeholder="e.g. Includes uniform fee" value={form.notes}
+                onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={2} />
             </div>
           </div>
           <DialogFooter>
@@ -392,7 +411,7 @@ export function StudentFees() {
         </DialogContent>
       </Dialog>
 
-      <RecordPaymentDialog fee={payFee} onClose={() => setPayFee(null)} onSaved={refresh} orgId={orgId} />
+      <AllocatePaymentDialog target={payTarget} onClose={() => setPayTarget(null)} onSaved={refresh} orgId={orgId} />
     </div>
   );
 }

@@ -5191,6 +5191,52 @@ await check("96. arrears carry forward, and regenerating never erases payments",
   }
 });
 
+await check("97. counter flow: one amount settles owed months oldest-first", async () => {
+  // Design 13b (17 Sep): the office takes ONE amount and the system
+  // splits it across owed months oldest-first; feeStatusId pins to one
+  // month; with nothing outstanding an unpinned payment is refused.
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const cleanup: Array<() => Promise<unknown>> = [];
+  try {
+    const mkFee = async (period: string, due: number) => {
+      const r = await (await api(admin2.token, `/school/orgs/${ORG}/students/${pStu1}/fees`, {
+        method: "POST", body: JSON.stringify({ period, amountDue: due, dueDate: `${period}-05` }),
+      })).json();
+      cleanup.push(() => admin.from("fee_payment").delete().eq("fee_status_id", r.fee.id));
+      cleanup.push(() => admin.from("fee_status").delete().eq("id", r.fee.id));
+      return r.fee.id as string;
+    };
+    const augId = await mkFee("2097-08", 4000);
+    const sepId = await mkFee("2097-09", 4000);
+
+    // 5000 -> Aug settles (4000), Sep takes the remaining 1000.
+    const a1 = await (await api(admin2.token, `/school/orgs/${ORG}/students/${pStu1}/fee-payments`, {
+      method: "POST", body: JSON.stringify({ amount: 5000, paidOn: "2097-09-03", method: "cash" }),
+    })).json();
+    assert(Array.isArray(a1.allocations) && a1.allocations.length === 2,
+      `expected 2 allocations, got ${JSON.stringify(a1.allocations)}`);
+    const aug = a1.fees.find((f: any) => f.id === augId);
+    const sep = a1.fees.find((f: any) => f.id === sepId);
+    assert(aug.amount_paid === 4000 && aug.status === "paid", `Aug: ${aug.amount_paid}/${aug.status}`);
+    assert(sep.amount_paid === 1000 && sep.status === "partial", `Sep: ${sep.amount_paid}/${sep.status}`);
+
+    // Pinned to September only.
+    const a2 = await (await api(admin2.token, `/school/orgs/${ORG}/students/${pStu1}/fee-payments`, {
+      method: "POST", body: JSON.stringify({ amount: 3000, feeStatusId: sepId, method: "bank" }),
+    })).json();
+    const sep2 = a2.fees.find((f: any) => f.id === sepId);
+    assert(sep2.amount_paid === 4000 && sep2.status === "paid", `Sep pinned: ${sep2.amount_paid}/${sep2.status}`);
+
+    // Nothing outstanding -> unpinned refuses instead of inventing a target.
+    const a3 = await api(admin2.token, `/school/orgs/${ORG}/students/${pStu1}/fee-payments`, {
+      method: "POST", body: JSON.stringify({ amount: 100 }),
+    });
+    assert(a3.status === 400, `nothing-outstanding must 400, got ${a3.status}`);
+  } finally {
+    for (const fn of cleanup.reverse()) await fn();
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
