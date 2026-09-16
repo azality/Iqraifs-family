@@ -50,7 +50,15 @@ import { TopicResourcesPanel } from "./TopicResourcesPanel";
 import { SyllabusCameraDialog } from "./SyllabusCameraDialog";
 import { Textarea } from "../../../components/ui/textarea";
 import { Sparkles, Library, Copy, Camera, FileUp } from "lucide-react";
-import { extractSyllabusText, detectClassSections, sectionLines, parseTopicLines, type ClassSection } from "../../../../utils/docxText";
+import {
+  extractSyllabusText,
+  detectClassSections,
+  sectionLines,
+  parseTopicLines,
+  detectSubjectHeadings,
+  sameSubject,
+  type ClassSection,
+} from "../../../../utils/docxText";
 
 /** Downscale a phone photo before upload — Claude reads at most ~1568px
  *  on the long edge, so anything bigger only costs bandwidth. */
@@ -144,6 +152,17 @@ export function SubjectCurriculumPanel({
   // Watch the paste box itself so upload, paste AND photo paths all get the
   // same "pick one class" guard.
   const classSections = useMemo(() => detectClassSections(bulkText), [bulkText]);
+  // Same idea for SUBJECTS: a Word file with "English:-" / "Science :-"
+  // headings pasted into Mathematics would save English lessons as maths.
+  // Keyed by the set of other subjects, so the confirmation survives
+  // ordinary edits but a newly pasted subject asks again.
+  const otherSubjects = useMemo(
+    () => detectSubjectHeadings(bulkText).filter((h) => !sameSubject(h.label, subjectName)),
+    [bulkText, subjectName],
+  );
+  const otherKey = otherSubjects.map((h) => h.label).join(",");
+  const [otherAckKey, setOtherAckKey] = useState("");
+  const otherAcknowledged = otherSubjects.length === 0 || otherAckKey === otherKey;
   const keepSection = (s: ClassSection) => {
     const kept = sectionLines(bulkText, s);
     setBulkText(kept.join("\n"));
@@ -442,6 +461,12 @@ export function SubjectCurriculumPanel({
     if (sourceText === undefined && classSections.length >= 2) {
       toast.error(
         `This still holds ${classSections.length} classes' syllabi — tap the class you want in the yellow box (or delete the other sections) first.`,
+      );
+      return;
+    }
+    if (sourceText === undefined && !otherAcknowledged) {
+      toast.error(
+        `This also has ${otherKey} headings — remove those sections, or confirm in the red box that everything is ${subjectName}.`,
       );
       return;
     }
@@ -964,6 +989,24 @@ export function SubjectCurriculumPanel({
                           </button>
                         ))}
                       </div>
+                    </div>
+                  )}
+                  {otherSubjects.length > 0 && (
+                    <div className="mb-2 rounded border border-rose-300 bg-rose-50 p-2">
+                      <p className="text-[11px] font-medium text-rose-800">
+                        This looks like it has other subjects too:{" "}
+                        <b>{otherKey}</b> — e.g. “{otherSubjects[0].example}”. Everything here
+                        saves under <b>{subjectName}</b>, so delete those sections first.
+                      </p>
+                      <label className="mt-1.5 inline-flex cursor-pointer items-center gap-1.5 text-[11px] font-medium text-rose-900">
+                        <input
+                          type="checkbox"
+                          checked={otherAckKey === otherKey}
+                          onChange={(e) => setOtherAckKey(e.target.checked ? otherKey : "")}
+                          className="h-3.5 w-3.5 rounded border-rose-300"
+                        />
+                        I checked — everything here is {subjectName}
+                      </label>
                     </div>
                   )}
                   <Textarea
