@@ -630,7 +630,15 @@ export const readSyllabusPhoto = (
   curriculumId: string,
   imageBase64: string,
   mediaType: string,
-): Promise<{ lines: string; model: string | null; usage: { inputTokens: number | null; outputTokens: number | null } }> =>
+): Promise<{
+  lines: string;
+  model: string | null;
+  usage: { inputTokens: number | null; outputTokens: number | null } | null;
+  /** True when this exact photo was read before — served free from cache. */
+  cached?: boolean;
+  /** Photo reads left today under the school's daily cap. */
+  remainingToday?: number;
+}> =>
   apiCall(`/school/class-curriculum/${curriculumId}/topics/from-photo`, {
     method: "POST",
     body: JSON.stringify({ imageBase64, mediaType }),

@@ -640,6 +640,9 @@ school.patch("/orgs/:orgId", async (c) => {
     // group - a list of { bank, title, accountNumber, classIds }. The
     // parent fee page shows the account for the child's class.
     "fee_bank_accounts",
+    // Photo-import spend cap (16 Sep): pages Claude reads per day for
+    // this school; identical re-uploads are cached and free.
+    "photo_read_daily_limit",
     // Parents page duplicate review (9 Sep): pair keys ("idA|idB",
     // sorted) an admin marked as "different people" so the panel stops
     // flagging them. Same-name different-family pairs are common here

@@ -4615,6 +4615,70 @@ await check("90. photo import: gated, validated, and never free-for-all", async 
   }
 });
 
+await check("91. photo reads are capped and cached - neither path bills the API", async () => {
+  // Spend guards (16 Sep): an identical re-upload returns the cached
+  // reading free (typos are fixed in the box, not by re-photographing),
+  // and a per-school daily cap refuses BEFORE any API spend. Both
+  // proven by seeding the KV rows - no Anthropic call is ever made.
+  const cleanup: Array<() => Promise<unknown>> = [];
+  try {
+    const { data: cs, error: csErr } = await admin.from("class_subject").insert({
+      org_id: ORG, class_id: sandboxClass.id, name: "QA PhotoCap Sub", sort_order: 974,
+    }).select("id").single();
+    if (csErr) throw new Error(`subject: ${csErr.message}`);
+    cleanup.push(() => admin.from("class_subject").delete().eq("id", cs.id));
+    const { data: cur, error: curErr } = await admin.from("curriculum").insert({
+      org_id: ORG, class_subject_id: cs.id, academic_year: "2026-27",
+      title: "QA PhotoCap Sub · 2026-27", created_by: principal.id,
+    }).select("id").single();
+    if (curErr) throw new Error(`curriculum: ${curErr.message}`);
+    cleanup.push(() => admin.from("curriculum").delete().eq("id", cur.id));
+    const url = `/school/class-curriculum/${cur.id}/topics/from-photo`;
+
+    // 1. Identical photo -> served from cache, no spend, no quota use.
+    const img = btoa("qa-photo-cache-fixture");
+    const hashBuf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(img));
+    const hash = Array.from(new Uint8Array(hashBuf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+    const cacheKey = `school:${ORG}:photo-read-cache:${hash}`;
+    await admin.from("kv_store_f116e23f").upsert({
+      key: cacheKey, value: { lines: "QA cached line one\nQA cached line two", model: "qa-fixture" },
+    });
+    cleanup.push(() => admin.from("kv_store_f116e23f").delete().eq("key", cacheKey));
+    const hit = await api(principal.token, url, {
+      method: "POST", body: JSON.stringify({ imageBase64: img, mediaType: "image/jpeg" }),
+    });
+    const hj = await hit.json();
+    assert(hit.status === 200 && hj.cached === true, `cache hit ${hit.status}: ${JSON.stringify(hj).slice(0, 140)}`);
+    assert(hj.lines === "QA cached line one\nQA cached line two", `cached lines: ${hj.lines}`);
+
+    // 2. Daily cap reached -> a NEW photo is refused before any spend.
+    const today = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Karachi", year: "numeric", month: "2-digit", day: "2-digit",
+    }).format(new Date());
+    const quotaKey = `school:${ORG}:photo-reads:${today}`;
+    const { data: prevQuota } = await admin.from("kv_store_f116e23f")
+      .select("value").eq("key", quotaKey).maybeSingle();
+    await admin.from("kv_store_f116e23f").upsert({ key: quotaKey, value: 30 });
+    cleanup.push(async () => prevQuota
+      ? admin.from("kv_store_f116e23f").upsert({ key: quotaKey, value: (prevQuota as any).value })
+      : admin.from("kv_store_f116e23f").delete().eq("key", quotaKey));
+    const capped = await api(principal.token, url, {
+      method: "POST", body: JSON.stringify({ imageBase64: btoa("qa-brand-new-photo"), mediaType: "image/jpeg" }),
+    });
+    const cj = await capped.json();
+    assert(capped.status === 429, `over-cap read should 429, got ${capped.status}: ${JSON.stringify(cj).slice(0, 120)}`);
+    assert(String(cj.error ?? "").includes("limit"), `the refusal explains the cap: ${cj.error}`);
+
+    // ...and the cached photo still answers even while capped.
+    const stillCached = await (await api(principal.token, url, {
+      method: "POST", body: JSON.stringify({ imageBase64: img, mediaType: "image/jpeg" }),
+    })).json();
+    assert(stillCached.cached === true, "cache must answer even at the cap");
+  } finally {
+    for (const fn of cleanup.reverse()) await fn();
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

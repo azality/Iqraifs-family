@@ -49,6 +49,8 @@ import type { Hono } from "npm:hono";
 import Anthropic from "npm:@anthropic-ai/sdk";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { userCanInOrg, hasAnyRoleInOrg as hasAnyOrgRole } from "./schoolAuth.ts";
+import * as kv from "./kv_store.tsx";
+import { todayInOrgTz, orgTimezone } from "./tz.ts";
 
 // -----------------------------------------------------------------------------
 // Helpers
@@ -770,6 +772,45 @@ export function installCurriculum(school: Hono) {
       return c.json({ error: "photo import is not configured (ANTHROPIC_API_KEY missing)" }, 500);
     }
 
+    // ── Spend guards (Muneeb, 16 Sep) ─────────────────────────────────
+    // 1. The SAME photo re-uploaded costs nothing: results are cached
+    //    by image hash, so "fix one spelling" re-uploads come back
+    //    instantly and free - the paste box is where typos get fixed.
+    // 2. A per-school daily cap (settings.photo_read_daily_limit,
+    //    default 30 pages) checked BEFORE any API spend.
+    const hashBuf = await crypto.subtle.digest(
+      "SHA-256", new TextEncoder().encode(imageBase64));
+    const imageHash = Array.from(new Uint8Array(hashBuf))
+      .map((b) => b.toString(16).padStart(2, "0")).join("");
+    const cacheKey = `school:${ctx.orgId}:photo-read-cache:${imageHash}`;
+    const tz = await orgTimezone(ctx.orgId);
+    const quotaKey = `school:${ctx.orgId}:photo-reads:${todayInOrgTz(tz)}`;
+
+    const { data: orgRow } = await serviceRoleClient
+      .from("organizations").select("settings").eq("id", ctx.orgId).maybeSingle();
+    const rawLimit = Number((orgRow as any)?.settings?.photo_read_daily_limit);
+    const dailyLimit = Number.isInteger(rawLimit) && rawLimit >= 1 && rawLimit <= 500 ? rawLimit : 30;
+
+    const cached = await kv.get(cacheKey);
+    const usedToday = Number(await kv.get(quotaKey)) || 0;
+    if (cached?.lines != null) {
+      return c.json({
+        lines: cached.lines,
+        model: cached.model ?? null,
+        usage: null,
+        cached: true,
+        remainingToday: Math.max(0, dailyLimit - usedToday),
+      });
+    }
+    if (usedToday >= dailyLimit) {
+      return c.json({
+        error:
+          `Today's photo-reading limit is reached (${dailyLimit} pages). ` +
+          `Type or paste the remaining pages, or continue tomorrow. ` +
+          `A spelling mistake is fixed in the box, not by re-photographing.`,
+      }, 429);
+    }
+
     const anthropic = new Anthropic({ apiKey });
     let response: any;
     try {
@@ -811,6 +852,9 @@ export function installCurriculum(school: Hono) {
       .map((b: any) => b.text)
       .join("\n")
       .trim();
+    // Spend recorded and the reading cached for identical re-uploads.
+    await kv.set(quotaKey, usedToday + 1);
+    await kv.set(cacheKey, { lines, model: response?.model ?? null, at: new Date().toISOString() });
     return c.json({
       lines,
       model: response?.model ?? null,
@@ -818,6 +862,8 @@ export function installCurriculum(school: Hono) {
         inputTokens: response?.usage?.input_tokens ?? null,
         outputTokens: response?.usage?.output_tokens ?? null,
       },
+      cached: false,
+      remainingToday: Math.max(0, dailyLimit - (usedToday + 1)),
     });
   });
 
