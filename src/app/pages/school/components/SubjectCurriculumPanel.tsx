@@ -143,6 +143,21 @@ export function SubjectCurriculumPanel({
   const [photoReading, setPhotoReading] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
+  // A read takes 15-45s and a frozen button reads as broken (Muneeb,
+  // 16 Sep: "show me it's working hard"). One call gives no real
+  // percentage, so this is an honest elapsed-time curve: quick to
+  // ~50%, asymptotic to 95%, done on the response.
+  const [photoPct, setPhotoPct] = useState(0);
+  useEffect(() => {
+    if (!photoReading) { setPhotoPct(0); return; }
+    const t0 = Date.now();
+    setPhotoPct(3);
+    const id = window.setInterval(() => {
+      const s = (Date.now() - t0) / 1000;
+      setPhotoPct(Math.min(95, Math.round(100 * (1 - Math.exp(-s / 9)))));
+    }, 250);
+    return () => window.clearInterval(id);
+  }, [photoReading]);
 
   const readPhotoBase64 = async (base64: string, mediaType: string) => {
     setPhotoReading(true);
@@ -1031,8 +1046,25 @@ export function SubjectCurriculumPanel({
                     disabled={saving || photoReading}
                   >
                     <Camera className="mr-1 h-3.5 w-3.5" />
-                    {photoReading ? "Reading photo…" : "Read from photo"}
+                    {photoReading ? `Reading… ${photoPct}%` : "Read from photo"}
                   </Button>
+                  {photoReading && (
+                    <div className="w-full max-w-xs">
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+                        <div
+                          className="h-full rounded-full bg-violet-500 transition-all duration-300"
+                          style={{ width: `${photoPct}%` }}
+                        />
+                      </div>
+                      <p className="mt-1 text-[11px] text-slate-500">
+                        {photoPct < 15
+                          ? "Uploading the photo…"
+                          : photoPct < 80
+                          ? "Claude is reading the page…"
+                          : "Almost done — writing the lines…"}
+                      </p>
+                    </div>
+                  )}
                   <SyllabusCameraDialog
                     open={cameraOpen}
                     onClose={() => setCameraOpen(false)}
