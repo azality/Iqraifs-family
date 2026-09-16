@@ -49,7 +49,8 @@ import { templateForSubject } from "./curriculumTemplates";
 import { TopicResourcesPanel } from "./TopicResourcesPanel";
 import { SyllabusCameraDialog } from "./SyllabusCameraDialog";
 import { Textarea } from "../../../components/ui/textarea";
-import { Sparkles, Library, Copy, Camera } from "lucide-react";
+import { Sparkles, Library, Copy, Camera, FileUp } from "lucide-react";
+import { extractSyllabusText } from "../../../../utils/docxText";
 
 /** Downscale a phone photo before upload — Claude reads at most ~1568px
  *  on the long edge, so anything bigger only costs bandwidth. */
@@ -193,6 +194,29 @@ export function SubjectCurriculumPanel({
       await readPhotoBase64(base64, mediaType);
     } catch (e: any) {
       toast.error(e?.message || "Could not open that image");
+    }
+  };
+
+  // File upload (.docx / .txt) — the school's existing Word syllabus,
+  // extracted in the browser into the same paste box. Word table rows
+  // arrive tab-joined, so topic + detail split like any Word paste.
+  const docInputRef = useRef<HTMLInputElement | null>(null);
+  const handleDocPicked = async (file: File | null) => {
+    if (!file) return;
+    try {
+      const text = (await extractSyllabusText(file)).trim();
+      if (!text) {
+        toast.error(`Couldn't find any text in ${file.name} — if it's a scan, use Read from photo.`);
+        return;
+      }
+      const n = text.split(/\n/).filter((s) => s.trim()).length;
+      setBulkText((prev) => (prev.trim() ? `${prev.replace(/\s+$/, "")}\n${text}` : text));
+      setBulkOpen(true);
+      toast.success(`Read ${n} line${n === 1 ? "" : "s"} from ${file.name} — remove headings you don't want, then Add all.`);
+    } catch (e: any) {
+      toast.error(e?.message || "Could not read that file");
+    } finally {
+      if (docInputRef.current) docInputRef.current.value = "";
     }
   };
 
@@ -1024,6 +1048,25 @@ export function SubjectCurriculumPanel({
                   >
                     <Library className="mr-1 h-3.5 w-3.5" />
                     Paste many
+                  </Button>
+                  {/* The school's existing Word/text syllabus file, read in
+                      the browser into the paste box — a human still reviews
+                      before Add all. */}
+                  <input
+                    ref={docInputRef}
+                    type="file"
+                    accept=".docx,.doc,.txt,.csv,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword"
+                    className="hidden"
+                    onChange={(e) => void handleDocPicked(e.target.files?.[0] ?? null)}
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => docInputRef.current?.click()}
+                    disabled={saving}
+                  >
+                    <FileUp className="mr-1 h-3.5 w-3.5" />
+                    Upload Word/text
                   </Button>
                   {/* Photo of the notebook page → Claude reads it into the
                       paste box; a human always reviews before Add all. */}
