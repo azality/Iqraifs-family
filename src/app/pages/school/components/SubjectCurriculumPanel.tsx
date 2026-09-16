@@ -47,6 +47,7 @@ import {
 } from "../../../../utils/schoolApi";
 import { templateForSubject } from "./curriculumTemplates";
 import { TopicResourcesPanel } from "./TopicResourcesPanel";
+import { SyllabusCameraDialog } from "./SyllabusCameraDialog";
 import { Textarea } from "../../../components/ui/textarea";
 import { Sparkles, Library, Copy, Camera } from "lucide-react";
 
@@ -140,13 +141,12 @@ export function SubjectCurriculumPanel({
   // Photo import: Claude reads the page into the paste box; the teacher
   // reviews before anything saves.
   const [photoReading, setPhotoReading] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
 
-  const handlePhotoPicked = async (file: File | null) => {
-    if (!file) return;
+  const readPhotoBase64 = async (base64: string, mediaType: string) => {
     setPhotoReading(true);
     try {
-      const { base64, mediaType } = await photoToBase64(file);
       const cur = await ensureCurriculum();
       if (!cur) return;
       const r = await readSyllabusPhoto(cur.id, base64, mediaType);
@@ -168,6 +168,16 @@ export function SubjectCurriculumPanel({
     } finally {
       setPhotoReading(false);
       if (photoInputRef.current) photoInputRef.current.value = "";
+    }
+  };
+
+  const handlePhotoPicked = async (file: File | null) => {
+    if (!file) return;
+    try {
+      const { base64, mediaType } = await photoToBase64(file);
+      await readPhotoBase64(base64, mediaType);
+    } catch (e: any) {
+      toast.error(e?.message || "Could not open that image");
     }
   };
 
@@ -1012,12 +1022,23 @@ export function SubjectCurriculumPanel({
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => photoInputRef.current?.click()}
+                    onClick={() => {
+                      // Phones get the guided camera (frame + live hints);
+                      // anything without one falls back to the picker.
+                      if (navigator.mediaDevices?.getUserMedia) setCameraOpen(true);
+                      else photoInputRef.current?.click();
+                    }}
                     disabled={saving || photoReading}
                   >
                     <Camera className="mr-1 h-3.5 w-3.5" />
                     {photoReading ? "Reading photo…" : "Read from photo"}
                   </Button>
+                  <SyllabusCameraDialog
+                    open={cameraOpen}
+                    onClose={() => setCameraOpen(false)}
+                    onCaptured={(base64, mediaType) => void readPhotoBase64(base64, mediaType)}
+                    onPickGallery={() => photoInputRef.current?.click()}
+                  />
                   <Button
                     size="sm"
                     variant="ghost"
