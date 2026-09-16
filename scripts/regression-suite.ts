@@ -4790,6 +4790,35 @@ await check("91. photo reads are capped and cached - neither path bills the API"
   }
 });
 
+await check("92. dashboard hifz + resources tiles count what the school actually logs", async () => {
+  // Both tiles read 0 forever (Muneeb, 16 Sep): hifz counted kind
+  // "memorized", which nothing writes (lessons are logged as sabaq), and
+  // resources looked topics up in one unpaged select that the 1000-row
+  // cap truncated at 2,154 topics. Read-only against live org data.
+  const { count: sabaqCount } = await admin.from("hifz_progress")
+    .select("id", { count: "exact", head: true })
+    .eq("org_id", ORG).eq("kind", "sabaq").eq("missed", false).is("juz_extent", null);
+  const dash = await api(principal.token, `/school/orgs/${ORG}/dashboard?period=month`);
+  const dj = await dash.json();
+  assert(dash.status === 200, `dashboard ${dash.status}`);
+  const hifzVal = dj?.tiles?.hifzProgress?.value ?? 0;
+  if ((sabaqCount ?? 0) > 0) {
+    assert(hifzVal > 0, `${sabaqCount} sabaq lessons are logged but the hifz tile reads ${hifzVal}`);
+  }
+
+  const { count: resCount } = await admin.from("topic_resource")
+    .select("id", { count: "exact", head: true })
+    .eq("org_id", ORG).is("archived_at", null);
+  const acad = await api(principal.token, `/school/orgs/${ORG}/academics`);
+  const aj = await acad.json();
+  assert(acad.status === 200, `academics ${acad.status}`);
+  const resVal = aj?.resources?.totalResources ?? 0;
+  assert(resVal <= (resCount ?? 0), `tile ${resVal} exceeds the ${resCount} live resources`);
+  if ((resCount ?? 0) > 0) {
+    assert(resVal > 0, `${resCount} live resources exist but the resources tile reads 0`);
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

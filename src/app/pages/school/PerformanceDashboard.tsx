@@ -897,8 +897,9 @@ function GlanceBar({
         }]
       : []),
     {
-      label: "HIFZ",
-      value: pctStr(tiles.hifzProgress.value),
+      // Average ayahs memorized per hifz student — a count, not a percent.
+      label: "HIFZ AVG AYAHS",
+      value: numStr(tiles.hifzProgress.value),
       to: `/school/orgs/${orgId}/admin/hifz-program`,
       nonzero: (tiles.hifzProgress.value ?? 0) > 0,
     },

@@ -218,15 +218,26 @@ export function installAcademics(school: Hono) {
     };
     if (latestCurIds.length > 0) {
       // Find the topic IDs first, then count resources scoped to them. Faster
-      // than per-resource filter on a different table.
-      const { data: topicRows } = await serviceRoleClient
-        .from("curriculum_topic")
-        .select("id")
-        .in("curriculum_id", latestCurIds);
-      const topicIds = (topicRows ?? []).map((r: any) => r.id);
+      // than per-resource filter on a different table. Paged: this used to be
+      // one unpaged select, capped at PostgREST's 1000 rows — with 2,154
+      // topics every resource hanging off a later topic vanished and the
+      // tile read 0 beside 29 live resources (Muneeb, 16 Sep).
+      const topicIds: string[] = [];
+      for (let from = 0; ; from += 1000) {
+        const { data: topicPage } = await serviceRoleClient
+          .from("curriculum_topic")
+          .select("id")
+          .in("curriculum_id", latestCurIds)
+          .order("id")
+          .range(from, from + 999);
+        const rows = (topicPage ?? []) as any[];
+        for (const r of rows) topicIds.push(r.id);
+        if (rows.length < 1000) break;
+      }
       if (topicIds.length > 0) {
-        // chunk into batches of 500 to keep the IN list manageable
-        const chunkSize = 500;
+        // Batches of 200: each UUID adds ~37 bytes to the query string, and
+        // 500 per batch already built ~18KB URLs.
+        const chunkSize = 200;
         for (let i = 0; i < topicIds.length; i += chunkSize) {
           const chunk = topicIds.slice(i, i + chunkSize);
           const { data: res } = await serviceRoleClient
