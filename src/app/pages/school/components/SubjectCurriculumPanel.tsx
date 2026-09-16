@@ -157,7 +157,12 @@ export function SubjectCurriculumPanel({
       const n = r.lines.split(/\r?\n/).filter((s) => s.trim()).length;
       setBulkText((prev) => (prev.trim() ? `${prev.replace(/\s+$/, "")}\n${r.lines}` : r.lines));
       setBulkOpen(true);
-      toast.success(`Read ${n} line${n === 1 ? "" : "s"} from the photo — check them, then Add all.`);
+      const left = typeof r.remainingToday === "number" ? ` · ${r.remainingToday} reads left today` : "";
+      toast.success(
+        r.cached
+          ? `Same photo as before — reused the earlier reading (free). Fix typos here in the box.`
+          : `Read ${n} line${n === 1 ? "" : "s"} from the photo — check them, then Add all.${left}`,
+      );
     } catch (e: any) {
       toast.error(e?.message || "Could not read the photo");
     } finally {
