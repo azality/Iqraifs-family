@@ -38,7 +38,7 @@ const PERMISSION_META: Record<string, { label: string; description: string }> = 
   manage_students: {
     label: "Manage students & families",
     description:
-      "Add, edit and remove students and parents, link families, bulk upload, and issue PIN logins and PIN slips.",
+      "Add, edit and remove students and parents, link families, bulk upload, issue PIN logins, PIN slips and link codes. Staff without this (or Record fees) see only their own sections' students — in the roster, student profiles and search.",
   },
   mark_attendance: {
     label: "Bulk attendance & office roll call",
@@ -51,14 +51,14 @@ const PERMISSION_META: Record<string, { label: string; description: string }> = 
       "Enter and edit grades on assignments, for sections the person teaches. Exam marks and sign-off are separate — see Fixed by role below.",
   },
   mark_fees_status: {
-    label: "Record fees",
+    label: "Record & view fees",
     description:
-      "Record fee payments, fee plans and per-student overrides. Deleting a fee record stays principal/admin only.",
+      "Record fee payments and see fee data — the fees ledger, finance dashboard, payment history, fee plans and per-student overrides. Plan lists are also visible to staff who manage students (admissions). Deleting a fee record stays principal/admin only.",
   },
   create_forms: {
     label: "Create forms",
     description:
-      "Build and publish forms — permission slips, surveys. Teachers can only send forms to sections they teach.",
+      "Build and publish forms — permission slips, surveys. Teachers (and teachers who are also incharges) can only send forms to sections they teach or oversee.",
   },
   define_curriculum: {
     label: "Define curriculum",

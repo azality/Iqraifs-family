@@ -30,6 +30,13 @@ import type { PinTokenPayload } from "./schoolPhaseA.tsx";
 //   - class_section.class_teacher_user_id = userId (in this org)
 //   - user_roles with role_type=visiting_teacher, scope_type=class, scope_id=<sectionId>
 //     and the section belongs to this org.
+//
+// DELIBERATELY NARROWER than schoolAuth.teacherSectionIds: incharges and
+// subject teachers cannot author announcements at all (permissions audit,
+// 16 Sep — documented, not changed). Announcements reach parents, so
+// widening who can broadcast — e.g. incharge → whole wing — is a product
+// call for the school, not a code cleanup. If that call is made, swap
+// this for teacherSectionIds so all surfaces stay in lockstep.
 async function getTeacherSections(userId: string, orgId: string): Promise<string[]> {
   const out = new Set<string>();
 

@@ -28,7 +28,7 @@
 
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
-import { userCanInOrg, hasAnyRoleInOrg as hasAnyOrgRole } from "./schoolAuth.ts";
+import { userCanInOrg } from "./schoolAuth.ts";
 
 // Delegates to the permission matrix: mark_fees_status defaults to
 // financial_staff (plus the principal/admin short-circuit) and is
@@ -36,6 +36,16 @@ import { userCanInOrg, hasAnyRoleInOrg as hasAnyOrgRole } from "./schoolAuth.ts"
 // hardcoded role list wasn't.
 async function canManageFees(userId: string, orgId: string): Promise<boolean> {
   return userCanInOrg(userId, orgId, "mark_fees_status");
+}
+
+// Plan/override READS (permissions audit, 16 Sep): were any-role, which
+// let every teacher browse per-family amounts and waivers. Fee staff
+// need them, and so does the admission/readmit flow — which runs on
+// manage_students (office staff pick a plan + per-student amount while
+// admitting) — so reads accept either key.
+async function canReadFeePlans(userId: string, orgId: string): Promise<boolean> {
+  if (await userCanInOrg(userId, orgId, "mark_fees_status")) return true;
+  return userCanInOrg(userId, orgId, "manage_students");
 }
 
 function planToJson(r: any) {
@@ -69,8 +79,8 @@ export function installFeePlans(school: Hono): void {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
     const classId = c.req.param("classId");
-    if (!(await hasAnyOrgRole(userId, orgId))) {
-      return c.json({ error: "forbidden" }, 403);
+    if (!(await canReadFeePlans(userId, orgId))) {
+      return c.json({ error: "forbidden", code: "FORBIDDEN_PERMISSION" }, 403);
     }
     // Validate the class lives in this org so we don't accidentally
     // leak another org's plan list.
@@ -248,8 +258,8 @@ export function installFeePlans(school: Hono): void {
     const userId = getAuthUserId(c);
     const orgId = c.req.param("orgId");
     const studentId = c.req.param("studentId");
-    if (!(await hasAnyOrgRole(userId, orgId))) {
-      return c.json({ error: "forbidden" }, 403);
+    if (!(await canReadFeePlans(userId, orgId))) {
+      return c.json({ error: "forbidden", code: "FORBIDDEN_PERMISSION" }, 403);
     }
     const { data: stu } = await serviceRoleClient
       .from("student")

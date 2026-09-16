@@ -4819,6 +4819,28 @@ await check("92. dashboard hifz + resources tiles count what the school actually
   }
 });
 
+// Revive-or-insert an incharge wing row. user_roles has a UNIQUE
+// (user_id, role_type, scope_type, scope_id) that counts REVOKED rows
+// too — and check 31 deliberately leaves qa-incharge's row revoked —
+// so a blind insert dupes on every rerun. Callers clean up by id
+// (delete), which both paths tolerate.
+async function ensureWingRow(userId: string, classId: string, grantedBy: string): Promise<string> {
+  const { data: existing } = await admin.from("user_roles").select("id")
+    .eq("user_id", userId).eq("role_type", "incharge")
+    .eq("scope_type", "class").eq("scope_id", classId).maybeSingle();
+  if (existing) {
+    const { error } = await admin.from("user_roles").update({ revoked_at: null }).eq("id", existing.id);
+    if (error) throw new Error(`wing row revive: ${error.message}`);
+    return existing.id;
+  }
+  const { data, error } = await admin.from("user_roles").insert({
+    user_id: userId, role_type: "incharge", scope_type: "class",
+    scope_id: classId, granted_by: grantedBy,
+  }).select("id").single();
+  if (error) throw new Error(`wing row: ${error.message}`);
+  return data.id;
+}
+
 await check("93. an incharge runs their own wing's syllabus - and nothing leaks school-wide", async () => {
   // Muneeb (16 Sep): Upload syllabus "should be granted to Incharge of
   // their own wing". Incharge matrix cells are wing-scoped
@@ -4828,12 +4850,8 @@ await check("93. an incharge runs their own wing's syllabus - and nothing leaks 
   const inch = await ensureUser("qa-incharge@azality.com", "QA Incharge", "class_teacher");
   const cleanup: Array<() => Promise<unknown>> = [];
   try {
-    const { data: wingRow, error: wErr } = await admin.from("user_roles").insert({
-      user_id: inch.id, role_type: "incharge", scope_type: "class",
-      scope_id: sandboxClass.id, granted_by: principal.id,
-    }).select("id").single();
-    if (wErr) throw new Error(`wing row: ${wErr.message}`);
-    cleanup.push(() => admin.from("user_roles").delete().eq("id", wingRow.id));
+    const wingRowId = await ensureWingRow(inch.id, sandboxClass.id, principal.id);
+    cleanup.push(() => admin.from("user_roles").delete().eq("id", wingRowId));
 
     // Outside the wing: a throwaway class, so a wrongly-open gate writes
     // test data, never a real class's syllabus.
@@ -4898,8 +4916,117 @@ await check("93. an incharge runs their own wing's syllabus - and nothing leaks 
     // 4. Removing the staff member revokes the wing row too.
     const rm = await api(principal.token, `/school/orgs/${ORG}/teachers/${inch.id}`, { method: "DELETE" });
     assert(rm.ok, `remove staff ${rm.status}`);
-    const { data: after } = await admin.from("user_roles").select("revoked_at").eq("id", wingRow.id).maybeSingle();
+    const { data: after } = await admin.from("user_roles").select("revoked_at").eq("id", wingRowId).maybeSingle();
     assert(after && after.revoked_at, "removing a staff member must revoke their incharge wing rows");
+  } finally {
+    for (const fn of cleanup.reverse()) await fn();
+  }
+});
+
+await check("94. read-scopes: fee data needs the fees key, student detail/search stay in-section, incharge can request leave", async () => {
+  // Permissions audit (16 Sep), the items PR #622 did not cover:
+  //   - fee reads (org ledger, finance snapshot, plan/override lists,
+  //     per-student history) were any-role: every teacher could read
+  //     every family's money. Now: mark_fees_status (or manage_students
+  //     for the plan lists the admission flow needs).
+  //   - GET /students/:id and /search answered org-wide while the
+  //     roster LIST was section-scoped — the scoping was hollow.
+  //   - a PURE incharge (class-scoped rows only) could not request
+  //     time off; a teacher who is ALSO an incharge got org-wide form
+  //     audiences; link-code LISTING was admin-only while issuing was
+  //     manage_students.
+  const finance = await ensureUser("qa-finance@azality.com", "QA Finance", "financial_staff");
+  const { data: sbSecs } = await admin.from("class_section").select("id").eq("class_id", sandboxClass.id);
+  const sbIds = new Set((sbSecs ?? []).map((x: any) => x.id));
+  const cleanup: Array<() => Promise<unknown>> = [];
+  try {
+    // ── 1. Fee reads follow mark_fees_status ──
+    const tFees = await api(teacher.token, `/school/orgs/${ORG}/fees`);
+    assert(tFees.status === 403, `teacher org fees expected 403, got ${tFees.status}`);
+    const tSnap = await api(teacher.token, `/school/orgs/${ORG}/finance-snapshot`);
+    assert(tSnap.status === 403, `teacher finance-snapshot expected 403, got ${tSnap.status}`);
+    const tHist = await api(teacher.token, `/school/orgs/${ORG}/students/${pStu1}/fees`);
+    assert(tHist.status === 403, `teacher student fee history expected 403, got ${tHist.status}`);
+    const fFees = await api(finance.token, `/school/orgs/${ORG}/fees`);
+    assert(fFees.status === 200, `finance org fees expected 200, got ${fFees.status}`);
+    const fSnap = await api(finance.token, `/school/orgs/${ORG}/finance-snapshot`);
+    assert(fSnap.status === 200, `finance snapshot expected 200, got ${fSnap.status}`);
+    const fHist = await api(finance.token, `/school/orgs/${ORG}/students/${pStu1}/fees`);
+    assert(fHist.status === 200, `finance student fee history expected 200, got ${fHist.status}`);
+    // Plan lists: teacher no, office (manage_students — admission flow) yes.
+    const tPlans = await api(teacher.token, `/school/orgs/${ORG}/classes/${sandboxClass.id}/fee-plans`);
+    assert(tPlans.status === 403, `teacher fee-plans expected 403, got ${tPlans.status}`);
+    const oPlans = await api(office.token, `/school/orgs/${ORG}/classes/${sandboxClass.id}/fee-plans`);
+    assert(oPlans.status === 200, `office fee-plans expected 200, got ${oPlans.status}`);
+    const tOv = await api(teacher.token, `/school/orgs/${ORG}/students/${pStu1}/fee-overrides`);
+    assert(tOv.status === 403, `teacher fee-overrides expected 403, got ${tOv.status}`);
+
+    // ── 2. Student detail + search are scoped like the roster list ──
+    const { data: cands } = await admin.from("student")
+      .select("id, full_name, class_section_id")
+      .eq("org_id", ORG).eq("status", "active").not("class_section_id", "is", null).limit(60);
+    const foreignStu = ((cands ?? []) as any[]).find((s) => !sbIds.has(s.class_section_id));
+    assert(foreignStu, "no non-sandbox student found to probe with");
+    const tOwn = await api(teacher.token, `/school/orgs/${ORG}/students/${pStu1}`);
+    assert(tOwn.status === 200, `teacher own-section student expected 200, got ${tOwn.status}`);
+    const tForeign = await api(teacher.token, `/school/orgs/${ORG}/students/${foreignStu.id}`);
+    assert(tForeign.status === 403, `teacher foreign student expected 403, got ${tForeign.status}`);
+    const fForeign = await api(finance.token, `/school/orgs/${ORG}/students/${foreignStu.id}`);
+    assert(fForeign.status === 200, `finance foreign student expected 200 (fee pages), got ${fForeign.status}`);
+    // Search: the same name that the principal CAN find must not surface
+    // students outside the teacher's sections (Sandbox class only).
+    const q = encodeURIComponent(String(foreignStu.full_name));
+    const pSearch = await (await api(principal.token, `/school/orgs/${ORG}/search?q=${q}`)).json();
+    assert((pSearch.students ?? []).some((s: any) => s.id === foreignStu.id),
+      "principal search should find the foreign student (probe sanity)");
+    const tSearch = await (await api(teacher.token, `/school/orgs/${ORG}/search?q=${q}`)).json();
+    assert(!(tSearch.students ?? []).some((s: any) => s.id === foreignStu.id),
+      "teacher search leaked a student outside their sections");
+    for (const s of tSearch.students ?? []) {
+      assert(s.className === "Sandbox", `teacher search leaked student of class ${s.className}`);
+    }
+    // A parent linked to the teacher's own section still surfaces.
+    const tPar = await (await api(teacher.token,
+      `/school/orgs/${ORG}/search?q=${encodeURIComponent("QA Portal Parent")}`)).json();
+    assert((tPar.parents ?? []).some((p: any) => p.fullName === "QA Portal Parent"),
+      "teacher lost their own section's parent in search");
+
+    // ── 3. Pure incharge can request time off ──
+    const inch = await ensureUser("qa-incharge@azality.com", "QA Incharge", "class_teacher");
+    // Strip org rows; wing row only (same pure-incharge shape as check 31).
+    await admin.from("user_roles").update({ revoked_at: new Date().toISOString() })
+      .eq("user_id", inch.id).eq("scope_type", "organization").eq("scope_id", ORG).is("revoked_at", null);
+    const inchWingId = await ensureWingRow(inch.id, sandboxClass.id, principal.id);
+    cleanup.push(() => admin.from("user_roles").delete().eq("id", inchWingId));
+    const to = await api(inch.token, `/school/orgs/${ORG}/me/time-off`, {
+      method: "POST",
+      body: JSON.stringify({ kind: "personal", startDate: "2031-02-03", endDate: "2031-02-03", reason: "QA read-scopes" }),
+    });
+    const toJ = await to.json();
+    assert(to.status === 201, `pure incharge time-off expected 201, got ${to.status} ${JSON.stringify(toJ).slice(0, 120)}`);
+    cleanup.push(() => admin.from("time_off_request").delete().eq("id", toJ.id));
+
+    // ── 4. Teacher-who-is-also-incharge: forms stay section-scoped ──
+    const tWingId = await ensureWingRow(teacher.id, sandboxClass.id, principal.id);
+    cleanup.push(() => admin.from("user_roles").delete().eq("id", tWingId));
+    const fWide = await api(teacher.token, `/school/orgs/${ORG}/forms`, {
+      method: "POST",
+      body: JSON.stringify({ title: "QA wide form", audienceKind: "whole_school" }),
+    });
+    assert(fWide.status === 403, `teacher+incharge whole-school form expected 403, got ${fWide.status}`);
+    const fOwn = await api(teacher.token, `/school/orgs/${ORG}/forms`, {
+      method: "POST",
+      body: JSON.stringify({ title: "QA section form", audienceKind: "class_section", audienceSectionId: sandboxSec.id }),
+    });
+    const fOwnJ = await fOwn.json();
+    assert(fOwn.status === 201, `teacher+incharge own-section form expected 201, got ${fOwn.status}`);
+    cleanup.push(() => admin.from("form").delete().eq("id", fOwnJ.form?.id ?? fOwnJ.id));
+
+    // ── 5. Link codes: listing follows the same key as issuing ──
+    const oCodes = await api(office.token, `/school/orgs/${ORG}/link-codes`);
+    assert(oCodes.status === 200, `office link-codes list expected 200, got ${oCodes.status}`);
+    const tCodes = await api(teacher.token, `/school/orgs/${ORG}/link-codes`);
+    assert(tCodes.status === 403, `teacher link-codes list expected 403, got ${tCodes.status}`);
   } finally {
     for (const fn of cleanup.reverse()) await fn();
   }
