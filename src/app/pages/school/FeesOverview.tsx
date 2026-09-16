@@ -218,26 +218,32 @@ export function AllocatePaymentDialog({
             ? `${longPeriod(target.pinFee.period)} · ${fmtRs(target.pinFee.owed)} owed this month`
             : `outstanding ${fmtRs(target.total)} · ${target.owedPeriods.length} month${target.owedPeriods.length === 1 ? "" : "s"}`}
         </p>
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <Label>Amount received</Label>
+        <div className="grid grid-cols-2 gap-x-3 gap-y-3">
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-slate-600">Amount received</Label>
             <Input type="number" step="0.01" inputMode="decimal" value={amount}
               onChange={(e) => setAmount(e.target.value)} autoFocus className="text-lg font-bold" />
           </div>
-          <div>
-            <Label>Method</Label>
-            <div className="mt-1 flex gap-1">
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-slate-600">Method</Label>
+            <div className="flex gap-1">
               {METHODS.map((m) => (
                 <button key={m.v} type="button" onClick={() => setMethod(m.v)}
-                  className={"flex-1 rounded-lg py-2 text-xs font-bold " +
+                  className={"h-9 flex-1 rounded-lg text-xs font-bold " +
                     (method === m.v ? "bg-slate-900 text-white" : "border border-slate-200 text-slate-600 hover:bg-slate-50")}>
                   {m.l}
                 </button>
               ))}
             </div>
           </div>
-          <div><Label>Date</Label><Input type="date" value={paidOn} onChange={(e) => setPaidOn(e.target.value)} /></div>
-          <div><Label>Slip / reference #</Label><Input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="optional" /></div>
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-slate-600">Date</Label>
+            <Input type="date" value={paidOn} onChange={(e) => setPaidOn(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-slate-600">Slip / reference #</Label>
+            <Input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="optional" />
+          </div>
         </div>
         {preview.length > 0 && amt > 0 && (
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
@@ -268,7 +274,10 @@ export function AllocatePaymentDialog({
             </div>
           </div>
         )}
-        <div><Label>Notes</Label><Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="optional" /></div>
+        <div className="space-y-1.5">
+          <Label className="text-xs font-semibold text-slate-600">Notes</Label>
+          <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="optional" />
+        </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
           <Button onClick={submit} disabled={saving}>{saving ? "Saving…" : "Save payment"}</Button>
