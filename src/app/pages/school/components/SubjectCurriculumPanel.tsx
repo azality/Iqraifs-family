@@ -320,10 +320,20 @@ export function SubjectCurriculumPanel({
       toast.error("Paste at least one topic per line");
       return;
     }
+    // Each line: "topic", or "topic — details" / "topic :: details" /
+    // tab-separated (a Word/Excel paste). The details land as the
+    // topic's description — how answers, hadith meanings and dua texts
+    // ride along without a developer (15 Sep).
     const names = source
       .split(/\r?\n/)
       .map((line) => line.replace(/^[\s\-\*\d\.\)]+/, "").trim()) // strip bullets / "1." prefixes
-      .filter((line) => line.length > 0);
+      .filter((line) => line.length > 0)
+      .map((line) => {
+        const m = /^(.+?)(?:\t+| — | :: )(.+)$/.exec(line);
+        return m
+          ? { name: m[1].trim(), description: m[2].trim() }
+          : { name: line };
+      });
     if (names.length === 0) {
       toast.error("No topics found in the text");
       return;
@@ -818,15 +828,16 @@ export function SubjectCurriculumPanel({
                 <div className="mt-3 rounded-md border border-dashed border-violet-300 bg-violet-50/40 p-3">
                   <p className="mb-2 text-xs text-slate-600">
                     One topic per line. Numbering and bullets are stripped
-                    automatically. Duplicates against existing topics are
-                    skipped.
+                    automatically; duplicates against existing topics are
+                    skipped. Add details (an answer, a meaning, a page)
+                    after the topic with " — " and they save with it.
                   </p>
                   <Textarea
                     value={bulkText}
                     onChange={(e) => setBulkText(e.target.value)}
                     rows={8}
                     placeholder={
-                      "Place value\nFractions\nDecimals\nGeometry\n…"
+                      "Place value\nFractions (p. 12)\nسوال ۱: اللہ تعالیٰ کون ہے؟ — اللہ تعالیٰ ہم سب کا مالک ہے\n…"
                     }
                     className="text-sm font-mono"
                     autoFocus
