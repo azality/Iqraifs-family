@@ -4213,6 +4213,28 @@ await check("81. PIN slips: a whole section at once, never touching a chosen PIN
         .eq("subject_id", j1.slips[0].subjectId).maybeSingle();
       assert(cred?.must_change === true, "bulk PINs are temporary (must_change)");
     }
+    // Re-running slips REUSES an unused temp PIN instead of rotating it —
+    // a father with children in two sections got two different slips and
+    // only the second worked (16 Sep). regenerate:true still re-rolls.
+    if (j1.slips.length) {
+      const r1b = await api(admin2.token, url, {
+        method: "POST", body: JSON.stringify({ subjectType: "student" }),
+      });
+      const j1b = await r1b.json();
+      assert(r1b.status === 200, `slips rerun ${r1b.status}`);
+      const firstPins = new Map(j1.slips.map((s: any) => [s.subjectId, s.pin]));
+      for (const sl of (j1b.slips ?? [])) {
+        if (!firstPins.has(sl.subjectId)) continue;
+        assert(sl.pin === firstPins.get(sl.subjectId),
+          `unused temp PIN must be reused across runs (${sl.name}: ${firstPins.get(sl.subjectId)} -> ${sl.pin})`);
+      }
+      const r1c = await api(admin2.token, url, {
+        method: "POST", body: JSON.stringify({ subjectType: "student", regenerate: true }),
+      });
+      const j1c = await r1c.json();
+      assert(r1c.status === 200 && (j1c.slips ?? []).every((s: any) => /^\d{4}$/.test(s.pin)),
+        "regenerate:true must still issue fresh 4-digit PINs");
+    }
 
     // 2. Parent slips: phone identifiers; a phone-less parent is
     // reported, not failed.
@@ -4253,10 +4275,18 @@ await check("81. PIN slips: a whole section at once, never touching a chosen PIN
         .eq("org_id", ORG).eq("subject_type", "parent").eq("subject_id", sl.subjectId));
     }
     // Student credentials created by step 1 for non-portal QA students
-    // are throwaway - remove them so later runs start clean.
+    // are throwaway - remove them so later runs start clean. The stored
+    // temp-PIN records (kv) go with them - exact keys only, never a
+    // prefix sweep that could hit real families' slips.
     for (const sl of j1.slips) {
       cleanup.push(() => admin.from("pin_credential").delete()
         .eq("org_id", ORG).eq("subject_type", "student").eq("subject_id", sl.subjectId));
+      cleanup.push(() => admin.from("kv_store_f116e23f").delete()
+        .eq("key", `school:${ORG}:temp-pin:student:${sl.subjectId}`));
+    }
+    for (const sl of (j2.slips ?? [])) {
+      cleanup.push(() => admin.from("kv_store_f116e23f").delete()
+        .eq("key", `school:${ORG}:temp-pin:parent:${sl.subjectId}`));
     }
   } finally {
     for (const fn of cleanup.reverse()) await fn();
