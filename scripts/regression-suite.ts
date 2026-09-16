@@ -5054,6 +5054,143 @@ await check("94. read-scopes: fee data needs the fees key, student detail/search
   }
 });
 
+await check("95. fee ledger: installments add up, derive the status, and void undoes", async () => {
+  // Fees review (17 Sep): partial payments used to overwrite each other
+  // and the dialog hardcoded "paid". Now every payment is a ledger row;
+  // amount_paid is their sum and status is derived - and the old PATCH
+  // amountPaid path is refused so nothing bypasses the ledger.
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const cleanup: Array<() => Promise<unknown>> = [];
+  try {
+    const mk = await api(admin2.token, `/school/orgs/${ORG}/students/${pStu1}/fees`, {
+      method: "POST", body: JSON.stringify({ period: "2099-01", amountDue: 4000, dueDate: "2099-01-05" }),
+    });
+    const mkj = await mk.json();
+    assert(mk.status === 201, `create fee ${mk.status}: ${JSON.stringify(mkj).slice(0, 120)}`);
+    const feeId = mkj.fee.id;
+    cleanup.push(() => admin.from("fee_payment").delete().eq("fee_status_id", feeId));
+    cleanup.push(() => admin.from("fee_status").delete().eq("id", feeId));
+
+    // Two partial installments -> sum + partial, then paid.
+    const p1 = await (await api(admin2.token, `/school/orgs/${ORG}/fees/${feeId}/payments`, {
+      method: "POST", body: JSON.stringify({ amount: 1500, paidOn: "2099-01-03", method: "cash" }),
+    })).json();
+    assert(p1.fee.amount_paid === 1500 && p1.fee.status === "partial",
+      `after 1500: ${p1.fee.amount_paid}/${p1.fee.status}`);
+    const p2 = await (await api(admin2.token, `/school/orgs/${ORG}/fees/${feeId}/payments`, {
+      method: "POST", body: JSON.stringify({ amount: 2500, paidOn: "2099-01-10", method: "bank", reference: "SLIP-1" }),
+    })).json();
+    assert(p2.fee.amount_paid === 4000 && p2.fee.status === "paid" && p2.fee.paid_date === "2099-01-10",
+      `after 2500: ${p2.fee.amount_paid}/${p2.fee.status}/${p2.fee.paid_date}`);
+
+    // Both installments (with dates) come back on the per-student read.
+    const list = await (await api(admin2.token, `/school/orgs/${ORG}/students/${pStu1}/fees`)).json();
+    const row = (list.fees ?? []).find((f: any) => f.id === feeId);
+    assert(row && Array.isArray(row.payments) && row.payments.length === 2,
+      `expected 2 ledger rows, got ${row?.payments?.length}`);
+    assert(row.payments.some((x: any) => x.amount === 1500 && x.paidOn === "2099-01-03"),
+      "first installment lost its date/amount");
+
+    // Void the second -> back to partial 1500; the row stays, marked void.
+    const v = await (await api(admin2.token, `/school/orgs/${ORG}/fee-payments/${p2.payment.id}/void`, {
+      method: "POST", body: JSON.stringify({ reason: "QA" }),
+    })).json();
+    assert(v.fee.amount_paid === 1500 && v.fee.status === "partial",
+      `after void: ${v.fee.amount_paid}/${v.fee.status}`);
+
+    // The scalar bypass is closed.
+    const patch = await api(admin2.token, `/school/orgs/${ORG}/fees/${feeId}`, {
+      method: "PATCH", body: JSON.stringify({ amountPaid: 4000, status: "paid" }),
+    });
+    assert(patch.status === 400, `PATCH amountPaid must 400, got ${patch.status}`);
+  } finally {
+    for (const fn of cleanup.reverse()) await fn();
+  }
+});
+
+await check("96. arrears carry forward, and regenerating never erases payments", async () => {
+  // The 4000-vs-8000 complaint: unpaid August + September must surface
+  // as ONE combined balance; and re-running a month's billing must not
+  // wipe recorded payments (it used to upsert amount_paid: 0 over them).
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const cleanup: Array<() => Promise<unknown>> = [];
+  try {
+    const mkFee = async (period: string, due: number) => {
+      const r = await (await api(admin2.token, `/school/orgs/${ORG}/students/${pStu1}/fees`, {
+        method: "POST", body: JSON.stringify({ period, amountDue: due, dueDate: `${period}-05` }),
+      })).json();
+      cleanup.push(() => admin.from("fee_payment").delete().eq("fee_status_id", r.fee.id));
+      cleanup.push(() => admin.from("fee_status").delete().eq("id", r.fee.id));
+      return r.fee.id as string;
+    };
+    await mkFee("2098-08", 4000);
+    const sepId = await mkFee("2098-09", 4000);
+    // Pay half of September so the row is precious.
+    await api(admin2.token, `/school/orgs/${ORG}/fees/${sepId}/payments`, {
+      method: "POST", body: JSON.stringify({ amount: 1000, paidOn: "2098-09-02" }),
+    });
+
+    // 1a. Sandbox stays OUT of the org-wide outstanding rollup, same as
+    //     every other rollup (check 62's rule).
+    const org = await (await api(admin2.token, `/school/orgs/${ORG}/fees?period=2098-09&sectionId=${sandboxSec.id}`)).json();
+    assert(org.outstandingByStudent && org.outstandingByStudent[pStu1] === undefined,
+      "sandbox students must not appear in the org outstanding rollup");
+    // 1b. The per-student arrears math: quickFacts answers 8000-minus-paid
+    //     across BOTH months (4000 Aug + 3000 Sep left).
+    const stu = await (await api(admin2.token, `/school/orgs/${ORG}/students/${pStu1}`)).json();
+    const fo = stu.quickFacts?.feeOutstanding;
+    assert(fo && fo.total === 7000 && fo.months === 2,
+      `feeOutstanding should be 7000 across 2 months, got ${JSON.stringify(fo)}`);
+
+    // 2. The parent's portal balance agrees (Aug 4000 + Sep 3000).
+    const login = await pinLogin(PARENT_PHONE, "3456");
+    const pTok = (await login.json()).token;
+    if (pTok) {
+      const pf = await (await portalGet(pTok, `/pin-me/students/${pStu1}/fees`)).json();
+      const rows = (pf.fees ?? []).filter((f: any) => f.period.startsWith("2098-"));
+      const balance = rows.reduce((n: number, f: any) =>
+        n + Math.max(0, (f.amount_due ?? 0) - (f.amount_paid ?? 0)), 0);
+      assert(balance === 7000, `portal balance should be 7000, got ${balance}`);
+      const sep = rows.find((f: any) => f.period === "2098-09");
+      assert(sep && (sep.payments ?? []).length === 1 && sep.payments[0].paidOn === "2098-09-02",
+        "portal must show the installment with its date");
+    }
+
+    // 3. Regenerate the paid-into month: the September row keeps its
+    //    payment (protected), while a plain unpaid row may refresh. A
+    //    temp Sandbox plan makes the generator actually touch the class.
+    const planName = `QA Ledger Plan ${Date.now()}`;
+    const mkPlan = await (await api(admin2.token, `/school/orgs/${ORG}/classes/${sandboxClass.id}/fee-plans`, {
+      method: "POST", body: JSON.stringify({ name: planName, amount: 4000, frequency: "monthly", defaultDueDay: 5 }),
+    })).json();
+    if (mkPlan?.plan?.id) {
+      cleanup.push(() => admin.from("class_fee_plan").delete().eq("id", mkPlan.plan.id));
+    }
+    // The generator bills every sandbox student for 2098-09 - sweep all
+    // of those rows away afterwards, not just the two we created.
+    cleanup.push(async () => {
+      const { data: sbStu } = await admin.from("student").select("id").eq("class_section_id", sandboxSec.id);
+      const ids = (sbStu ?? []).map((s: any) => s.id);
+      if (ids.length) {
+        const { data: fRows } = await admin.from("fee_status").select("id").eq("period", "2098-09").in("student_id", ids);
+        const fids = (fRows ?? []).map((f: any) => f.id);
+        if (fids.length) {
+          await admin.from("fee_payment").delete().in("fee_status_id", fids);
+          await admin.from("fee_status").delete().in("id", fids);
+        }
+      }
+    });
+    const gen = await (await api(admin2.token, `/school/orgs/${ORG}/fees/bulk-generate`, {
+      method: "POST", body: JSON.stringify({ period: "2098-09", classIds: [sandboxClass.id] }),
+    })).json();
+    const after = await admin.from("fee_status").select("amount_paid, status").eq("id", sepId).maybeSingle();
+    assert(Number(after.data?.amount_paid) === 1000 && after.data?.status === "partial",
+      `regenerate erased the payment: ${JSON.stringify(after.data)} (gen: ${JSON.stringify(gen).slice(0, 120)})`);
+  } finally {
+    for (const fn of cleanup.reverse()) await fn();
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

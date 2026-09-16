@@ -334,14 +334,25 @@ export function StudentDetail() {
                 <span className="text-slate-500">attendance</span>
               </span>
             )}
-            {student.quickFacts?.feeStatus && (
+            {(student.quickFacts?.feeOutstanding?.total ?? 0) > 0 ? (
+              // Arrears-aware: "paid — this month" used to show green over
+              // months of unpaid fees (fees review, 17 Sep).
+              <span>
+                <span className="font-semibold text-rose-300">
+                  owes Rs {Math.round(student.quickFacts!.feeOutstanding!.total).toLocaleString()}
+                </span>{" "}
+                <span className="text-slate-500">
+                  · {student.quickFacts!.feeOutstanding!.months} month{student.quickFacts!.feeOutstanding!.months === 1 ? "" : "s"}
+                </span>
+              </span>
+            ) : student.quickFacts?.feeStatus ? (
               <span>
                 <span className={student.quickFacts.feeStatus === "paid" ? "font-semibold capitalize text-emerald-300" : "font-semibold capitalize text-amber-300"}>
                   {student.quickFacts.feeStatus}
                 </span>{" "}
                 <span className="text-slate-500">this month</span>
               </span>
-            )}
+            ) : null}
             {(student.parents?.length ?? 0) === 0 && student.status !== "withdrawn" && (
               <span className="rounded-full bg-rose-400/20 px-2.5 py-0.5 font-medium text-rose-200 ring-1 ring-rose-300/40">
                 No parents linked

@@ -527,11 +527,38 @@ export function installFeePlans(school: Hono): void {
       });
     }
 
+    // 6. Existing rows for the period. A row that has MONEY on it (any
+    // payment recorded, or a non-unpaid status) is PROTECTED - the old
+    // whole-row upsert wrote amount_paid: 0 / status: "unpaid" over it,
+    // so re-running September billing after collections silently erased
+    // recorded payments (fees review, 17 Sep). Untouched unpaid rows
+    // still refresh their amounts, which is what re-running is for.
+    const studentIdsToBill = rows.map((r) => r.student_id);
+    const { data: existing } = studentIdsToBill.length
+      ? await serviceRoleClient
+          .from("fee_status")
+          .select("id, student_id, amount_paid, status")
+          .eq("org_id", orgId)
+          .eq("period", period)
+          .in("student_id", studentIdsToBill)
+      : { data: [] as any[] };
+    const existingByStudent = new Map(((existing ?? []) as any[]).map((r) => [r.student_id, r]));
+    const isProtected = (er: any) =>
+      Number(er.amount_paid ?? 0) > 0 || er.status !== "unpaid";
+
+    const inserts = rows.filter((r) => !existingByStudent.has(r.student_id));
+    const updates = rows.filter((r) => {
+      const er = existingByStudent.get(r.student_id);
+      return er && !isProtected(er);
+    });
+    const protectedCount = rows.length - inserts.length - updates.length;
+
     if (dryRun) {
       return c.json({
-        created: rows.length,
-        updated: 0,
-        skipped: 0,
+        created: inserts.length,
+        updated: updates.length,
+        skipped: protectedCount,
+        protected: protectedCount,
         waived,
         total: rows.length,
         dryRun: true,
@@ -539,37 +566,29 @@ export function installFeePlans(school: Hono): void {
       });
     }
 
-    // 6. Check existing fee_status rows so we can split into created vs updated.
-    const studentIdsToBill = rows.map((r) => r.student_id);
-    const { data: existing } = studentIdsToBill.length
-      ? await serviceRoleClient
-          .from("fee_status")
-          .select("student_id")
-          .eq("org_id", orgId)
-          .eq("period", period)
-          .in("student_id", studentIdsToBill)
-      : { data: [] as any[] };
-    const existingSet = new Set(((existing ?? []) as any[]).map((r) => r.student_id));
-
-    // 7. Upsert. fee_status has UNIQUE (student, period) so onConflict
-    // updates amounts in place — if the admin runs Sept billing twice
-    // after editing a plan, the second run reflects new totals without
-    // doubling rows.
-    let created = 0;
-    let updated = 0;
-    for (const r of rows) {
-      if (existingSet.has(r.student_id)) updated++;
-      else created++;
+    const created = inserts.length;
+    const updated = updates.length;
+    if (inserts.length > 0) {
+      const { error: insErr } = await serviceRoleClient
+        .from("fee_status")
+        .insert(inserts);
+      if (insErr) return c.json({ error: insErr.message }, 500);
     }
-    const { error: upsertErr } = await serviceRoleClient
-      .from("fee_status")
-      .upsert(rows, { onConflict: "student_id,period" });
-    if (upsertErr) return c.json({ error: upsertErr.message }, 500);
+    for (const r of updates) {
+      const er = existingByStudent.get(r.student_id)!;
+      // Amounts only - never amount_paid, paid_date or status.
+      const { error: updErr } = await serviceRoleClient
+        .from("fee_status")
+        .update({ amount_due: r.amount_due, due_date: r.due_date, notes: r.notes })
+        .eq("id", er.id);
+      if (updErr) return c.json({ error: updErr.message }, 500);
+    }
 
     return c.json({
+      protected: protectedCount,
       created,
       updated,
-      skipped: 0,
+      skipped: protectedCount,
       waived,
       total: rows.length,
     });

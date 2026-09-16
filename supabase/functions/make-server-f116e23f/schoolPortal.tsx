@@ -1758,7 +1758,7 @@ export function installPortal(school: Hono): void {
     // ── Fees due now: any unpaid/partial row in fee_status whose
     // due_date is on or before today (or has no due_date — treat as
     // overdue placeholder). Returns just the next-due bill.
-    let feesDueNow: { amount: number; periodLabel: string; dueDate: string | null } | null = null;
+    let feesDueNow: { amount: number; periodLabel: string; dueDate: string | null; months?: number } | null = null;
     // Fees are family business — never shown to a child's own login.
     if (g.subject.subjectType === "parent") {
       const { data: rows } = await serviceRoleClient
@@ -1771,12 +1771,22 @@ export function installPortal(school: Hono): void {
         !r.due_date || r.due_date <= today,
       );
       if (unpaid.length > 0) {
-        const r = unpaid[0];
-        const owed = Math.max(0, Number(r.amount_due ?? 0) - Number(r.amount_paid ?? 0));
+        // The WHOLE balance, not just the oldest month - a family owing
+        // Aug + Sep used to see "4,000 · August", and "up to date" the
+        // moment that one row was paid (fees review, 17 Sep).
+        let total = 0;
+        const monthNames = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        const labels: string[] = [];
+        for (const r of unpaid) {
+          total += Math.max(0, Number(r.amount_due ?? 0) - Number(r.amount_paid ?? 0));
+          const m = /^(\d{4})-(\d{2})$/.exec(r.period ?? "");
+          labels.push(m ? monthNames[Number(m[2])] || r.period : (r.period ?? ""));
+        }
         feesDueNow = {
-          amount: owed,
-          periodLabel: r.period ?? "",
-          dueDate: r.due_date ?? null,
+          amount: total,
+          periodLabel: labels.join(" + "),
+          dueDate: unpaid[0].due_date ?? null,
+          months: unpaid.length,
         };
       }
     }

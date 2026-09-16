@@ -188,10 +188,13 @@ export function FinanceHome({ me }: { me?: { fullName?: string | null } | null }
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-slate-500">
             <AlertTriangle className="h-3.5 w-3.5" />
-            Overdue (all periods)
+            Outstanding (all months)
           </div>
           <div className="mt-1 text-2xl font-semibold tabular-nums text-rose-700">
-            {snapshot.overdue.countAnyPeriod}
+            {fmtRs(snapshot.outstanding?.total ?? 0)}
+          </div>
+          <div className="text-[10px] text-slate-500">
+            {snapshot.outstanding?.students ?? snapshot.overdue.countAnyPeriod} students owe across every month
           </div>
         </div>
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -259,6 +262,36 @@ export function FinanceHome({ me }: { me?: { fullName?: string | null } | null }
       )}
 
       {/* Recent payments */}
+      {(snapshot.outstanding?.top?.length ?? 0) > 0 && (
+        <section className="space-y-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
+            Largest balances — all months combined
+          </h2>
+          <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+            <ul className="divide-y divide-slate-100">
+              {snapshot.outstanding!.top.map((s) => (
+                <li key={s.studentId}>
+                  <Link
+                    to={`/school/orgs/${orgId}/students/${s.studentId}/fees`}
+                    className="flex items-center justify-between gap-3 px-4 py-2.5 hover:bg-slate-50"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-slate-900">{s.studentName}</div>
+                      <div className="text-[10px] text-slate-500">
+                        {s.grNumber ?? ""}{s.className ? ` · ${s.className}${s.sectionName ? ` ${s.sectionName}` : ""}` : ""}
+                        {" · "}{s.months} month{s.months === 1 ? "" : "s"}
+                        {s.oldestPeriod ? ` since ${fmtPeriod(s.oldestPeriod)}` : ""}
+                      </div>
+                    </div>
+                    <span className="text-sm font-semibold text-rose-700 tabular-nums">{fmtRs(s.total)}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+      )}
+
       {snapshot.recentPayments.length > 0 && (
         <section className="space-y-2">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
@@ -279,6 +312,7 @@ export function FinanceHome({ me }: { me?: { fullName?: string | null } | null }
                       <div className="text-[10px] text-slate-500">
                         {p.grNumber ?? ""} · {fmtPeriod(p.period)} ·{" "}
                         {new Date(p.paidDate).toLocaleDateString()}
+                        {p.method ? ` · ${p.method}` : ""}
                       </div>
                     </div>
                     <span className="text-sm font-semibold text-emerald-700 tabular-nums">

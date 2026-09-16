@@ -13,6 +13,7 @@ import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { userCanInOrg } from "./schoolAuth.ts";
 import { todayInOrgTz } from "./tz.ts";
+import { outstandingByStudent } from "./schoolFeePayments.tsx";
 
 function currentPeriod(): string {
   const d = new Date();
@@ -102,28 +103,66 @@ export function installFinance(school: Hono) {
     }));
 
     // ────────────────────────────────────────────────────────────────────
-    // 3. Recent payments — last 8 rows where paid_date IS NOT NULL,
-    //    newest first. Helps finance confirm what they've recorded.
+    // 3. Recent payments — the LEDGER's last 8 non-void rows (17 Sep):
+    //    every installment is its own line, so a second partial adds an
+    //    entry instead of replacing the first.
     // ────────────────────────────────────────────────────────────────────
     const { data: recentPaidRows } = await serviceRoleClient
-      .from("fee_status")
+      .from("fee_payment")
       .select(
-        "id, student_id, amount_paid, period, paid_date, student:student_id(full_name, gr_number)",
+        "id, fee_status_id, student_id, amount, paid_on, method, fee:fee_status_id(period), student:student_id(full_name, gr_number)",
       )
       .eq("org_id", orgId)
-      .not("paid_date", "is", null)
-      .order("paid_date", { ascending: false })
+      .is("voided_at", null)
+      .order("paid_on", { ascending: false })
+      .order("created_at", { ascending: false })
       .limit(8);
 
     const recentPayments = (recentPaidRows ?? []).map((r: any) => ({
-      feeStatusId: r.id,
+      feeStatusId: r.fee_status_id,
       studentId: r.student_id,
       studentName: r.student?.full_name ?? "Student",
       grNumber: r.student?.gr_number ?? null,
-      period: r.period as string,
-      amountPaid: Number(r.amount_paid) || 0,
-      paidDate: r.paid_date as string,
+      period: (r.fee?.period ?? "") as string,
+      amountPaid: Number(r.amount) || 0,
+      paidDate: r.paid_on as string,
+      method: r.method ?? null,
     }));
+
+    // ────────────────────────────────────────────────────────────────────
+    // 4. Outstanding MONEY across every period — the number the office
+    //    was challenged on. Per student, summed org-wide, with the worst
+    //    balances first for the follow-up list.
+    // ────────────────────────────────────────────────────────────────────
+    const owedByStudent = await outstandingByStudent(orgId);
+    let outstandingTotal = 0;
+    for (const v of Object.values(owedByStudent)) outstandingTotal += v.total;
+    const outstandingStudents = Object.keys(owedByStudent).length;
+    const topIds = Object.entries(owedByStudent)
+      .sort((a, b) => b[1].total - a[1].total)
+      .slice(0, 8)
+      .map(([sid]) => sid);
+    const { data: topStuRows } = topIds.length
+      ? await serviceRoleClient
+          .from("student")
+          .select("id, full_name, gr_number, class_section:class_section_id(name, class:class_id(name))")
+          .in("id", topIds)
+      : { data: [] as any[] };
+    const stuById = new Map(((topStuRows ?? []) as any[]).map((s) => [s.id, s]));
+    const topOutstanding = topIds.map((sid) => {
+      const s: any = stuById.get(sid) ?? {};
+      const o = owedByStudent[sid];
+      return {
+        studentId: sid,
+        studentName: s.full_name ?? "Student",
+        grNumber: s.gr_number ?? null,
+        className: s.class_section?.class?.name ?? null,
+        sectionName: s.class_section?.name ?? null,
+        total: o.total,
+        months: o.months,
+        oldestPeriod: o.oldestPeriod,
+      };
+    });
 
     return c.json({
       period,
@@ -141,6 +180,11 @@ export function installFinance(school: Hono) {
         countAnyPeriod: anyPeriodOverdueCount ?? 0,
         thisPeriodCount: overdueRows.length,
         recent: overdueList,
+      },
+      outstanding: {
+        total: outstandingTotal,
+        students: outstandingStudents,
+        top: topOutstanding,
       },
       recentPayments,
     });

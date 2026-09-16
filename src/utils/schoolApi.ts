@@ -1554,6 +1554,20 @@ export interface FinanceSnapshot {
       dueDate: string | null;
     }>;
   };
+  outstanding?: {
+    total: number;
+    students: number;
+    top: Array<{
+      studentId: string;
+      studentName: string;
+      grNumber: string | null;
+      className: string | null;
+      sectionName: string | null;
+      total: number;
+      months: number;
+      oldestPeriod: string | null;
+    }>;
+  };
   recentPayments: Array<{
     feeStatusId: string;
     studentId: string;
@@ -1562,6 +1576,7 @@ export interface FinanceSnapshot {
     period: string;
     amountPaid: number;
     paidDate: string;
+    method?: string | null;
   }>;
 }
 
@@ -1774,6 +1789,8 @@ export interface StudentSibling {
 }
 export interface StudentQuickFacts {
   attendancePct?: number; attendanceDays?: number; feeStatus?: string;
+  /** What the family owes across ALL months (fees review, 17 Sep). */
+  feeOutstanding?: { total: number; months: number };
 }
 export interface StudentWithParents extends AdminStudent {
   parents: Array<AdminParent & { is_primary: boolean; hasPortal?: boolean }>;
@@ -4561,7 +4578,33 @@ export const reorderTopics = (
 
 // ─── Phase C.3: Fees ───────────────────────────────────────────────────
 
-export type FeeStatusValue = "pending" | "paid" | "partial" | "overdue" | "waived";
+// The DB vocabulary. Status is DERIVED from the payment ledger (17 Sep):
+// paid when settled, partial when some money is in, unpaid when none;
+// "waived" is the one manual state. "Overdue" is a VIEW (due_date past and
+// not settled), not a stored status — filter client-side.
+export type FeeStatusValue = "unpaid" | "paid" | "partial" | "waived";
+
+/** One installment in the fee payment ledger. Voided rows stay visible. */
+export interface FeePayment {
+  id: string;
+  feeStatusId: string;
+  studentId: string;
+  amount: number;
+  paidOn: string;
+  method: "cash" | "bank" | "online" | "other" | null;
+  reference: string | null;
+  notes: string | null;
+  recordedBy: string | null;
+  createdAt: string;
+  voidedAt: string | null;
+  voidReason: string | null;
+}
+
+export interface StudentOutstanding {
+  total: number;
+  months: number;
+  oldestPeriod: string | null;
+}
 
 export interface FeeStatus {
   id: string;
@@ -4585,6 +4628,8 @@ export interface FeeStatus {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  /** Ledger, newest first — present on per-student and portal reads. */
+  payments?: FeePayment[];
 }
 
 export interface FeeStatusInput {
@@ -4619,7 +4664,7 @@ export const listStudentFees = (
 export const listOrgFees = (
   orgId: string,
   opts: { period?: string; status?: FeeStatusValue; sectionId?: string } = {},
-): Promise<{ fees: FeeStatus[] }> => {
+): Promise<{ fees: FeeStatus[]; outstandingByStudent?: Record<string, StudentOutstanding> }> => {
   const q = new URLSearchParams();
   if (opts.period) q.append("period", opts.period);
   if (opts.status) q.append("status", opts.status);
@@ -4628,13 +4673,36 @@ export const listOrgFees = (
   return apiCall(`/school/orgs/${orgId}/fees${qs}`);
 };
 
+/** Record one payment against a month. The server appends to the ledger,
+ *  recomputes amount_paid and derives the status. */
+export const addFeePayment = (
+  orgId: string,
+  feeId: string,
+  body: { amount: number; paidOn?: string; method?: string | null; reference?: string; notes?: string },
+): Promise<{ payment: FeePayment; fee: FeeStatus }> =>
+  apiCall(`/school/orgs/${orgId}/fees/${feeId}/payments`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+/** Undo a mistaken payment. Append-only: the row stays, marked void. */
+export const voidFeePayment = (
+  orgId: string,
+  paymentId: string,
+  reason?: string,
+): Promise<{ ok: true; fee: FeeStatus }> =>
+  apiCall(`/school/orgs/${orgId}/fee-payments/${paymentId}/void`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+
 export const updateFee = (
   orgId: string,
   feeId: string,
+  // amountPaid / paidDate belong to the ledger now (addFeePayment /
+  // voidFeePayment); the server rejects them here.
   partial: Partial<{
     status: FeeStatusValue;
-    amountPaid: number;
-    paidDate: string;
     receiptUrl: string;
     notes: string;
     amountDue: number;

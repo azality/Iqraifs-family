@@ -39,6 +39,7 @@ import { installNotifications } from "./schoolNotifications.tsx";
 import { installFinance } from "./schoolFinance.tsx";
 import { installPortal } from "./schoolPortal.tsx";
 import { installAnnounce } from "./schoolAnnounce.tsx";
+import { installFeePayments } from "./schoolFeePayments.tsx";
 import { installTimetable } from "./schoolTimetable.tsx";
 import { installBehaviorCategories } from "./behaviorCategories.tsx";
 import { installUploads } from "./schoolUploads.tsx";
@@ -3333,6 +3334,7 @@ installPortal(school);
 // Phase F — announcements + lesson completion + parent fees in portal
 // -----------------------------------------------------------------------------
 installAnnounce(school);
+installFeePayments(school);
 installTimetable(school);
 installBehaviorCategories(school);
 installUploads(school);
