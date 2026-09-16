@@ -4530,6 +4530,51 @@ await check("88. an absent mark can be undone - by roll call or by hand", async 
   }
 });
 
+await check("89. paste-many carries details: 'topic — answer' lines save the description", async () => {
+  // Scaling (15 Sep): the syllabus loads must be the school's own job.
+  // The office pastes lines like "سوال ۱: …؟ — answer" into Paste many;
+  // the split after " — " (or a tab / " :: ") becomes the topic's
+  // description, and re-pasting stays idempotent.
+  const cleanup: Array<() => Promise<unknown>> = [];
+  try {
+    const { data: cs, error: csErr } = await admin.from("class_subject").insert({
+      org_id: ORG, class_id: sandboxClass.id, name: "QA Paste Sub", sort_order: 972,
+    }).select("id").single();
+    if (csErr) throw new Error(`subject: ${csErr.message}`);
+    cleanup.push(() => admin.from("class_subject").delete().eq("id", cs.id));
+    const { data: cur, error: curErr } = await admin.from("curriculum").insert({
+      org_id: ORG, class_subject_id: cs.id, academic_year: "2026-27",
+      title: "QA Paste Sub · 2026-27", created_by: principal.id,
+    }).select("id").single();
+    if (curErr) throw new Error(`curriculum: ${curErr.message}`);
+    cleanup.push(() => admin.from("curriculum").delete().eq("id", cur.id));
+    cleanup.push(() => admin.from("curriculum_topic").delete().eq("curriculum_id", cur.id));
+
+    const entries = [
+      { name: "QA Question one?", description: "QA answer one" },
+      "QA plain topic (p. 4)",
+    ];
+    const r = await api(principal.token, `/school/class-curriculum/${cur.id}/topics/bulk`, {
+      method: "POST", body: JSON.stringify({ names: entries }),
+    });
+    const j = await r.json();
+    assert(r.status === 200 && j.added === 2, `bulk ${r.status}: ${JSON.stringify(j).slice(0, 140)}`);
+    const { data: tops } = await admin.from("curriculum_topic")
+      .select("name, description, display_order").eq("curriculum_id", cur.id).order("display_order");
+    assert(tops?.length === 2, `expected 2 topics, got ${tops?.length}`);
+    assert((tops as any)[0].description === "QA answer one",
+      `description must ride along: ${JSON.stringify(tops)}`);
+    assert((tops as any)[1].description === null, "a plain line has no description");
+
+    const again = await (await api(principal.token, `/school/class-curriculum/${cur.id}/topics/bulk`, {
+      method: "POST", body: JSON.stringify({ names: entries }),
+    })).json();
+    assert(again.added === 0, `re-paste must be idempotent, added ${again.added}`);
+  } finally {
+    for (const fn of cleanup.reverse()) await fn();
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

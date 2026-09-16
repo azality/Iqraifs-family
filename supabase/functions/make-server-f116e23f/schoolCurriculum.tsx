@@ -653,11 +653,25 @@ export function installCurriculum(school: Hono) {
     if (!Array.isArray(rawNames)) {
       return c.json({ error: "names must be an array of strings" }, 400);
     }
-    // Normalise: trim, drop blanks, cap at 100 topics per call, cap each name length.
+    // Each item is a plain name, or { name, description } — the office
+    // pastes "سوال ۱: … — answer" style lines and the split rides along
+    // (15 Sep: the syllabus detail loads must be the school's own job,
+    // not a developer's). Normalise: trim, drop blanks, cap at 100
+    // topics per call, cap lengths.
     const cleaned = (rawNames as unknown[])
-      .filter((x): x is string => typeof x === "string")
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0 && s.length <= 200)
+      .map((x) => {
+        if (typeof x === "string") return { name: x.trim(), description: null as string | null };
+        if (x && typeof (x as any).name === "string") {
+          const d = (x as any).description;
+          return {
+            name: String((x as any).name).trim(),
+            description: typeof d === "string" && d.trim() ? d.trim().slice(0, 1000) : null,
+          };
+        }
+        return null;
+      })
+      .filter((x): x is { name: string; description: string | null } =>
+        !!x && x.name.length > 0 && x.name.length <= 200)
       .slice(0, 100);
     if (cleaned.length === 0) {
       return c.json({ added: 0, topics: [] }, 200);
@@ -688,11 +702,11 @@ export function installCurriculum(school: Hono) {
     }
 
     const rows = cleaned
-      .filter((n) => !existingLower.has(n.toLowerCase()))
-      .map((name, i) => ({
+      .filter((e) => !existingLower.has(e.name.toLowerCase()))
+      .map((e, i) => ({
         curriculum_id: curriculumId,
-        name,
-        description: null as string | null,
+        name: e.name,
+        description: e.description,
         target_date: null as string | null,
         display_order: startOrder + i,
         academic_term_id: bulkTermId,
