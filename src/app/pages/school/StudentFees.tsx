@@ -36,6 +36,7 @@ import {
   createFee,
   deleteFee,
   voidFeePayment,
+  openFeeReceipt,
   type FeeStatus,
   type FeePayment,
   type SchoolMeResponse,
@@ -168,8 +169,8 @@ export function StudentFees() {
   if (meLoading) return null;
   if (!isOrgAdmin(me, orgId)) return <NoAccessRedirect />;
 
-  const receiptUrl = (feeId: string) =>
-    `${import.meta.env.VITE_SUPABASE_URL ?? "https://ybrkbrrkcqpzpjnjdyib.supabase.co"}/functions/v1/make-server-f116e23f/school/orgs/${orgId}/fees/${feeId}/receipt`;
+  const openReceipt = (feeId: string) =>
+    openFeeReceipt(orgId, feeId).catch((e) => toast.error(e instanceof Error ? e.message : String(e)));
 
   const openPayment = () => {
     setPayTarget({
@@ -302,10 +303,10 @@ export function StudentFees() {
                   <td className="py-2 pr-3 text-xs text-slate-700">
                     <span className={l.kind === "void" ? "line-through" : ""}>{l.entry}</span>
                     {l.kind === "payment" && l.receiptFeeId && (
-                      <a href={receiptUrl(l.receiptFeeId)} target="_blank" rel="noreferrer"
+                      <button type="button" onClick={() => void openReceipt(l.receiptFeeId!)}
                         className="ml-2 inline-flex items-center gap-0.5 text-[11px] text-indigo-600 underline">
                         <FileText className="h-3 w-3" /> receipt
-                      </a>
+                      </button>
                     )}
                     {l.kind === "payment" && l.payment && (
                       <button type="button" onClick={() => void voidOne(l.payment!)}

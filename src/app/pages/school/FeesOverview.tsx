@@ -43,6 +43,7 @@ import {
   bulkGenerateFees,
   type BulkFeeGenerateResult,
   allocateStudentFeePayment,
+  openFeeReceipt,
   type AdminClass,
   type FeeStatus,
   type FeeStatusValue,
@@ -488,8 +489,8 @@ export function FeesOverview() {
       .catch(() => toast.error("Could not copy"));
   };
 
-  const receiptUrl = (feeId: string) =>
-    `${import.meta.env.VITE_SUPABASE_URL ?? "https://ybrkbrrkcqpzpjnjdyib.supabase.co"}/functions/v1/make-server-f116e23f/school/orgs/${orgId}/fees/${feeId}/receipt`;
+  const openVoucher = (feeId: string) =>
+    openFeeReceipt(orgId, feeId).catch((e) => toast.error(e instanceof Error ? e.message : String(e)));
 
   const dueDates = fees.map((f) => f.due_date).filter(Boolean) as string[];
   const dueDate = dueDates.length ? dueDates.sort()[0] : null;
@@ -701,10 +702,10 @@ export function FeesOverview() {
                           Payment
                         </button>
                         {r.current && (
-                          <a href={receiptUrl(r.current.id)} target="_blank" rel="noreferrer"
+                          <button type="button" onClick={() => void openVoucher(r.current!.id)}
                             className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-[11.5px] font-semibold text-slate-600 hover:bg-slate-50">
                             <FileText className="h-3 w-3" /> Voucher
-                          </a>
+                          </button>
                         )}
                         {months > 0 && (
                           <button type="button" onClick={() => copyReminder(r)} title="Copy WhatsApp reminder"
