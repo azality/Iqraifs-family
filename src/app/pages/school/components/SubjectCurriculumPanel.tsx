@@ -50,7 +50,7 @@ import { TopicResourcesPanel } from "./TopicResourcesPanel";
 import { SyllabusCameraDialog } from "./SyllabusCameraDialog";
 import { Textarea } from "../../../components/ui/textarea";
 import { Sparkles, Library, Copy, Camera, FileUp } from "lucide-react";
-import { extractSyllabusText } from "../../../../utils/docxText";
+import { extractSyllabusText, detectClassSections, sectionLines, type ClassSection } from "../../../../utils/docxText";
 
 /** Downscale a phone photo before upload — Claude reads at most ~1568px
  *  on the long edge, so anything bigger only costs bandwidth. */
@@ -139,6 +139,16 @@ export function SubjectCurriculumPanel({
   // Bulk-add — paste many topics at once, one per line.
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkText, setBulkText] = useState("");
+  // Fool-proofing: a school's Word file often carries MANY classes' syllabi
+  // ("Maths Grade 1 … Grade 5") while this curriculum belongs to ONE class.
+  // Watch the paste box itself so upload, paste AND photo paths all get the
+  // same "pick one class" guard.
+  const classSections = useMemo(() => detectClassSections(bulkText), [bulkText]);
+  const keepSection = (s: ClassSection) => {
+    const kept = sectionLines(bulkText, s);
+    setBulkText(kept.join("\n"));
+    toast.success(`Kept ${s.label} only — ${kept.length} line${kept.length === 1 ? "" : "s"}. The other classes were dropped.`);
+  };
   // Photo import: Claude reads the page into the paste box; the teacher
   // reviews before anything saves.
   const [photoReading, setPhotoReading] = useState(false);
@@ -427,6 +437,14 @@ export function SubjectCurriculumPanel({
       toast.error("Paste at least one topic per line");
       return;
     }
+    // Refuse to save a box that still holds several classes' syllabi —
+    // the amber picker above the textarea resolves it in one tap.
+    if (sourceText === undefined && classSections.length >= 2) {
+      toast.error(
+        `This still holds ${classSections.length} classes' syllabi — tap the class you want in the yellow box (or delete the other sections) first.`,
+      );
+      return;
+    }
     // Each line: "topic", or "topic — details" / "topic :: details" /
     // tab-separated (a Word/Excel paste). The details land as the
     // topic's description — how answers, hadith meanings and dua texts
@@ -471,20 +489,15 @@ export function SubjectCurriculumPanel({
     }
   };
 
+  // Only 8 generic subjects have a built-in template; for everything else
+  // (Deeniyat, Sindhi, G.K, …) the button used to dead-end in a "no
+  // template yet" toast — now it simply doesn't render (Muneeb, 16 Sep).
+  const subjectTemplate = useMemo(() => templateForSubject(subjectName), [subjectName]);
   const handleApplyTemplate = async () => {
-    const tpl = templateForSubject(subjectName);
-    if (!tpl) {
-      // No matching template — open the bulk dialog with empty text so the
-      // admin can paste their own. Surfaced as a toast hint so they know
-      // why the template button didn't pre-fill anything.
-      toast("No standard template for this subject yet — paste your own list below.");
-      setBulkText("");
-      setBulkOpen(true);
-      return;
-    }
+    if (!subjectTemplate) return;
     // Two-step: prefill the textarea so the admin can edit before saving.
     // (Most schools want to nudge a topic name or two before committing.)
-    setBulkText(tpl.topics.join("\n"));
+    setBulkText(subjectTemplate.topics.join("\n"));
     setBulkOpen(true);
   };
 
@@ -625,7 +638,7 @@ export function SubjectCurriculumPanel({
               {topics.length === 0 && !adding && (
                 <p className="rounded border border-dashed border-slate-200 bg-slate-50 p-3 text-center text-xs text-slate-500">
                   {canManage
-                    ? `No topics for ${subjectName} in ${year} yet. Fastest: "Use standard template" or "Paste many" below — or "Copy from" a previous year if one exists. "Add one" adds topics individually.`
+                    ? `No topics for ${subjectName} in ${year} yet. Fastest: ${subjectTemplate ? '"Use standard template", ' : ""}"Paste many" or "Upload Word/text" below — or "Copy from" a previous year if one exists. "Add one" adds topics individually.`
                     : `No curriculum defined for ${subjectName} in ${year} yet.`}
                 </p>
               )}
@@ -939,6 +952,28 @@ export function SubjectCurriculumPanel({
                     skipped. Add details (an answer, a meaning, a page)
                     after the topic with " — " and they save with it.
                   </p>
+                  {classSections.length >= 2 && (
+                    <div className="mb-2 rounded border border-amber-300 bg-amber-50 p-2">
+                      <p className="text-[11px] font-medium text-amber-800">
+                        This looks like syllabi for {classSections.length} different
+                        classes — this curriculum is for ONE class only. Tap the
+                        right one to keep just its lines:
+                      </p>
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {classSections.map((s) => (
+                          <button
+                            key={`${s.label}:${s.start}`}
+                            type="button"
+                            onClick={() => keepSection(s)}
+                            className="rounded border border-amber-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-amber-900 hover:bg-amber-100"
+                          >
+                            {s.label}
+                            <span className="ml-1 font-normal opacity-60">({s.lineCount} lines)</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <Textarea
                     value={bulkText}
                     onChange={(e) => setBulkText(e.target.value)}
@@ -1028,15 +1063,17 @@ export function SubjectCurriculumPanel({
                       </span>
                     </Button>
                   )}
-                  <Button
-                    size="sm"
-                    variant={copyCandidate ? "outline" : "default"}
-                    onClick={handleApplyTemplate}
-                    disabled={saving}
-                  >
-                    <Sparkles className="mr-1 h-3.5 w-3.5" />
-                    Use standard template
-                  </Button>
+                  {subjectTemplate && (
+                    <Button
+                      size="sm"
+                      variant={copyCandidate ? "outline" : "default"}
+                      onClick={handleApplyTemplate}
+                      disabled={saving}
+                    >
+                      <Sparkles className="mr-1 h-3.5 w-3.5" />
+                      Use standard template
+                    </Button>
+                  )}
                   <Button
                     size="sm"
                     variant="outline"
