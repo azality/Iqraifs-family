@@ -104,7 +104,17 @@ const ROLE_COLUMNS: Array<{ key: PermissionRow["roleTemplate"]; label: string; h
 type Access = "y" | "wing" | "own" | "n";
 const FIXED_COLUMNS = ["Principal", "Admin", "Incharge", "Teachers", "Office", "Finance"] as const;
 
-const FIXED_FEATURES: Array<{ area: string; rows: Array<{ feature: string; note?: string; access: Access[] }> }> = [
+// A few Office cells genuinely FOLLOW a switch in the matrix above
+// (office staff join roll-call-family gates only while they hold
+// mark_attendance), so this takes the live matrix and those cells
+// update as the principal toggles — the two sections stay in step
+// (Muneeb, 16 Sep: "if I change the check mark on top will it
+// reflect on the second section").
+function fixedFeaturesFor(
+  can: (role: string, key: string) => boolean,
+): Array<{ area: string; rows: Array<{ feature: string; note?: string; access: Access[] }> }> {
+  const officeRollCall: Access = can("office_staff", "mark_attendance") ? "y" : "n";
+  return [
   {
     area: "School structure",
     rows: [
@@ -125,12 +135,12 @@ const FIXED_FEATURES: Array<{ area: string; rows: Array<{ feature: string; note?
   {
     area: "Daily teaching",
     rows: [
-      { feature: "Roll call for a section", note: "Office needs Bulk attendance & office roll call", access: ["y", "y", "wing", "own", "y", "n"] },
+      { feature: "Roll call for a section", note: "Office follows the Bulk attendance & office roll call switch above", access: ["y", "y", "wing", "own", officeRollCall, "n"] },
       { feature: "Lessons & assignments", access: ["y", "y", "wing", "own", "n", "n"] },
-      { feature: "Behaviour notes", access: ["y", "y", "wing", "own", "y", "n"] },
+      { feature: "Behaviour notes", note: "Office follows the Bulk attendance & office roll call switch above", access: ["y", "y", "wing", "own", officeRollCall, "n"] },
       { feature: "Hifz log (sabaq, sabqi, manzil)", access: ["y", "y", "wing", "own", "n", "n"] },
-      { feature: "Early release & resolving attendance flags", note: "Teachers: class & hifz teacher of the section", access: ["y", "y", "n", "own", "y", "n"] },
-      { feature: "Request roster changes", access: ["y", "y", "wing", "own", "y", "n"] },
+      { feature: "Early release & resolving attendance flags", note: "Teachers: class & hifz teacher of the section; Office follows the roll-call switch", access: ["y", "y", "n", "own", officeRollCall, "n"] },
+      { feature: "Request roster changes", note: "Office follows the Bulk attendance & office roll call switch above", access: ["y", "y", "wing", "own", officeRollCall, "n"] },
       { feature: "Approve roster changes", access: ["y", "y", "n", "n", "n", "n"] },
     ],
   },
@@ -161,6 +171,7 @@ const FIXED_FEATURES: Array<{ area: string; rows: Array<{ feature: string; note?
     ],
   },
 ];
+}
 
 function AccessCell({ a }: { a: Access }) {
   if (a === "y") return <span className="text-emerald-700 font-semibold">✓</span>;
@@ -200,6 +211,12 @@ export function PermissionsEditor() {
   // showing a toggle that does nothing erodes trust in the whole matrix.
   // Re-add to the editor when read-scoping lands.
   const HIDDEN_KEYS = new Set(["view_all_classes"]);
+  // Live matrix lookup — unsaved toggles count, so the Fixed-by-role
+  // cells that depend on a switch update the moment it is ticked.
+  const fixedFeatures = useMemo(
+    () => fixedFeaturesFor((role, key) => !!keyed.get(`${key}::${role}`)?.allowed),
+    [keyed],
+  );
   const permissionKeys = useMemo(
     () =>
       Array.from(new Set(rows.map((r) => r.permissionKey)))
@@ -349,7 +366,8 @@ export function PermissionsEditor() {
           <div>
             <h2 className="text-sm font-semibold text-slate-900">Fixed by role</h2>
             <p className="text-xs text-slate-500">
-              These follow the person's role and can't be switched on or off here yet.{" "}
+              These follow the person's role and can't be switched on or off here yet — except
+              the marked Office cells, which follow the switches above.{" "}
               <b className="font-semibold text-indigo-700">wing</b> = only inside their own wing ·{" "}
               <b className="font-semibold text-amber-800">own</b> = only sections or subjects they teach.
             </p>
@@ -373,7 +391,7 @@ export function PermissionsEditor() {
               </tr>
             </thead>
             <tbody>
-              {FIXED_FEATURES.map((group) => (
+              {fixedFeatures.map((group) => (
                 <Fragment key={group.area}>
                   <tr className="border-t border-slate-100">
                     <td
