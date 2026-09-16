@@ -35,6 +35,15 @@ import {
   finalizeImportBatch,
 } from "./middleware.tsx";
 import { logAuditWithLookup } from "./schoolAudit.ts";
+import * as kv from "./kv_store.tsx";
+
+// While a PIN is TEMPORARY (must_change=true) its plaintext is kept in kv
+// so a later slip run prints the SAME pin instead of silently rotating it —
+// a father with children in two sections got two different slips and only
+// the second one worked (Muneeb, 16 Sep). The pin is already on printed
+// paper; the record dies the moment the holder chooses their own PIN.
+const tempPinKey = (orgId: string, subjectType: string, subjectId: string) =>
+  `school:${orgId}:temp-pin:${subjectType}:${subjectId}`;
 // PR K: migrate student-write routes from requireAdminOrPrincipal to
 // userCanInOrg("manage_students") so office_staff can manage students.
 import { userCanInOrg, hasAnyRoleInOrg, isPrincipalOf, isAdminOf, hasAdminOrPrincipal as requireAdminOrPrincipal, teacherSectionIds } from "./schoolAuth.ts";
@@ -3064,6 +3073,49 @@ export function installPhaseA(school: Hono) {
           skipped.push({ name: st.full_name, reason: "no parent on record for this student" });
         }
       }
+      // The slip lists ALL of the parent's children org-wide, labeled by
+      // class — one login covers every sibling, and a father with kids in
+      // two sections must see that both live behind the same PIN
+      // (Muneeb, 16 Sep: two slips for one father looked like two logins).
+      const rootIdList = [...childrenByRoot.keys()];
+      const allChildrenByRoot = new Map<string, string[]>();
+      if (rootIdList.length) {
+        const inList = rootIdList.map((x) => `"${x}"`).join(",");
+        const { data: aliasRows } = await serviceRoleClient
+          .from("parent").select("id, canonical_id")
+          .eq("org_id", orgId)
+          .or(`id.in.(${inList}),canonical_id.in.(${inList})`);
+        const aliasToRoot = new Map<string, string>();
+        for (const ar of ((aliasRows ?? []) as any[])) {
+          const root = ar.canonical_id && rootIdList.includes(ar.canonical_id) ? ar.canonical_id
+            : rootIdList.includes(ar.id) ? ar.id : null;
+          if (root) aliasToRoot.set(ar.id, root);
+        }
+        const { data: allLinks } = aliasToRoot.size
+          ? await serviceRoleClient
+              .from("student_parent").select("student_id, parent_id")
+              .in("parent_id", [...aliasToRoot.keys()])
+          : { data: [] as any[] };
+        const allStuIds = [...new Set(((allLinks ?? []) as any[]).map((l) => l.student_id))];
+        const { data: allStus } = allStuIds.length
+          ? await serviceRoleClient
+              .from("student")
+              .select("id, full_name, status, class_section:class_section_id(name, class:class_id(name))")
+              .in("id", allStuIds).eq("status", "active")
+          : { data: [] as any[] };
+        const stuById = new Map(((allStus ?? []) as any[]).map((st) => [st.id, st]));
+        for (const l of ((allLinks ?? []) as any[])) {
+          const root = aliasToRoot.get(l.parent_id);
+          const st = stuById.get(l.student_id);
+          if (!root || !st) continue;
+          const cls = (st as any).class_section?.class?.name ?? "";
+          const secName = (st as any).class_section?.name ?? "";
+          const label = cls ? `${st.full_name} (${cls}${secName ? " " + secName : ""})` : st.full_name;
+          const arr = allChildrenByRoot.get(root) ?? [];
+          if (!arr.includes(label)) arr.push(label);
+          allChildrenByRoot.set(root, arr);
+        }
+      }
       for (const [rootId, children] of childrenByRoot) {
         const pr = pById.get(rootId);
         if (!pr) continue;
@@ -3071,7 +3123,12 @@ export function installPhaseA(school: Hono) {
           skipped.push({ name: pr.full_name, reason: "no phone number on record" });
           continue;
         }
-        subjects.push({ id: pr.id, name: pr.full_name, identifier: pr.phone, children });
+        subjects.push({
+          id: pr.id,
+          name: pr.full_name,
+          identifier: pr.phone,
+          children: allChildrenByRoot.get(rootId) ?? children,
+        });
       }
       subjects.sort((a, b) => a.name.localeCompare(b.name));
     }
@@ -3086,12 +3143,32 @@ export function installPhaseA(school: Hono) {
       : { data: [] as any[] };
     const credBy = new Map(((creds ?? []) as any[]).map((cr) => [cr.subject_id, cr]));
 
+    // regenerate: true forces fresh temp PINs even where an unused one
+    // exists (a compromised sheet). Default is REUSE, so a parent with
+    // children in several sections gets the same temp PIN on every
+    // section's slip instead of each run silently killing the last.
+    const regenerate = body?.regenerate === true;
+
     const slips: any[] = [];
     for (const sub of subjects) {
       const cred = credBy.get(sub.id);
       if (cred && cred.must_change === false) {
         skipped.push({ name: sub.name, reason: "already chose their own PIN" });
         continue;
+      }
+      if (cred && !regenerate) {
+        const stored = await kv.get(tempPinKey(orgId, subjectType, sub.id));
+        if (stored?.pin && typeof stored.pin === "string") {
+          slips.push({
+            subjectId: sub.id,
+            name: sub.name,
+            identifier: sub.identifier,
+            pin: stored.pin,
+            children: sub.children ?? null,
+            reused: true,
+          });
+          continue;
+        }
       }
       const rnd = crypto.getRandomValues(new Uint32Array(1))[0];
       const newPin = String(rnd % 10000).padStart(4, "0");
@@ -3115,6 +3192,7 @@ export function installPhaseA(school: Hono) {
         skipped.push({ name: sub.name, reason: error.message });
         continue;
       }
+      await kv.set(tempPinKey(orgId, subjectType, sub.id), { pin: newPin });
       slips.push({
         subjectId: sub.id,
         name: sub.name,
@@ -3190,6 +3268,10 @@ export function installPhaseA(school: Hono) {
         { onConflict: "org_id,subject_type,subject_id" },
       );
     if (error) return c.json({ error: error.message }, 500);
+    // Keep the temp-PIN record in step: a temporary PIN stays printable
+    // by later slip runs; a chosen/permanent one must not linger.
+    if (mustChange) await kv.set(tempPinKey(orgId, subjectType, subjectId), { pin });
+    else await kv.del(tempPinKey(orgId, subjectType, subjectId));
     return c.json({ ok: true, mustChange });
   });
 
@@ -3238,6 +3320,7 @@ export function installPhaseA(school: Hono) {
         { onConflict: "org_id,subject_type,subject_id" },
       );
     if (error) return c.json({ error: error.message }, 500);
+    await kv.set(tempPinKey(orgId, subjectType, subjectId), { pin: newPin });
     return c.json({ pin: newPin });
   });
 
@@ -3288,6 +3371,9 @@ export function installPhaseA(school: Hono) {
       .update({ pin_hash: newHash, must_change: false, failed_attempts: 0, locked_until: null })
       .eq("id", (cred as any).id);
     if (updErr) return c.json({ error: updErr.message }, 500);
+
+    // The holder chose their own PIN — the printable temp record dies now.
+    await kv.del(tempPinKey(orgId, subjectType, subjectId));
 
     return c.json({ ok: true });
   });
@@ -3470,6 +3556,8 @@ export function installPhaseA(school: Hono) {
       .from("pin_credential")
       .update({ pin_hash, must_change: false })
       .eq("id", cred.id);
+    // The holder chose their own PIN — the printable temp record dies now.
+    await kv.del(tempPinKey(payload.orgId, subjectType, subjectId));
     return c.json({ ok: true });
   });
 
