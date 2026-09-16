@@ -22,7 +22,6 @@
     "src/app/pages/SadqaPage.tsx|TS2339|Property 'logPointEvent' does not exist on type 'FamilyContextType'.",
     "src/app/pages/Settings.tsx|TS2322|Type 'string' is not assignable to type '\"homework\" | \"salah\" | \"quran\" | \"general\"'.",
     "src/app/pages/school/AdminDashboard.tsx|TS2322|Type '{ key: string; variant: \"light\"; label: string; icon: ForwardRefExoticComponent<Omit<LucideProps, \"ref\"> & RefAttributes<SVGSVGElement>>; value: number; hint: string; onClick: () => void | Promise<...>; badge: Element; }' is not assignable to type 'IntrinsicAttributes & KpiTileProps'.",
-    "src/app/pages/school/AdminDashboard.tsx|TS2820|Type '\"unpaid\"' is not assignable to type 'FeeStatusValue'. Did you mean '\"paid\"'?",
     "src/app/pages/school/AnnouncementsList.tsx|TS2739|Type '{ whole_school: string; class_section: string; parents_only: string; students_only: string; specific_students: string; }' is missing the following properties from type 'Record<AnnouncementAudienceKind, string>': class, teachers, staff, program, subject",
     "src/app/pages/school/AttendanceRollCall.tsx|TS2322|Type '{ variant: string; eyebrow: string; title: string; subtitle: string; asOf: string; rightSlot: Element; }' is not assignable to type 'IntrinsicAttributes & HeroCardProps'.",
     "src/app/pages/school/ManageTimetable.tsx|TS2339|Property 'conflict' does not exist on type 'SaveResult'.",

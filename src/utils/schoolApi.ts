@@ -5,8 +5,6 @@
 // uses, just hitting a different path prefix.
 
 import { apiCall } from "./api";
-import { projectId, publicAnonKey } from "/utils/supabase/info.tsx";
-import { supabase } from "/utils/supabase/client";
 import { supabase } from "/utils/supabase/client";
 import { projectId as _projectId, publicAnonKey as _publicAnonKey } from "/utils/supabase/info.tsx";
 const PUBLIC_INFO = { projectId: _projectId, publicAnonKey: _publicAnonKey };
@@ -4712,8 +4710,8 @@ export const openFeeReceipt = async (orgId: string, feeId: string): Promise<void
   const token = session?.access_token;
   if (!token) throw new Error("Your session has expired — sign in again.");
   const res = await fetch(
-    `https://${projectId}.supabase.co/functions/v1/make-server-f116e23f/school/orgs/${orgId}/fees/${feeId}/receipt`,
-    { headers: { apikey: publicAnonKey, Authorization: `Bearer ${token}` } },
+    `https://${PUBLIC_INFO.projectId}.supabase.co/functions/v1/make-server-f116e23f/school/orgs/${orgId}/fees/${feeId}/receipt`,
+    { headers: { apikey: PUBLIC_INFO.publicAnonKey, Authorization: `Bearer ${token}` } },
   );
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
