@@ -4576,6 +4576,45 @@ await check("89. paste-many carries details: 'topic — answer' lines save the d
   }
 });
 
+await check("90. photo import: gated, validated, and never free-for-all", async () => {
+  // The photo reader spends real API money and writes nothing itself -
+  // its gate and validation must hold without ever reaching Claude:
+  // no curriculum rights -> 403; no image -> 400; junk media type ->
+  // 400. (The actual reading path is exercised manually - a suite that
+  // bills an external API on every run is a suite nobody runs.)
+  const tt = await ensureUser("qa-teacher2@azality.com", "QA Teacher Two", "class_teacher");
+  const cleanup: Array<() => Promise<unknown>> = [];
+  try {
+    const { data: cs, error: csErr } = await admin.from("class_subject").insert({
+      org_id: ORG, class_id: sandboxClass.id, name: "QA Photo Sub", sort_order: 973,
+    }).select("id").single();
+    if (csErr) throw new Error(`subject: ${csErr.message}`);
+    cleanup.push(() => admin.from("class_subject").delete().eq("id", cs.id));
+    const { data: cur, error: curErr } = await admin.from("curriculum").insert({
+      org_id: ORG, class_subject_id: cs.id, academic_year: "2026-27",
+      title: "QA Photo Sub · 2026-27", created_by: principal.id,
+    }).select("id").single();
+    if (curErr) throw new Error(`curriculum: ${curErr.message}`);
+    cleanup.push(() => admin.from("curriculum").delete().eq("id", cur.id));
+
+    const url = `/school/class-curriculum/${cur.id}/topics/from-photo`;
+    const denied = await api(tt.token, url, {
+      method: "POST", body: JSON.stringify({ imageBase64: "aGk=", mediaType: "image/jpeg" }),
+    });
+    assert(denied.status === 403, `teacher without curriculum rights should 403, got ${denied.status}`);
+    const noImage = await api(principal.token, url, {
+      method: "POST", body: JSON.stringify({}),
+    });
+    assert(noImage.status === 400, `missing image should 400, got ${noImage.status}`);
+    const badType = await api(principal.token, url, {
+      method: "POST", body: JSON.stringify({ imageBase64: "aGk=", mediaType: "application/pdf" }),
+    });
+    assert(badType.status === 400, `bad media type should 400, got ${badType.status}`);
+  } finally {
+    for (const fn of cleanup.reverse()) await fn();
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
