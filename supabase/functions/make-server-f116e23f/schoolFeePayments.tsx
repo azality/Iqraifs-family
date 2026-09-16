@@ -210,7 +210,10 @@ export function renderFeeReceiptHtml(opts: {
   const themeColor = orgSettings.theme_color || "#0f766e";
   const sectionName = student?.class_section?.name || "—";
   const studentName = student?.full_name || "—";
-  const rollNumber = student?.roll_number || "—";
+  // This codebase's student table has GR numbers, not roll numbers -
+  // the receipt selected roll_number since the day it was written and
+  // 400'd the moment the auth fix let anyone actually reach it (17 Sep).
+  const rollNumber = student?.gr_number || "—";
   const amountDue = Number(fee.amount_due ?? 0);
   const amountPaid = Number(fee.amount_paid ?? 0);
   const balance = Math.max(0, amountDue - amountPaid);
@@ -265,7 +268,7 @@ export function renderFeeReceiptHtml(opts: {
   <div><dt>Receipt ID</dt><dd>${esc(feeId.slice(0, 8))}</dd></div>
   <div><dt>Date</dt><dd>${esc(paidDate)}</dd></div>
   <div><dt>Student</dt><dd>${esc(studentName)}</dd></div>
-  <div><dt>Roll #</dt><dd>${esc(rollNumber)}</dd></div>
+  <div><dt>GR #</dt><dd>${esc(rollNumber)}</dd></div>
   <div><dt>Class</dt><dd>${esc(sectionName)}</dd></div>
   <div><dt>Period</dt><dd>${esc(period)}</dd></div>
 </dl>

@@ -923,7 +923,7 @@ export function installAnnounce(school: Hono): void {
     const feeId = c.req.param("feeId");
     const { data: fee } = await serviceRoleClient
       .from("fee_status")
-      .select("*, students:student_id(id, full_name, roll_number, class_section:class_section_id(name))")
+      .select("*, students:student_id(id, full_name, gr_number, class_section:class_section_id(name))")
       .eq("id", feeId)
       .maybeSingle();
     if (!fee || (fee as any).org_id !== subject.orgId) {

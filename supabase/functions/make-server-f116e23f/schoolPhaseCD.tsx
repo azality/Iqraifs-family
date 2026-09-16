@@ -1105,7 +1105,7 @@ export function installPhaseCD(school: Hono): void {
 
     const { data: fee, error: feeErr } = await serviceRoleClient
       .from("fee_status")
-      .select("*, students:student_id(id, full_name, roll_number, class_section:class_section_id(name))")
+      .select("*, students:student_id(id, full_name, gr_number, class_section:class_section_id(name))")
       .eq("id", feeId)
       .maybeSingle();
     if (feeErr) return c.json({ error: feeErr.message }, 500);
