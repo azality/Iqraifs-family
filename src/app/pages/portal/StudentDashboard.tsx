@@ -13,6 +13,7 @@ import { HeroCard, TimeOffModal } from "../../components/school-ui";
 import { UpNextCard } from "../../components/school-ui/UpNextCard";
 import { useExamSchedule } from "./ExamDatesheetCard";
 import { surahDisplayName } from "../../../utils/quranSurahs";
+import { formatJuzExtent } from "../../../utils/hifzExtent";
 import {
   getStudentDashboard,
   getStudentUpcoming,
@@ -58,29 +59,62 @@ function DiaryCard({ diary }: { diary: MyStudentDiaryResponse }) {
 
   const ayahRange = (from: number, to: number) =>
     `${from}${to !== from ? `–${to}` : ""}`;
-  const hifzLine = (() => {
-    if (!diary.hifz) return null;
-    const { sabaq, revision } = diary.hifz;
-    if (sabaq) {
-      return t("portal.diary.sabaqLine", {
-        surah: surahLabel(sabaq.surahNumber, t, lang),
-        range: ayahRange(sabaq.ayahFrom, sabaq.ayahTo),
+  // EVERY portion heard today, one line per kind — a hifz child is
+  // heard three times a day and "Today's sabaq" alone read as the
+  // school skipping sabqi/manzil (parent report, 17 Sep). Older
+  // backends without `entries` fall back to the sabaq/revision pair.
+  const qualityWord = (q: string | null): string => {
+    const map: Record<string, string> = {
+      excellent: t("hifzTeach.qExcellent"), good: t("hifzTeach.qGood"),
+      weak: t("hifzTeach.qWeak"), needs_practice: t("hifzTeach.qNeedsPractice"),
+      not_learned: t("hifzTeach.qNotLearned"),
+    };
+    return q ? (map[q] ?? q) : "";
+  };
+  const hifzLines: string[] = (() => {
+    if (!diary.hifz) return [];
+    const entries = diary.hifz.entries ?? [];
+    if (entries.length > 0) {
+      return entries.map((e) => {
+        const kindWord =
+          e.kind === "qaida" ? t("portal.hifz.kindQaida")
+          : e.kind === "nazra" ? t("portal.hifz.kindNazra")
+          : e.kind === "nazra_revision" ? t("portal.hifz.kindNazraRevision")
+          : ["sabaq", "sabqi", "manzil"].includes(e.kind) ? t(`hifzTeach.${e.kind}`)
+          : e.kind;
+        const portion =
+          e.kind === "qaida"
+            ? t("portal.hifz.qaidaLesson", { n: e.qaidaLesson ?? "—" })
+            : (e.kind === "manzil" || e.juzExtent) && e.juzNumber
+            ? `${t("hifzTeach.juzN", { n: e.juzNumber })}${formatJuzExtent(e.juzExtent ?? null)}`
+            : e.surahNumber != null
+            ? `${surahLabel(e.surahNumber, t, lang)}, ${t("portal.hifz.ayahWord")} ${ayahRange(e.ayahFrom ?? 0, e.ayahTo ?? e.ayahFrom ?? 0)}`
+            : "";
+        const q = qualityWord(e.quality);
+        return `${kindWord} — ${portion}${q ? ` (${q})` : ""}`;
       });
     }
+    const { sabaq, revision } = diary.hifz;
+    if (sabaq) {
+      return [t("portal.diary.sabaqLine", {
+        surah: surahLabel(sabaq.surahNumber, t, lang),
+        range: ayahRange(sabaq.ayahFrom, sabaq.ayahTo),
+      })];
+    }
     if (revision) {
-      return t("portal.diary.revisionLine", {
+      return [t("portal.diary.revisionLine", {
         kind: revision.kind,
         surah: surahLabel(revision.surahNumber, t, lang),
         range: ayahRange(revision.ayahFrom, revision.ayahTo),
-      });
+      })];
     }
-    return null;
+    return [];
   })();
 
   const isEmpty =
     lessonsBySubject.size === 0 &&
     diary.assignments.length === 0 &&
-    !hifzLine &&
+    hifzLines.length === 0 &&
     diary.reminders.length === 0;
 
   return (
@@ -138,15 +172,15 @@ function DiaryCard({ diary }: { diary: MyStudentDiaryResponse }) {
           );
         })}
 
-        {hifzLine && (
-          <div className="flex gap-2 items-start">
+        {hifzLines.map((line, i) => (
+          <div key={i} className="flex gap-2 items-start">
             <Award className="h-4 w-4 mt-0.5 text-emerald-600 shrink-0" />
             <div className="min-w-0">
               <span className="font-medium text-slate-900">{t("portal.nav.hifz")}:</span>{" "}
-              <span className="text-slate-700">{hifzLine}</span>
+              <span className="text-slate-700">{line}</span>
             </div>
           </div>
-        )}
+        ))}
 
         {diary.hifz?.parentAction && (
           <div className="mt-3 rounded-lg bg-emerald-50 border border-emerald-200 p-3">

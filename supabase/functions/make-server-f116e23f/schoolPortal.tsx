@@ -675,8 +675,18 @@ export function installPortal(school: Hono): void {
       }));
     }
 
-    // ─── Latest Hifz entry (sabaq + revision) ─────────────────────
+    // ─── Today's Hifz entries — ALL of them ───────────────────────
+    // A hifz child is heard three times a day (sabaq, sabqi, manzil).
+    // The diary used to carry sabaq + ONE revision, so a parent saw
+    // "Today's sabaq" while This-Week listed all three — "feels
+    // incomplete" (parent report, 17 Sep). `entries` now lists every
+    // portion heard today; sabaq/revision stay for older frontends.
     let hifz: {
+      entries: Array<{
+        kind: string; surahNumber: number | null; ayahFrom: number | null;
+        ayahTo: number | null; juzNumber: number | null; juzExtent: string | null;
+        qaidaLesson: number | null; quality: string | null;
+      }>;
       sabaq: { surahNumber: number; ayahFrom: number; ayahTo: number; quality: string | null } | null;
       revision: { kind: string; surahNumber: number; ayahFrom: number; ayahTo: number; quality: string | null } | null;
       teacherNote: string | null;
@@ -684,7 +694,7 @@ export function installPortal(school: Hono): void {
     } | null = null;
     const { data: hifzRows } = await serviceRoleClient
       .from("hifz_progress")
-      .select("kind, surah_number, ayah_from, ayah_to, quality, tajweed_notes, fluency_notes, parent_comments, notes, parent_action, recorded_at, missed")
+      .select("kind, surah_number, ayah_from, ayah_to, juz_number, juz_extent, qaida_lesson, quality, tajweed_notes, fluency_notes, parent_comments, notes, parent_action, recorded_at, missed")
       .eq("student_id", studentId)
       .order("recorded_at", { ascending: false })
       .limit(20);
@@ -695,7 +705,28 @@ export function installPortal(school: Hono): void {
     const revisionRow = recent.find((h) => h.kind === "sabqi" || h.kind === "manzil");
     const latest = recent[0] ?? null;
     if (latest) {
+      // One line per kind, in teaching order; if a kind was heard twice
+      // today the latest row (list is newest-first) represents it.
+      const KIND_ORDER = ["sabaq", "sabqi", "manzil", "nazra", "nazra_revision", "qaida"];
+      const byKind = new Map<string, any>();
+      for (const h of recent) if (!byKind.has(h.kind)) byKind.set(h.kind, h);
+      const entries = [...byKind.entries()]
+        .sort((a, b) => {
+          const ia = KIND_ORDER.indexOf(a[0]); const ib = KIND_ORDER.indexOf(b[0]);
+          return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+        })
+        .map(([kind, h]) => ({
+          kind,
+          surahNumber: h.surah_number ?? null,
+          ayahFrom: h.ayah_from ?? null,
+          ayahTo: h.ayah_to ?? null,
+          juzNumber: h.juz_number ?? null,
+          juzExtent: h.juz_extent ?? null,
+          qaidaLesson: h.qaida_lesson ?? null,
+          quality: h.quality ?? null,
+        }));
       hifz = {
+        entries,
         sabaq: sabaqRow
           ? {
               surahNumber: sabaqRow.surah_number,
