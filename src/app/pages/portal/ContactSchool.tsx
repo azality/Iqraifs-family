@@ -68,6 +68,22 @@ export function ContactSchool() {
 
   const [replyBody, setReplyBody] = useState("");
 
+  // Deep-link compose: the fees page (and future surfaces) can open the
+  // new-message form with the subject + child prefilled, e.g.
+  // ?compose=1&subject=Fee%20query…&student=<id>. Params are consumed
+  // once so refresh doesn't reopen the form.
+  useEffect(() => {
+    if (search.get("compose") !== "1") return;
+    setComposeOpen(true);
+    setComposeSubject(search.get("subject") ?? "");
+    const sid = search.get("student");
+    if (sid) setComposeStudentId(sid);
+    const next = new URLSearchParams(search);
+    next.delete("compose"); next.delete("subject"); next.delete("student");
+    setSearch(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const refreshThreads = () => {
     setLoading(true);
     listMyThreads()
