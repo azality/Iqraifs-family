@@ -3468,6 +3468,47 @@ export function installPhaseA(school: Hono) {
     });
   });
 
+  // ---------------------------------------------------------------------------
+  // GET /auth/org-by-host?host=iqraifs.com — which school owns this domain.
+  //
+  // A school's own domain IS the school: the root serves their site,
+  // sign-in knows who they are with no query string, and the Cloudflare
+  // worker uses this to put their name on a WhatsApp link preview
+  // instead of "ILM Network" (which made parents hesitate, 15 Sep).
+  //
+  // Public, like org-by-slug, and returns the same nothing-sensitive
+  // shape plus the slug. Mounted NO-AUTH via PUBLIC_SCHOOL_PATHS.
+  // ---------------------------------------------------------------------------
+  school.get("/auth/org-by-host", async (c) => {
+    const raw = c.req.query("host")?.trim().toLowerCase() ?? "";
+    if (!raw) return c.json({ error: "host required" }, 400);
+    // Accept what a browser would hand us: strip scheme, any path, the
+    // port, and a leading www. so "https://WWW.Iqraifs.com/x" resolves.
+    const host = raw
+      .replace(/^https?:\/\//, "")
+      .split("/")[0]
+      .split(":")[0]
+      .replace(/^www\./, "");
+    if (!host || host.length > 253) return c.json({ error: "invalid host" }, 400);
+
+    const { data } = await serviceRoleClient
+      .from("organizations")
+      .select("id, name, slug, settings")
+      .eq("custom_domain", host)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (!data) return c.json({ error: "no school on this domain" }, 404);
+    const settings = ((data as any).settings ?? {}) as Record<string, unknown>;
+    return c.json({
+      id: (data as any).id,
+      name: (data as any).name,
+      slug: (data as any).slug,
+      logoUrl: (settings.logo_url as string | undefined) ?? null,
+      themeColor: (settings.theme_color as string | undefined) ?? null,
+      motto: (settings.school_motto as string | undefined) ?? null,
+    });
+  });
+
   // NOTE: /auth/pin-login is mounted on a NO-AUTH path — see school.tsx
   // mounting glue. We define the handler here and the wrapper there
   // registers it in a way that skips the requireAuth middleware.

@@ -72,6 +72,9 @@ const PUBLIC_SCHOOL_PATHS = new Set<string>([
   // Public org-branding lookup so PortalLogin can render the school's
   // name + logo + motto before sign-in. Returns nothing sensitive.
   "/auth/org-by-slug",
+  // Which school owns this domain — drives the root route and the
+  // link preview on a school's own domain. Nothing sensitive.
+  "/auth/org-by-host",
 ]);
 
 // Tail patterns that may be authenticated via X-Pin-Token (parent subject)
