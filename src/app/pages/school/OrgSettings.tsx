@@ -6,6 +6,7 @@
 
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
+import { schoolSitePrefix } from "../../../utils/schoolUrl";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
@@ -83,6 +84,10 @@ export function OrgSettings() {
   const navigate = useNavigate();
   const [me, setMe] = useState<SchoolMeResponse | null>(null);
   const [meLoading, setMeLoading] = useState(true);
+  // Never hardcode a domain here: this sentence tells a school THEIR
+  // address, and the first client's domain was being shown to everyone.
+  const thisOrg = (me?.organizations ?? []).find((o) => o.id === orgId) ?? null;
+  const sitePrefix = schoolSitePrefix({ customDomain: thisOrg?.custom_domain });
   const [org, setOrg] = useState<OrgWithCounts | null>(null);
   const [orgLoading, setOrgLoading] = useState(true);
 
@@ -144,7 +149,7 @@ export function OrgSettings() {
   const [syearError, setSyearError] = useState<string | null>(null);
   const [syearSavedAt, setSyearSavedAt] = useState<number | null>(null);
 
-  // Custom URL slug — drives iqraifs.com/:slug as the school's unified
+  // Custom URL slug — drives <platform host>/:slug as the school's unified
   // login URL. We keep it in its own form section (separate Save) so a
   // typo in the org name can't accidentally orphan an active slug.
   const [slugInput, setSlugInput] = useState("");
@@ -414,7 +419,7 @@ export function OrgSettings() {
         </div>
       </section>
 
-      {/* Custom URL — per-school login slug. iqraifs.com/<slug> serves as
+      {/* Custom URL — per-school login slug. <host>/<slug> serves as
           a single branded entry point for principal, admin, office staff,
           parents, and students of this school. The form mirrors the
           server-side validator (RESERVED + shape regex) so most bad
@@ -429,7 +434,7 @@ export function OrgSettings() {
             <Label htmlFor="org-slug">URL slug</Label>
             <div className="flex items-stretch rounded-md border border-slate-300 overflow-hidden focus-within:ring-2 focus-within:ring-indigo-500">
               <span className="px-3 py-2 bg-slate-100 text-sm text-slate-500 border-r border-slate-300">
-                iqraifs.com/
+                {sitePrefix}
               </span>
               <input
                 id="org-slug"
@@ -453,7 +458,7 @@ export function OrgSettings() {
               <p className="text-xs text-slate-600">
                 Preview:{" "}
                 <span className="font-mono text-indigo-700">
-                  iqraifs.com/{slugInput}
+                  {sitePrefix}{slugInput}
                 </span>
               </p>
             )}

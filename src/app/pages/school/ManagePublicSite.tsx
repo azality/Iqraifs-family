@@ -228,7 +228,7 @@ export function ManagePublicSite() {
               <div className="space-y-1">
                 <Label className="text-xs">Kicker line above the hero title (optional)</Label>
                 <Input value={heroKicker} onChange={(e) => setHeroKicker(e.target.value)}
-                       placeholder="e.g. iqraifs.com/your-slug · live from app" />
+                       placeholder="e.g. your school's address · live from app" />
                 <p className="text-[11px] text-slate-500">Small pill text above the headline. Leave blank for the default.</p>
               </div>
             </CardContent>

@@ -161,6 +161,11 @@ export interface SchoolOrganization {
   name: string;
   slug: string;
   plan: string;
+  /** The school's OWN domain, bare and lowercase ("theirschool.com"),
+   *  when they have one — their public site is then the ROOT of it and
+   *  the slug does not appear in their address at all. Null/absent for a
+   *  school living on a platform subdomain. Server >= v1.1.92. */
+  custom_domain?: string | null;
 }
 
 export interface SchoolClassSummary {
