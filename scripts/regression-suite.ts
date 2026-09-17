@@ -4444,17 +4444,31 @@ await check("85. portal fees name the bank account for the child's class", async
   const before = (orgRow as any).settings ?? {};
   const test = [{ bank: "QA Bank", title: "QA Title", accountNumber: "0000-1111", classIds: [sandboxClass.id] }];
   await admin.from("organizations").update({ settings: { ...before, fee_bank_accounts: test } }).eq("id", ORG);
+  // One sandbox fee row so the shape assertion below always has a row
+  // to inspect (the ledger checks that seed fees run later).
+  const { data: shapeFee } = await admin.from("fee_status").insert({
+    org_id: ORG, student_id: pStu1, period: "2096-01", amount_due: 111,
+    amount_paid: 0, status: "unpaid", due_date: "2096-01-05",
+  }).select("id").single();
   try {
     const r = await portalGet(parToken, `/pin-me/students/${pStu1}/fees`);
     const j = await r.json();
     assert(r.status === 200, `fees ${r.status}: ${JSON.stringify(j).slice(0, 160)}`);
     assert(j.bankAccount?.accountNumber === "0000-1111" && j.bankAccount?.bank === "QA Bank",
       `bankAccount should resolve by class: ${JSON.stringify(j.bankAccount)}`);
+    // Shape contract: the page reads FeeStatus snake_case. A camelCase
+    // serializer here made every amount render "—" and Rs. 0 totals
+    // while real balances existed (demo parent, 17 Sep).
+    for (const f of (j.fees ?? []) as any[]) {
+      assert("amount_due" in f && "due_date" in f && !("amountDue" in f),
+        `portal fee rows must be snake_case FeeStatus: ${JSON.stringify(Object.keys(f))}`);
+    }
 
     await admin.from("organizations").update({ settings: { ...before, fee_bank_accounts: [] } }).eq("id", ORG);
     const none = await (await portalGet(parToken, `/pin-me/students/${pStu1}/fees`)).json();
     assert(none.bankAccount === null, `no covering account must be null: ${JSON.stringify(none.bankAccount)}`);
   } finally {
+    if (shapeFee) await admin.from("fee_status").delete().eq("id", (shapeFee as any).id);
     // Restore ONLY the key this check touched, onto the CURRENT settings.
     // Writing back the whole `before` snapshot would freeze every other
     // setting at its captured value - exactly how a stale snapshot left
