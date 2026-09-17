@@ -205,7 +205,7 @@
       "bank": "Bank",
       "accountTitle": "Account title",
       "accountNumber": "Account number",
-      "cashNote": "Deposit at the bank, or pay cash at the school office — both are accepted.",
+      "cashNote": "Please deposit the fee at the bank account above and keep the stamped deposit slip to show the school office.",
       "balanceDue": "Balance due",
       "monthsPending": "{{n}} month(s) pending",
       "allSettled": "all settled",

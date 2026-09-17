@@ -301,7 +301,8 @@ ${balance > 0 && opts.bankAccount?.accountNumber ? `<div class="totals" style="m
   ${opts.bankAccount.bank ? `<div class="row"><span>Bank</span><span>${esc(opts.bankAccount.bank)}</span></div>` : ""}
   ${opts.bankAccount.title ? `<div class="row"><span>Account title</span><span>${esc(opts.bankAccount.title)}</span></div>` : ""}
   <div class="row"><span>Account number</span><span style="font-family:monospace;letter-spacing:.5px;">${esc(opts.bankAccount.accountNumber)}</span></div>
-  <div class="row" style="color:#64748b;font-size:12px;"><span>Deposit at the bank, or pay cash at the school office — both are accepted.</span><span></span></div>
+  <div class="row" style="color:#64748b;font-size:12px;"><span>Please deposit the fee at the bank account above and keep the stamped deposit slip to show the school office.</span><span></span></div>
+  <div class="row" style="color:#64748b;font-size:12px;" dir="rtl"><span>فیس اوپر دیے گئے بینک اکاؤنٹ میں جمع کروائیں اور جمع شدہ پرچی اسکول آفس کو دکھائیں۔</span><span></span></div>
 </div>` : ""}
 
 ${status === "paid" ? `<div class="stamp">PAID</div>` : ""}
