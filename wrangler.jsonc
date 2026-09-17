@@ -33,14 +33,22 @@
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
 
+    // The worker must see every NAVIGATION, because it is what puts the
+    // school's name on a link preview — WhatsApp and Google never run
+    // the app's JavaScript, they read the static shell.
+    //
+    // Why `true` and not a path list (learned the hard way, 18 Sep):
     // Cloudflare serves a request straight from static assets whenever
-    // one matches, and "/" matches index.html — so the worker NEVER ran
-    // for the bare domain. That is fine for humans (the app redirects
-    // client-side) but WhatsApp and Google do not run JavaScript: they
-    // read the static shell, so a shared "iqraifs.com" previewed as
-    // "ILM Network", the exact thing that made parents hesitate on
-    // 15 Sep. Running the worker first for the root ONLY lets it set
-    // the school's name; every other path keeps the fast asset route.
-    "run_worker_first": ["/"]
+    // one matches, and "/" matches index.html, so the worker never ran
+    // for the bare domain. Scoping it to ["/"] fixed that but made
+    // every OTHER path fall to the SPA asset fallback instead of the
+    // worker — so /iqra-ifs and the parents' sign-in link, which had
+    // previewed correctly for days, both regressed to "ILM Network".
+    //
+    // `true` routes everything through the worker, which immediately
+    // hands real files (anything with an extension, /assets, /brand)
+    // back to env.ASSETS — so static serving is unchanged and every
+    // navigation gets the right tags.
+    "run_worker_first": true
   }
 }
