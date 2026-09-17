@@ -120,6 +120,19 @@ export default {
     // matched by prefix so an extensionless file there is still safe.
     // Without this the worker would answer every bundle request with
     // index.html and take the whole app down.
+    // ONE origin per school. www.iqraifs.com and iqraifs.com are
+    // different origins to the browser, so the PIN token in
+    // localStorage does not carry between them: a parent who signed in
+    // on www would look signed out on the bare domain and be asked for
+    // a PIN they had already set. Send www to the apex before anything
+    // else. 302, not 301 — the canonical choice stays reversible
+    // instead of sitting in every parent's browser cache.
+    if (url.hostname.startsWith("www.")) {
+      const apex = new URL(url);
+      apex.hostname = url.hostname.slice(4);
+      return Response.redirect(apex.toString(), 302);
+    }
+
     const last = url.pathname.split("/").pop() || "";
     if (
       last.includes(".") ||
