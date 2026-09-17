@@ -1585,10 +1585,22 @@ export function installPortal(school: Hono): void {
     {
       const { data: hifzRecent } = await serviceRoleClient
         .from("hifz_progress")
-        .select("id, surah_number, ayah_from, ayah_to, kind, recorded_at, qaida_lesson")
+        .select("id, surah_number, ayah_from, ayah_to, kind, recorded_at, qaida_lesson, juz_number, juz_extent")
         .eq("student_id", studentId)
         .order("recorded_at", { ascending: false })
         .limit(10);
+      // Para-mode entries (manzil / sabqi-by-juz) store only a position
+      // marker in surah/ayah — "Surah 46 ayah 1-1 (manzil)" confused
+      // parents (Umar Farooq screenshot, 17 Sep). Speak juz for those.
+      const EXTENT_WORD: Record<string, string> = {
+        quarter: "¼", half: "½", three_quarters: "¾", full: "full",
+      };
+      const juzLabel = (row: any) => {
+        const ext = String(row.juz_extent ?? "");
+        const m = /^to_surah:(\d{1,3})$/.exec(ext);
+        const extra = m ? ` up to surah ${m[1]}` : EXTENT_WORD[ext] ? ` — ${EXTENT_WORD[ext]}` : "";
+        return `Juz ${row.juz_number}${extra} (${row.kind})`;
+      };
       for (const r of hifzRecent ?? []) {
         const row = r as any;
         activities.push({
@@ -1597,6 +1609,8 @@ export function installPortal(school: Hono): void {
           kind: "hifz",
           summary: row.kind === "qaida"
             ? `Noorani Qaida takhti ${row.qaida_lesson}`
+            : (row.kind === "manzil" || row.juz_extent) && row.juz_number
+            ? juzLabel(row)
             : `Surah ${row.surah_number} ayah ${row.ayah_from}-${row.ayah_to} (${row.kind})`,
         });
       }
