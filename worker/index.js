@@ -113,6 +113,14 @@ export default {
   async fetch(request, env, ctx) {
     if (request.method !== "GET") return env.ASSETS.fetch(request);
     const url = new URL(request.url);
+
+    // Belt and braces for run_worker_first: if this worker is ever
+    // invoked for something that looks like a file (a hashed bundle, an
+    // image, the favicon), hand it straight back to the asset server.
+    // Without this, over-matching the pattern would answer every .js
+    // request with index.html and take the whole app down.
+    const last = url.pathname.split("/").pop() || "";
+    if (last.includes(".")) return env.ASSETS.fetch(request);
     const shell = await env.ASSETS.fetch(new URL("/index.html", url.origin));
 
     let slug = slugFrom(url);

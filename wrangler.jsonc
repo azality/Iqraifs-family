@@ -31,6 +31,16 @@
     // that IS the SPA fallback now (was not_found_handling before the
     // preview worker existed).
     "binding": "ASSETS",
-    "not_found_handling": "single-page-application"
+    "not_found_handling": "single-page-application",
+
+    // Cloudflare serves a request straight from static assets whenever
+    // one matches, and "/" matches index.html — so the worker NEVER ran
+    // for the bare domain. That is fine for humans (the app redirects
+    // client-side) but WhatsApp and Google do not run JavaScript: they
+    // read the static shell, so a shared "iqraifs.com" previewed as
+    // "ILM Network", the exact thing that made parents hesitate on
+    // 15 Sep. Running the worker first for the root ONLY lets it set
+    // the school's name; every other path keeps the fast asset route.
+    "run_worker_first": ["/"]
   }
 }
