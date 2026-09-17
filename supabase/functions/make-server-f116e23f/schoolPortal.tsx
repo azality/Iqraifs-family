@@ -863,13 +863,30 @@ export function installPortal(school: Hono): void {
         .order("created_at", { ascending: false })
         .limit(10);
       const seenThread = new Set<string>();
-      for (const m of ((msgs ?? []) as any[])) {
-        if (seenThread.has(m.thread_id)) continue;
+      const replyRows = ((msgs ?? []) as any[]).filter((m) => {
+        if (seenThread.has(m.thread_id)) return false;
         seenThread.add(m.thread_id);
+        return true;
+      });
+      // Replies don't carry the subject — only a thread's FIRST message
+      // does. Resolve them so the bell says which conversation.
+      const subjectByThread = new Map<string, string>();
+      if (replyRows.length) {
+        const { data: firsts } = await serviceRoleClient
+          .from("parent_message")
+          .select("thread_id, subject, created_at")
+          .in("thread_id", replyRows.map((m) => m.thread_id))
+          .not("subject", "is", null)
+          .order("created_at", { ascending: true });
+        for (const f of ((firsts ?? []) as any[])) {
+          if (!subjectByThread.has(f.thread_id)) subjectByThread.set(f.thread_id, f.subject);
+        }
+      }
+      for (const m of replyRows) {
         items.push({
           id: `reply:${m.id}`,
           kind: "reply",
-          title: m.subject ?? "",
+          title: m.subject ?? subjectByThread.get(m.thread_id) ?? "",
           body: m.body,
           at: m.created_at,
           threadId: m.thread_id,
