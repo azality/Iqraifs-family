@@ -34,6 +34,43 @@ function slugFrom(url) {
   return /^[a-z0-9-]{2,60}$/.test(seg) ? seg : null;
 }
 
+/** Which school owns this hostname, or null. Edge-cached 5 min.
+ *
+ *  A school's own domain IS the school (18 Sep): a parent handed the
+ *  bare "iqraifs.com" must land on their school, not on the platform
+ *  app, and the WhatsApp preview of that bare link must carry the
+ *  school's name. Configured per school in the database, never here —
+ *  school #2 brings their domain without touching this file. */
+async function hostSchool(host, ctx) {
+  const clean = String(host || "").toLowerCase().split(":")[0].replace(/^www\./, "");
+  if (!clean || !clean.includes(".")) return null;
+  const api = `https://${PROJECT_ID}.supabase.co/functions/v1/make-server-f116e23f/school/auth/org-by-host?host=${encodeURIComponent(clean)}`;
+  const cache = caches.default;
+  const cacheKey = new Request(api);
+  try {
+    let res = await cache.match(cacheKey);
+    if (!res) {
+      const upstream = await fetch(api, {
+        headers: { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` },
+      });
+      // 404 just means "platform domain" — cache that too, so the lookup
+      // does not run on every hit to theilmnetwork.com.
+      const body = upstream.ok ? await upstream.text() : "null";
+      res = new Response(body, {
+        headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=300" },
+      });
+      ctx.waitUntil(cache.put(cacheKey, res.clone()));
+    }
+    const j = await res.json();
+    return j && typeof j.slug === "string" ? j : null;
+  } catch {
+    // The whole lookup must fail SAFE: an unreachable backend here would
+    // otherwise throw out of fetch() and 500 every navigation on the
+    // school's domain. Falling back to null just serves the app shell.
+    return null;
+  }
+}
+
 /** School name + logo from the public-site endpoint, edge-cached 5 min. */
 async function lookupSchool(slug, ctx) {
   const api = `https://${PROJECT_ID}.supabase.co/functions/v1/make-server-f116e23f/school/public-site/${encodeURIComponent(slug)}`;
@@ -78,7 +115,29 @@ export default {
     const url = new URL(request.url);
     const shell = await env.ASSETS.fetch(new URL("/index.html", url.origin));
 
-    const slug = slugFrom(url);
+    let slug = slugFrom(url);
+
+    // On a school's own domain the ROOT is that school's front door.
+    // Only the bare root redirects: /login, /school-login and every app
+    // route keep working untouched on this domain, so links already in
+    // parents' hands (the self-claim announcement) are unaffected.
+    // 302, never 301 — a permanent redirect would be cached in every
+    // parent's browser and is effectively impossible to take back.
+    if (!slug && url.pathname === "/") {
+      const owner = await hostSchool(url.hostname, ctx);
+      if (owner) {
+        const to = new URL(url);
+        to.pathname = `/${owner.slug}`;
+        return Response.redirect(to.toString(), 302);
+      }
+    }
+
+    // No slug in the URL but the domain names a school — still give the
+    // preview that school's name rather than "ILM Network".
+    if (!slug) {
+      const owner = await hostSchool(url.hostname, ctx);
+      if (owner) slug = owner.slug;
+    }
     if (!slug) return shell;
     const school = await lookupSchool(slug, ctx);
     if (!school) return shell;
