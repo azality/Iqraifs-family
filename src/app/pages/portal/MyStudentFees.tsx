@@ -13,8 +13,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useParams } from "react-router";
-import { AlertCircle, CheckCircle2, Copy, Landmark, Printer } from "lucide-react";
+import { Link, useParams } from "react-router";
+import { AlertCircle, CheckCircle2, Copy, Landmark, MessageCircleQuestion, Printer } from "lucide-react";
 import { HeroCard } from "../../components/school-ui";
 import { usePinAuth } from "../../contexts/PinAuthContext";
 import { toast } from "sonner";
@@ -182,7 +182,40 @@ export function MyStudentFees() {
         </button>
       );
     }
+    // An OWED month prints as a VOUCHER — the same page with the
+    // bank-deposit box, to take to the Askari counter. The route always
+    // rendered it; the button was only shown after money existed, so a
+    // family with an unpaid bill had nothing to print (review, 17 Sep).
+    if (owedOf(f) > 0) {
+      return (
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[11.5px] font-bold text-indigo-700 hover:bg-indigo-100"
+          onClick={() => openMyFeeReceipt(f.id).catch((e) => toast.error(e instanceof Error ? e.message : String(e)))}
+        >
+          <Printer className="h-3 w-3" /> {t("portal.fees.printVoucher")}
+        </button>
+      );
+    }
     return null;
+  };
+
+  // "What I see ≠ what the school noted" needs a door, not a phone
+  // hunt: each month links into Contact school with the subject
+  // prefilled, so the office knows exactly which bill is disputed.
+  const askLink = (f: FeeStatus) => {
+    const subjectLine = t("portal.fees.disputeSubject", {
+      period: periodLabel(f.period),
+      gr: student?.grNumber ?? "",
+    });
+    return (
+      <Link
+        to={`/school-portal/contact-school?compose=1&student=${encodeURIComponent(studentId)}&subject=${encodeURIComponent(subjectLine)}`}
+        className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-[11.5px] font-bold text-slate-600 hover:bg-slate-50"
+      >
+        <MessageCircleQuestion className="h-3 w-3" /> {t("portal.fees.askAboutBill")}
+      </Link>
+    );
   };
 
   return (
@@ -299,6 +332,17 @@ export function MyStudentFees() {
         </div>
       )}
 
+      {/* No account mapped for this class — still answer "how do I pay?"
+          instead of showing nothing (review, 17 Sep). */}
+      {fees !== null && !bankAccount?.accountNumber && owing && (
+        <div className="rounded-2xl border border-indigo-200 bg-indigo-50/50 p-4">
+          <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-indigo-700">
+            <Landmark className="h-3.5 w-3.5" /> {t("portal.fees.howToPay")}
+          </div>
+          <p className="mt-2 text-sm text-slate-700">{t("portal.fees.contactOfficeToPay")}</p>
+        </div>
+      )}
+
       {/* 3 ── Month statement cards, newest first. */}
       {fees === null ? (
         <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-500">
@@ -354,10 +398,10 @@ export function MyStudentFees() {
                     {t("portal.fees.remaining")}: {rs(owed)}
                   </div>
                 )}
-                {(() => {
-                  const btn = receiptButton(f);
-                  return btn ? <div className="mt-2">{btn}</div> : null;
-                })()}
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {receiptButton(f)}
+                  {askLink(f)}
+                </div>
               </div>
             );
           })}
