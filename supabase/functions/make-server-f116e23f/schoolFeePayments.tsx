@@ -261,7 +261,21 @@ export function renderFeeReceiptHtml(opts: {
   .totals .row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 14px; }
   .totals .row.grand { border-top: 2px solid #e2e8f0; margin-top: 8px; padding-top: 12px; font-size: 16px; font-weight: 700; }
   .totals h3 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; color: #64748b; }
-  .stamp { margin-top: 36px; padding: 12px 16px; background: ${esc(themeColor)}; color: white; border-radius: 6px; display: inline-block; font-weight: 700; letter-spacing: 0.5px; }
+  /* Traditional rubber-stamp look — the old solid block read as a
+     BUTTON (Muneeb pressed it, 17 Sep). Rotated, inked outline, sits
+     over the totals like a real counter stamp; prints fine. */
+  .stamp-wrap { position: relative; height: 0; }
+  .stamp {
+    position: absolute; right: 24px; top: -110px;
+    transform: rotate(-14deg);
+    border: 4px double #16803c; color: #16803c;
+    border-radius: 10px; padding: 6px 22px;
+    font-size: 34px; font-weight: 900; letter-spacing: 6px;
+    text-transform: uppercase; opacity: 0.55;
+    mix-blend-mode: multiply; pointer-events: none;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .stamp small { display: block; font-size: 10px; font-weight: 700; letter-spacing: 2px; text-align: center; margin-top: 2px; }
   footer { margin-top: 40px; font-size: 11px; color: #64748b; border-top: 1px solid #e2e8f0; padding-top: 10px; }
   .print-btn { background: ${esc(themeColor)}; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-size: 14px; cursor: pointer; }
   @media print { .no-print { display: none; } }
@@ -306,7 +320,7 @@ ${balance > 0 && opts.bankAccount?.accountNumber ? `<div class="totals" style="m
   <div class="row" style="color:#64748b;font-size:12px;" dir="rtl"><span>فیس اوپر دیے گئے بینک اکاؤنٹ میں جمع کروائیں اور جمع شدہ پرچی اسکول آفس کو دکھائیں۔</span><span></span></div>
 </div>` : ""}
 
-${status === "paid" ? `<div class="stamp">PAID</div>` : ""}
+${status === "paid" ? `<div class="stamp-wrap"><div class="stamp">PAID${live.length ? `<small>${esc(live[live.length - 1].paidOn)}</small>` : ""}</div></div>` : ""}
 
 <div class="no-print" style="margin-top:24px;">
   <button class="print-btn" onclick="window.print()">Print / Save as PDF</button>
