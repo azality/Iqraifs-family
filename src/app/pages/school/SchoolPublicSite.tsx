@@ -145,7 +145,8 @@ export function SchoolPublicSite({ slug }: { slug?: string } = {}) {
 
   const heroTitle = site.heroTitle || site.org.name;
   const heroTagline = site.heroTagline || site.org.motto || "";
-  const heroKicker = site.heroKicker || `iqraifs.com/${site.org.slug} · name & logo live from app`;
+  const heroKicker = site.heroKicker
+    || `${typeof window === "undefined" ? "" : window.location.host} · name & logo live from app`;
   const phone = site.contactPhone;
   const whatsapp = site.whatsappPhone || phone;
   const whatsappDigits = (whatsapp || "").replace(/[^\d]/g, "");

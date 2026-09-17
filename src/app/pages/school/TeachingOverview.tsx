@@ -25,6 +25,7 @@
 
 import { useMemo, useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
+import { schoolOrigin } from "../../../utils/schoolUrl";
 import { ArrowUpDown, GraduationCap, KeyRound, Copy, Check } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -103,6 +104,11 @@ export function TeachingOverview() {
   const { orgId = "" } = useParams();
   const { me } = useWorkspace();
   const role = viewerRoleForOrg(me, orgId);
+  // The reminder a teacher pastes into WhatsApp must link to THEIR
+  // school, not to whichever school happened to be the first client.
+  const thisOrg = (me?.organizations ?? []).find((o) => o.id === orgId) ?? null;
+  const linkOrigin = schoolOrigin({ customDomain: thisOrg?.custom_domain });
+  const linkLabel = linkOrigin.replace(/^https?:\/\//, "");
   const canReset = role === "admin" || role === "principal";
 
   const [data, setData] = useState<any>(null);
@@ -182,7 +188,7 @@ export function TeachingOverview() {
 
   const copyReminder = async (r: Row) => {
     try {
-      await navigator.clipboard.writeText(reminderText(r, "https://iqraifs.com"));
+      await navigator.clipboard.writeText(reminderText(r, linkOrigin));
       setCopiedId(r.userId);
       setTimeout(() => setCopiedId(null), 1600);
     } catch {
@@ -193,7 +199,7 @@ export function TeachingOverview() {
     const txt = notStarted.map((r) => `• ${r.name}: ${doneSoFar(r)}`).join("\n");
     try {
       await navigator.clipboard.writeText(
-        `Onboarding follow-ups:\n${txt}\n\nSystem: https://iqraifs.com`,
+        `Onboarding follow-ups:\n${txt}\n\nSystem: ${linkOrigin}`,
       );
       toast.success(`Copied a follow-up list for ${notStarted.length} teachers`);
     } catch {
@@ -211,7 +217,7 @@ export function TeachingOverview() {
       if (temp) {
         await navigator.clipboard.writeText(
           `Assalamu alaikum ${r.name} — your login for the school system:\n` +
-            `iqraifs.com · your email · temporary password: ${temp}\n` +
+            `${linkLabel} · your email · temporary password: ${temp}\n` +
             `It will ask you to set your own password on first sign-in.`,
         );
         toast.success(`New temp password for ${r.name} copied — paste it to her on WhatsApp`);

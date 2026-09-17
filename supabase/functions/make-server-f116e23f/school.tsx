@@ -418,7 +418,10 @@ school.get("/me", async (c) => {
       // deleted_at column.
       ? serviceRoleClient
           .from("organizations")
-          .select("id, name, slug, plan")
+          // custom_domain: the school's own front door. Staff screens
+          // show a school its public URL, and hardcoding the first
+          // client's domain there showed school #2 someone else's.
+          .select("id, name, slug, plan, custom_domain")
           .in("id", orgIds)
           .is("deleted_at", null)
       : Promise.resolve({ data: [], error: null }),

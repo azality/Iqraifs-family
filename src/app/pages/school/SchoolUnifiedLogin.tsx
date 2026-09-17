@@ -1,5 +1,6 @@
 // SchoolUnifiedLogin — single entry point for one school.
-// URL shape: /:orgSlug  (e.g. iqraifs.com/iqra-demo)
+// URL shape: /:orgSlug  (e.g. app.theilmnetwork.com/their-slug, or a
+// school's own domain where the root already IS their site)
 //
 // Three tabs share the same branded shell:
 //   - Staff   → Supabase email + password (existing /parent-login flow)
@@ -47,6 +48,9 @@ function friendlyError(raw: string): string {
 export function SchoolUnifiedLogin({ slug }: { slug?: string } = {}) {
   const { orgSlug: paramSlug = "" } = useParams<{ orgSlug: string }>();
   const orgSlug = slug ?? paramSlug;
+  // Pre-auth: no org record is loaded yet, so the host the visitor
+  // actually typed IS the right thing to echo back to them.
+  const hostLabel = typeof window === "undefined" ? "" : window.location.host;
   const navigate = useNavigate();
   const { login: pinLoginCtx } = usePinAuth();
   const { t } = useTranslation();
@@ -209,7 +213,7 @@ export function SchoolUnifiedLogin({ slug }: { slug?: string } = {}) {
           <p className="mt-1 text-sm text-slate-500">
             {reserved
               ? `'${orgSlug}' isn't a school URL.`
-              : `We couldn't find a school at iqraifs.com/${orgSlug}.`}
+              : `We couldn't find a school at ${hostLabel}/${orgSlug}.`}
           </p>
           <p className="mt-4 text-sm text-slate-600">
             Double-check the URL or contact your school's office.
@@ -284,7 +288,7 @@ export function SchoolUnifiedLogin({ slug }: { slug?: string } = {}) {
                 Signing into
               </div>
               <div className="text-sm font-medium text-slate-900">
-                iqraifs.com/<span className="text-indigo-700">{orgSlug}</span>
+                {hostLabel}/<span className="text-indigo-700">{orgSlug}</span>
               </div>
             </div>
 
