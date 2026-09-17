@@ -5385,6 +5385,62 @@ await check("99. today's diary lists EVERY portion heard - sabaq, sabqi and manz
   }
 });
 
+await check("100. parent bell: fees due + school replies, and seen clears the count", async () => {
+  // "There's no bell for parents" (Muneeb, 17 Sep). Derived, never
+  // queued - fee-due and school-reply items with a kv last-seen stamp.
+  const cleanup: Array<() => Promise<unknown>> = [];
+  try {
+    const pTok = (await (await pinLogin(PARENT_PHONE, "3456")).json()).token;
+    // Overdue fee for the child -> a "fee" item.
+    const { data: fee, error: fe } = await admin.from("fee_status").insert({
+      org_id: ORG, student_id: pStu1, period: "2026-01", amount_due: 999,
+      amount_paid: 0, status: "unpaid", due_date: "2026-01-05",
+    }).select("id").single();
+    if (fe) throw new Error(`fee: ${fe.message}`);
+    cleanup.push(() => admin.from("fee_status").delete().eq("id", fee.id));
+    // Parent starts a thread; the principal answers -> a "reply" item.
+    const started = await (await fetch(`${FUNC}/school/pin-me/messages`, {
+      method: "POST", headers: { apikey: ANON, "X-Pin-Token": pTok, "Content-Type": "application/json" },
+      body: JSON.stringify({ subject: "QA BELL THREAD", body: "ping" }),
+    })).json();
+    const threadId = started.threadId ?? started.thread?.threadId;
+    assert(threadId, `thread start: ${JSON.stringify(started).slice(0, 120)}`);
+    cleanup.push(() => admin.from("parent_message").delete().eq("thread_id", threadId));
+    const rep = await api(principal.token, `/school/orgs/${ORG}/inbox/${threadId}/reply`, {
+      method: "POST", body: JSON.stringify({ body: "QA BELL REPLY" }),
+    });
+    assert(rep.ok, `reply ${rep.status}`);
+    cleanup.push(() => admin.from("parent_thread_assignment").delete().eq("thread_id", threadId));
+
+    const r1 = await portalGet(pTok, "/pin-me/notifications");
+    const j1 = await r1.json();
+    assert(r1.status === 200, `notifications ${r1.status}: ${JSON.stringify(j1).slice(0, 120)}`);
+    assert((j1.items ?? []).some((i: any) => i.kind === "fee" && i.studentId === pStu1),
+      `fee item missing: ${JSON.stringify(j1.items).slice(0, 200)}`);
+    assert((j1.items ?? []).some((i: any) => i.kind === "reply" && i.threadId === threadId),
+      `reply item missing: ${JSON.stringify(j1.items).slice(0, 200)}`);
+    assert(j1.unseen >= 1, `unseen should count fresh items, got ${j1.unseen}`);
+
+    // Opening the bell stamps seen; the same items stop counting.
+    const seen = await fetch(`${FUNC}/school/pin-me/notifications/seen`, {
+      method: "POST", headers: { apikey: ANON, "X-Pin-Token": pTok },
+    });
+    assert(seen.status === 200, `seen ${seen.status}`);
+    const j2 = await (await portalGet(pTok, "/pin-me/notifications")).json();
+    assert(j2.unseen === 0, `unseen must clear after seen, got ${j2.unseen}`);
+
+    // A student login has no money bell.
+    const sTok = (await (await pinLogin("QA-PORTAL-1", "1234")).json()).token;
+    const rs = await portalGet(sTok, "/pin-me/notifications");
+    assert(rs.status === 403, `student login must 403, got ${rs.status}`);
+  } finally {
+    for (const fn of cleanup.reverse()) await fn();
+    // Exact key only - a LIKE sweep would reset REAL parents' seen stamps.
+    await admin.from("kv_store_f116e23f").delete()
+      .eq("key", `school:${ORG}:pin-notif-seen:parent:${pParent.id}`);
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

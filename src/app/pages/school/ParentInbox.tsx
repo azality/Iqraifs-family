@@ -225,8 +225,13 @@ export function ParentInbox() {
                         </div>
                       )}
                       {thr.assignedToName && (
-                        <div className="mt-1 inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">
-                          {thr.assignedToMe ? "You are handling this" : `${thr.assignedToName} is handling this`}
+                        <div className={
+                          "mt-1 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold " +
+                          (thr.assignedToMe ? "bg-indigo-100 text-indigo-700" : "bg-slate-100 text-slate-600")
+                        }>
+                          {thr.assignedToMe
+                            ? `Assigned to you${thr.assignedToName ? ` (${thr.assignedToName})` : ""}`
+                            : `Assigned to ${thr.assignedToName}`}
                         </div>
                       )}
                     </div>
@@ -255,17 +260,36 @@ export function ParentInbox() {
                 <div className="text-sm font-semibold text-slate-900">{detail.thread.subject}</div>
                 <div className="text-[11px] text-slate-500 mt-0.5">
                   {detail.thread.parentName ?? "Parent"}
-                  {detail.thread.studentName ? ` · about ${detail.thread.studentName}` : ""}
+                  {detail.thread.studentName ? (
+                    <>
+                      {" · about "}
+                      {detail.thread.studentId ? (
+                        <Link
+                          to={`/school/orgs/${orgId}/admin/students/${detail.thread.studentId}`}
+                          className="font-medium text-indigo-600 hover:underline"
+                        >
+                          {detail.thread.studentName}
+                        </Link>
+                      ) : (
+                        detail.thread.studentName
+                      )}
+                    </>
+                  ) : null}
                 </div>
                 {/* Who is on it. Three roles share this inbox, so without
                     this two people answer the same parent. Replying claims
                     an unheld thread, so this is usually already right. */}
                 <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <span className="text-[11px] text-slate-600">
+                  <span className={
+                    "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold " +
+                    (detail.thread.assignedToName
+                      ? (detail.thread.assignedToMe ? "bg-indigo-100 text-indigo-700" : "bg-slate-100 text-slate-600")
+                      : "text-slate-500")
+                  }>
                     {detail.thread.assignedToName
                       ? (detail.thread.assignedToMe
-                          ? "You are handling this"
-                          : `${detail.thread.assignedToName} is handling this`)
+                          ? `Assigned to you${detail.thread.assignedToName ? ` (${detail.thread.assignedToName})` : ""}`
+                          : `Assigned to ${detail.thread.assignedToName}`)
                       : "Nobody has picked this up yet"}
                   </span>
                   <button

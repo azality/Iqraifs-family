@@ -28,6 +28,7 @@ import type { Hono, Context } from "npm:hono";
 import { serviceRoleClient } from "./middleware.tsx";
 import { computeMemorizedTotals } from "./schoolPhaseC.tsx";
 import { todayInOrgTz } from "./tz.ts";
+import * as kv from "./kv_store.tsx";
 import { windowStarts, sectionTallies, parseStatsPeriod } from "./schoolBehaviorStats.tsx";
 
 // -----------------------------------------------------------------------------
@@ -781,6 +782,125 @@ export function installPortal(school: Hono): void {
       hifz,
       reminders,
     });
+  });
+
+  // ---------------------------------------------------------------------------
+  // GET /school/pin-me/notifications — the PARENT's bell.
+  //
+  // "There's no bell for parents — fees due, or the reply I sent them"
+  // (Muneeb, 17 Sep). DERIVED, never queued — the same stance as the
+  // staff bell (#460): every call recomputes from live rows, so nothing
+  // can go stale or double-fire. Three sources:
+  //   * fees due:  any owed month per child (due date reached)
+  //   * replies:   school messages in the parent's own threads
+  //   * announcements published in the last 14 days
+  // "Seen" is one kv timestamp per parent; the badge counts items newer
+  // than it. Opening the bell posts /seen.
+  // ---------------------------------------------------------------------------
+  const notifSeenKey = (orgId: string, parentId: string) =>
+    `school:${orgId}:pin-notif-seen:parent:${parentId}`;
+
+  school.get("/pin-me/notifications", async (c) => {
+    const auth = await requirePinSubject(c);
+    if ((auth as any).__error) {
+      const e = auth as any;
+      return c.json(e.body, e.status);
+    }
+    const subject = auth as PinTokenPayload;
+    if (subject.subjectType !== "parent") {
+      return c.json({ error: "notifications are for parent logins" }, 403);
+    }
+
+    const studentIds = await resolveAccessibleStudents(subject);
+    const today = todayInOrgTz();
+    type Item = {
+      id: string; kind: "fee" | "reply";
+      title: string; body: string | null; at: string;
+      studentId?: string; threadId?: string;
+    };
+    const items: Item[] = [];
+
+    // 1. Fees due — one item per child with an owed, due month.
+    if (studentIds.length) {
+      const { data: feeRows } = await serviceRoleClient
+        .from("fee_status")
+        .select("student_id, period, amount_due, amount_paid, status, due_date, students:student_id(full_name)")
+        .in("student_id", studentIds)
+        .in("status", ["unpaid", "partial"]);
+      const byStudent = new Map<string, { name: string; total: number; periods: string[]; newestDue: string }>();
+      for (const r of ((feeRows ?? []) as any[])) {
+        if (r.due_date && r.due_date > today) continue;
+        const owed = Math.max(0, Number(r.amount_due ?? 0) - Number(r.amount_paid ?? 0));
+        if (owed <= 0) continue;
+        const cur = byStudent.get(r.student_id) ?? {
+          name: r.students?.full_name ?? "", total: 0, periods: [], newestDue: r.due_date ?? today,
+        };
+        cur.total += owed;
+        cur.periods.push(r.period);
+        if ((r.due_date ?? "") > cur.newestDue) cur.newestDue = r.due_date;
+        byStudent.set(r.student_id, cur);
+      }
+      for (const [sid, v] of byStudent) {
+        items.push({
+          id: `fee:${sid}:${v.newestDue}`,
+          kind: "fee",
+          title: v.name,
+          body: `Rs. ${v.total.toLocaleString("en-PK")} · ${v.periods.sort().join(", ")}`,
+          at: `${v.newestDue}T08:00:00+05:00`,
+          studentId: sid,
+        });
+      }
+    }
+
+    // 2. School replies in the parent's own threads (latest 10).
+    {
+      const { data: msgs } = await serviceRoleClient
+        .from("parent_message")
+        .select("id, thread_id, subject, body, created_at")
+        .eq("org_id", subject.orgId)
+        .eq("parent_user_id", subject.subjectId)
+        .eq("sent_by_role", "school")
+        .order("created_at", { ascending: false })
+        .limit(10);
+      const seenThread = new Set<string>();
+      for (const m of ((msgs ?? []) as any[])) {
+        if (seenThread.has(m.thread_id)) continue;
+        seenThread.add(m.thread_id);
+        items.push({
+          id: `reply:${m.id}`,
+          kind: "reply",
+          title: m.subject ?? "",
+          body: m.body,
+          at: m.created_at,
+          threadId: m.thread_id,
+        });
+      }
+    }
+
+    // Announcements are deliberately NOT here: their audience filter
+    // lives in /pin-me/announcements and duplicating it would drift.
+    // They keep their own badge in the portal nav.
+
+    items.sort((a, b) => (a.at < b.at ? 1 : -1));
+    const capped = items.slice(0, 20);
+    const seen = await kv.get(notifSeenKey(subject.orgId, subject.subjectId));
+    const lastSeenAt = (seen?.at as string | undefined) ?? null;
+    const unseen = capped.filter((i) => !lastSeenAt || i.at > lastSeenAt).length;
+    return c.json({ items: capped, unseen, lastSeenAt });
+  });
+
+  school.post("/pin-me/notifications/seen", async (c) => {
+    const auth = await requirePinSubject(c);
+    if ((auth as any).__error) {
+      const e = auth as any;
+      return c.json(e.body, e.status);
+    }
+    const subject = auth as PinTokenPayload;
+    if (subject.subjectType !== "parent") {
+      return c.json({ error: "notifications are for parent logins" }, 403);
+    }
+    await kv.set(notifSeenKey(subject.orgId, subject.subjectId), { at: new Date().toISOString() });
+    return c.json({ ok: true });
   });
 
   // ---------------------------------------------------------------------------

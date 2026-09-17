@@ -425,6 +425,28 @@ export const getMyStudentDiary = (
   return pinApiCall(`/school/pin-me/students/${studentId}/diary${q}`);
 };
 
+// ─── Parent notification bell (server >= v1.1.87) ───────────────────────
+// Derived server-side from live rows (fees due + school replies); the
+// badge counts items newer than the parent's last-seen timestamp.
+export interface PortalNotification {
+  id: string;
+  kind: "fee" | "reply";
+  title: string;
+  body: string | null;
+  at: string;
+  studentId?: string;
+  threadId?: string;
+}
+
+export const getMyNotifications = (): Promise<{
+  items: PortalNotification[];
+  unseen: number;
+  lastSeenAt: string | null;
+}> => pinApiCall(`/school/pin-me/notifications`);
+
+export const markMyNotificationsSeen = (): Promise<{ ok: true }> =>
+  pinApiCall(`/school/pin-me/notifications/seen`, { method: "POST" });
+
 export interface MyStudentAttendanceSummary {
   present: number;
   late: number;
