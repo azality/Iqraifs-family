@@ -2806,6 +2806,13 @@ await check("60. points: class leaderboard, child league privacy, drilldown gati
   };
 
   try {
+    // Self-heal first: a suite run killed mid-flight (17 Sep: app restart
+    // during check 27's window) can orphan a "QA …" note on the portal
+    // students, and the absolute net assertions below then count it.
+    // Only rows this suite itself writes (notes starting "QA ") die here.
+    await admin.from("behavior_note").delete()
+      .in("student_id", [pStu1, pStu2]).like("notes", "QA %");
+
     // Student 1 earns more than student 2; student 2 carries a concern.
     await mkNote(pStu1, "positive", "Adab", 1);
     await mkNote(pStu1, "positive", "Adab", 1);
