@@ -5488,6 +5488,31 @@ await check("101. hifz exam syllabus: proposed from the child's own record, then
       `proposal must name paras 2 and 11 (Indo-Pak boundaries), got "${mine.proposed}"`);
     assert(mine.source === "proposed" && !mine.saved, "an untouched row is a proposal, not a save");
 
+    // BASELINE: what the child memorized before we started logging
+    // (3 Sep 2026). Without it the first exam's proposals understate
+    // nearly everyone and the teacher retypes 84 lines (17 Sep).
+    const baseUrl = `/school/orgs/${ORG}/students/${pStu1}/hifz-baseline`;
+    cleanup.push(() => admin.from("student").update({ hifz_baseline_paras: null }).eq("id", pStu1));
+    const bad = await api(admin2.token, baseUrl, {
+      method: "PATCH", body: JSON.stringify({ paras: [1, 31] }),
+    });
+    assert(bad.status === 400, `para 31 does not exist — expected 400, got ${bad.status}`);
+    const setB = await api(admin2.token, baseUrl, {
+      method: "PATCH", body: JSON.stringify({ paras: [5, 6, 7] }),
+    });
+    assert(setB.status === 200, `baseline ${setB.status}`);
+    const withBase = await (await api(admin2.token, `${url}?sectionId=${sandboxSec.id}`)).json();
+    const bRow = (withBase.rows ?? []).find((x: any) => x.studentId === pStu1);
+    assert(JSON.stringify(bRow.baselineParas) === JSON.stringify([5, 6, 7]),
+      `baseline must come back: ${JSON.stringify(bRow.baselineParas)}`);
+    // The proposal now carries BOTH the baseline and the logged paras.
+    // pStu1 was seeded at 2:142 (para 2) and 9:94 (para 11); the
+    // baseline adds 5,6,7 -> "Para 2, 5–7, 11".
+    assert(bRow.proposed.includes("5–7"),
+      `proposal must fold in the baseline 5–7, got "${bRow.proposed}"`);
+    assert(/(^|\D)11(\D|$)/.test(bRow.proposed),
+      `proposal must keep the logged para 11, got "${bRow.proposed}"`);
+
     // The teacher corrects the line.
     const edited = "Para 1–12 (QA edited)";
     const r2 = await api(admin2.token, `${url}/${pStu1}`, {

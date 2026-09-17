@@ -22,11 +22,12 @@ import {
 } from "../../components/ui/select";
 import {
   getSchoolMe, isOrgAdmin, listClasses, listTerms, listExams,
-  getExamSyllabus, saveExamSyllabusLine, publishExamSyllabus,
+  getExamSyllabus, saveExamSyllabusLine, publishExamSyllabus, setHifzBaseline,
   type AdminClass, type SchoolMeResponse, type ExamSyllabusRow,
   type AcademicTerm, type Exam,
 } from "../../../utils/schoolApi";
 import { NoAccessRedirect, sectionTitleClasses } from "../../components/school-ui";
+import { parseParaList, formatParaList } from "../../../utils/paraRanges";
 
 const TRACK_LABEL: Record<string, string> = {
   hifz: "Hifz", nazra: "Nazra", qaida: "Qaida", revision: "Revision",
@@ -51,6 +52,7 @@ export function ExamSyllabus() {
   const [sectionId, setSectionId] = useState(params.get("sectionId") ?? "");
   const [rows, setRows] = useState<ExamSyllabusRow[]>([]);
   const [draft, setDraft] = useState<Record<string, string>>({});
+  const [baseDraft, setBaseDraft] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -100,6 +102,9 @@ export function ExamSyllabus() {
       .then((r) => {
         setRows(r.rows);
         setDraft(Object.fromEntries(r.rows.map((x) => [x.studentId, x.portion])));
+        setBaseDraft(Object.fromEntries(
+          r.rows.map((x) => [x.studentId, formatParaList(x.baselineParas)]),
+        ));
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
@@ -118,6 +123,27 @@ export function ExamSyllabus() {
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
       setDraft((d) => ({ ...d, [row.studentId]: row.portion }));
+    }
+  };
+
+  // Saving a baseline re-proposes that child's line, so the whole row is
+  // reloaded rather than patched locally — the proposal is the server's
+  // to compute, not ours to guess.
+  const saveBaseline = async (row: ExamSyllabusRow) => {
+    const text = baseDraft[row.studentId] ?? "";
+    if (text.trim() === formatParaList(row.baselineParas)) return;
+    const paras = parseParaList(text);
+    if (paras === null) {
+      toast.error("Use para numbers like \"1-10, 30\".");
+      setBaseDraft((d) => ({ ...d, [row.studentId]: formatParaList(row.baselineParas) }));
+      return;
+    }
+    try {
+      await setHifzBaseline(orgId, row.studentId, paras.length ? paras : null);
+      load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+      setBaseDraft((d) => ({ ...d, [row.studentId]: formatParaList(row.baselineParas) }));
     }
   };
 
@@ -240,6 +266,12 @@ export function ExamSyllabus() {
               <tr>
                 <th className="px-3 py-2 text-start font-semibold">Student</th>
                 <th className="px-3 py-2 text-start font-semibold">Track</th>
+                <th className="px-3 py-2 text-start font-semibold">
+                  Before the system
+                  <span className="block font-normal normal-case tracking-normal text-[10px] text-slate-400">
+                    paras already memorized
+                  </span>
+                </th>
                 <th className="px-3 py-2 text-start font-semibold">Syllabus — مقدارِ خواندگی</th>
               </tr>
             </thead>
@@ -265,6 +297,17 @@ export function ExamSyllabus() {
                       {r.trackInferred && (
                         <div className="mt-0.5 text-[10px] text-amber-600">assumed</div>
                       )}
+                    </td>
+                    <td className="px-3 py-2">
+                      <Input
+                        value={baseDraft[r.studentId] ?? ""}
+                        disabled={!!r.publishedAt}
+                        placeholder="e.g. 1-10, 30"
+                        dir="ltr"
+                        onChange={(e) => setBaseDraft((d) => ({ ...d, [r.studentId]: e.target.value }))}
+                        onBlur={() => void saveBaseline(r)}
+                        className="h-9 w-32 text-sm"
+                      />
                     </td>
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-2">
