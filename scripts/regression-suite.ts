@@ -5248,6 +5248,65 @@ await check("97. counter flow: one amount settles owed months oldest-first", asy
   }
 });
 
+await check("98. parent self-claim: phone + child GR sets a PIN once - never twice", async () => {
+  // One WhatsApp-group announcement instead of hundreds of slips
+  // (Muneeb, 17 Sep): a parent proves the family with their registered
+  // phone + any child's GR and chooses a PIN on the spot. The invariant
+  // that matters: this works ONLY while the account is unclaimed - a
+  // chosen PIN can never be taken over through a GR number.
+  const claim = async (body: Record<string, unknown>) =>
+    await fetch(`${FUNC}/school/auth/pin-claim`, {
+      method: "POST",
+      headers: { apikey: ANON, "Content-Type": "application/json" },
+      body: JSON.stringify({ orgIdentifier: "iqra-ifs", ...body }),
+    });
+  try {
+    // Reset the QA parent to the unclaimed state (parents' pin/set always
+    // re-arms must_change) and clear any lockout left by a prior run.
+    const r0 = await api(office.token, `/school/orgs/${ORG}/pin/set`, {
+      method: "POST",
+      body: JSON.stringify({ subjectType: "parent", subjectId: pParent.id, pin: "3456" }),
+    });
+    assert(r0.ok, `pin/set reset ${r0.status}`);
+    await admin.from("kv_store_f116e23f").delete()
+      .eq("key", `school:${ORG}:claim-fails:0000000901`);
+
+    // Wrong GR: generic 401, no hint whether the phone matched.
+    const bad = await claim({ phone: PARENT_PHONE, grNumber: "QA-NO-SUCH-GR", newPin: "7890" });
+    assert(bad.status === 401, `wrong GR expected 401, got ${bad.status}`);
+
+    // Right phone + child's GR (spacing/case-insensitive, like pin-login):
+    // PIN chosen in the same step, token comes back signed in.
+    const ok = await claim({ phone: "0000 000 901", grNumber: "qa-portal-1", newPin: "7890" });
+    const oj = await ok.json();
+    assert(ok.status === 200 && oj.token && oj.subjectType === "parent" && oj.mustChange === false,
+      `claim failed ${ok.status}: ${JSON.stringify(oj).slice(0, 150)}`);
+    const me = await portalGet(oj.token, "/pin-me");
+    assert(me.status === 200, `claimed token must work on /pin-me, got ${me.status}`);
+
+    // The chosen PIN signs in normally...
+    const login = await pinLogin(PARENT_PHONE, "7890");
+    const lj = await login.json();
+    assert(login.status === 200 && lj.mustChange === false, `login with claimed PIN ${login.status}`);
+
+    // ...and the claim path is DEAD for this account from now on.
+    const again = await claim({ phone: PARENT_PHONE, grNumber: "QA-PORTAL-1", newPin: "1111" });
+    const gj = await again.json();
+    assert(again.status === 409 && gj.code === "ALREADY_CLAIMED",
+      `re-claim must 409 ALREADY_CLAIMED, got ${again.status}: ${JSON.stringify(gj).slice(0, 120)}`);
+    const old = await pinLogin(PARENT_PHONE, "1111");
+    assert(old.status === 401, "the rejected claim PIN must not work");
+  } finally {
+    // Back to the fixture state later checks (and re-runs) expect.
+    await api(office.token, `/school/orgs/${ORG}/pin/set`, {
+      method: "POST",
+      body: JSON.stringify({ subjectType: "parent", subjectId: pParent.id, pin: "3456" }),
+    });
+    await admin.from("kv_store_f116e23f").delete()
+      .eq("key", `school:${ORG}:claim-fails:0000000901`);
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

@@ -44,6 +44,17 @@ import * as kv from "./kv_store.tsx";
 // paper; the record dies the moment the holder chooses their own PIN.
 const tempPinKey = (orgId: string, subjectType: string, subjectId: string) =>
   `school:${orgId}:temp-pin:${subjectType}:${subjectId}`;
+// Self-claim (phone + child GR) has no credential row to hang a lockout
+// on, so failed attempts are counted per (org, phone) in kv instead.
+const claimFailKey = (orgId: string, phoneKey: string) =>
+  `school:${orgId}:claim-fails:${phoneKey}`;
+// Pakistani numbers arrive as 0300-1234567, +92 300 1234567, 923001234567…
+// Digits-only, keep the last 10 — the same subscriber always maps to the
+// same key regardless of how the office (or the parent) typed it.
+const phoneKeyOf = (raw: unknown): string => {
+  const d = String(raw ?? "").replace(/\D+/g, "");
+  return d.length >= 10 ? d.slice(-10) : d;
+};
 // PR K: migrate student-write routes from requireAdminOrPrincipal to
 // userCanInOrg("manage_students") so office_staff can manage students.
 import { userCanInOrg, hasAnyRoleInOrg, isPrincipalOf, isAdminOf, hasAdminOrPrincipal as requireAdminOrPrincipal, teacherSectionIds } from "./schoolAuth.ts";
@@ -3546,6 +3557,150 @@ export function installPhaseA(school: Hono) {
       subjectId: cred.subject_id,
       orgId: org.id,
       mustChange: cred.must_change,
+      token,
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Parent self-claim: phone + child's GR number → choose a PIN, signed in.
+  //
+  // Handing PIN slips to hundreds of families one by one is not a rollout
+  // plan (Muneeb, 17 Sep). The school posts ONE announcement in the parents'
+  // group; each parent proves who they are with two things the school
+  // already gave them — their own registered phone number and their child's
+  // GR number — and sets their own PIN on the spot.
+  //
+  // The rules that keep this safe:
+  //   * Works ONLY while the account is unclaimed (no credential, or a
+  //     temporary must_change=true one). The moment a parent has chosen
+  //     their own PIN this path answers 409 forever — a GR number can
+  //     never take over a claimed account.
+  //   * Wrong phone/GR pairs are indistinguishable (generic 401), and
+  //     failures are counted per (org, phone) in kv: 5 misses locks the
+  //     claim path for that phone for 15 minutes, same as pin-login.
+  //   * ANY of the parent's children's GR numbers works — one father,
+  //     one account, however many kids (same rule as the slips).
+  //
+  // Mounted NO-AUTH via PUBLIC_SCHOOL_PATHS in school.tsx, like pin-login.
+  // -------------------------------------------------------------------------
+  school.post("/auth/pin-claim", async (c) => {
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    const { orgIdentifier, phone, grNumber, newPin } = body || {};
+    if (!orgIdentifier || !phone || !grNumber) {
+      return c.json({ error: "orgIdentifier, phone, grNumber required" }, 400);
+    }
+    if (!isFourDigitPin(newPin)) return c.json({ error: "newPin must be 4 digits" }, 400);
+
+    const { data: org } = await serviceRoleClient
+      .from("organizations").select("id").eq("slug", orgIdentifier).maybeSingle();
+    if (!org) return c.json({ error: "organization not found" }, 404);
+
+    const phoneKey = phoneKeyOf(phone);
+    if (phoneKey.length < 7) return c.json({ error: "invalid credentials" }, 401);
+    const failKey = claimFailKey(org.id, phoneKey);
+    const fails = await kv.get(failKey);
+    if (fails?.lockedUntil && new Date(fails.lockedUntil).getTime() > Date.now()) {
+      return c.json({ error: "too many attempts, try again later", lockedUntil: fails.lockedUntil }, 423);
+    }
+    const recordFail = async () => {
+      const count = (fails?.count ?? 0) + 1;
+      if (count >= 5) {
+        await kv.set(failKey, { count: 0, lockedUntil: new Date(Date.now() + 15 * 60 * 1000).toISOString() });
+      } else {
+        await kv.set(failKey, { count });
+      }
+      return c.json({ error: "invalid credentials" }, 401);
+    };
+
+    // The GR proves the family. Exact match first, then the same
+    // normalised (whitespace/case) fallback pin-login uses.
+    const grNorm = String(grNumber).replace(/\s+/g, "").toLowerCase();
+    let { data: student } = await serviceRoleClient
+      .from("student").select("id, full_name, gr_number, status")
+      .eq("org_id", org.id).eq("gr_number", String(grNumber).trim()).maybeSingle();
+    if (!student) {
+      const { data: all } = await serviceRoleClient
+        .from("student").select("id, full_name, gr_number, status")
+        .eq("org_id", org.id).eq("status", "active");
+      student = (all ?? []).find(
+        (s: any) => String(s.gr_number ?? "").replace(/\s+/g, "").toLowerCase() === grNorm,
+      ) ?? null;
+    }
+    if (!student || student.status !== "active") return await recordFail();
+
+    // The phone picks WHICH linked parent is claiming. Aliased records
+    // resolve to their canonical root — credentials always live on the
+    // root (same rule as the slips).
+    const { data: links } = await serviceRoleClient
+      .from("student_parent").select("parent_id").eq("student_id", student.id);
+    const parentIds = [...new Set(((links ?? []) as any[]).map((l) => l.parent_id))];
+    if (!parentIds.length) return await recordFail();
+    const { data: parents } = await serviceRoleClient
+      .from("parent").select("id, full_name, phone, canonical_id").in("id", parentIds);
+    const pById = new Map(((parents ?? []) as any[]).map((pr) => [pr.id, pr]));
+    const missingRoots = [...new Set(
+      ((parents ?? []) as any[]).map((pr) => pr.canonical_id).filter((id) => id && !pById.has(id)),
+    )];
+    if (missingRoots.length) {
+      const { data: more } = await serviceRoleClient
+        .from("parent").select("id, full_name, phone, canonical_id").in("id", missingRoots);
+      for (const pr of ((more ?? []) as any[])) pById.set(pr.id, pr);
+    }
+    let matched: any = null;
+    for (const pr of pById.values()) {
+      if (pr.phone && phoneKeyOf(pr.phone) === phoneKey) { matched = pr; break; }
+    }
+    if (!matched) return await recordFail();
+    let root = matched;
+    while (root.canonical_id && pById.get(root.canonical_id)) root = pById.get(root.canonical_id);
+
+    const { data: cred } = await serviceRoleClient
+      .from("pin_credential").select("id, must_change")
+      .eq("org_id", org.id).eq("subject_type", "parent").eq("subject_id", root.id)
+      .maybeSingle();
+    if (cred && cred.must_change === false) {
+      return c.json({
+        error: "a PIN is already set for this account",
+        code: "ALREADY_CLAIMED",
+      }, 409);
+    }
+
+    const pin_hash = await hashPin(newPin);
+    const { error } = await serviceRoleClient
+      .from("pin_credential")
+      .upsert(
+        {
+          org_id: org.id,
+          subject_type: "parent",
+          subject_id: root.id,
+          login_identifier: root.phone ?? matched.phone,
+          pin_hash,
+          must_change: false,
+          failed_attempts: 0,
+          locked_until: null,
+          last_login_at: new Date().toISOString(),
+        },
+        { onConflict: "org_id,subject_type,subject_id" },
+      );
+    if (error) return c.json({ error: error.message }, 500);
+    // The holder chose their own PIN — printable temp record and the
+    // claim fail counter both die now.
+    await kv.del(tempPinKey(org.id, "parent", root.id));
+    await kv.del(failKey);
+
+    const exp = Math.floor(Date.now() / 1000) + PIN_TOKEN_TTL_SECONDS;
+    const token = await makePinToken({
+      subjectType: "parent",
+      subjectId: root.id,
+      orgId: org.id,
+      exp,
+    });
+    return c.json({
+      subjectType: "parent",
+      subjectId: root.id,
+      orgId: org.id,
+      mustChange: false,
       token,
     });
   });

@@ -5,8 +5,10 @@ import {
   clearPinSession,
   getPinToken,
   getPortalMe,
+  pinClaim,
   pinLogin,
   setPinToken,
+  type PinClaimBody,
   type PinLoginBody,
   type PortalMe,
 } from "../../utils/schoolPortalApi";
@@ -15,6 +17,7 @@ interface PinAuthContextValue {
   subject: PortalMe | null;
   loading: boolean;
   login: (body: PinLoginBody) => Promise<PortalMe>;
+  claim: (body: PinClaimBody) => Promise<PortalMe>;
   logout: () => void;
   refresh: () => Promise<void>;
 }
@@ -64,13 +67,31 @@ export function PinAuthProvider({ children }: { children: ReactNode }) {
     return me;
   }, []);
 
+  // First-time claim (phone + child GR + chosen PIN) — same post-login
+  // bookkeeping as login(); the server mints an identical session token.
+  const claim = useCallback(async (body: PinClaimBody): Promise<PortalMe> => {
+    const res = await pinClaim(body);
+    try {
+      window.localStorage.setItem("fgs_portal_slug", String(body.orgIdentifier ?? ""));
+    } catch { /* storage unavailable — non-fatal */ }
+    setPinToken(res.token, {
+      subjectType: res.subjectType,
+      subjectId: res.subjectId,
+      orgId: res.orgId,
+    });
+    const me = await getPortalMe();
+    setSubject(me);
+    setLoading(false);
+    return me;
+  }, []);
+
   const logout = useCallback(() => {
     clearPinSession();
     setSubject(null);
   }, []);
 
   return (
-    <PinAuthContext.Provider value={{ subject, loading, login, logout, refresh }}>
+    <PinAuthContext.Provider value={{ subject, loading, login, claim, logout, refresh }}>
       {children}
     </PinAuthContext.Provider>
   );
