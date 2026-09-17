@@ -19,7 +19,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate, useParams } from "react-router";
-import { LogOut, ChevronDown, Home, BookOpen, BookMarked, Calendar, MoreHorizontal } from "lucide-react";
+import { LogOut, ChevronDown, Home, BookOpen, BookMarked, Calendar, MoreHorizontal, Bell, Wallet, MessageSquare } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { usePinAuth } from "../contexts/PinAuthContext";
 import {
@@ -27,6 +27,9 @@ import {
   listMyAnnouncements,
   getMyStudentFees,
   getMyStudentBehavior,
+  getMyNotifications,
+  markMyNotificationsSeen,
+  type PortalNotification,
 } from "../../utils/schoolPortalApi";
 import {
   DropdownMenu,
@@ -150,6 +153,22 @@ export function PortalLayout() {
       .catch(() => setBehaviorWeek(0));
   }, [activeStudentId, isParent]);
 
+  // ── Parent bell: fees due + school replies, derived server-side. ─────
+  const [notifItems, setNotifItems] = useState<PortalNotification[]>([]);
+  const [notifUnseen, setNotifUnseen] = useState(0);
+  useEffect(() => {
+    if (!isParent) return;
+    getMyNotifications()
+      .then((r) => { setNotifItems(r.items); setNotifUnseen(r.unseen); })
+      .catch(() => { /* bell is best-effort */ });
+  }, [isParent, location.pathname]);
+  const openBell = (open: boolean) => {
+    if (open && notifUnseen > 0) {
+      setNotifUnseen(0);
+      markMyNotificationsSeen().catch(() => {});
+    }
+  };
+
   const handleLogout = () => {
     let slug = subject?.orgSlug;
     if (!slug) {
@@ -270,6 +289,61 @@ export function PortalLayout() {
               </span>
             ) : null}
             <span className="hidden md:block text-xs text-slate-500">{subjectName}</span>
+            {isParent && (
+              <DropdownMenu onOpenChange={openBell}>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={t("portal.bellTitle")}
+                    className="relative inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:text-slate-900"
+                  >
+                    <Bell className="h-4 w-4" />
+                    {notifUnseen > 0 && (
+                      <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">
+                        {notifUnseen}
+                      </span>
+                    )}
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-72">
+                  <div className="px-2 py-1.5 text-[11px] font-extrabold uppercase tracking-wide text-slate-400">
+                    {t("portal.bellTitle")}
+                  </div>
+                  {notifItems.length === 0 ? (
+                    <div className="px-2 pb-2 text-sm text-slate-500">{t("portal.bellEmpty")}</div>
+                  ) : (
+                    notifItems.map((n) => (
+                      <DropdownMenuItem
+                        key={n.id}
+                        className="flex items-start gap-2"
+                        onClick={() =>
+                          navigate(
+                            n.kind === "fee"
+                              ? `/school-portal/students/${n.studentId}/fees`
+                              : `/school-portal/contact-school?thread=${n.threadId}`,
+                          )
+                        }
+                      >
+                        {n.kind === "fee" ? (
+                          <Wallet className="mt-0.5 h-3.5 w-3.5 flex-none text-rose-500" />
+                        ) : (
+                          <MessageSquare className="mt-0.5 h-3.5 w-3.5 flex-none text-indigo-500" />
+                        )}
+                        <span className="min-w-0">
+                          <span className="block text-xs font-bold text-slate-800">
+                            {n.kind === "fee" ? t("portal.bellFeeDue") : t("portal.bellReply")}
+                            {n.title ? ` — ${n.title}` : ""}
+                          </span>
+                          {n.body && (
+                            <span className="block truncate text-[11px] text-slate-500">{n.body}</span>
+                          )}
+                        </span>
+                      </DropdownMenuItem>
+                    ))
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
             <LanguageDropdown />
             <button
               type="button"
