@@ -21,14 +21,22 @@
   });
 
   // A school's own domain IS the school (18 Sep): someone handed the bare
-  // "iqraifs.com" must land on their school's front door, not on the
-  // platform app. The Cloudflare worker redirects this too, but only when
-  // it actually runs — Cloudflare serves "/" straight from static assets
-  // when index.html matches, which would skip the worker entirely. This
-  // is the belt to that braces, and it costs one lookup on the bare root
-  // ONLY: every other URL renders immediately, untouched.
+  // "iqraifs.com" must see their school's front door. We resolve the host
+  // to a slug and hand it to the router, which renders that school's site
+  // AT "/" — so the address bar keeps saying iqraifs.com instead of
+  // bouncing to /iqra-ifs. Costs one lookup on the bare root ONLY; every
+  // other URL renders immediately, untouched.
   async function resolveSchoolDomain(): Promise<void> {
     if (window.location.pathname !== "/") return;
+    // Dev affordance: localhost owns no school, so ?org= lets the root
+    // be exercised locally. Stripped from production builds.
+    if (import.meta.env.DEV) {
+      const forced = new URLSearchParams(window.location.search).get("org");
+      if (forced && /^[a-z0-9-]{2,60}$/.test(forced)) {
+        (window as unknown as { __SCHOOL_SLUG__?: string }).__SCHOOL_SLUG__ = forced;
+        return;
+      }
+    }
     const controller = new AbortController();
     // Never let a slow or unreachable lookup hold the app hostage.
     const timer = setTimeout(() => controller.abort(), 2000);
@@ -45,16 +53,10 @@
       if (!res.ok) return; // 404 = a platform domain; render the app.
       const org = await res.json();
       if (org && typeof org.slug === "string" && /^[a-z0-9-]{2,60}$/.test(org.slug)) {
-        // A real navigation, NOT history.replaceState: the router is
-        // built when routes.tsx is imported — before this runs — so it
-        // has already captured "/" and would render the app root, where
-        // ProtectedRoute bounces a logged-out parent to /welcome. Found
-        // the hard way. In production the Cloudflare worker's 302
-        // usually fires first, so this second load is the rare path.
-        window.location.replace(`/${org.slug}${window.location.search}`);
-        // Stop here: the page is being replaced, rendering now would
-        // flash the platform landing page at the parent.
-        await new Promise(() => {});
+        // Stash it for the router rather than navigating: the address
+        // bar stays on the school's own domain, with no second page
+        // load. Set BEFORE createRoot so the first render already knows.
+        (window as unknown as { __SCHOOL_SLUG__?: string }).__SCHOOL_SLUG__ = org.slug;
       }
     } catch {
       // Offline, aborted, or no such domain — fall through to the app.

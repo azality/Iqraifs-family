@@ -50,8 +50,11 @@ const DEFAULTS = {
   ],
 };
 
-export function SchoolPublicSite() {
-  const { orgSlug = "" } = useParams<{ orgSlug: string }>();
+/** `slug` overrides the URL param — on a school's OWN domain this
+ *  renders at "/", where there is no :orgSlug to read. */
+export function SchoolPublicSite({ slug }: { slug?: string } = {}) {
+  const { orgSlug: paramSlug = "" } = useParams<{ orgSlug: string }>();
+  const orgSlug = slug ?? paramSlug;
   const [site, setSite] = useState<PublicSiteResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [statProgress, setStatProgress] = useState(0);

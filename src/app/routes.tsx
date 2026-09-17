@@ -352,6 +352,33 @@ function RequireFamily({ children }: { children: JSX.Element }) {
   return children;
 }
 
+/** What "/" renders depends on WHOSE domain this is.
+ *
+ *  On a school's own domain (iqraifs.com) the root IS that school's
+ *  front door, rendered in place so the address bar keeps saying
+ *  iqraifs.com — the slug is resolved from the hostname during
+ *  bootstrap (src/main.tsx) and stashed before the first render.
+ *
+ *  Only the ROOT changes: every deeper path still renders the normal
+ *  protected app tree, so /school/orgs/... and the family routes are
+ *  untouched. Without that narrowing this gate would swallow the whole
+ *  "/" subtree, which is every staff page.
+ */
+function RootHostGate() {
+  const { pathname } = useLocation();
+  const slug = (window as unknown as { __SCHOOL_SLUG__?: string }).__SCHOOL_SLUG__;
+  if (slug && pathname === "/") {
+    return (
+      <PinAuthProvider>
+        <SchoolSlugEntry slug={slug} />
+      </PinAuthProvider>
+    );
+  }
+  return (
+    <ProtectedRoute><RequireFamily><RootLayout /></RequireFamily></ProtectedRoute>
+  );
+}
+
 export const router = createBrowserRouter([
   // Password recovery landing (staff first-password + forgot-password).
   // Outside every provider: the emailed link must work with no session
@@ -488,7 +515,7 @@ export const router = createBrowserRouter([
       // Protected routes - require auth AND family
       {
         path: "/",
-        element: <ProtectedRoute><RequireFamily><RootLayout /></RequireFamily></ProtectedRoute>,
+        element: <RootHostGate />,
         children: [
           { index: true, element: <DashboardRouter /> },
           { path: "log", element: <RequireParentRole><LogBehavior /></RequireParentRole> },

@@ -171,7 +171,9 @@ export default {
         // so it must not throw a teacher off their own school's site.
         const owner = await hostSchool(url.hostname, ctx);
         const to = new URL(url);
-        to.pathname = owner ? `/${owner.slug}` : "/login";
+        // "/" on a school's domain already IS their site, and keeps the
+        // address clean; the platform host has no site, so sign-in.
+        to.pathname = owner ? "/" : "/login";
         to.search = "";
         return Response.redirect(to.toString(), 302);
       }
@@ -187,23 +189,12 @@ export default {
 
     let slug = slugFrom(url);
 
-    // On a school's own domain the ROOT is that school's front door.
-    // Only the bare root redirects: /login, /school-login and every app
-    // route keep working untouched on this domain, so links already in
-    // parents' hands (the self-claim announcement) are unaffected.
-    // 302, never 301 — a permanent redirect would be cached in every
-    // parent's browser and is effectively impossible to take back.
-    if (!slug && url.pathname === "/") {
-      const owner = await hostSchool(url.hostname, ctx);
-      if (owner) {
-        const to = new URL(url);
-        to.pathname = `/${owner.slug}`;
-        return Response.redirect(to.toString(), 302);
-      }
-    }
-
-    // No slug in the URL but the domain names a school — still give the
-    // preview that school's name rather than "ILM Network".
+    // No slug in the URL but the domain names a school — resolve it from
+    // the host so the PREVIEW carries that school's name rather than
+    // "ILM Network". The root is no longer redirected: the app renders
+    // the school's site in place at "/", so the address bar keeps saying
+    // iqraifs.com. Crawlers still get the right tags from here, which is
+    // what the redirect was really buying us.
     if (!slug) {
       const owner = await hostSchool(url.hostname, ctx);
       if (owner) slug = owner.slug;
