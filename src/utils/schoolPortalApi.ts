@@ -150,6 +150,36 @@ export async function pinLogin(body: PinLoginBody): Promise<PinLoginResponse> {
   return res.json();
 }
 
+// Parent self-claim: registered phone + any one child's GR number proves
+// the family; the parent chooses their PIN in the same step and lands
+// signed in. Server-side this only works while the account is unclaimed
+// (no PIN chosen yet) — a claimed account answers 409 ALREADY_CLAIMED.
+export interface PinClaimBody {
+  orgIdentifier: string;
+  phone: string;
+  grNumber: string;
+  newPin: string;
+}
+
+export async function pinClaim(body: PinClaimBody): Promise<PinLoginResponse> {
+  const res = await fetch(`${API_BASE}/school/auth/pin-claim`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: publicAnonKey,
+      Authorization: `Bearer ${publicAnonKey}`,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+    const err = new Error(errBody.error || `Claim failed: ${res.status}`);
+    (err as Error & { code?: string }).code = errBody.code;
+    throw err;
+  }
+  return res.json();
+}
+
 export function getPinSubject(): PinSubjectInfo | null {
   try {
     const raw = localStorage.getItem(PIN_SUBJECT_KEY);

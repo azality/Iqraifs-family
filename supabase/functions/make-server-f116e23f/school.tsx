@@ -63,6 +63,9 @@ const school = new Hono();
 // token the caller then uses for follow-up requests).
 const PUBLIC_SCHOOL_PATHS = new Set<string>([
   "/auth/pin-login",
+  // Parent self-claim: phone + child GR proves the family, sets a PIN.
+  // Has its own kv-backed lockout; see schoolPhaseA.tsx.
+  "/auth/pin-claim",
   // pin-change carries its own X-Pin-Token; the handler verifies it.
   "/auth/pin-change",
   // Public org-branding lookup so PortalLogin can render the school's

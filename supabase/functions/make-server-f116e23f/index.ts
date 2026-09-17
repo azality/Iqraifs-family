@@ -1,5 +1,5 @@
 // FGS Backend Server v1.0.3 - Accept challenge route flattened (no :childId in URL)
-const SERVER_VERSION = "v1.1.79-receipt-html-content-type";
+const SERVER_VERSION = "v1.1.80-parent-self-claim";
 
 // v14: Safe family-key resolver. Family records are stored under keys like
 // "family:1745234567890" - the "family:" prefix is baked into the ID at

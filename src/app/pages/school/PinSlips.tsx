@@ -14,7 +14,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
-import { ArrowLeft, KeyRound, Printer } from "lucide-react";
+import { ArrowLeft, KeyRound, MessageCircle, Printer } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Label } from "../../components/ui/label";
 import { Card, CardContent } from "../../components/ui/card";
@@ -26,6 +26,18 @@ import {
   type AdminClass, type SchoolMeResponse, type PinSlipsResponse,
 } from "../../../utils/schoolApi";
 import { NoAccessRedirect } from "../../components/school-ui";
+
+// wa.me wants international digits with no + or leading 0. Pakistani
+// numbers arrive as 0300-1234567 / +92 300 1234567 / 923001234567 — all
+// map to 923001234567. A number we can't confidently convert returns
+// null and the slip simply shows no WhatsApp button.
+function waNumber(raw: string): string | null {
+  const d = String(raw ?? "").replace(/\D+/g, "");
+  if (d.startsWith("92") && d.length === 12) return d;
+  if (d.startsWith("0") && d.length === 11) return "92" + d.slice(1);
+  if (d.startsWith("3") && d.length === 10) return "92" + d;
+  return d.length >= 11 ? d : null;
+}
 
 export function PinSlips() {
   const { orgId = "" } = useParams<{ orgId: string }>();
@@ -54,8 +66,28 @@ export function PinSlips() {
       (c.sections ?? []).map((s) => ({ id: s.id, label: `${c.name} — ${s.name}` }))),
     [classes],
   );
-  const orgSlug = (me?.organizations ?? []).find((o) => o.id === orgId)?.slug ?? "";
+  const org = (me?.organizations ?? []).find((o) => o.id === orgId);
+  const orgSlug = org?.slug ?? "";
   const loginUrl = `${window.location.origin}/school-login${orgSlug ? `?org=${encodeURIComponent(orgSlug)}` : ""}`;
+
+  // One-tap WhatsApp per parent slip: opens the school's own WhatsApp
+  // (app or web) with the slip's message pre-filled — the office just
+  // presses send. No API, no cost, ~5 seconds a family.
+  const waMessage = (s: { name: string; identifier: string; pin: string; children?: string[] | null }) => {
+    const lines = [
+      `*${org?.name ?? "School"}* — Parent Portal`,
+      s.children?.length ? `Children: ${s.children.join(", ")}` : "",
+      "",
+      `Open: ${loginUrl}`,
+      "Sign in as: Parent",
+      `Phone: ${s.identifier}`,
+      `Temporary PIN: *${s.pin}*`,
+      "",
+      "You will be asked to choose your own 4-digit PIN after signing in. Do not share it.",
+      "لنک کھولیں، اپنا فون نمبر اور یہ عارضی پن درج کریں، پھر اپنا نیا پن خود منتخب کریں۔",
+    ];
+    return lines.filter((l, i) => l !== "" || lines[i - 1] !== "").join("\n");
+  };
 
   const generate = async () => {
     setArmed(false);
@@ -186,6 +218,16 @@ export function PinSlips() {
                     ? "طلبہ کے لیے: لنک کھولیں، اپنا GR نمبر اور یہ عارضی پن درج کریں، پھر اپنا نیا پن خود منتخب کریں۔"
                     : "والدین کے لیے: لنک کھولیں، اپنا فون نمبر اور یہ عارضی پن درج کریں، پھر اپنا نیا پن خود منتخب کریں۔"}
                 </div>
+                {data.subjectType === "parent" && waNumber(s.identifier) && (
+                  <a
+                    href={`https://wa.me/${waNumber(s.identifier)}?text=${encodeURIComponent(waMessage(s))}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-emerald-600 hover:bg-emerald-700 px-2 py-1 text-[11px] font-medium text-white print:hidden"
+                  >
+                    <MessageCircle className="h-3 w-3" /> Send on WhatsApp
+                  </a>
+                )}
               </div>
             ))}
           </div>
