@@ -4140,6 +4140,62 @@ export interface SectionHifzSummaryRow {
  *  sabaq/sabqi/manzil trio — the school's call, confirmed Sep 2026. */
 export type QuranTrack = "qaida" | "nazra" | "hifz" | "revision";
 
+// ─── Per-student exam syllabus (Hifz مقدارِ خواندگی) ────────────────────
+// Every hifz child is examined on their own memorized portion, so the
+// exam slip carries a different syllabus per child. The server proposes
+// each line from the child's actual sabaq record; the teacher reviews,
+// corrects, and publishes — publishing releases it to the parent portal.
+export interface ExamSyllabusRow {
+  studentId: string;
+  studentName: string;
+  grNumber: string | null;
+  /** Resolved track — explicit choice, else inferred from the section. */
+  track: string | null;
+  trackInferred: boolean;
+  /** How many non-missed hifz entries the proposal was derived from. */
+  entriesLogged: number;
+  /** What the system derived; kept alongside so the UI can offer a reset. */
+  proposed: string;
+  portion: string;
+  source: "proposed" | "edited";
+  notes: string | null;
+  publishedAt: string | null;
+  saved: boolean;
+}
+
+export const getExamSyllabus = (
+  orgId: string,
+  examId: string,
+  sectionId: string,
+): Promise<{
+  exam: { id: string; name: string; termId: string };
+  section: { id: string; name: string; className: string | null } | null;
+  rows: ExamSyllabusRow[];
+}> =>
+  apiCall(`/school/orgs/${orgId}/exams/${examId}/syllabus?sectionId=${encodeURIComponent(sectionId)}`);
+
+export const saveExamSyllabusLine = (
+  orgId: string,
+  examId: string,
+  studentId: string,
+  portion: string,
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/exams/${examId}/syllabus/${studentId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ portion }),
+  });
+
+export const publishExamSyllabus = (
+  orgId: string,
+  examId: string,
+  sectionId: string,
+  unpublish = false,
+): Promise<{ ok: true; published: number; missing?: Array<{ studentId: string; name: string }>; unpublished?: boolean }> =>
+  apiCall(`/school/orgs/${orgId}/exams/${examId}/syllabus/publish`, {
+    method: "POST",
+    body: JSON.stringify({ sectionId, unpublish }),
+  });
+
 export const getSectionHifzSummary = (
   orgId: string,
   sectionId: string,

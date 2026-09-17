@@ -276,6 +276,23 @@ export function StudentHifz() {
         }
       />
 
+      {/* The child's own exam portion, once the school publishes it.
+          This is the line they used to hand-write into every diary. */}
+      {data.examSyllabus && (
+        <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4">
+          <div className="text-[10.5px] font-extrabold uppercase tracking-wide text-indigo-700">
+            {t("portal.hifz.examPortion")}
+            {data.examSyllabus.examName ? ` · ${data.examSyllabus.examName}` : ""}
+          </div>
+          <div dir="auto" className="mt-1 text-base font-bold text-indigo-900">
+            {data.examSyllabus.portion}
+          </div>
+          <div className="mt-0.5 text-[11.5px] text-indigo-700">
+            {t("portal.hifz.examPortionHint")}
+          </div>
+        </div>
+      )}
+
       {/* 10g: "Tonight at home" LEADS — the one actionable thing. */}
       {data.today?.parentAction && (
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">

@@ -1260,6 +1260,34 @@ export function installPortal(school: Hono): void {
     const { data, error } = await q;
     if (error) return c.json({ error: error.message }, 500);
 
+    // Published exam portion for this child, if any exam has one.
+    let examSyllabus: {
+      examId: string; examName: string | null; portion: string;
+      publishedAt: string;
+    } | null = null;
+    {
+      const { data: syl } = await serviceRoleClient
+        .from("student_exam_syllabus")
+        .select("exam_id, portion, published_at, exam:exam_id(name)")
+        .eq("student_id", studentId)
+        .not("published_at", "is", null)
+        .order("published_at", { ascending: false })
+        .limit(1);
+      const row = ((syl ?? []) as any[])[0];
+      if (row) {
+        // The exam DATE is not here on purpose: exam_schedule is keyed by
+        // (term, class, subject), not by exam, and the portal already has
+        // its own datesheet surface. This line answers "what is my child
+        // being examined on", nothing more.
+        examSyllabus = {
+          examId: row.exam_id,
+          examName: row.exam?.name ?? null,
+          portion: row.portion,
+          publishedAt: row.published_at,
+        };
+      }
+    }
+
     // For the summary use ALL rows (not the limited slice) so totals stay
     // correct regardless of pagination params.
     const { data: allRows } = await serviceRoleClient
@@ -1400,6 +1428,10 @@ export function installPortal(school: Hono): void {
       today,
       last14Days,
       last30Days,
+      // The child's own exam portion (مقدارِ خواندگی), once the teacher
+      // has published it. This is what replaces the handwritten diary
+      // notice the school sends before every hifz exam (17 Sep).
+      examSyllabus,
     });
   });
 
