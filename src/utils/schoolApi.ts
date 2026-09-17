@@ -4154,6 +4154,9 @@ export interface ExamSyllabusRow {
   trackInferred: boolean;
   /** How many non-missed hifz entries the proposal was derived from. */
   entriesLogged: number;
+  /** Paras the child had memorized BEFORE logging began (office-entered).
+   *  Merged into `proposed` — our records only start 3 Sep 2026. */
+  baselineParas: number[];
   /** What the system derived; kept alongside so the UI can offer a reset. */
   proposed: string;
   portion: string;
@@ -4194,6 +4197,19 @@ export const publishExamSyllabus = (
   apiCall(`/school/orgs/${orgId}/exams/${examId}/syllabus/publish`, {
     method: "POST",
     body: JSON.stringify({ sectionId, unpublish }),
+  });
+
+/** The child's prior-memorization baseline. Lives on the STUDENT, so
+ *  every future exam's proposal starts from it — entered once, never
+ *  retyped. Pass null to clear. */
+export const setHifzBaseline = (
+  orgId: string,
+  studentId: string,
+  paras: number[] | null,
+): Promise<{ ok: true; paras: number[] }> =>
+  apiCall(`/school/orgs/${orgId}/students/${studentId}/hifz-baseline`, {
+    method: "PATCH",
+    body: JSON.stringify({ paras }),
   });
 
 export const getSectionHifzSummary = (

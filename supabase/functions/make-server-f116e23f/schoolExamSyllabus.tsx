@@ -80,11 +80,25 @@ function parasCovered(rows: ProgressRow[]): number[] {
   return [...paras];
 }
 
-/** The proposed syllabus line for one child, derived from their record.
- *  Empty string when we have nothing to go on — the teacher then types
- *  it, and we never invent a portion a child was not actually heard on. */
-export function proposePortion(track: string | null, rows: ProgressRow[]): string {
+/** The proposed syllabus line for one child.
+ *
+ *  Two sources, merged: what the child has been HEARD on since logging
+ *  began (3 Sep 2026), plus whatever the office recorded as already
+ *  memorized BEFORE that. Without the baseline the first exam's
+ *  proposals understate nearly everyone, because we only hold a few
+ *  weeks of hearings.
+ *
+ *  Empty string when we have neither — the teacher types it, and we
+ *  never invent a portion a child was not actually heard on. */
+export function proposePortion(
+  track: string | null,
+  rows: ProgressRow[],
+  baselineParas: number[] = [],
+): string {
+  const baseline = baselineParas.filter((p) => p >= 1 && p <= 30);
   if (track === "qaida") {
+    // Qaida is counted in takhtis, not paras — the baseline (a para set)
+    // has nothing to say about it.
     const lessons = rows
       .filter((r) => !r.missed && r.kind === "qaida" && r.qaida_lesson)
       .map((r) => r.qaida_lesson as number);
@@ -97,11 +111,11 @@ export function proposePortion(track: string | null, rows: ProgressRow[]): strin
     // has their reading counted — fall back to everything rather than
     // proposing a blank line.
     const use = paras.length > 0 ? paras : parasCovered(rows);
-    return formatParaRanges(use);
+    return formatParaRanges([...use, ...baseline]);
   }
   // hifz / revision / unknown: what they have memorized.
   const paras = parasCovered(rows.filter((r) => PORTION_KINDS.has(r.kind)));
-  return formatParaRanges(paras);
+  return formatParaRanges([...paras, ...baseline]);
 }
 
 export function installExamSyllabus(school: Hono): void {
@@ -140,7 +154,7 @@ export function installExamSyllabus(school: Hono): void {
 
     const { data: students } = await serviceRoleClient
       .from("student")
-      .select("id, full_name, gr_number, quran_track")
+      .select("id, full_name, gr_number, quran_track, hifz_baseline_paras")
       .eq("org_id", g.orgId).eq("class_section_id", sectionId).eq("status", "active")
       .order("full_name");
     const list = (students ?? []) as any[];
@@ -170,7 +184,8 @@ export function installExamSyllabus(school: Hono): void {
       const explicit = s.quran_track as string | null;
       const track = explicit ?? (sectionIsHifz ? "hifz" : null);
       const mine = byStudent.get(s.id) ?? [];
-      const proposed = proposePortion(track, mine);
+      const baselineParas = ((s.hifz_baseline_paras ?? []) as number[]).map(Number);
+      const proposed = proposePortion(track, mine, baselineParas);
       const row = savedBy.get(s.id);
       return {
         studentId: s.id,
@@ -179,6 +194,7 @@ export function installExamSyllabus(school: Hono): void {
         track,
         trackInferred: !explicit,
         entriesLogged: mine.filter((r) => !r.missed).length,
+        baselineParas,
         proposed,
         portion: row?.portion ?? proposed,
         source: row?.source ?? "proposed",
@@ -247,6 +263,48 @@ export function installExamSyllabus(school: Hono): void {
   });
 
   // ---------------------------------------------------------------------------
+  // PATCH a child's prior-memorization baseline.
+  //
+  // Lives on the STUDENT, not the exam: it is a fact about the child that
+  // every future exam's proposal starts from, so it is entered once and
+  // never retyped. Same gate as the syllabus line — the section's own
+  // teacher, or admin/principal.
+  // ---------------------------------------------------------------------------
+  school.patch("/orgs/:orgId/students/:studentId/hifz-baseline", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    const studentId = c.req.param("studentId");
+
+    const { data: stu } = await serviceRoleClient
+      .from("student").select("id, org_id, class_section_id").eq("id", studentId).maybeSingle();
+    if (!stu || (stu as any).org_id !== orgId) return c.json({ error: "student not found" }, 404);
+    const gate = await requireTeacherOfSection(userId, orgId, (stu as any).class_section_id);
+    if (!gate.ok) return c.json({ error: gate.error, code: "FORBIDDEN" }, gate.status);
+
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+    const raw = body?.paras;
+    if (raw !== null && !Array.isArray(raw)) {
+      return c.json({ error: "paras must be an array of 1..30, or null" }, 400);
+    }
+    let paras: number[] | null = null;
+    if (Array.isArray(raw)) {
+      const nums = raw.map((n: unknown) => Number(n));
+      if (nums.some((n) => !Number.isInteger(n) || n < 1 || n > 30)) {
+        return c.json({ error: "every para must be a whole number from 1 to 30" }, 400);
+      }
+      paras = [...new Set(nums)].sort((a, b) => a - b);
+      if (paras.length === 0) paras = null;
+    }
+
+    const { error } = await serviceRoleClient
+      .from("student").update({ hifz_baseline_paras: paras }).eq("id", studentId);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ ok: true, paras: paras ?? [] });
+  });
+
+  // ---------------------------------------------------------------------------
   // POST publish / unpublish a whole section
   // ---------------------------------------------------------------------------
   school.post("/orgs/:orgId/exams/:examId/syllabus/publish", async (c) => {
@@ -259,7 +317,7 @@ export function installExamSyllabus(school: Hono): void {
     const unpublish = body?.unpublish === true;
 
     const { data: students } = await serviceRoleClient
-      .from("student").select("id, full_name, quran_track")
+      .from("student").select("id, full_name, quran_track, hifz_baseline_paras")
       .eq("org_id", g.orgId).eq("class_section_id", sectionId).eq("status", "active");
     const list = (students ?? []) as any[];
     const ids = list.map((s) => s.id);
@@ -302,7 +360,11 @@ export function installExamSyllabus(school: Hono): void {
     for (const s of list) {
       const row = savedBy.get(s.id);
       const track = (s.quran_track as string | null) ?? (sectionIsHifz ? "hifz" : null);
-      const portion = (row?.portion ?? proposePortion(track, byStudent.get(s.id) ?? [])).trim();
+      const portion = (row?.portion ?? proposePortion(
+        track,
+        byStudent.get(s.id) ?? [],
+        ((s.hifz_baseline_paras ?? []) as number[]).map(Number),
+      )).trim();
       if (!portion) { missing.push({ studentId: s.id, name: s.full_name }); continue; }
       toWrite.push({
         ...(row?.id ? { id: row.id } : {}),
