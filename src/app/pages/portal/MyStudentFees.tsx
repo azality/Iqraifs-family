@@ -77,7 +77,7 @@ export function MyStudentFees() {
   // Where this child's fees are deposited — the school banks per class
   // group, so the account comes with the fees payload.
   const [bankAccount, setBankAccount] = useState<{
-    bank: string | null; title: string | null; accountNumber: string | null;
+    bank: string | null; title: string | null; accountNumber: string | null; iban?: string | null;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -148,10 +148,9 @@ export function MyStudentFees() {
   const oldestDue = summary.owedFees.find((f) => f.due_date)?.due_date ?? null;
   const anyOverdue = summary.owedFees.some(isOverdue);
 
-  const copyAccount = () => {
-    const acct = bankAccount?.accountNumber;
-    if (!acct) return;
-    navigator.clipboard?.writeText(acct)
+  const copyText = (value: string | null | undefined) => {
+    if (!value) return;
+    navigator.clipboard?.writeText(value)
       .then(() => toast.success(t("portal.fees.copied")))
       .catch(() => { /* clipboard unavailable — the number is on screen */ });
   };
@@ -320,13 +319,30 @@ export function MyStudentFees() {
                 </span>
                 <button
                   type="button"
-                  onClick={copyAccount}
+                  onClick={() => copyText(bankAccount.accountNumber)}
                   className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-white px-1.5 py-0.5 text-[10.5px] font-bold text-indigo-700 hover:bg-indigo-50"
                 >
                   <Copy className="h-3 w-3" /> {t("portal.fees.copy")}
                 </button>
               </div>
             </div>
+            {bankAccount.iban && (
+              <div>
+                <div className="text-[11px] text-slate-500">IBAN</div>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono font-semibold tracking-wide text-slate-900" dir="ltr">
+                    {bankAccount.iban}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => copyText(bankAccount.iban)}
+                    className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-white px-1.5 py-0.5 text-[10.5px] font-bold text-indigo-700 hover:bg-indigo-50"
+                  >
+                    <Copy className="h-3 w-3" /> {t("portal.fees.copy")}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
           <p className="mt-2 text-[12px] text-slate-600">{t("portal.fees.cashNote")}</p>
         </div>

@@ -192,12 +192,12 @@ export async function concessionByStudent(
 export function bankAccountFromSettings(
   settings: any,
   classId: string | null | undefined,
-): { bank: string | null; title: string | null; accountNumber: string | null } | null {
+): { bank: string | null; title: string | null; accountNumber: string | null; iban: string | null } | null {
   if (!classId) return null;
   const accounts = (settings?.fee_bank_accounts ?? []) as any[];
   const acct = accounts.find((a) => Array.isArray(a?.classIds) && a.classIds.includes(classId));
   if (!acct) return null;
-  return { bank: acct.bank ?? null, title: acct.title ?? null, accountNumber: acct.accountNumber ?? null };
+  return { bank: acct.bank ?? null, title: acct.title ?? null, accountNumber: acct.accountNumber ?? null, iban: acct.iban ?? null };
 }
 
 const esc = (s: unknown) =>
@@ -301,6 +301,7 @@ ${balance > 0 && opts.bankAccount?.accountNumber ? `<div class="totals" style="m
   ${opts.bankAccount.bank ? `<div class="row"><span>Bank</span><span>${esc(opts.bankAccount.bank)}</span></div>` : ""}
   ${opts.bankAccount.title ? `<div class="row"><span>Account title</span><span>${esc(opts.bankAccount.title)}</span></div>` : ""}
   <div class="row"><span>Account number</span><span style="font-family:monospace;letter-spacing:.5px;">${esc(opts.bankAccount.accountNumber)}</span></div>
+  ${opts.bankAccount.iban ? `<div class="row"><span>IBAN</span><span style="font-family:monospace;letter-spacing:.5px;">${esc(opts.bankAccount.iban)}</span></div>` : ""}
   <div class="row" style="color:#64748b;font-size:12px;"><span>Please deposit the fee at the bank account above and keep the stamped deposit slip to show the school office.</span><span></span></div>
   <div class="row" style="color:#64748b;font-size:12px;" dir="rtl"><span>فیس اوپر دیے گئے بینک اکاؤنٹ میں جمع کروائیں اور جمع شدہ پرچی اسکول آفس کو دکھائیں۔</span><span></span></div>
 </div>` : ""}
