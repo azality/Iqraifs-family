@@ -5441,6 +5441,104 @@ await check("100. parent bell: fees due + school replies, and seen clears the co
   }
 });
 
+await check("101. hifz exam syllabus: proposed from the child's own record, then published to the parent", async () => {
+  // Every hifz child sits a different portion, so the exam slip needs a
+  // per-child syllabus line - written by hand into 84 diaries until now
+  // (Ambreen, 17 Sep). The server proposes it from logged sabaq; the
+  // teacher corrects; publishing locks it and shows the parent.
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const cleanup: Array<() => Promise<unknown>> = [];
+  try {
+    const { data: term } = await admin.from("academic_term").select("id")
+      .eq("org_id", ORG).eq("is_current", true).is("archived_at", null).maybeSingle();
+    assert(term, "no current term");
+    const { data: exam, error: exErr } = await admin.from("exam").insert({
+      org_id: ORG, term_id: (term as any).id, name: "QA SYLLABUS EXAM",
+      exam_type: "other", weight: 1,
+    }).select("id").single();
+    if (exErr) throw new Error(`exam: ${exErr.message}`);
+    cleanup.push(() => admin.from("student_exam_syllabus").delete().eq("exam_id", exam.id));
+    cleanup.push(() => admin.from("exam").delete().eq("id", exam.id));
+
+    // Seed two sabaq positions that pin the INDO-PAK para boundaries:
+    // 9:94 is para 11 on the school's mushaf (it is para 10 on a Madani
+    // one), and 2:142 opens para 2. If the server's copy of the
+    // boundaries ever drifts from src/utils/hifzTargets.ts, the proposed
+    // portion changes and this check fails.
+    for (const row of [
+      { surah_number: 2, ayah_from: 142, ayah_to: 145 },
+      { surah_number: 9, ayah_from: 94, ayah_to: 96 },
+    ]) {
+      const { error } = await admin.from("hifz_progress").insert({
+        org_id: ORG, student_id: pStu1, kind: "sabaq", quality: "good",
+        notes: "QA SYLLABUS PROBE", ...row,
+      });
+      if (error) throw new Error(`seed: ${error.message}`);
+    }
+    cleanup.push(() => admin.from("hifz_progress").delete()
+      .eq("student_id", pStu1).eq("notes", "QA SYLLABUS PROBE"));
+
+    const url = `/school/orgs/${ORG}/exams/${exam.id}/syllabus`;
+    const r1 = await api(admin2.token, `${url}?sectionId=${sandboxSec.id}`);
+    const j1 = await r1.json();
+    assert(r1.status === 200, `syllabus ${r1.status}: ${JSON.stringify(j1).slice(0, 150)}`);
+    const mine = (j1.rows ?? []).find((x: any) => x.studentId === pStu1);
+    assert(mine, "the QA student must appear on the roster");
+    assert(/\b2\b/.test(mine.proposed) && /\b11\b/.test(mine.proposed),
+      `proposal must name paras 2 and 11 (Indo-Pak boundaries), got "${mine.proposed}"`);
+    assert(mine.source === "proposed" && !mine.saved, "an untouched row is a proposal, not a save");
+
+    // The teacher corrects the line.
+    const edited = "Para 1–12 (QA edited)";
+    const r2 = await api(admin2.token, `${url}/${pStu1}`, {
+      method: "PATCH", body: JSON.stringify({ portion: edited }),
+    });
+    assert(r2.status === 200, `patch ${r2.status}`);
+    const j2 = await (await api(admin2.token, `${url}?sectionId=${sandboxSec.id}`)).json();
+    const after = (j2.rows ?? []).find((x: any) => x.studentId === pStu1);
+    assert(after.portion === edited && after.source === "edited", `edit not kept: ${JSON.stringify(after)}`);
+
+    // Before publishing, the parent must see NOTHING.
+    const pTok = (await (await pinLogin(PARENT_PHONE, "3456")).json()).token;
+    const pre = await (await portalGet(pTok, `/pin-me/students/${pStu1}/hifz`)).json();
+    assert(!pre.examSyllabus, `unpublished syllabus leaked to the parent: ${JSON.stringify(pre.examSyllabus)}`);
+
+    // Publish -> parent sees it, and the line locks.
+    const pub = await api(admin2.token, `${url}/publish`, {
+      method: "POST", body: JSON.stringify({ sectionId: sandboxSec.id }),
+    });
+    const pubJ = await pub.json();
+    assert(pub.status === 200 && pubJ.published >= 1, `publish ${pub.status}: ${JSON.stringify(pubJ).slice(0, 150)}`);
+    const post = await (await portalGet(pTok, `/pin-me/students/${pStu1}/hifz`)).json();
+    assert(post.examSyllabus?.portion === edited,
+      `parent must see the published portion, got ${JSON.stringify(post.examSyllabus)}`);
+
+    const locked = await api(admin2.token, `${url}/${pStu1}`, {
+      method: "PATCH", body: JSON.stringify({ portion: "Para 1-99" }),
+    });
+    assert(locked.status === 409, `published line must refuse edits, got ${locked.status}`);
+
+    // Unpublishing reopens it and takes it back off the portal.
+    const un = await api(admin2.token, `${url}/publish`, {
+      method: "POST", body: JSON.stringify({ sectionId: sandboxSec.id, unpublish: true }),
+    });
+    assert(un.status === 200, `unpublish ${un.status}`);
+    const gone = await (await portalGet(pTok, `/pin-me/students/${pStu1}/hifz`)).json();
+    assert(!gone.examSyllabus, "unpublish must take the portion off the parent's portal");
+    const reopened = await api(admin2.token, `${url}/${pStu1}`, {
+      method: "PATCH", body: JSON.stringify({ portion: "Para 1-13" }),
+    });
+    assert(reopened.status === 200, `unpublished line must accept edits again, got ${reopened.status}`);
+
+    // Office staff run the front desk, not the hifz room - a child's
+    // exam portion is the section teacher's call.
+    const denied = await api(office.token, `${url}?sectionId=${sandboxSec.id}`);
+    assert(denied.status === 403, `office must be refused, got ${denied.status}`);
+  } finally {
+    for (const fn of cleanup.reverse()) await fn();
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

@@ -450,6 +450,8 @@
       "colKind": "Kind",
       "colSurah": "Surah",
       "kindQaida": "Qaida",
+      "examPortion": "Exam syllabus",
+      "examPortionHint": "This is the portion your child will be examined on.",
       "kindNazra": "Nazra",
       "kindNazraRevision": "Nazra revision",
       "missedEntry": "Missed sabaq",

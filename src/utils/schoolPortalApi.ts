@@ -354,6 +354,15 @@ export interface MyStudentHifzResponse {
   /** Most-recent-day-last; always 30 entries. Drives the monthly
    *  calendar view below the weekly strip. */
   last30Days: MyStudentHifzDayCell[];
+  /** This child's own exam portion (مقدارِ خواندگی), once the teacher
+   *  has published it — what the school used to write by hand into the
+   *  diary before every hifz exam. Server >= v1.1.89. */
+  examSyllabus?: {
+    examId: string;
+    examName: string | null;
+    portion: string;
+    publishedAt: string;
+  } | null;
 }
 
 export const getMyStudentHifz = (studentId: string): Promise<MyStudentHifzResponse> =>

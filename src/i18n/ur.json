@@ -450,6 +450,8 @@
       "colKind": "قسم",
       "colSurah": "سورت",
       "kindQaida": "قاعدہ",
+      "examPortion": "مقدارِ خواندگی (امتحان)",
+      "examPortionHint": "اسی حصے سے آپ کے بچے کا امتحان لیا جائے گا۔",
       "kindNazra": "ناظرہ",
       "kindNazraRevision": "ناظرہ دہرائی",
       "missedEntry": "سبق ناغہ",
