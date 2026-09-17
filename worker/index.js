@@ -19,6 +19,27 @@ const PROJECT_ID = "ybrkbrrkcqpzpjnjdyib";
 const ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlicmticnJrY3FwenBqbmpkeWliIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEzNjUzMTcsImV4cCI6MjA4Njk0MTMxN30.RmagHyYi_-Q2wBG8ik1kxNTIYVfCuUcCyJqcDbz2mc8";
 
+// The family product's own home. ILM Network sells the school platform;
+// the family app is a different product for individual families (largely
+// North America) with no connection to any school. It therefore lives on
+// ONE host, and these routes redirect there from ANY other hostname — so
+// school #2 arriving with their own domain needs no extra work.
+const FAMILY_HOST = "family.theilmnetwork.com";
+
+// First path segment of every family-only route (src/app/routes.tsx).
+// "welcome" is handled separately: it is the family landing AND where
+// ProtectedRoute sends anyone logged out, so it is host-aware.
+const FAMILY_SEGMENTS = new Set([
+  "log", "log-behavior", "review", "monthly-review", "adjustments",
+  "attendance", "rewards", "audit", "settings", "link-to-school",
+  "edit-requests", "knowledge-quest", "question-bank", "question-form",
+  "wishlist", "wishlist-debug", "redemption-requests", "challenges",
+  "titles-badges", "sadqa", "prayer-approvals", "games-review",
+  "kid", "kid-login", "kid-login-new",
+]);
+// NOT here on purpose: /login and /signup. School staff authenticate
+// through the same flow as families, so those must work on every host.
+
 // First path segments that are app routes, never school slugs.
 const RESERVED = new Set([
   "school", "school-login", "school-portal", "login", "signup", "welcome",
@@ -141,6 +162,27 @@ export default {
     ) {
       return env.ASSETS.fetch(request);
     }
+    // ── Family product lives on its own host ────────────────────────
+    const seg = url.pathname.split("/").filter(Boolean)[0] ?? "";
+    if (url.hostname !== FAMILY_HOST) {
+      if (seg === "welcome") {
+        // The family landing has no business on a school's domain — but
+        // this is also where ProtectedRoute lands a logged-out visitor,
+        // so it must not throw a teacher off their own school's site.
+        const owner = await hostSchool(url.hostname, ctx);
+        const to = new URL(url);
+        to.pathname = owner ? `/${owner.slug}` : "/login";
+        to.search = "";
+        return Response.redirect(to.toString(), 302);
+      }
+      if (FAMILY_SEGMENTS.has(seg)) {
+        return Response.redirect(
+          `https://${FAMILY_HOST}${url.pathname}${url.search}`,
+          302,
+        );
+      }
+    }
+
     const shell = await env.ASSETS.fetch(new URL("/index.html", url.origin));
 
     let slug = slugFrom(url);
