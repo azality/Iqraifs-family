@@ -242,12 +242,15 @@ function hifzToJson(r: any) {
     qaidaLesson: r.qaida_lesson ?? null,
     quality: r.quality,
     missed: !!r.missed,
-    // Legacy `notes` is preserved for parent display because rows
-    // written before the full-module split lived there. New writes go
-    // to teacher_remarks (teacher-only, NOT returned) and
-    // parent_comments (parent-visible). UI prefers parentComments and
-    // falls back to notes when null.
+    // Privacy contract (check 27): `notes` and missed_target_reason are
+    // INTERNAL (the hifz route strips notes again on top of this);
+    // teacher_remarks is parent-visible — the round mode writes its
+    // Urdu summary sentences there and the school wants the family to
+    // read the same history the teacher sees (parent-parity, 17 Sep).
+    // The `today.teacherNote` block always surfaced it; the per-entry
+    // list now matches.
     notes: r.notes,
+    teacherRemarks: r.teacher_remarks ?? null,
     parentComments: r.parent_comments ?? null,
     parentAction: r.parent_action ?? null,
     tajweedNotes: r.tajweed_notes ?? null,
