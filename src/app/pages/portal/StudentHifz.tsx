@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { HeroCard } from "../../components/school-ui";
 import { formatJuzExtent } from "../../../utils/hifzExtent";
-import { getSurah } from "../../../utils/quranSurahs";
+import { getSurah, surahDisplayName } from "../../../utils/quranSurahs";
 import {
   getMyStudentHifz,
   type MyStudentHifzResponse,
@@ -33,13 +33,13 @@ import {
   type HifzEntry,
 } from "../../../utils/schoolPortalApi";
 
-// Full 114-surah lookup (shared with the staff surfaces) — the partial
-// local list used to render "Surah 24" where the teacher's own history
-// dialog said "An-Nur" (parent-parity pass, 17 Sep).
-const surahLabel = (n: number) => {
-  const s = getSurah(n);
-  return s ? `Surah ${s.nameTransliterated}` : `Surah ${n}`;
-};
+// Full 114-surah lookup (shared with the staff surfaces) — Arabic
+// script names in Urdu mode (سورت النور), transliteration in English
+// ("Surah An-Nur"), same rule the staff hifz surfaces follow.
+const surahLabel = (n: number, t: (k: string) => string, lang?: string) =>
+  getSurah(n)
+    ? `${t("hifzTeach.surah")} ${surahDisplayName(n, lang)}`
+    : `${t("hifzTeach.surah")} ${n}`;
 
 // Labels come from the hifzTeach.q* keys — already translated for the
 // staff surfaces, so the parent sees the same word the teacher picked.
@@ -165,7 +165,7 @@ function TodayCard({ today }: { today: MyStudentHifzToday }) {
                 {t("portal.hifz.todaysSabaq")}
               </div>
               <div className="text-sm text-slate-900 mt-0.5">
-                {surahLabel(today.sabaq.surahNumber)}, {t("portal.hifz.ayahWord")} {today.sabaq.ayahFrom}
+                {surahLabel(today.sabaq.surahNumber, t, i18n.language)}, {t("portal.hifz.ayahWord")} {today.sabaq.ayahFrom}
                 {today.sabaq.ayahTo !== today.sabaq.ayahFrom && ` – ${today.sabaq.ayahTo}`}
               </div>
               <div className="mt-1.5"><QualityBadge quality={today.sabaq.quality} /></div>
@@ -185,7 +185,7 @@ function TodayCard({ today }: { today: MyStudentHifzToday }) {
                   : t("portal.hifz.revisionOlder")}
               </div>
               <div className="text-sm text-slate-900 mt-0.5">
-                {surahLabel(today.revision.surahNumber)}, {t("portal.hifz.ayahWord")} {today.revision.ayahFrom}
+                {surahLabel(today.revision.surahNumber, t, i18n.language)}, {t("portal.hifz.ayahWord")} {today.revision.ayahFrom}
                 {today.revision.ayahTo !== today.revision.ayahFrom && ` – ${today.revision.ayahTo}`}
               </div>
               <div className="mt-1.5"><QualityBadge quality={today.revision.quality} /></div>
@@ -362,7 +362,7 @@ export function StudentHifz() {
                   ? t("portal.hifz.qaidaLesson", { n: e.qaidaLesson ?? "—" })
                   : (e.kind === "manzil" || e.juzExtent) && e.juzNumber
                   ? `${t("hifzTeach.juzN", { n: e.juzNumber })}${formatJuzExtent(e.juzExtent ?? null)}`
-                  : `${surahLabel(e.surahNumber)} · ${t("portal.hifz.ayahWord")} ${e.ayahFrom}${e.ayahTo !== e.ayahFrom ? `–${e.ayahTo}` : ""}`;
+                  : `${surahLabel(e.surahNumber, t, i18n.language)} · ${t("portal.hifz.ayahWord")} ${e.ayahFrom}${e.ayahTo !== e.ayahFrom ? `–${e.ayahTo}` : ""}`;
               const when = new Date(e.recordedAt).toLocaleDateString(
                 i18n.language?.startsWith("ur") ? "ur-PK" : undefined,
                 { weekday: "short", month: "short", day: "numeric" },
