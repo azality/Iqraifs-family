@@ -20,7 +20,7 @@ import {
   listMyAnnouncements,
   type TodaySnapshot,
 } from "../../../utils/schoolPortalApi";
-import { getSurah } from "../../../utils/quranSurahs";
+import { surahDisplayName } from "../../../utils/quranSurahs";
 
 function Dot({ tone }: { tone: "amber" | "emerald" | "rose" | "slate" | "indigo" }) {
   const bg = {
@@ -163,7 +163,7 @@ export function PortalHome() {
               const lh = snap.latestHifz;
               if (lh && Date.now() - Date.parse(lh.recordedAt) < 7 * 86400e3) {
                 const isQaida = lh.kind === "qaida";
-                const surah = isQaida ? "" : getSurah(lh.surahNumber)?.nameTransliterated ?? lh.surahNumber;
+                const surah = isQaida ? "" : surahDisplayName(lh.surahNumber, i18n.language) || lh.surahNumber;
                 const kindWord = ["sabaq", "sabqi", "manzil"].includes(lh.kind)
                   ? t(`hifzTeach.${lh.kind}`)
                   : isQaida

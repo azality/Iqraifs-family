@@ -12,6 +12,7 @@ import { useTranslation } from "react-i18next";
 import { HeroCard, TimeOffModal } from "../../components/school-ui";
 import { UpNextCard } from "../../components/school-ui/UpNextCard";
 import { useExamSchedule } from "./ExamDatesheetCard";
+import { surahDisplayName } from "../../../utils/quranSurahs";
 import {
   getStudentDashboard,
   getStudentUpcoming,
@@ -24,15 +25,10 @@ import {
   type MyStudentDiaryResponse,
 } from "../../../utils/schoolPortalApi";
 
-// Friendly Surah name lookup for the Hifz line. Compact list; falls
-// back to "Surah N" for entries outside it.
-const SURAH_NAMES: Record<number, string> = {
-  1: "Al-Fatihah", 2: "Al-Baqarah", 3: "Al-Imran", 78: "An-Naba",
-  79: "An-Nazi'at", 80: "Abasa", 111: "Al-Masad", 112: "Al-Ikhlas",
-  113: "Al-Falaq", 114: "An-Nas",
-};
-const surahLabel = (n: number) =>
-  SURAH_NAMES[n] ? `Surah ${SURAH_NAMES[n]}` : `Surah ${n}`;
+// Full 114-surah lookup, Arabic script in Urdu mode (سورت النور) — the
+// old partial list fell back to "Surah 79" for most of Juz Amma.
+const surahLabel = (n: number, t: (k: string) => string, lang?: string) =>
+  `${t("hifzTeach.surah")} ${surahDisplayName(n, lang) || n}`;
 
 /** "Today's Diary" card. Spec-shaped:
  *    English: Worksheet completed
@@ -67,14 +63,14 @@ function DiaryCard({ diary }: { diary: MyStudentDiaryResponse }) {
     const { sabaq, revision } = diary.hifz;
     if (sabaq) {
       return t("portal.diary.sabaqLine", {
-        surah: surahLabel(sabaq.surahNumber),
+        surah: surahLabel(sabaq.surahNumber, t, lang),
         range: ayahRange(sabaq.ayahFrom, sabaq.ayahTo),
       });
     }
     if (revision) {
       return t("portal.diary.revisionLine", {
         kind: revision.kind,
-        surah: surahLabel(revision.surahNumber),
+        surah: surahLabel(revision.surahNumber, t, lang),
         range: ayahRange(revision.ayahFrom, revision.ayahTo),
       });
     }
