@@ -5333,6 +5333,46 @@ await check("98. parent self-claim: phone + child GR sets a PIN once - never twi
   }
 });
 
+await check("99. today's diary lists EVERY portion heard - sabaq, sabqi and manzil", async () => {
+  // A hifz child is heard three times a day. The diary used to carry
+  // sabaq + ONE revision, so a parent saw only "Today's sabaq" while
+  // This-Week listed all three - "feels incomplete" (parent, 17 Sep).
+  const karachiToday = new Date(Date.now() + 5 * 3600e3).toISOString().slice(0, 10);
+  const at = `${karachiToday}T10:00:00+05:00`;
+  const rows = [
+    { kind: "sabaq", surah_number: 24, ayah_from: 60, ayah_to: 62, quality: "good" },
+    { kind: "sabqi", surah_number: 23, ayah_from: 1, ayah_to: 1, juz_number: 18, juz_extent: "to_surah:24", quality: "weak" },
+    { kind: "manzil", surah_number: 46, ayah_from: 1, ayah_to: 1, juz_number: 26, juz_extent: "three_quarters", quality: "needs_practice" },
+  ];
+  try {
+    for (const r of rows) {
+      const { error } = await admin.from("hifz_progress").insert({
+        org_id: ORG, student_id: pStu1, notes: "QA DIARY TRIO", recorded_at: at, ...r,
+      });
+      if (error) throw new Error(`seed ${r.kind}: ${error.message}`);
+    }
+    const pTok = (await (await pinLogin(PARENT_PHONE, "3456")).json()).token;
+    const r = await portalGet(pTok, `/pin-me/students/${pStu1}/diary`);
+    const j = await r.json();
+    assert(r.status === 200, `diary ${r.status}: ${JSON.stringify(j).slice(0, 120)}`);
+    const kinds = ((j.hifz?.entries ?? []) as any[]).map((e) => e.kind);
+    for (const k of ["sabaq", "sabqi", "manzil"]) {
+      assert(kinds.includes(k), `diary must list ${k}, got [${kinds.join(", ")}]`);
+    }
+    assert(kinds.indexOf("sabaq") < kinds.indexOf("sabqi") && kinds.indexOf("sabqi") < kinds.indexOf("manzil"),
+      `teaching order sabaq->sabqi->manzil, got [${kinds.join(", ")}]`);
+    // Para-mode entries carry the juz, not just the position-marker surah.
+    const manzil = (j.hifz.entries as any[]).find((e) => e.kind === "manzil");
+    assert(manzil.juzNumber === 26 && manzil.juzExtent === "three_quarters",
+      `manzil must carry juz info: ${JSON.stringify(manzil)}`);
+    // Back-compat pair still present for older frontends.
+    assert(j.hifz.sabaq && j.hifz.revision, "sabaq/revision back-compat fields");
+  } finally {
+    await admin.from("hifz_progress").delete()
+      .eq("student_id", pStu1).eq("notes", "QA DIARY TRIO");
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

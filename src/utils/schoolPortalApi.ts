@@ -377,7 +377,21 @@ export interface DiaryAssignmentRow {
   kind: string;
   dueDate: string;
 }
+export interface DiaryHifzEntry {
+  kind: string;
+  surahNumber: number | null;
+  ayahFrom: number | null;
+  ayahTo: number | null;
+  juzNumber: number | null;
+  juzExtent: string | null;
+  qaidaLesson: number | null;
+  quality: string | null;
+}
 export interface DiaryHifz {
+  /** EVERY portion heard today, one per kind in teaching order
+   *  (sabaq, sabqi, manzil, …). Server >= v1.1.85; older backends
+   *  omit it and the card falls back to sabaq/revision below. */
+  entries?: DiaryHifzEntry[];
   sabaq: {
     surahNumber: number;
     ayahFrom: number;
