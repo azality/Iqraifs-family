@@ -22,8 +22,9 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
-import { DataTable, HeroCard } from "../../components/school-ui";
+import { HeroCard } from "../../components/school-ui";
 import { formatJuzExtent } from "../../../utils/hifzExtent";
+import { getSurah } from "../../../utils/quranSurahs";
 import {
   getMyStudentHifz,
   type MyStudentHifzResponse,
@@ -32,32 +33,13 @@ import {
   type HifzEntry,
 } from "../../../utils/schoolPortalApi";
 
-// Surah-number → English name lookup. Just the first dozen for now —
-// teachers and parents in Karachi mostly track these. Anything past
-// the first 15 falls back to "Surah 19" etc. so the card never breaks.
-// (Full lookup is a follow-up; keeping the change contained to the
-// portal view here so this PR doesn't pull in a 114-entry constant.)
-const SURAH_NAMES: Record<number, string> = {
-  1: "Al-Fatihah",
-  2: "Al-Baqarah",
-  3: "Al-Imran",
-  4: "An-Nisa",
-  5: "Al-Maidah",
-  6: "Al-An'am",
-  7: "Al-A'raf",
-  8: "Al-Anfal",
-  9: "At-Tawbah",
-  10: "Yunus",
-  78: "An-Naba",
-  79: "An-Nazi'at",
-  80: "Abasa",
-  111: "Al-Masad",
-  112: "Al-Ikhlas",
-  113: "Al-Falaq",
-  114: "An-Nas",
+// Full 114-surah lookup (shared with the staff surfaces) — the partial
+// local list used to render "Surah 24" where the teacher's own history
+// dialog said "An-Nur" (parent-parity pass, 17 Sep).
+const surahLabel = (n: number) => {
+  const s = getSurah(n);
+  return s ? `Surah ${s.nameTransliterated}` : `Surah ${n}`;
 };
-const surahLabel = (n: number) =>
-  SURAH_NAMES[n] ? `Surah ${SURAH_NAMES[n]}` : `Surah ${n}`;
 
 // Labels come from the hifzTeach.q* keys — already translated for the
 // staff surfaces, so the parent sees the same word the teacher picked.
@@ -67,6 +49,20 @@ const QUALITY_STYLES: Record<string, { labelKey: string; cls: string; Icon: type
   needs_practice: { labelKey: "hifzTeach.qNeedsPractice", cls: "bg-amber-100 text-amber-800 border-amber-200", Icon: AlertCircle },
   weak:      { labelKey: "hifzTeach.qWeak",      cls: "bg-rose-100 text-rose-800 border-rose-200", Icon: AlertCircle },
   not_learned: { labelKey: "hifzTeach.qNotLearned", cls: "bg-slate-200 text-slate-700 border-slate-300", Icon: AlertCircle },
+};
+
+// Kind chip palette — identical to the staff history feed so the parent
+// sees the same colors the teacher does (parent-parity pass, 17 Sep).
+const KIND_CLASSES: Record<string, string> = {
+  sabaq: "bg-blue-100 text-blue-800 border-blue-200",
+  sabqi: "bg-indigo-100 text-indigo-800 border-indigo-200",
+  manzil: "bg-violet-100 text-violet-800 border-violet-200",
+  memorized: "bg-emerald-100 text-emerald-800 border-emerald-200",
+  revised: "bg-cyan-100 text-cyan-800 border-cyan-200",
+  tested: "bg-amber-100 text-amber-800 border-amber-200",
+  nazra: "bg-teal-100 text-teal-800 border-teal-200",
+  nazra_revision: "bg-teal-50 text-teal-700 border-teal-200",
+  qaida: "bg-orange-100 text-orange-800 border-orange-200",
 };
 
 function QualityBadge({ quality }: { quality: string | null | undefined }) {
@@ -231,9 +227,10 @@ export function StudentHifz() {
   const { studentId = "" } = useParams<{ studentId: string }>();
   const [data, setData] = useState<MyStudentHifzResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Full log expanded? Default collapsed — the Today card answers
-  // ~90% of parent questions. Anyone who wants more drills in.
-  const [logOpen, setLogOpen] = useState(false);
+  // Full log expanded by DEFAULT now — the school asked for the parent
+  // to see the same history the teacher sees, not a hidden table
+  // (Muneeb, 17 Sep). The collapse toggle stays for tidiness.
+  const [logOpen, setLogOpen] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -342,80 +339,66 @@ export function StudentHifz() {
           {logOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
         </button>
         {logOpen && (
-          <DataTable<HifzEntry>
-            rows={data.entries}
-            rowKey={(r) => r.id}
-            emptyMessage={t("portal.hifz.noEntries")}
-            columns={[
-              {
-                key: "recordedAt",
-                header: t("portal.hifz.colDate"),
-                width: "w-28",
-                cell: (r) => new Date(r.recordedAt).toLocaleDateString(),
-              },
-              {
-                key: "kind",
-                header: t("portal.hifz.colKind"),
-                width: "w-28",
-                cell: (r) => (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-indigo-50 text-indigo-700 capitalize">
-                    {r.kind === "qaida" ? t("portal.hifz.kindQaida") : r.kind}
-                  </span>
-                ),
-              },
-              {
-                key: "surahNumber",
-                header: t("portal.hifz.colSurah"),
-                cell: (r) =>
-                  r.kind === "qaida" ? (
-                    <span className="text-sm">{t("portal.hifz.qaidaLesson", { n: r.qaidaLesson ?? "" })}</span>
-                  ) : r.juzExtent && r.juzNumber ? (
-                    <span className="text-sm">
-                      {t("hifzTeach.juzN", { n: r.juzNumber })}
+          <div className="space-y-2 p-3 pt-0">
+            {data.entries.length === 0 && (
+              <p className="py-3 text-center text-sm text-slate-500">{t("portal.hifz.noEntries")}</p>
+            )}
+            {data.entries.map((e) => {
+              const kindLabel =
+                e.kind === "qaida"
+                  ? t("portal.hifz.kindQaida")
+                  : e.kind === "nazra"
+                  ? t("portal.hifz.kindNazra")
+                  : e.kind === "nazra_revision"
+                  ? t("portal.hifz.kindNazraRevision")
+                  : ["sabaq", "sabqi", "manzil"].includes(e.kind)
+                  ? t(`hifzTeach.${e.kind}`)
+                  : e.kind.replace(/_/g, " ");
+              // Portion line — same rules as the teacher's history:
+              // Qaida shows the lesson; para-mode (manzil / sabqi-by-juz)
+              // shows "Juz N — how much"; everything else surah + ayahs.
+              const portion =
+                e.kind === "qaida"
+                  ? t("portal.hifz.qaidaLesson", { n: e.qaidaLesson ?? "—" })
+                  : (e.kind === "manzil" || e.juzExtent) && e.juzNumber
+                  ? `${t("hifzTeach.juzN", { n: e.juzNumber })}${formatJuzExtent(e.juzExtent ?? null)}`
+                  : `${surahLabel(e.surahNumber)} · ${t("portal.hifz.ayahWord")} ${e.ayahFrom}${e.ayahTo !== e.ayahFrom ? `–${e.ayahTo}` : ""}`;
+              const when = new Date(e.recordedAt).toLocaleDateString(
+                i18n.language?.startsWith("ur") ? "ur-PK" : undefined,
+                { weekday: "short", month: "short", day: "numeric" },
+              );
+              // The teacher's own summary sentence (usually Urdu) and the
+              // parent-facing comment both reach the family — same text
+              // the staff history shows.
+              const remark = e.teacherRemarks || (e as HifzEntry & { parentComments?: string }).parentComments || (e as HifzEntry & { tajweedNotes?: string }).tajweedNotes || null;
+              return (
+                <div key={e.id} className="rounded-lg border border-slate-200 p-2.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${KIND_CLASSES[e.kind] ?? "bg-slate-100 text-slate-700 border-slate-200"}`}>
+                      {kindLabel}
                     </span>
-                  ) : (
-                    <span className="text-sm">{surahLabel(r.surahNumber)}</span>
-                  ),
-              },
-              {
-                key: "ayahs",
-                header: t("portal.hifz.colAyahs"),
-                width: "w-24",
-                cell: (r) => (
-                  <span className="tabular-nums text-sm">
-                    {r.kind === "qaida"
-                      ? "—"
-                      : r.juzExtent
-                      ? formatJuzExtent(r.juzExtent, r.juzNumber).replace(/^ — /, "")
-                      : `${r.ayahFrom}–${r.ayahTo}`}
-                  </span>
-                ),
-              },
-              {
-                key: "quality",
-                header: t("portal.hifz.colQuality"),
-                width: "w-36",
-                cell: (r) => <QualityBadge quality={r.quality} />,
-              },
-              {
-                key: "comments",
-                header: t("portal.hifz.colNote"),
-                cell: (r) => {
-                  // Prefer the parent-facing comment field; fall back to
-                  // the legacy notes column so older entries keep value.
-                  const note =
-                    (r as any).parentComments ||
-                    (r as any).tajweedNotes ||
-                    r.notes;
-                  return note ? (
-                    <span className="text-xs text-slate-600">{note}</span>
-                  ) : (
-                    <span className="text-slate-400 text-xs">—</span>
-                  );
-                },
-              },
-            ]}
-          />
+                    <span className="text-sm font-medium text-slate-900">{portion}</span>
+                    {e.missed ? (
+                      <span className="inline-flex items-center rounded-full border border-rose-200 bg-rose-100 px-2 py-0.5 text-[11px] font-medium text-rose-800">
+                        {t("portal.hifz.missedEntry")}
+                      </span>
+                    ) : (
+                      <QualityBadge quality={e.quality} />
+                    )}
+                  </div>
+                  {remark && (
+                    <p dir="auto" className="mt-1 whitespace-pre-wrap text-xs text-slate-600">{remark}</p>
+                  )}
+                  {e.nextTarget && (
+                    <p dir="auto" className="mt-1 text-xs font-medium text-indigo-700">
+                      {t("portal.hifz.nextTarget")} {e.nextTarget}
+                    </p>
+                  )}
+                  <p className="mt-1 text-[11px] text-slate-400">{when}</p>
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
     </div>

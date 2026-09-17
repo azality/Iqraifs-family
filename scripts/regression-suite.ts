@@ -988,6 +988,11 @@ await check("27. portal privacy: internal notes stripped, student concern/fee ga
       assert(!raw.includes("QA INTERNAL NOTE"), "internal hifz note leaked to portal");
       assert(!raw.includes("QA missed reason"), "missedTargetReason leaked to portal");
       assert(raw.includes("QA parent-visible remark"), "teacherRemarks missing from portal");
+      // …and per ENTRY, not only via the today block — the portal's
+      // history feed reads entries[].teacherRemarks (parity, 17 Sep).
+      const rj = JSON.parse(raw);
+      assert((rj.entries ?? []).some((e: any) => e.teacherRemarks === "QA parent-visible remark"),
+        "teacherRemarks missing from the per-entry history");
       const cm = await get(tok, `/school/pin-me/students/${pStu1}/teacher-comments`);
       assert(!(await cm.text()).includes("QA INTERNAL NOTE"), "internal note leaked via comments feed");
     }
