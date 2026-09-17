@@ -887,7 +887,7 @@ export function installAnnounce(school: Hono): void {
     // Org Settings. Null when no account covers the class — the page
     // then shows no deposit card.
     const classId = (stu as any).class_section?.class_id ?? null;
-    let bankAccount: { bank: string | null; title: string | null; accountNumber: string | null } | null = null;
+    let bankAccount: { bank: string | null; title: string | null; accountNumber: string | null; iban: string | null } | null = null;
     if (classId) {
       const { data: orgRow } = await serviceRoleClient
         .from("organizations").select("settings").eq("id", subject.orgId).maybeSingle();
@@ -900,6 +900,10 @@ export function installAnnounce(school: Hono): void {
           bank: acct.bank ?? null,
           title: acct.title ?? null,
           accountNumber: acct.accountNumber ?? null,
+          // Optional: online-banking apps add beneficiaries by IBAN.
+          // The office fills settings.fee_bank_accounts[].iban when the
+          // school shares them; absent = row simply not shown.
+          iban: acct.iban ?? null,
         };
       }
     }

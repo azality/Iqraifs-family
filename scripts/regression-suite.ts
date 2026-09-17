@@ -5141,6 +5141,18 @@ await check("96. arrears carry forward, and regenerating never erases payments",
   const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
   const cleanup: Array<() => Promise<unknown>> = [];
   try {
+    // Self-heal first: a run killed mid-check leaves 2098-09 bills on
+    // EVERY sandbox student - including the demo family, whose portal
+    // then shows a phantom "Sep 2098 · Rs 4,000" (Muneeb, 17 Sep).
+    {
+      const { data: stale } = await admin.from("fee_status")
+        .select("id").eq("org_id", ORG).like("period", "2098-%");
+      const sids = (stale ?? []).map((f: any) => f.id);
+      if (sids.length) {
+        await admin.from("fee_payment").delete().in("fee_status_id", sids);
+        await admin.from("fee_status").delete().in("id", sids);
+      }
+    }
     const mkFee = async (period: string, due: number) => {
       const r = await (await api(admin2.token, `/school/orgs/${ORG}/students/${pStu1}/fees`, {
         method: "POST", body: JSON.stringify({ period, amountDue: due, dueDate: `${period}-05` }),
@@ -5192,18 +5204,18 @@ await check("96. arrears carry forward, and regenerating never erases payments",
     if (mkPlan?.plan?.id) {
       cleanup.push(() => admin.from("class_fee_plan").delete().eq("id", mkPlan.plan.id));
     }
-    // The generator bills every sandbox student for 2098-09 - sweep all
-    // of those rows away afterwards, not just the two we created.
+    // The generator bills every student in the CLASS for 2098-09 - the
+    // old sweep only covered Sandbox section A, so the demo family in
+    // section B kept a phantom "Sep 2098" bill on their portal after
+    // every run (parent-facing! Muneeb saw it, 17 Sep). 2098 is a
+    // QA-only year, so sweep the whole org's 2098 namespace.
     cleanup.push(async () => {
-      const { data: sbStu } = await admin.from("student").select("id").eq("class_section_id", sandboxSec.id);
-      const ids = (sbStu ?? []).map((s: any) => s.id);
-      if (ids.length) {
-        const { data: fRows } = await admin.from("fee_status").select("id").eq("period", "2098-09").in("student_id", ids);
-        const fids = (fRows ?? []).map((f: any) => f.id);
-        if (fids.length) {
-          await admin.from("fee_payment").delete().in("fee_status_id", fids);
-          await admin.from("fee_status").delete().in("id", fids);
-        }
+      const { data: fRows } = await admin.from("fee_status")
+        .select("id").eq("org_id", ORG).like("period", "2098-%");
+      const fids = (fRows ?? []).map((f: any) => f.id);
+      if (fids.length) {
+        await admin.from("fee_payment").delete().in("fee_status_id", fids);
+        await admin.from("fee_status").delete().in("id", fids);
       }
     });
     const gen = await (await api(admin2.token, `/school/orgs/${ORG}/fees/bulk-generate`, {
