@@ -1,15 +1,21 @@
-// MyStudentFees — parent-facing read-only fee history for a single student.
+// MyStudentFees — parent-facing fee statement for a single student.
+//
+// Customer-view redesign (17 Sep, matching the staff fees redesign):
+//   1. ONE balance headline — rose when owing (with month chips + due
+//      date), emerald "all settled" when clear. No four-tile math.
+//   2. How-to-pay bank card promoted right under the balance while
+//      anything is owed, with a copy-account-number button (parents
+//      paste it into their banking app).
+//   3. Month statement CARDS instead of a table — status pill, amount,
+//      the payment ledger lines inside, remaining balance on partials,
+//      and the receipt button per month. Phones first: parents read
+//      this on a 360px screen.
 
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useParams } from "react-router";
-import { Wallet, CheckCircle2, AlertCircle, Clock, Landmark } from "lucide-react";
-import {
-  HeroCard,
-  KpiTile,
-  DataTable,
-  type DataTableColumn,
-} from "../../components/school-ui";
+import { AlertCircle, CheckCircle2, Copy, Landmark, Printer } from "lucide-react";
+import { HeroCard } from "../../components/school-ui";
 import { usePinAuth } from "../../contexts/PinAuthContext";
 import { toast } from "sonner";
 import {
@@ -38,6 +44,11 @@ const isOverdue = (f: FeeStatus): boolean =>
   f.status !== "paid" && f.status !== "waived" &&
   !!f.due_date && f.due_date < new Date().toISOString().slice(0, 10);
 
+const owedOf = (f: FeeStatus): number =>
+  f.status === "waived" ? 0 : Math.max(0, (f.amount_due ?? 0) - (f.amount_paid ?? 0));
+
+const rs = (n: number) => `Rs. ${n.toLocaleString("en-PK")}`;
+
 function FeeStatusPill({ fee }: { fee: FeeStatus }) {
   const { t } = useTranslation();
   if (isOverdue(fee)) {
@@ -57,17 +68,9 @@ function FeeStatusPill({ fee }: { fee: FeeStatus }) {
   );
 }
 
-// "2026-08" -> "Aug 2026" for the row label; parents kept seeing raw
-// period strings while the admin page had pretty labels.
-const MONTH_SHORT = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const periodLabel = (period: string): string => {
-  const m = /^(\d{4})-(\d{2})$/.exec(period);
-  if (!m) return period;
-  return `${MONTH_SHORT[Number(m[2])] || period} ${m[1]}`;
-};
-
 export function MyStudentFees() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language ?? "en";
   const { studentId = "" } = useParams<{ studentId: string }>();
   const { subject } = usePinAuth();
   const [fees, setFees] = useState<FeeStatus[] | null>(null);
@@ -103,121 +106,87 @@ export function MyStudentFees() {
     };
   }, [studentId]);
 
+  // Month labels in the parent's own language ("Aug 2026" / "اگست 2026").
+  const periodLabel = (period: string): string => {
+    const m = /^(\d{4})-(\d{2})$/.exec(period);
+    if (!m) return period;
+    return new Date(Number(m[1]), Number(m[2]) - 1, 1).toLocaleDateString(
+      lang.startsWith("ur") ? "ur-PK" : undefined,
+      { month: "short", year: "numeric" },
+    );
+  };
+  const dateLabel = (iso: string): string => {
+    const [y, mo, d] = iso.split("-").map(Number);
+    if (!y || !mo || !d) return iso;
+    return new Date(y, mo - 1, d).toLocaleDateString(
+      lang.startsWith("ur") ? "ur-PK" : undefined,
+      { day: "numeric", month: "short", year: "numeric" },
+    );
+  };
+
   const summary = useMemo(() => {
-    if (!fees) return { paid: 0, unpaid: 0, totalDue: 0, totalPaid: 0, balance: 0 };
+    if (!fees) return { paid: 0, totalPaid: 0, balance: 0, owedFees: [] as FeeStatus[] };
     let paid = 0;
-    let unpaid = 0;
-    let totalDue = 0;
     let totalPaid = 0;
-    // The number the family actually needs: what they OWE right now,
-    // summed across every month (unpaid August + September = 8,000, not
-    // "4,000 · August" - fees review, 17 Sep).
     let balance = 0;
+    const owedFees: FeeStatus[] = [];
     for (const f of fees) {
       if (f.status === "paid" || f.status === "waived") paid += 1;
-      else unpaid += 1;
-      totalDue += f.amount_due ?? 0;
       totalPaid += f.amount_paid ?? 0;
-      if (f.status !== "waived") {
-        balance += Math.max(0, (f.amount_due ?? 0) - (f.amount_paid ?? 0));
+      const owed = owedOf(f);
+      if (owed > 0) {
+        balance += owed;
+        owedFees.push(f);
       }
     }
-    return { paid, unpaid, totalDue, totalPaid, balance };
+    // Oldest first — the same order the office settles them in.
+    owedFees.sort((a, b) => a.period.localeCompare(b.period));
+    return { paid, totalPaid, balance, owedFees };
   }, [fees]);
 
-  const columns: Array<DataTableColumn<FeeStatus>> = [
-    {
-      key: "period",
-      header: t("portal.fees.colPeriod"),
-      width: "w-28",
-      cell: (f) => (
-        <div>
-          <div className="text-sm font-medium text-slate-800">{periodLabel(f.period)}</div>
-          <div className="font-mono text-[10px] text-slate-400">{f.period}</div>
-        </div>
-      ),
-    },
-    {
-      key: "status",
-      header: t("portal.fees.colStatus"),
-      width: "w-24",
-      cell: (f) => <FeeStatusPill fee={f} />,
-    },
-    {
-      key: "due",
-      header: t("portal.fees.colDue"),
-      align: "right",
-      cell: (f) => (
-        <span className="tabular-nums">
-          {f.amount_due != null ? `Rs. ${Number(f.amount_due).toLocaleString("en-PK")}` : "—"}
-        </span>
-      ),
-    },
-    {
-      key: "paid",
-      header: t("portal.fees.colPaid"),
-      align: "right",
-      cell: (f) => {
-        const live = (f.payments ?? []).filter((p) => !p.voidedAt);
-        return (
-          <div>
-            <span className="tabular-nums">
-              {f.amount_paid != null ? `Rs. ${Number(f.amount_paid).toLocaleString("en-PK")}` : "—"}
-            </span>
-            {live.map((p) => (
-              <div key={p.id} className="text-[10px] tabular-nums text-slate-400">
-                {p.paidOn} · Rs. {Number(p.amount).toLocaleString("en-PK")}
-              </div>
-            ))}
-          </div>
-        );
-      },
-    },
-    {
-      key: "dueDate",
-      header: t("portal.fees.colDueDate"),
-      cell: (f) => (
-        <span className="text-xs text-slate-600 tabular-nums">
-          {f.due_date ?? "—"}
-        </span>
-      ),
-    },
-    {
-      key: "receipt",
-      header: t("portal.fees.colReceipt"),
-      cell: (f) => {
-        if (f.receipt_url) {
-          return (
-            <a
-              href={f.receipt_url}
-              target="_blank"
-              rel="noreferrer"
-              className="text-indigo-600 text-xs underline"
-            >
-              {t("portal.fees.view")}
-            </a>
-          );
-        }
-        // The payer can print their own receipt now (17 Sep) - any month
-        // with money recorded gets the school-branded printable page.
-        if ((f.payments ?? []).some((p) => !p.voidedAt)) {
-          return (
-            <button
-              type="button"
-              className="text-indigo-600 text-xs underline"
-              onClick={() => openMyFeeReceipt(f.id).catch((e) => toast.error(e instanceof Error ? e.message : String(e)))}
-            >
-              {t("portal.fees.printReceipt")}
-            </button>
-          );
-        }
-        return <span className="text-xs text-slate-400">—</span>;
-      },
-    },
-  ];
+  const owing = summary.balance > 0;
+  const oldestDue = summary.owedFees.find((f) => f.due_date)?.due_date ?? null;
+  const anyOverdue = summary.owedFees.some(isOverdue);
+
+  const copyAccount = () => {
+    const acct = bankAccount?.accountNumber;
+    if (!acct) return;
+    navigator.clipboard?.writeText(acct)
+      .then(() => toast.success(t("portal.fees.copied")))
+      .catch(() => { /* clipboard unavailable — the number is on screen */ });
+  };
+
+  const receiptButton = (f: FeeStatus) => {
+    if (f.receipt_url) {
+      return (
+        <a
+          href={f.receipt_url}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-[11.5px] font-bold text-indigo-700 hover:bg-indigo-50"
+        >
+          <Printer className="h-3 w-3" /> {t("portal.fees.view")}
+        </a>
+      );
+    }
+    // The payer can print their own receipt — any month with money
+    // recorded gets the school-branded printable page.
+    if ((f.payments ?? []).some((p) => !p.voidedAt)) {
+      return (
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-[11.5px] font-bold text-indigo-700 hover:bg-indigo-50"
+          onClick={() => openMyFeeReceipt(f.id).catch((e) => toast.error(e instanceof Error ? e.message : String(e)))}
+        >
+          <Printer className="h-3 w-3" /> {t("portal.fees.printReceipt")}
+        </button>
+      );
+    }
+    return null;
+  };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <HeroCard
         eyebrow={student ? `GR# ${student.grNumber}` : undefined}
         title={student ? `${student.fullName} – ${t("portal.fees.title")}` : t("portal.fees.title")}
@@ -229,45 +198,71 @@ export function MyStudentFees() {
         </div>
       )}
 
-      {/* Balance FIRST - the old tiles showed gross billed-ever and made
-          the family do the subtraction (fees review, 17 Sep). */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiTile
-          variant="light"
-          label={t("portal.fees.balanceDue")}
-          icon={summary.balance > 0 ? AlertCircle : CheckCircle2}
-          value={`Rs. ${summary.balance.toLocaleString("en-PK")}`}
-          hint={
-            summary.balance > 0
-              ? t("portal.fees.monthsPending", { n: summary.unpaid })
-              : t("portal.fees.allSettled")
+      {/* 1 ── The balance headline. One number, one color, no math. */}
+      {fees !== null && (
+        <div
+          className={
+            "rounded-2xl border p-4 sm:p-5 " +
+            (owing
+              ? "border-rose-200 bg-gradient-to-br from-rose-50 to-white"
+              : "border-emerald-200 bg-gradient-to-br from-emerald-50 to-white")
           }
-        />
-        <KpiTile
-          variant="light"
-          label={t("portal.fees.stPaid")}
-          icon={CheckCircle2}
-          value={summary.paid}
-          hint={t("portal.fees.hintPeriods")}
-        />
-        <KpiTile
-          variant="light"
-          label={t("portal.fees.totalDue")}
-          icon={Wallet}
-          value={`Rs. ${summary.totalDue.toLocaleString("en-PK")}`}
-          hint={t("portal.fees.hintAllPeriods")}
-        />
-        <KpiTile
-          variant="light"
-          label={t("portal.fees.totalPaid")}
-          icon={Clock}
-          value={`Rs. ${summary.totalPaid.toLocaleString("en-PK")}`}
-          hint={t("portal.fees.hintAllPeriods")}
-        />
-      </div>
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div
+                className={
+                  "flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wide " +
+                  (owing ? "text-rose-700" : "text-emerald-700")
+                }
+              >
+                {owing ? <AlertCircle className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                {t("portal.fees.balanceDue")}
+              </div>
+              <div className={"mt-1 text-3xl font-extrabold tabular-nums " + (owing ? "text-rose-900" : "text-emerald-900")}>
+                {rs(summary.balance)}
+              </div>
+              {owing ? (
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  {summary.owedFees.map((f) => (
+                    <span
+                      key={f.id}
+                      className={
+                        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-bold tabular-nums " +
+                        (isOverdue(f)
+                          ? "border-rose-200 bg-rose-100 text-rose-800"
+                          : "border-amber-200 bg-amber-100 text-amber-800")
+                      }
+                    >
+                      {periodLabel(f.period)} · {rs(owedOf(f))}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-1 text-sm font-medium text-emerald-800">
+                  {t("portal.fees.allSettledMsg")}
+                </div>
+              )}
+              {owing && oldestDue && (
+                <div className={"mt-2 text-xs font-semibold " + (anyOverdue ? "text-rose-700" : "text-slate-600")}>
+                  {anyOverdue
+                    ? t("portal.fees.overdueSince", { date: dateLabel(oldestDue) })
+                    : t("portal.fees.dueBy", { date: dateLabel(oldestDue) })}
+                </div>
+              )}
+            </div>
+          </div>
+          {summary.totalPaid > 0 && (
+            <div className="mt-3 border-t border-slate-200/70 pt-2 text-xs text-slate-500 tabular-nums">
+              {t("portal.fees.paidSummary", { amount: summary.totalPaid.toLocaleString("en-PK"), n: summary.paid })}
+            </div>
+          )}
+        </div>
+      )}
 
+      {/* 2 ── How to pay — promoted while anything is owed. */}
       {bankAccount?.accountNumber && (
-        <div className="rounded-xl border border-indigo-200 bg-indigo-50/50 p-4">
+        <div className="rounded-2xl border border-indigo-200 bg-indigo-50/50 p-4">
           <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-indigo-700">
             <Landmark className="h-3.5 w-3.5" /> {t("portal.fees.howToPay")}
           </div>
@@ -286,8 +281,17 @@ export function MyStudentFees() {
             )}
             <div>
               <div className="text-[11px] text-slate-500">{t("portal.fees.accountNumber")}</div>
-              <div className="font-mono font-semibold tracking-wide text-slate-900" dir="ltr">
-                {bankAccount.accountNumber}
+              <div className="flex items-center gap-2">
+                <span className="font-mono font-semibold tracking-wide text-slate-900" dir="ltr">
+                  {bankAccount.accountNumber}
+                </span>
+                <button
+                  type="button"
+                  onClick={copyAccount}
+                  className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-white px-1.5 py-0.5 text-[10.5px] font-bold text-indigo-700 hover:bg-indigo-50"
+                >
+                  <Copy className="h-3 w-3" /> {t("portal.fees.copy")}
+                </button>
               </div>
             </div>
           </div>
@@ -295,12 +299,70 @@ export function MyStudentFees() {
         </div>
       )}
 
-      <DataTable
-        columns={columns}
-        rows={fees ?? []}
-        rowKey={(f) => f.id}
-        emptyMessage={fees === null ? t("common.loading") : t("portal.fees.noRecords")}
-      />
+      {/* 3 ── Month statement cards, newest first. */}
+      {fees === null ? (
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-500">
+          {t("common.loading")}
+        </div>
+      ) : fees.length === 0 ? (
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 text-center text-sm text-slate-500">
+          {t("portal.fees.noRecords")}
+        </div>
+      ) : (
+        <div className="space-y-2.5">
+          {fees.map((f) => {
+            const live = (f.payments ?? []).filter((p) => !p.voidedAt);
+            const owed = owedOf(f);
+            const overdue = isOverdue(f);
+            return (
+              <div
+                key={f.id}
+                className={
+                  "rounded-2xl border bg-white p-3.5 shadow-sm " +
+                  (overdue
+                    ? "border-rose-200 border-s-4 border-s-rose-400"
+                    : owed > 0
+                    ? "border-amber-200 border-s-4 border-s-amber-400"
+                    : "border-slate-200")
+                }
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[15px] font-extrabold text-slate-900">{periodLabel(f.period)}</span>
+                  <FeeStatusPill fee={f} />
+                  <span className="ms-auto text-sm font-bold tabular-nums text-slate-900">
+                    {f.amount_due != null ? rs(f.amount_due) : "—"}
+                  </span>
+                </div>
+                {f.due_date && f.status !== "paid" && f.status !== "waived" && (
+                  <div className={"mt-1 text-[11.5px] " + (overdue ? "font-semibold text-rose-600" : "text-slate-500")}>
+                    {t("portal.fees.dueBy", { date: dateLabel(f.due_date) })}
+                  </div>
+                )}
+                {live.length > 0 && (
+                  <div className="mt-2 space-y-1 border-t border-slate-100 pt-2">
+                    {live.map((p) => (
+                      <div key={p.id} className="flex items-center gap-2 text-[12.5px] text-slate-600">
+                        <CheckCircle2 className="h-3.5 w-3.5 flex-none text-emerald-500" />
+                        <span className="tabular-nums">{dateLabel(p.paidOn)}</span>
+                        <span className="ms-auto font-semibold tabular-nums text-slate-800">{rs(Number(p.amount))}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {(owed > 0 && (f.amount_paid ?? 0) > 0) && (
+                  <div className="mt-1.5 text-[12px] font-semibold text-amber-700 tabular-nums">
+                    {t("portal.fees.remaining")}: {rs(owed)}
+                  </div>
+                )}
+                {(() => {
+                  const btn = receiptButton(f);
+                  return btn ? <div className="mt-2">{btn}</div> : null;
+                })()}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
