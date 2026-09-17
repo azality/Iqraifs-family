@@ -42,8 +42,11 @@ function friendlyError(raw: string): string {
   return "Sign-in failed. Please verify your details.";
 }
 
-export function SchoolUnifiedLogin() {
-  const { orgSlug = "" } = useParams<{ orgSlug: string }>();
+/** `slug` overrides the URL param — on a school's OWN domain this
+ *  renders at "/", where there is no :orgSlug to read. */
+export function SchoolUnifiedLogin({ slug }: { slug?: string } = {}) {
+  const { orgSlug: paramSlug = "" } = useParams<{ orgSlug: string }>();
+  const orgSlug = slug ?? paramSlug;
   const navigate = useNavigate();
   const { login: pinLoginCtx } = usePinAuth();
   const { t } = useTranslation();

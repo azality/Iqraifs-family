@@ -10,8 +10,11 @@ import { getPublicSite } from "../../../utils/schoolApi";
 import { SchoolPublicSite } from "./SchoolPublicSite";
 import { SchoolUnifiedLogin } from "./SchoolUnifiedLogin";
 
-export function SchoolSlugEntry() {
-  const { orgSlug = "" } = useParams<{ orgSlug: string }>();
+/** `slug` overrides the URL param — used when a school's OWN domain
+ *  serves their site at "/", where there is no :orgSlug to read. */
+export function SchoolSlugEntry({ slug }: { slug?: string } = {}) {
+  const { orgSlug: paramSlug = "" } = useParams<{ orgSlug: string }>();
+  const orgSlug = slug ?? paramSlug;
   const [decision, setDecision] = useState<"loading" | "public" | "login">("loading");
 
   useEffect(() => {
@@ -40,7 +43,11 @@ export function SchoolSlugEntry() {
     // is the safer landing state and renders almost instantly.
     return null;
   }
-  return decision === "public" ? <SchoolPublicSite /> : <SchoolUnifiedLogin />;
+  // Pass the slug on: at "/" there is no route param for the children
+  // to read, so without this the public site renders forever-loading.
+  return decision === "public"
+    ? <SchoolPublicSite slug={orgSlug} />
+    : <SchoolUnifiedLogin slug={orgSlug} />;
 }
 
 export default SchoolSlugEntry;
