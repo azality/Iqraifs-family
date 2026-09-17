@@ -114,13 +114,20 @@ export default {
     if (request.method !== "GET") return env.ASSETS.fetch(request);
     const url = new URL(request.url);
 
-    // Belt and braces for run_worker_first: if this worker is ever
-    // invoked for something that looks like a file (a hashed bundle, an
-    // image, the favicon), hand it straight back to the asset server.
-    // Without this, over-matching the pattern would answer every .js
-    // request with index.html and take the whole app down.
+    // run_worker_first is `true`, so EVERY request lands here — real
+    // files included. Hand those straight back to the asset server:
+    // anything with an extension, plus the two static trees, which are
+    // matched by prefix so an extensionless file there is still safe.
+    // Without this the worker would answer every bundle request with
+    // index.html and take the whole app down.
     const last = url.pathname.split("/").pop() || "";
-    if (last.includes(".")) return env.ASSETS.fetch(request);
+    if (
+      last.includes(".") ||
+      url.pathname.startsWith("/assets/") ||
+      url.pathname.startsWith("/brand/")
+    ) {
+      return env.ASSETS.fetch(request);
+    }
     const shell = await env.ASSETS.fetch(new URL("/index.html", url.origin));
 
     let slug = slugFrom(url);
