@@ -12,6 +12,7 @@ import {
   parasCovered,
   isEmptyPosition,
   frontierPara,
+  isFatihaOnly,
 } from "./hifzPortion.ts";
 
 type Row = Parameters<typeof parasCovered>[0][number];
@@ -88,10 +89,11 @@ Deno.test("a hearing left on the form's default 1:1 carries no portion", () => {
   assertEquals(proposePortion("hifz", rows), "Para 16–30");
 });
 
-Deno.test("a real Al-Fatiha lesson is kept — it runs 1 to 7, not 1 to 1", () => {
+Deno.test("Al-Fatiha alone describes no portion, however it is written", () => {
+  // Not the form's default (that is 1:1-1), but still not a portion:
+  // every child recites Al-Fatiha at every stage.
   assertEquals(isEmptyPosition(at(1, 1, 7)), false);
-  // Para 1 on the hifz road means the whole Quran — see the khatam test.
-  assertEquals(proposePortion("hifz", [at(1, 1, 7)]), "Para 1–30");
+  assertEquals(proposePortion("hifz", [at(1, 1, 7)]), "");
 });
 
 Deno.test("a deliberate Para 1 in para mode survives the empty-position rule", () => {
@@ -174,4 +176,36 @@ Deno.test("the baseline still counts where it reaches further", () => {
 
 Deno.test("no sabaq at all leaves the frontier unknown", () => {
   assertEquals(frontierPara([sabqi(4), manzil(9)]), null);
+});
+
+// ── Al-Fatiha is not evidence of khatam ─────────────────────────────
+// Muhammad Aliyan Noman, Hifz IV, nazra track: reading Surahs 114, 113
+// and 111 a few ayahs at a time, with one Al-Fatiha in the record.
+
+Deno.test("Al-Fatiha never sets the frontier — everyone recites it", () => {
+  const rows = [
+    at(70, 1, 11),   // Para 29
+    at(1, 1, 7),     // Al-Fatiha, in Para 1
+    at(114, 1, 6),   // Para 30
+  ];
+  assertEquals(isFatihaOnly(at(1, 1, 7)), true);
+  assertEquals(frontierPara(rows), 29);
+  assertEquals(proposePortion("hifz", rows), "Para 29\u201330");
+});
+
+Deno.test("Al-Baqarah to 2:141 IS evidence — that is where Para 1 ends", () => {
+  // Bisma Sajid's road: through Para 2, then Para 1 to its last ayah.
+  const rows = [at(2, 243, 252), at(2, 1, 69), at(2, 130, 141)];
+  assertEquals(frontierPara(rows), 1);
+  assertEquals(proposePortion("hifz", rows), "Para 1\u201330");
+});
+
+Deno.test("Para 1 chosen outright in para mode still counts", () => {
+  // Aroush Azeem Khan logged "juz 1, full" as her lesson.
+  const rows = [at(2, 236, 252), para(1, { juz_extent: "full" } as never)];
+  assertEquals(frontierPara(rows), 1);
+});
+
+Deno.test("a Fatiha row adds nothing to the portion either", () => {
+  assertEquals(parasCovered([at(1, 1, 7)]), []);
 });
