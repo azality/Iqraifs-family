@@ -64,6 +64,7 @@ import { SchoolGroupDashboard } from "./pages/school/SchoolGroupDashboard";
 import { ManageStudents } from "./pages/school/ManageStudents";
 import { StudentDetail } from "./pages/school/StudentDetail";
 import { ExamSyllabus } from "./pages/school/ExamSyllabus";
+import { ExamMarks } from "./pages/school/ExamMarks";
 import { StudentReportCard } from "./pages/school/StudentReportCard";
 import { ImportCenter } from "./pages/school/ImportCenter";
 import { ManageHifzGroups } from "./pages/school/ManageHifzGroups";
@@ -664,6 +665,7 @@ export const router = createBrowserRouter([
               { path: "admin/assessment/exams/:examId/marks", element: <MarksEntry /> },
               { path: "admin/assessment/tabulation", element: <TabulationSheet /> },
               { path: "admin/assessment/exam-syllabus", element: <ExamSyllabus /> },
+              { path: "admin/assessment/exam-marks", element: <ExamMarks /> },
               { path: "admin/pin-slips", element: <PinSlips /> },
               { path: "admin/assessment/grade-scales", element: <ManageGradeScales /> },
               { path: "admin/inbox", element: <ParentInbox /> },

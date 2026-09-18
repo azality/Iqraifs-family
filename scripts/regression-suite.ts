@@ -5565,6 +5565,107 @@ await check("101. hifz exam syllabus: proposed from the child's own record, then
   }
 });
 
+await check("102. exam marks: the paper's own rows, totalled and graded, and never over the max", async () => {
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const cleanup: Array<() => Promise<unknown>> = [];
+  try {
+    const { data: term } = await admin.from("academic_term").select("id")
+      .eq("org_id", ORG).eq("is_current", true).is("archived_at", null).maybeSingle();
+    assert(term, "no current term");
+    const { data: exam } = await admin.from("exam").insert({
+      org_id: ORG, term_id: (term as any).id, name: "QA MARKS PROBE",
+      exam_type: "other", weight: 1,
+    }).select("id").single();
+    assert(exam, "exam insert");
+    cleanup.push(() => admin.from("exam").delete().eq("id", (exam as any).id));
+
+    // A grade scale so the paper can name a band, mirroring the school's.
+    const { data: scale } = await admin.from("grade_scale").insert({
+      org_id: ORG, name: "QA MARKS SCALE", is_default: false,
+    }).select("id").single();
+    cleanup.push(() => admin.from("grade_scale").delete().eq("id", (scale as any).id));
+    await admin.from("grade_scale_band").insert([
+      { scale_id: (scale as any).id, letter: "ممتاز", min_pct: 80, max_pct: 100, display_order: 0 },
+      { scale_id: (scale as any).id, letter: "جید جدا", min_pct: 65, max_pct: 79, display_order: 1 },
+      { scale_id: (scale as any).id, letter: "راسب", min_pct: 0, max_pct: 64, display_order: 2 },
+    ]);
+    await admin.from("exam").update({ grade_scale_id: (scale as any).id }).eq("id", (exam as any).id);
+
+    const base = `/school/orgs/${ORG}/exams/${(exam as any).id}`;
+
+    // The paper is data: an admin writes the rows.
+    const put = await api(admin2.token, `${base}/components`, {
+      method: "PUT",
+      body: JSON.stringify({ components: [
+        { name: "سوال اول", groupLabel: "حفظ القرآن", maxMarks: 20 },
+        { name: "سوال دوم", groupLabel: "حفظ القرآن", maxMarks: 20 },
+        { name: "لہجہ", maxMarks: 10 },
+      ] }),
+    });
+    const putJ = await put.json();
+    assert(put.status === 200 && putJ.components?.length === 3,
+      `components ${put.status}: ${JSON.stringify(putJ).slice(0, 150)}`);
+    const comps = putJ.components as Array<{ id: string; name: string; maxMarks: number }>;
+    const byName = new Map(comps.map((c) => [c.name, c]));
+
+    // A teacher of the section can mark; the roster carries the portion.
+    const r1 = await api(admin2.token, `${base}/marks?sectionId=${sandboxSec.id}`);
+    const j1 = await r1.json();
+    assert(r1.status === 200, `marks ${r1.status}: ${JSON.stringify(j1).slice(0, 150)}`);
+    const mine = (j1.rows ?? []).find((x: any) => x.studentId === pStu1);
+    assert(mine, "the QA student must appear on the marks roster");
+    assert(mine.totals.max === 50, `paper must total 50, got ${mine.totals.max}`);
+    assert(mine.totals.pct === null && mine.band === null,
+      "an unmarked paper has no percentage and no band");
+
+    // A mark larger than the row is refused, and nothing is stored.
+    const over = await api(admin2.token, `${base}/marks/${pStu1}`, {
+      method: "PUT",
+      body: JSON.stringify({ marks: { [byName.get("لہجہ")!.id]: 11 } }),
+    });
+    assert(over.status === 400, `11 out of 10 must be refused, got ${over.status}`);
+
+    // Part-marked: a running total, still no band.
+    const part = await api(admin2.token, `${base}/marks/${pStu1}`, {
+      method: "PUT",
+      body: JSON.stringify({ marks: { [byName.get("سوال اول")!.id]: 16 } }),
+    });
+    const partJ = await part.json();
+    assert(part.status === 200, `part mark ${part.status}`);
+    assert(partJ.totals.obtained === 16 && partJ.totals.pct === null,
+      `part-marked paper must not grade: ${JSON.stringify(partJ.totals)}`);
+
+    // Fully marked: totals, the braced subtotal, and the band.
+    const full = await api(admin2.token, `${base}/marks/${pStu1}`, {
+      method: "PUT",
+      body: JSON.stringify({ marks: {
+        [byName.get("سوال اول")!.id]: 16,
+        [byName.get("سوال دوم")!.id]: 15,
+        [byName.get("لہجہ")!.id]: 8,
+      } }),
+    });
+    const fullJ = await full.json();
+    assert(full.status === 200, `full mark ${full.status}`);
+    assert(fullJ.totals.obtained === 39 && fullJ.totals.pct === 78,
+      `39/50 is 78%: ${JSON.stringify(fullJ.totals)}`);
+    assert(fullJ.totals.groups?.[0]?.obtained === 31,
+      `the braced rows must subtotal 31: ${JSON.stringify(fullJ.totals.groups)}`);
+    assert(fullJ.band?.letter === "جید جدا", `78% is جید جدا, got ${JSON.stringify(fullJ.band)}`);
+
+    // Rewriting the paper would orphan those marks - refused until asked.
+    const clash = await api(admin2.token, `${base}/components`, {
+      method: "PUT", body: JSON.stringify({ components: [{ name: "x", maxMarks: 5 }] }),
+    });
+    assert(clash.status === 409, `rewriting a marked paper must warn, got ${clash.status}`);
+
+    // Office staff do not mark the hifz room's paper.
+    const denied = await api(office.token, `${base}/marks?sectionId=${sandboxSec.id}`);
+    assert(denied.status === 403, `office must be refused, got ${denied.status}`);
+  } finally {
+    for (const fn of cleanup.reverse()) await fn();
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

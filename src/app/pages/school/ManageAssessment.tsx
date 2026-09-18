@@ -159,6 +159,11 @@ export function ManageAssessment() {
         <Link to={`/school/orgs/${orgId}/admin/assessment/exam-syllabus`}>
           <Button variant="outline" size="sm">Exam syllabus per child →</Button>
         </Link>
+        {/* Marking a paper whose rows are its own, with each child's
+            portion beside their name. */}
+        <Link to={`/school/orgs/${orgId}/admin/assessment/exam-marks`}>
+          <Button variant="outline" size="sm">Exam marks →</Button>
+        </Link>
       </div>
       <div>
         <h1 className={sectionTitleClasses}>Assessment</h1>
