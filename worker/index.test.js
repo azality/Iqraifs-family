@@ -8,6 +8,7 @@ import { productRedirect } from "./index.js";
 
 const FAMILY = "https://family.theilmnetwork.com";
 const PLATFORM = "https://app.theilmnetwork.com";
+const PLATFORM_HOST = "app.theilmnetwork.com";
 const SCHOOL = "https://iqraifs.com";
 
 const where = (href) => productRedirect(new URL(href));
@@ -24,30 +25,45 @@ const FAMILY_ROUTES = [
 ];
 
 describe("school routes never render on the family host", () => {
-  it("sends a school dashboard to the platform, path intact", () => {
+  // Home on the family's own hostname, never the platform host: someone
+  // using the family product must not be exported to the school app's
+  // domain to be told there is nothing for them there.
+  it("sends a school dashboard to the family home", () => {
     expect(where(`${FAMILY}/school/orgs/63cd5732-5db4-40e1-8fb9-60782bcfd059`))
-      .toBe(`${PLATFORM}/school/orgs/63cd5732-5db4-40e1-8fb9-60782bcfd059`);
+      .toBe(`${FAMILY}/`);
   });
 
-  it("keeps the query string, so a deep link survives the hop", () => {
+  it("drops a school deep link's path and query, staying on the host", () => {
     expect(where(`${FAMILY}/school/orgs/abc/admin/assessment?termId=t1`))
-      .toBe(`${PLATFORM}/school/orgs/abc/admin/assessment?termId=t1`);
+      .toBe(`${FAMILY}/`);
   });
 
-  it.each(["school-login", "school-portal", "parent-login"])(
-    "sends /%s away too",
+  it.each(["school-login", "school-portal"])(
+    "sends /%s home too",
     (seg) => {
-      expect(where(`${FAMILY}/${seg}`)).toBe(`${PLATFORM}/${seg}`);
+      expect(where(`${FAMILY}/${seg}`)).toBe(`${FAMILY}/`);
     },
   );
 
-  it("sends an ?org= sign-in link away", () => {
-    expect(where(`${FAMILY}/?org=iqra-ifs&claim=1`))
-      .toBe(`${PLATFORM}/?org=iqra-ifs&claim=1`);
+  // Shipped wrong once: /parent-login LOOKS school-shaped but is the
+  // family parent's own login, an alias of /login. Sending it away
+  // logged family parents out of their own product.
+  it("keeps /parent-login — it is the FAMILY parent's login", () => {
+    expect(where(`${FAMILY}/parent-login`)).toBeNull();
   });
 
-  it("sends a school's public site away", () => {
-    expect(where(`${FAMILY}/iqra-ifs`)).toBe(`${PLATFORM}/iqra-ifs`);
+  it("sends an ?org= sign-in link home", () => {
+    expect(where(`${FAMILY}/?org=iqra-ifs&claim=1`)).toBe(`${FAMILY}/`);
+  });
+
+  it("sends a school's public site home", () => {
+    expect(where(`${FAMILY}/iqra-ifs`)).toBe(`${FAMILY}/`);
+  });
+
+  it("never sends a family visitor to the platform host", () => {
+    for (const path of ["/school/orgs/abc", "/school-login", "/iqra-ifs", "/?org=iqra-ifs"]) {
+      expect(where(`${FAMILY}${path}`)).not.toContain(PLATFORM_HOST);
+    }
   });
 });
 

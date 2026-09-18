@@ -1,4 +1,6 @@
+import type { ReactNode } from "react";
 import { createBrowserRouter, Navigate, useLocation, useRouteError } from "react-router";
+import { schoolPathOnFamilyHost } from "../utils/productHost";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { RequireParentRole } from "./components/RequireParentRole";
 import { Welcome } from "./pages/Welcome";
@@ -364,8 +366,26 @@ function RequireFamily({ children }: { children: JSX.Element }) {
  *  untouched. Without that narrowing this gate would swallow the whole
  *  "/" subtree, which is every staff page.
  */
+/** The family product's host has no school pages.
+ *
+ *  The worker enforces this, but it only ever sees a full page load —
+ *  a client-side navigation from /rewards into /school never leaves the
+ *  browser, so without this the school app still renders there. Home,
+ *  not the platform host: someone using the family product stays on
+ *  family.theilmnetwork.com. */
+function RefuseSchoolOnFamilyHost({ children }: { children: ReactNode }) {
+  const { pathname } = useLocation();
+  if (schoolPathOnFamilyHost(window.location.hostname, pathname)) {
+    return <Navigate to="/" replace />;
+  }
+  return <>{children}</>;
+}
+
 function RootHostGate() {
   const { pathname } = useLocation();
+  if (schoolPathOnFamilyHost(window.location.hostname, pathname)) {
+    return <Navigate to="/" replace />;
+  }
   const slug = (window as unknown as { __SCHOOL_SLUG__?: string }).__SCHOOL_SLUG__;
   if (slug && pathname === "/") {
     return (
@@ -394,20 +414,24 @@ export const router = createBrowserRouter([
   {
     path: "school-login",
     element: (
-      <PinAuthProvider>
-        <PortalLogin />
-      </PinAuthProvider>
+      <RefuseSchoolOnFamilyHost>
+        <PinAuthProvider>
+          <PortalLogin />
+        </PinAuthProvider>
+      </RefuseSchoolOnFamilyHost>
     ),
     errorElement: <RouterErrorBoundary />,
   },
   {
     path: "school-portal",
     element: (
-      <PinAuthProvider>
-        <PortalRouteGuard>
-          <PortalLayout />
-        </PortalRouteGuard>
-      </PinAuthProvider>
+      <RefuseSchoolOnFamilyHost>
+        <PinAuthProvider>
+          <PortalRouteGuard>
+            <PortalLayout />
+          </PortalRouteGuard>
+        </PinAuthProvider>
+      </RefuseSchoolOnFamilyHost>
     ),
     errorElement: <RouterErrorBoundary />,
     children: [
