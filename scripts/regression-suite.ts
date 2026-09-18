@@ -5728,6 +5728,66 @@ await check("103. hifz homework reaches parent AND student - diary, Lessons and 
   }
 });
 
+await check("104. marking progress: the office sees every section, teachers and office staff do not, and the count skips papers a subject does not sit", async () => {
+  // "For the admin or the incharge and the principal, if they want to see
+  // how the marking progress is going" (Muneeb, 18 Sep). One grid, every
+  // section - and it must count only subjects that SIT a paper: the old
+  // section-page count held Class VIII's oral at 1/8 forever.
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const r = await api(admin2.token, `/school/orgs/${ORG}/marking-progress`);
+  const j = await r.json();
+  assert(r.status === 200, `board ${r.status}: ${JSON.stringify(j).slice(0, 150)}`);
+  assert(j.term && Array.isArray(j.sections), "board must carry a term and sections");
+  assert(j.sections.length > 0, "the office must see the school's sections");
+
+  // Hifz is marked on its own paper; the Sandbox is scaffolding.
+  const labels = (j.sections as any[]).map((s) => s.label as string);
+  assert(!labels.some((l) => /^Hifz /.test(l)), `hifz must not be on the board: ${labels.join(", ")}`);
+  assert(!labels.some((l) => /Sandbox/i.test(l)), `the Sandbox must not be on the board`);
+
+  // Every section carries one cell per paper, aligned with exams[].
+  for (const s of j.sections as any[]) {
+    assert(s.exams.length === j.exams.length,
+      `${s.label}: ${s.exams.length} cells for ${j.exams.length} papers`);
+    for (const c of s.exams) {
+      assert(c.subjectsDone <= c.subjectCount, `${s.label}: ${c.subjectsDone}/${c.subjectCount}`);
+      assert(c.subjects.length === c.subjectCount, `${s.label}: subject lines must match the count`);
+    }
+  }
+
+  // A written-only class sits no oral: its oral cell must count nothing,
+  // not "0 of 8" forever. Checked on whichever section is written-only.
+  const oralIdx = (j.exams as any[]).findIndex((e) => e.paper === "oral");
+  if (oralIdx >= 0) {
+    const writtenOnly = (j.sections as any[]).find((s) => s.exams[oralIdx].subjectCount === 0);
+    if (writtenOnly) {
+      assert(writtenOnly.exams[oralIdx].marksExpected === 0,
+        `${writtenOnly.label}: no oral means nothing owed`);
+    }
+  }
+
+  // Not for teachers or office staff - their own progress lives on the
+  // section page.
+  const t = await api(teacher.token, `/school/orgs/${ORG}/marking-progress`);
+  assert(t.status === 403, `a class teacher must be refused, got ${t.status}`);
+  const o = await api(office.token, `/school/orgs/${ORG}/marking-progress`);
+  assert(o.status === 403, `office staff must be refused, got ${o.status}`);
+
+  // The section page's own count is now the same function: same shape,
+  // and never more subjects done than it has.
+  const sec = (j.sections as any[])[0];
+  const sp = await api(admin2.token, `/school/orgs/${ORG}/sections/${sec.sectionId}/exam-marks-progress`);
+  const spj = await sp.json();
+  assert(sp.status === 200, `section progress ${sp.status}`);
+  for (const [i, e] of (spj.exams as any[]).entries()) {
+    const board = sec.exams.find((c: any) => c.examId === e.id);
+    assert(board, `section page exam ${e.name} missing from the board`);
+    assert(board.subjectsDone === e.subjectsDone && board.subjectCount === e.subjectCount,
+      `section page ${e.subjectsDone}/${e.subjectCount} vs board ${board.subjectsDone}/${board.subjectCount} for ${e.name}`);
+    void i;
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

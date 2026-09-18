@@ -164,6 +164,9 @@ export function ManageAssessment() {
         <Link to={`/school/orgs/${orgId}/admin/assessment/exam-marks`}>
           <Button variant="outline" size="sm">Exam marks →</Button>
         </Link>
+        <Link to={`/school/orgs/${orgId}/admin/assessment/marking-progress`}>
+          <Button variant="outline" size="sm">Marking progress →</Button>
+        </Link>
       </div>
       <div>
         <h1 className={sectionTitleClasses}>Assessment</h1>

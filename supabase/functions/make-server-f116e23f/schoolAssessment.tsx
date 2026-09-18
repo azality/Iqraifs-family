@@ -25,6 +25,8 @@
 // Writes require admin/principal or class-teacher of the section (for
 // marks entry). Reads accept any org role.
 
+import { paperOfExam, subjectSitsExam, progressForSection } from "./markingProgress.ts";
+import { loadExamScores, gradebookExams } from "./schoolMarkingProgress.tsx";
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { hasAnyRoleInOrg as hasAnyOrgRole, hasAdminOrPrincipal as isAdminOrPrincipal, isInchargeOfClass } from "./schoolAuth.ts";
@@ -45,28 +47,9 @@ async function readConfirmations(termId: string, sectionId: string):
   catch { return {}; }
 }
 
-// Which paper an exam is, read from its name - the server-side twin of
-// the client's paperOfExamName. Anything unnameable returns null and
-// paper filtering simply doesn't apply.
-function paperOfExam(name: string | null | undefined): "oral" | "written" | null {
-  const n = (name ?? "").toLowerCase();
-  if (/\boral\b/.test(n)) return "oral";
-  if (/\bwritten\b/.test(n)) return "written";
-  return null;
-}
-
-// Does this subject sit this exam's paper? Mirrors the marks sheet's
-// column rule: null weights = unknown, applies everywhere; [] = the
-// school said "no paper at all"; components = only papers with marks.
-function subjectSitsExam(weights: any, examName: string): boolean {
-  if (!Array.isArray(weights)) return true;
-  if (weights.length === 0) return false;
-  const paper = paperOfExam(examName);
-  if (!paper) return true;
-  const marksTyped = weights.filter((w: any) => typeof w?.marks === "number");
-  if (!marksTyped.length) return true; // legacy pct shape - no paper info
-  return marksTyped.some((w: any) => w.paper === paper && w.marks > 0);
-}
+// The paper rule (paperOfExam / subjectSitsExam) lives in markingProgress.ts
+// so the marks sheet, the section page and the Marking progress board all
+// judge "does this subject sit this exam" the same way.
 
 // Which subject columns this caller may edit in this section.
 // null = ALL (admin/principal/class teacher — they own the section);
@@ -907,72 +890,61 @@ export function installAssessment(school: Hono): void {
       .is("archived_at", null)
       .maybeSingle();
     if (!term) return c.json({ termName: null, exams: [] });
-    const { data: exams } = await serviceRoleClient
-      .from("exam")
-      .select("id, name")
-      .eq("term_id", (term as any).id)
-      .is("archived_at", null)
-      .order("exam_date", { ascending: true });
+
+    // Same exams, same subjects, same counting as the Marking progress
+    // board (markingProgress.ts), so the section page and the principal's
+    // grid never disagree. Before 18 Sep this counted EVERY class subject,
+    // so Art & Craft and Robotics (no paper) and Class VIII's written-only
+    // subjects (no oral) held the count below complete forever. It also
+    // counted withdrawn children, whose empty columns never fill.
+    const exams = await gradebookExams((term as any).id);
     const { data: students } = await serviceRoleClient
       .from("student")
-      .select("id, class_section_id")
-      .eq("class_section_id", sectionId);
+      .select("id")
+      .eq("class_section_id", sectionId)
+      .eq("status", "active");
     const studentIds = ((students ?? []) as any[]).map((s) => s.id);
-    const examIds = ((exams ?? []) as any[]).map((e) => e.id);
 
-    // The class's subject columns — the same columns the marks sheet
-    // shows. Completion is judged per SUBJECT (a subject is done when
-    // every student has a mark or an absence in it), not per student:
-    // "any row per student" hid the Enter-marks link as soon as ONE
-    // subject teacher finished, with eight columns still empty
-    // (Class VI A, 10 Sep — 9/9 students "marked" from Quran alone).
     const { data: secRow } = await serviceRoleClient
       .from("class_section")
       .select("class_id")
       .eq("id", sectionId).maybeSingle();
     const { data: subjects } = await serviceRoleClient
       .from("class_subject")
-      .select("id")
+      .select("id, name, assessment_weights")
       .eq("class_id", (secRow as any)?.class_id ?? "")
       .is("archived_at", null);
-    const subjectIds = ((subjects ?? []) as any[]).map((s) => s.id);
+    const subjectList = ((subjects ?? []) as any[]).map((s) => ({
+      id: s.id, name: s.name, weights: s.assessment_weights,
+    }));
 
-    const markedByExam = new Map<string, Set<string>>();
-    const cellsByExam = new Map<string, Map<string, Set<string>>>();
-    if (studentIds.length && examIds.length) {
-      const { data: scores } = await serviceRoleClient
-        .from("exam_subject_score")
-        .select("exam_id, student_id, class_subject_id, obtained_marks, absent")
-        .in("exam_id", examIds)
-        .in("student_id", studentIds);
-      for (const sc of ((scores ?? []) as any[])) {
-        if (sc.obtained_marks === null && sc.absent !== true) continue;
-        let set = markedByExam.get(sc.exam_id);
-        if (!set) { set = new Set(); markedByExam.set(sc.exam_id, set); }
-        set.add(sc.student_id);
-        let bySub = cellsByExam.get(sc.exam_id);
-        if (!bySub) { bySub = new Map(); cellsByExam.set(sc.exam_id, bySub); }
-        let subSet = bySub.get(sc.class_subject_id);
-        if (!subSet) { subSet = new Set(); bySub.set(sc.class_subject_id, subSet); }
-        subSet.add(sc.student_id);
-      }
+    let scores: Awaited<ReturnType<typeof loadExamScores>> = [];
+    try {
+      scores = await loadExamScores(exams.map((e) => e.id), studentIds);
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
     }
+    const cells = progressForSection(subjectList, exams, studentIds, scores);
+
+    // Kept for the existing link text: how many children have ANY mark.
+    const markedByExam = new Map<string, Set<string>>();
+    for (const sc of scores) {
+      if (sc.obtained_marks === null && sc.absent !== true) continue;
+      const set = markedByExam.get(sc.exam_id) ?? new Set<string>();
+      markedByExam.set(sc.exam_id, set);
+      set.add(sc.student_id);
+    }
+
     return c.json({
       termName: (term as any).name,
-      exams: ((exams ?? []) as any[]).map((e) => {
-        const bySub = cellsByExam.get(e.id);
-        const subjectsDone = subjectIds.filter(
-          (sid) => (bySub?.get(sid)?.size ?? 0) >= studentIds.length && studentIds.length > 0,
-        ).length;
-        return {
-          id: e.id,
-          name: e.name,
-          studentsMarked: markedByExam.get(e.id)?.size ?? 0,
-          studentCount: studentIds.length,
-          subjectsDone,
-          subjectCount: subjectIds.length,
-        };
-      }),
+      exams: exams.map((e, i) => ({
+        id: e.id,
+        name: e.name,
+        studentsMarked: markedByExam.get(e.id)?.size ?? 0,
+        studentCount: studentIds.length,
+        subjectsDone: cells[i].subjectsDone,
+        subjectCount: cells[i].subjectCount,
+      })),
     });
   });
 

@@ -4197,6 +4197,46 @@ export const saveExamSyllabusLine = (
     body: JSON.stringify({ portion }),
   });
 
+// ─── Marking progress (18 Sep) ───────────────────────────────────────
+// Every section's marks entry on one screen, for the office and incharges.
+// Counted by the same rule as the section page (server markingProgress.ts):
+// a subject is done when every active student has a mark or an absence,
+// and only subjects that actually sit that paper are counted.
+export interface MarkingSubjectCell {
+  subjectId: string;
+  subjectName: string;
+  marked: number;
+  done: boolean;
+}
+export interface MarkingExamCell {
+  examId: string;
+  subjectsDone: number;
+  subjectCount: number;
+  marksEntered: number;
+  marksExpected: number;
+  subjects: MarkingSubjectCell[];
+}
+export interface MarkingSectionRow {
+  sectionId: string;
+  label: string;
+  className: string;
+  studentCount: number;
+  /** Aligned with the response's `exams`. */
+  exams: MarkingExamCell[];
+  signedOff: number;
+  signOffNeeded: number;
+}
+export interface MarkingProgressResponse {
+  term: { id: string; name: string } | null;
+  exams: Array<{ id: string; name: string; examDate: string | null; paper: "oral" | "written" | null }>;
+  sections: MarkingSectionRow[];
+}
+export const getMarkingProgress = (
+  orgId: string,
+  termId?: string,
+): Promise<MarkingProgressResponse> =>
+  apiCall(`/school/orgs/${orgId}/marking-progress${termId ? `?termId=${encodeURIComponent(termId)}` : ""}`);
+
 // ─── Exam marks (Hifz half-yearly) ────────────────────────────────────
 // A paper is a list of components — the rows on the school's slip, each
 // with its own maximum. They are data, per exam, so a school whose paper
