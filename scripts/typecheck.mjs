@@ -13,12 +13,15 @@
 //   npm run typecheck:strict    -> raw tsc, fails on any error (target state)
 //
 // Baseline keys are `file|TScode|message` — deliberately without line/column
-// so that unrelated edits above an old error don't re-flag it.
+// so that unrelated edits above an old error don't re-flag it, and with the
+// members of any union in the message sorted (see tsc-baseline-key.mjs) so
+// tsc's non-deterministic union ordering can't make an old error look new.
 
 import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { normalizeTscKey } from "./tsc-baseline-key.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const baselinePath = resolve(root, "tsc-baseline.json");
@@ -46,7 +49,7 @@ for (const line of (tsc.stdout + tsc.stderr).split(/\r?\n/)) {
   const [, file, lineNo, col, code, message] = m;
   const normFile = file.replace(/\\/g, "/");
   errors.push({
-    key: `${normFile}|${code}|${message}`,
+    key: normalizeTscKey(`${normFile}|${code}|${message}`),
     display: `${normFile}(${lineNo},${col}): ${code}: ${message}`,
   });
 }
@@ -58,8 +61,13 @@ if (update) {
   process.exit(0);
 }
 
+// Normalized on read as well, so a baseline written before this change
+// keeps matching and does not have to be rewritten.
 const baseline = new Set(
-  existsSync(baselinePath) ? JSON.parse(readFileSync(baselinePath, "utf8")).errors : [],
+  (existsSync(baselinePath)
+    ? JSON.parse(readFileSync(baselinePath, "utf8")).errors
+    : []
+  ).map(normalizeTscKey),
 );
 
 const fresh = errors.filter((e) => !baseline.has(e.key));
