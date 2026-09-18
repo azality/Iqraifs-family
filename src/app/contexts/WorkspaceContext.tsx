@@ -26,6 +26,7 @@ import { getSchoolMe, type SchoolMeResponse } from "../../utils/schoolApi";
 import { AuthContext } from "./AuthContext";
 import { FamilyContext } from "./FamilyContext";
 import { STORAGE_KEYS } from "../../utils/storage";
+import { onFamilyHost } from "../../utils/productHost";
 
 export type WorkspaceKind = "family" | "school";
 
@@ -66,6 +67,14 @@ export const WorkspaceContext = createContext<WorkspaceContextType | undefined>(
 const STORAGE_KEY = "fgs_workspace";
 
 function readStoredWorkspace(): { ws: Workspace; explicit: boolean } {
+  // On the family product's own host there is no school workspace to be
+  // in. Treated as an explicit choice so the auto-default below cannot
+  // override it — otherwise a dual-role user signs in on
+  // family.theilmnetwork.com and gets the school's name and chrome in
+  // the header above their own family's dashboard (seen live, 18 Sep).
+  if (onFamilyHost(window.location.hostname)) {
+    return { ws: { kind: "family" }, explicit: true };
+  }
   try {
     const raw = getStorageSync(STORAGE_KEY);
     if (raw) {
@@ -164,6 +173,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         const hasSchool = r.roles.some((role) =>
           SCHOOL_ROLE_TYPES_LOCAL.includes(role.role_type),
         );
+
+        // Everything below decides which SCHOOL workspace to be in. On
+        // the family host that question does not arise — the school
+        // roles are real, they just have no home here.
+        if (onFamilyHost(window.location.hostname)) return;
 
         // Case 1: stored workspace is "school" but user no longer has
         // any school access (revoked). Fall back to family.
@@ -264,8 +278,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const switchToFamily = () => setWorkspace({ kind: "family" });
 
-  const switchToSchool = (orgId: string, orgName: string) =>
+  const switchToSchool = (orgId: string, orgName: string) => {
+    // Refused on the family host: the school pages there redirect home,
+    // so switching would only change the chrome and strand the user.
+    if (onFamilyHost(window.location.hostname)) return;
     setWorkspace({ kind: "school", orgId, orgName });
+  };
 
   // Manual refresh — call after creating an org / accepting a role
   // grant / etc. so the workspace switcher reflects the new state
@@ -300,7 +318,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     "office_staff",
     "financial_staff",
   ]);
-  const hasSchoolAccess = !!me && me.roles.some((r) => SCHOOL_ROLE_TYPES.has(r.role_type));
+  // …and never on the family host, where there is no school surface to
+  // grant access to. This hides the workspace switcher's school option
+  // and the school nav items rather than offering a door that the host
+  // guard would only bounce them back through.
+  const hasSchoolAccess =
+    !onFamilyHost(window.location.hostname) &&
+    !!me && me.roles.some((r) => SCHOOL_ROLE_TYPES.has(r.role_type));
 
   // signupIntent comes from the backend (auth.users.app_metadata).
   // Server-controlled — clients can't fake it. Defaults to 'family' for
