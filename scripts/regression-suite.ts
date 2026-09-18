@@ -5666,7 +5666,7 @@ await check("102. exam marks: the paper's own rows, totalled and graded, and nev
   }
 });
 
-await check("103. a hifz parent sees the homework - diary, Lessons and Homework all carry the next lesson", async () => {
+await check("103. hifz homework reaches parent AND student - diary, Lessons and Homework all carry the next lesson", async () => {
   // "Parents are still complaining about not being able to see Hifz
   // homework" (18 Sep). Teachers record the next lesson on nearly every
   // hearing (next_target); Learning -> Lessons and -> Homework read only
@@ -5704,6 +5704,24 @@ await check("103. a hifz parent sees the homework - diary, Lessons and Homework 
       "the day must list the sabaq heard in class");
     assert(day.homework.some((h: any) => h.text === NEXT),
       "the day must list the homework set that day");
+
+    // The child's own login sees exactly what the parent sees. Both use
+    // the same portal pages; this keeps a later change from quietly
+    // breaking one login and not the other (asked 18 Sep).
+    const sLogin = await (await pinLogin("QA-PORTAL-1", "1234")).json();
+    const sTok = sLogin.token;
+    assert(sTok, `student login failed: ${JSON.stringify(sLogin).slice(0, 120)}`);
+    const sd = await (await portalGet(sTok, `/pin-me/students/${pStu1}/diary`)).json();
+    assert((sd.hifzHomework ?? []).some((h: any) => h.text === NEXT),
+      "a student's own diary must carry the next lesson");
+    const shw = await (await portalGet(sTok, `/pin-me/students/${pStu1}/assignments`)).json();
+    assert((shw.hifzHomework ?? []).some((h: any) => h.text === NEXT),
+      "a student's own Homework page must carry the next lesson");
+    const sls = await (await portalGet(sTok,
+      `/pin-me/students/${pStu1}/lessons?startDate=${karachiToday}&endDate=${karachiToday}`)).json();
+    const sday = (sls.hifzDays ?? []).find((x: any) => x.date === karachiToday);
+    assert(sday && sday.homework.some((h: any) => h.text === NEXT),
+      "a student's own Lessons page must carry the day's classwork and homework");
   } finally {
     await admin.from("hifz_progress").delete()
       .eq("student_id", pStu1).eq("notes", "QA HIFZ HOMEWORK");
