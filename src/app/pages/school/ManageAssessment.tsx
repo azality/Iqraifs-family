@@ -153,6 +153,12 @@ export function ManageAssessment() {
         <Link to={`/school/orgs/${orgId}/admin/assessment/grade-scales`}>
           <Button variant="outline" size="sm">Grade scales →</Button>
         </Link>
+        {/* Per-child exam portions. Only meaningful where children sit
+            different syllabi (Hifz), so it sits here rather than in the
+            main admin grid — but it must be reachable without a URL. */}
+        <Link to={`/school/orgs/${orgId}/admin/assessment/exam-syllabus`}>
+          <Button variant="outline" size="sm">Exam syllabus per child →</Button>
+        </Link>
       </div>
       <div>
         <h1 className={sectionTitleClasses}>Assessment</h1>
