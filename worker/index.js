@@ -26,6 +26,18 @@ const ANON_KEY =
 // school #2 arriving with their own domain needs no extra work.
 const FAMILY_HOST = "family.theilmnetwork.com";
 
+// The platform's own host, where a school with no domain of its own is
+// served. Anything school-shaped that turns up on the family host is
+// sent here — the two products do not share a hostname in either
+// direction.
+const PLATFORM_HOST = "app.theilmnetwork.com";
+
+// First path segment of every school route. The mirror image of
+// FAMILY_SEGMENTS: these must never render on the family host.
+const SCHOOL_SEGMENTS = new Set([
+  "school", "school-login", "school-portal", "parent-login",
+]);
+
 // First path segment of every family-only route (src/app/routes.tsx).
 // "welcome" is handled separately: it is the family landing AND where
 // ProtectedRoute sends anyone logged out, so it is host-aware.
@@ -40,11 +52,18 @@ const FAMILY_SEGMENTS = new Set([
 // NOT here on purpose: /login and /signup. School staff authenticate
 // through the same flow as families, so those must work on every host.
 
-// First path segments that are app routes, never school slugs.
+// First path segments that are app routes, never school slugs. Built
+// from FAMILY_SEGMENTS so a family route can never be mistaken for a
+// school's slug — which is what decides whether the family host sends a
+// path away as school-shaped.
 const RESERVED = new Set([
-  "school", "school-login", "school-portal", "login", "signup", "welcome",
-  "kid", "kid-login", "kid-login-new", "parent-login", "audit", "settings",
-  "challenges", "knowledge-quest", "log-behavior", "assets", "brand", "src",
+  ...FAMILY_SEGMENTS,
+  "school", "school-login", "school-portal", "parent-login",
+  "login", "signup", "welcome", "assets", "brand", "src",
+  "kid-login", "kid-login-new",
+  // Top-level routes belonging to neither product exclusively.
+  "onboarding", "join-pending", "diagnostic", "network-test",
+  "reset-password", "change-pin", "contact-school", "setup",
 ]);
 
 function slugFrom(url) {
@@ -130,6 +149,30 @@ class SetContent {
   element(el) { el.setAttribute("content", this._v); }
 }
 
+/** Where this URL belongs if it is on the wrong product's hostname,
+ *  else null. Pure and exported so the rule that keeps the two products
+ *  apart is covered by tests — this worker is the only thing enforcing
+ *  it, and it has no other guard.
+ *
+ *  "/welcome" on a non-family host is deliberately not handled here: it
+ *  needs a host→school lookup, so the caller owns it. */
+export function productRedirect(url) {
+  const seg = url.pathname.split("/").filter(Boolean)[0] ?? "";
+  if (url.hostname === FAMILY_HOST) {
+    // School-shaped: an explicit school route, a ?org= login link, or a
+    // /<slug> public site. RESERVED keeps family routes out of the last
+    // test, so /rewards is never read as a school called "rewards".
+    if (SCHOOL_SEGMENTS.has(seg) || slugFrom(url)) {
+      return `https://${PLATFORM_HOST}${url.pathname}${url.search}`;
+    }
+    return null;
+  }
+  if (FAMILY_SEGMENTS.has(seg)) {
+    return `https://${FAMILY_HOST}${url.pathname}${url.search}`;
+  }
+  return null;
+}
+
 export default {
   async fetch(request, env, ctx) {
     if (request.method !== "GET") return env.ASSETS.fetch(request);
@@ -162,27 +205,23 @@ export default {
     ) {
       return env.ASSETS.fetch(request);
     }
-    // ── Family product lives on its own host ────────────────────────
+    // ── Two products, two hostnames ─────────────────────────────────
     const seg = url.pathname.split("/").filter(Boolean)[0] ?? "";
-    if (url.hostname !== FAMILY_HOST) {
-      if (seg === "welcome") {
-        // The family landing has no business on a school's domain — but
-        // this is also where ProtectedRoute lands a logged-out visitor,
-        // so it must not throw a teacher off their own school's site.
-        const owner = await hostSchool(url.hostname, ctx);
-        const to = new URL(url);
-        // "/" on a school's domain already IS their site, and keeps the
-        // address clean; the platform host has no site, so sign-in.
-        to.pathname = owner ? "/" : "/login";
-        to.search = "";
-        return Response.redirect(to.toString(), 302);
-      }
-      if (FAMILY_SEGMENTS.has(seg)) {
-        return Response.redirect(
-          `https://${FAMILY_HOST}${url.pathname}${url.search}`,
-          302,
-        );
-      }
+    const away = productRedirect(url);
+    if (away) return Response.redirect(away, 302);
+
+    if (url.hostname !== FAMILY_HOST && seg === "welcome") {
+      // The family landing has no business on a school's domain — but
+      // this is also where ProtectedRoute lands a logged-out visitor,
+      // so it must not throw a teacher off their own school's site.
+      // Left out of productRedirect because it needs a host lookup.
+      const owner = await hostSchool(url.hostname, ctx);
+      const to = new URL(url);
+      // "/" on a school's domain already IS their site, and keeps the
+      // address clean; the platform host has no site, so sign-in.
+      to.pathname = owner ? "/" : "/login";
+      to.search = "";
+      return Response.redirect(to.toString(), 302);
     }
 
     const shell = await env.ASSETS.fetch(new URL("/index.html", url.origin));
