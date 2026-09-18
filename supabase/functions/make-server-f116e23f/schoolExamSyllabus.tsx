@@ -30,6 +30,7 @@ export {
   proposePortion,
   parasCovered,
   isEmptyPosition,
+  frontierPara,
   type ProgressRow,
 } from "./hifzPortion.ts";
 
