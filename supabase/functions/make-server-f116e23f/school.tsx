@@ -647,6 +647,11 @@ school.patch("/orgs/:orgId", async (c) => {
     // Hifz intake (14 Sep): paras of nazra a child reads in a hifz section
     // before hifz starts - the round offers the move to Hifz there.
     "hifz_nazra_paras",
+    // Which way the hifz programme travels (18 Sep): "reverse" (Para 30
+    // first, then 29, 28 ... down to 1 - Iqra IFS and most schools in the
+    // region) or "forward" (Para 1 up to 30). Decides what the exam
+    // syllabus counts as already held. Defaults to reverse.
+    "hifz_memorization_order",
     // Where parents deposit fees (14 Sep): the school banks per class
     // group - a list of { bank, title, accountNumber, classIds }. The
     // parent fee page shows the account for the child's class.

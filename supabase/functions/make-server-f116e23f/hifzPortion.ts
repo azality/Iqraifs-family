@@ -97,6 +97,28 @@ export function parasCovered(rows: ProgressRow[]): number[] {
  *  happens to be and say nothing about how much is memorised. */
 export const SABAQ_KINDS = new Set(["sabaq", "memorized"]);
 
+/** Which way a school's hifz programme travels through the mushaf.
+ *
+ *  "reverse" — Para 30 first, then 29, 28 … down to 1. Amma first,
+ *  because the short surahs are what a child already prays with. This is
+ *  Iqra IFS's method and the common one in the region, so it is the
+ *  default.
+ *
+ *  "forward" — Para 1 first, then 2, 3 … up to 30. Some schools do teach
+ *  it this way, and everything below reads the road in that direction
+ *  instead: the frontier is the HIGHEST para reached, the paras held run
+ *  from 1 up to it, and khatam is completing Para 30 rather than Para 1.
+ *
+ *  Set per school in Org settings (settings.hifz_memorization_order), so
+ *  a school that works the other way needs nothing from us. */
+export type HifzOrder = "reverse" | "forward";
+
+export function hifzOrderOf(settings: unknown): HifzOrder {
+  const v = (settings as { hifz_memorization_order?: unknown } | null)
+    ?.hifz_memorization_order;
+  return v === "forward" ? "forward" : "reverse";
+}
+
 /** How far down the mushaf a child has reached — their memorisation
  *  frontier — or null when nothing has been heard.
  *
@@ -124,8 +146,9 @@ export const SABAQ_KINDS = new Set(["sabaq", "memorized"]);
 export function frontierPara(
   rows: ProgressRow[],
   kinds: Set<string> = SABAQ_KINDS,
+  order: HifzOrder = "reverse",
 ): number | null {
-  const f = frontier(rows, kinds);
+  const f = frontier(rows, kinds, order);
   return f === null ? null : f.para;
 }
 
@@ -147,12 +170,16 @@ export interface Frontier {
 export function frontier(
   rows: ProgressRow[],
   kinds: Set<string> = SABAQ_KINDS,
+  order: HifzOrder = "reverse",
 ): Frontier | null {
   const usable = rows.filter(
     (r) => !r.missed && kinds.has(r.kind) && !isFatihaOnly(r) && parasOfRow(r).length > 0,
   );
   if (usable.length === 0) return null;
-  const para = Math.min(...usable.flatMap(parasOfRow));
+  // The frontier is the para furthest ALONG the road, which is the
+  // lowest number going 30→1 and the highest going 1→30.
+  const all = usable.flatMap(parasOfRow);
+  const para = order === "forward" ? Math.max(...all) : Math.min(...all);
 
   // Of the hearings inside that para, how far did the child get?
   let at: { surah: number; ayah: number } | null = null;
@@ -205,12 +232,20 @@ export function isFatihaOnly(r: ProgressRow): boolean {
  *
  *  Empty string when we have neither — the teacher types it, and we
  *  never invent a portion a child was not actually heard on. */
+export interface ProposeOptions {
+  /** The school has declared this child hafiz. */
+  isHafiz?: boolean;
+  /** Which way this school's hifz programme travels. */
+  order?: HifzOrder;
+}
+
 export function proposePortion(
   track: string | null,
   rows: ProgressRow[],
   baselineParas: number[] = [],
-  isHafiz = false,
+  opts: ProposeOptions = {},
 ): string {
+  const { isHafiz = false, order = "reverse" } = opts;
   // A child the school has DECLARED hafiz holds the whole Quran, whatever
   // the log happens to show. Three completed in September 2026 — Bisma
   // Sajid, Fahad Ansari and Aroush Azeem Khan, announced for the
@@ -244,18 +279,24 @@ export function proposePortion(
     // has their reading counted — fall back to everything rather than
     // proposing a blank line.
     const readingRows = paras.length > 0 ? nazraRows : rows;
-    const kinds = paras.length > 0
+    const kindsForFrontier = paras.length > 0
       ? NAZRA_LESSON_KINDS
       : new Set([...SABAQ_KINDS, ...NAZRA_LESSON_KINDS]);
     return portionLine(
       paras.length > 0 ? paras : parasCovered(rows),
-      frontier(readingRows, kinds),
+      frontier(readingRows, kindsForFrontier, order),
       baseline,
+      order,
     );
   }
   // hifz / revision / unknown: what they have memorized.
   const portionRows = rows.filter((r) => PORTION_KINDS.has(r.kind));
-  return portionLine(parasCovered(portionRows), frontier(portionRows), baseline);
+  return portionLine(
+    parasCovered(portionRows),
+    frontier(portionRows, SABAQ_KINDS, order),
+    baseline,
+    order,
+  );
 }
 
 /** Assemble the line: the paras held, then how far into the current one.
@@ -267,14 +308,20 @@ function portionLine(
   heard: number[],
   f: Frontier | null,
   baseline: number[],
+  order: HifzOrder = "reverse",
 ): string {
   const held = new Set<number>([...baseline]);
   for (const p of heard) held.add(p);
   let partial: string | null = null;
 
   if (f) {
-    // Everything below the frontier's para is finished ground.
-    for (let p = f.complete ? f.para : f.para + 1; p <= 30; p++) held.add(p);
+    // Everything the child has already passed on the way here. Going
+    // 30→1 that is the paras above the frontier; going 1→30, below it.
+    if (order === "forward") {
+      for (let p = 1; p <= (f.complete ? f.para : f.para - 1); p++) held.add(p);
+    } else {
+      for (let p = f.complete ? f.para : f.para + 1; p <= 30; p++) held.add(p);
+    }
     if (!f.complete) {
       // The para in progress is not held, however often it was heard.
       held.delete(f.para);

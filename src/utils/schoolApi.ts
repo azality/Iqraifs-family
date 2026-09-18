@@ -299,6 +299,10 @@ export const updateOrganization = (
     qaida_lesson_count: number;
     /** Paras of nazra a child reads in a hifz section before hifz starts. */
     hifz_nazra_paras: number;
+    /** Which way the hifz programme travels: "reverse" is Para 30 down
+     *  to 1 (the usual method here), "forward" is Para 1 up to 30.
+     *  Decides what the exam syllabus counts as already memorised. */
+    hifz_memorization_order: "reverse" | "forward";
     /** Where parents deposit fees, per class group. */
     fee_bank_accounts: Array<{
       bank: string; title: string; accountNumber: string; classIds: string[];

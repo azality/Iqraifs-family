@@ -22,7 +22,7 @@
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { requireTeacherOfSection } from "./schoolAuth.ts";
-import { proposePortion, type ProgressRow } from "./hifzPortion.ts";
+import { proposePortion, hifzOrderOf, type ProgressRow } from "./hifzPortion.ts";
 
 // Re-exported so existing importers (and the regression suite) keep
 // working now that the pure logic lives in its own, testable module.
@@ -54,6 +54,16 @@ async function loadProgress(studentIds: string[]): Promise<ProgressRow[]> {
     if (rows.length < PAGE) break;
   }
   return out;
+}
+
+
+/** Which way this school's hifz programme travels through the mushaf.
+ *  Iqra IFS goes 30 → 1; a school that goes 1 → 30 sets it in Org
+ *  settings and everything below reads the road that way instead. */
+async function orderOf(orgId: string) {
+  const { data } = await serviceRoleClient
+    .from("organizations").select("settings").eq("id", orgId).maybeSingle();
+  return hifzOrderOf((data as { settings?: unknown } | null)?.settings ?? null);
 }
 
 export function installExamSyllabus(school: Hono): void {
@@ -101,6 +111,7 @@ export function installExamSyllabus(school: Hono): void {
     }
 
     const ids = list.map((s) => s.id);
+    const order = await orderOf(g.orgId);
     let progress: ProgressRow[] = [];
     try { progress = await loadProgress(ids); }
     catch (e) { return c.json({ error: e instanceof Error ? e.message : String(e) }, 500); }
@@ -123,7 +134,8 @@ export function installExamSyllabus(school: Hono): void {
       const track = explicit ?? (sectionIsHifz ? "hifz" : null);
       const mine = byStudent.get(s.id) ?? [];
       const baselineParas = ((s.hifz_baseline_paras ?? []) as number[]).map(Number);
-      const proposed = proposePortion(track, mine, baselineParas, !!s.hafiz_since);
+      const proposed = proposePortion(track, mine, baselineParas,
+        { isHafiz: !!s.hafiz_since, order });
       const row = savedBy.get(s.id);
       return {
         studentId: s.id,
@@ -292,6 +304,7 @@ export function installExamSyllabus(school: Hono): void {
     const sectionIsHifz =
       (sec as any)?.schedule_key === "hifz" || (sec as any)?.class?.kind === "hifz";
 
+    const order = await orderOf(g.orgId);
     const now = new Date().toISOString();
     const missing: Array<{ studentId: string; name: string }> = [];
     const toWrite: any[] = [];
@@ -302,7 +315,7 @@ export function installExamSyllabus(school: Hono): void {
         track,
         byStudent.get(s.id) ?? [],
         ((s.hifz_baseline_paras ?? []) as number[]).map(Number),
-        !!s.hafiz_since,
+        { isHafiz: !!s.hafiz_since, order },
       )).trim();
       if (!portion) { missing.push({ studentId: s.id, name: s.full_name }); continue; }
       toWrite.push({
