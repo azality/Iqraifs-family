@@ -22,6 +22,7 @@ export type { DataTableProps, DataTableColumn } from "./DataTable";
 export { ManageToolbar, schoolNavGroupsForRole } from "./ManageToolbar";
 export { HeaderSearch } from "./HeaderSearch";
 export { NotificationBell } from "./NotificationBell";
+export { InboxButton } from "./InboxButton";
 export type { ManageToolbarProps } from "./ManageToolbar";
 
 export { TimeOffModal } from "./TimeOffModal";

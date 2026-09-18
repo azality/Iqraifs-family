@@ -4,7 +4,12 @@ import { ModeSwitcher } from "../components/ModeSwitcher";
 import { WorkspaceSwitcher } from "../components/WorkspaceSwitcher";
 import { useWorkspace } from "../contexts/WorkspaceContext";
 import { useOrgLogo } from "../contexts/OrgBrandingContext";
-import { ManageToolbar, schoolNavGroupsForRole, HeaderSearch, NotificationBell } from "../components/school-ui";
+import { ManageToolbar, schoolNavGroupsForRole, HeaderSearch, NotificationBell, InboxButton } from "../components/school-ui";
+
+// Who answers parent messages. Mirrors the roles the ManageToolbar
+// already gives the "Parent inbox" entry to — principal and admin via
+// the Today group, office staff via their own list.
+const INBOX_ROLES = new Set(["principal", "admin", "office_staff"]);
 import { viewerRoleForOrg } from "../../utils/schoolApi";
 import {
   Home, FileText, BarChart3, Settings, Calendar, Gift, Shield,
@@ -479,6 +484,12 @@ export function RootLayout() {
                   </button>
                 </>
               )}
+              {/* Parent messages — the roles that answer them get a door
+                  in the header rather than one buried in a menu. Teachers
+                  are left out on purpose: the inbox is not theirs to
+                  answer, and the toolbar never offered it to them. */}
+              {isSchoolWorkspace && schoolOrgId &&
+                INBOX_ROLES.has(schoolViewerRole) && <InboxButton orgId={schoolOrgId} />}
               {/* Alerts bell — school workspace only. Shows what needs
                   this person right now, derived live rather than queued. */}
               {isSchoolWorkspace && schoolOrgId && <NotificationBell orgId={schoolOrgId} />}
