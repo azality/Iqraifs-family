@@ -19,6 +19,7 @@
 // Active state is computed from the current pathname — a grouped tab
 // lights up when any of its children is the current page.
 
+import { bestActiveTo } from "../../../utils/navActive";
 import { Link, useLocation } from "react-router";
 import { useTranslation } from "react-i18next";
 import {
@@ -282,22 +283,6 @@ function groupsForAdmin(
   return groups;
 }
 
-function isActive(pathname: string, to: string): boolean {
-  // Dashboard's `to` is the org root (e.g. /school/orgs/:orgId). A
-  // plain startsWith check matches every sub-page (My schedule,
-  // Students, …), which would highlight Dashboard everywhere. For
-  // org-root paths require an exact match. Strip ?query / #hash off
-  // both sides before comparing so query params (e.g. ?action=time-off)
-  // don't break the highlight.
-  const cleanPath = pathname.split(/[?#]/)[0];
-  const cleanTo = to.split(/[?#]/)[0];
-  // Org root (Dashboard) and admin root (Admin home) are prefixes of every
-  // other page — require exact match for both, else they highlight always.
-  const isRootLike = /^\/school\/orgs\/[^/]+(\/admin)?$/.test(cleanTo);
-  if (isRootLike) return cleanPath === cleanTo;
-  return cleanPath === cleanTo || cleanPath.startsWith(cleanTo + "/");
-}
-
 // Full school nav for a role, as groups — consumed by the mobile drawer
 // (RootLayout) so phones get the SAME destinations as the desktop
 // toolbar. Before this, the drawer hardcoded a single "Dashboard" item
@@ -407,8 +392,16 @@ export function ManageToolbar({ orgId, viewerRole }: ManageToolbarProps) {
   const primary = navTabs.slice(0, MAX_PRIMARY_TABS);
   const overflow = navTabs.slice(MAX_PRIMARY_TABS);
 
+  // One entry is "you are here": the most specific destination that
+  // matches. Without this, Marking progress lit up Assessment as well —
+  // its address sits beneath Assessment's (18 Sep).
+  const allDestinations = tabs.flatMap((tab) =>
+    tab.to ? [tab.to] : (tab.items ?? []).map((it) => it.to));
+  if (action) allDestinations.push(action.to);
+  const best = bestActiveTo(pathname, allDestinations);
+  const on = (to: string) => to === best;
   const tabActive = (tab: NavTab) =>
-    tab.to ? isActive(pathname, tab.to) : (tab.items ?? []).some((it) => isActive(pathname, it.to));
+    tab.to ? on(tab.to) : (tab.items ?? []).some((it) => on(it.to));
   const overflowActive = overflow.some(tabActive);
 
   return (
@@ -439,7 +432,7 @@ export function ManageToolbar({ orgId, viewerRole }: ManageToolbarProps) {
                     to={it.to}
                     className={
                       "flex items-center gap-2 text-sm " +
-                      (isActive(pathname, it.to) ? "font-semibold text-indigo-700" : "text-slate-700")
+                      (on(it.to) ? "font-semibold text-indigo-700" : "text-slate-700")
                     }
                   >
                     <it.Icon className="h-3.5 w-3.5 shrink-0" />
@@ -486,7 +479,7 @@ export function ManageToolbar({ orgId, viewerRole }: ManageToolbarProps) {
                         to={it.to}
                         className={
                           "flex items-center gap-2 text-sm " +
-                          (isActive(pathname, it.to) ? "font-semibold text-indigo-700" : "text-slate-700")
+                          (on(it.to) ? "font-semibold text-indigo-700" : "text-slate-700")
                         }
                       >
                         <it.Icon className="h-3.5 w-3.5 shrink-0" />
