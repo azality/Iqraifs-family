@@ -64,7 +64,10 @@ export const TOURS: Record<TourRole, Step[]> = {
     {
       target: "body",
       placement: "center",
-      title: "Welcome to Iqra Family School",
+      // Never name a school here: this copy is shown to every school on
+      // the platform, and "Iqra Family School" was not even the name of
+      // the one it was written for.
+      title: "Welcome to your school workspace",
       content:
         "You're set up as Principal. Let's take a 1-minute tour so you know where everything is.",
       disableBeacon: true,
@@ -229,6 +232,30 @@ export const TOURS: Record<TourRole, Step[]> = {
     },
   ],
 };
+
+/** The steps worth running right now — those whose target is actually on
+ *  the page.
+ *
+ *  Steps point at elements that are not always rendered. The principal
+ *  tour's last step targets the setup checklist, which disappears once a
+ *  school is set up, so on a live school the tour walked into a step it
+ *  could not show and never reached FINISHED — which is how it escaped
+ *  being recorded as done and came back on every login.
+ *
+ *  `exists` is injected rather than reaching for `document` so this can
+ *  be tested without a DOM. */
+export function stepsForRole(
+  role: TourRole,
+  exists: (selector: string) => boolean,
+): Step[] {
+  const usable = TOURS[role].filter(
+    (s) => typeof s.target !== "string" || s.target === "body" || exists(s.target),
+  );
+  // A tour of one centred welcome card and nothing else is not a tour.
+  // Better to show the full set and let Joyride warn than to present a
+  // single step that explains nothing.
+  return usable.length > 1 ? usable : TOURS[role];
+}
 
 // ─── Role picker ────────────────────────────────────────────────────────
 // Picks the most-specific tour for the current user. Principal trumps all.

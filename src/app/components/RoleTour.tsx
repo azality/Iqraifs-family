@@ -6,9 +6,10 @@
 // tour" button).
 
 import { useEffect, useState } from "react";
-import Joyride, { STATUS, type CallBackProps } from "react-joyride";
+import Joyride, { ACTIONS, STATUS, type CallBackProps, type Step } from "react-joyride";
 import {
   TOURS,
+  stepsForRole,
   hasCompletedTour,
   markTourCompleted,
   type TourRole,
@@ -24,6 +25,7 @@ export interface RoleTourProps {
 
 export function RoleTour({ role, userId, force = false, onClose }: RoleTourProps) {
   const [run, setRun] = useState(false);
+  const [steps, setSteps] = useState<Step[]>([]);
 
   useEffect(() => {
     if (!userId) {
@@ -32,7 +34,12 @@ export function RoleTour({ role, userId, force = false, onClose }: RoleTourProps
     }
     if (force || !hasCompletedTour(role, userId)) {
       // Defer one tick so the DOM is painted and Joyride can find targets.
-      const id = window.setTimeout(() => setRun(true), 250);
+      const id = window.setTimeout(() => {
+        // Only the steps whose target is actually on the page — see
+        // stepsForRole for why a missing one used to break the tour.
+        setSteps(stepsForRole(role, (sel) => !!document.querySelector(sel)));
+        setRun(true);
+      }, 250);
       return () => window.clearTimeout(id);
     }
     setRun(false);
@@ -42,9 +49,14 @@ export function RoleTour({ role, userId, force = false, onClose }: RoleTourProps
   if (!run && !force && hasCompletedTour(role, userId)) return null;
 
   const handleCallback = (data: CallBackProps): void => {
-    const finished: string[] = [STATUS.FINISHED, STATUS.SKIPPED];
-    if (finished.includes(data.status)) {
-      markTourCompleted(role, userId);
+    // Record it the moment it is shown, not only on a clean finish.
+    // Every other way out — the X, a mid-tour refresh, a step whose
+    // target vanished, navigating away — used to leave it unrecorded,
+    // so it returned on every single login. Seen once is seen.
+    markTourCompleted(role, userId);
+
+    const done: string[] = [STATUS.FINISHED, STATUS.SKIPPED, STATUS.ERROR];
+    if (done.includes(data.status) || data.action === ACTIONS.CLOSE) {
       setRun(false);
       onClose?.();
     }
@@ -52,7 +64,7 @@ export function RoleTour({ role, userId, force = false, onClose }: RoleTourProps
 
   return (
     <Joyride
-      steps={TOURS[role]}
+      steps={steps.length > 0 ? steps : TOURS[role]}
       run={run}
       continuous
       showSkipButton
