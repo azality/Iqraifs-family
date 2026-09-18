@@ -51,12 +51,12 @@ Deno.test("a child on Para 22 is proposed Para 22–30 — never 1–22", () => 
   assertEquals(proposePortion("hifz", [para(22)]), "Para 22–30");
 });
 
-Deno.test("a lone para far from the rest is a slip, not a frontier", () => {
-  // Heard on 30 and 29, then a stray 1 today. Filling down from that
-  // would hand the child the entire Quran on one keystroke.
-  const rows = [on(15, 30), on(16, 29), on(17, 1)];
-  assertEquals(frontierPara(rows), null);
-  assertEquals(proposePortion("hifz", rows), "Para 1, 29–30");
+Deno.test("a sabaq at Para 1 is khatam, wherever else the child was heard", () => {
+  // Fahad Ansari, corrected by the school 18 Sep: sabaq reached Para 1
+  // and finished it. The Para 11 sabaq beside it is his dour beginning.
+  const rows = [para(30), para(29), para(1), para(11)];
+  assertEquals(frontierPara(rows), 1);
+  assertEquals(proposePortion("hifz", rows), "Para 1–30");
 });
 
 Deno.test("the baseline supplies what was memorised before we kept records", () => {
@@ -106,9 +106,9 @@ Deno.test("only portion kinds count — a nazra reading is not memorisation", ()
   assertEquals(proposePortion("hifz", rows), "Para 30");
 });
 
-Deno.test("nazra track reads its own kinds", () => {
+Deno.test("nazra track reads its own kinds, and fills the road down", () => {
   const rows = [para(5, { kind: "nazra" }), para(6, { kind: "nazra_revision" })];
-  assertEquals(proposePortion("nazra", rows), "Para 5–6");
+  assertEquals(proposePortion("nazra", rows), "Para 5–30");
 });
 
 Deno.test("qaida is counted in takhtis, and the para baseline stays out of it", () => {
@@ -119,66 +119,59 @@ Deno.test("qaida is counted in takhtis, and the para baseline stays out of it", 
   assertEquals(proposePortion("qaida", rows, [30]), "Qaida — takhti 1–11");
 });
 
+
 // ── The road travelled: hifz runs 30 → 1 ────────────────────────────
 // "If a kid finished 12 para this means he memorised 30th, then 29th,
 //  28th … to 19th, therefore the syllabus should be 19th to 30th."
+//
+// And, corrected by the school: the frontier is the LOWEST sabaq, never
+// the most recent hearing. Fahad Ansari completed Para 1 — his khatam —
+// while his latest sabaq sits at Para 11 because he has started dour.
 
-/** A hearing with a timestamp, so "most recent" is unambiguous. */
-const on = (day: number, n: number, over: Partial<Row> = {}): Row =>
-  ({ ...para(n), recorded_at: `2026-09-${String(day).padStart(2, "0")}T08:00:00Z`, ...over });
+/** Revision: sits wherever the cycle is, never moves the frontier. */
+const sabqi = (n: number): Row => ({ ...base, kind: "sabqi", juz_number: n });
+const manzil = (n: number): Row => ({ ...base, kind: "manzil", juz_number: n });
 
-Deno.test("twelve paras done: heard on 19 today, syllabus is Para 19–30", () => {
-  // The fortnight we happen to hold shows only the current para.
-  const rows = [on(15, 20), on(16, 19), on(17, 19)];
-  assertEquals(proposePortion("hifz", rows), "Para 19–30");
+Deno.test("twelve paras done: heard on Para 19, syllabus is Para 19-30", () => {
+  assertEquals(proposePortion("hifz", [para(20), para(19)]), "Para 19\u201330");
 });
 
 Deno.test("a child only ever heard on Para 30 stays at Para 30", () => {
-  assertEquals(proposePortion("hifz", [on(15, 30)]), "Para 30");
+  assertEquals(proposePortion("hifz", [para(30)]), "Para 30");
 });
 
-Deno.test("reaching Para 1 is khatam — the whole Quran", () => {
-  assertEquals(proposePortion("hifz", [on(15, 2), on(16, 1)]), "Para 1–30");
+Deno.test("Fahad Ansari: sabaq at 1 and 11, revision elsewhere - khatam", () => {
+  const rows = [
+    para(1), para(11),            // sabaq: Para 1 finished, dour begun
+    sabqi(1), sabqi(1),           // revising Para 1 daily
+    manzil(5), manzil(30),        // older revision, wherever the cycle is
+  ];
+  assertEquals(frontierPara(rows), 1);
+  assertEquals(proposePortion("hifz", rows), "Para 1\u201330");
 });
 
-Deno.test("nazra travels the same road: 30, 29, 28", () => {
-  const rows = [on(15, 29, { kind: "nazra" }), on(16, 28, { kind: "nazra" })];
-  assertEquals(proposePortion("nazra", rows), "Para 28–30");
-});
-
-Deno.test("the frontier is the LATEST hearing, not the lowest ever seen", () => {
-  // One stray Para 1 among a child who is really on Para 11. Taking the
-  // minimum would announce a completed Quran.
-  const rows = [on(15, 1), on(16, 11), on(17, 11)];
-  assertEquals(frontierPara(rows), null);
-  assertEquals(proposePortion("hifz", rows), "Para 1, 11");
-});
-
-Deno.test("a record that contradicts the pattern is never filled in", () => {
-  // Heard on 2 after having been heard on 1: that is not the 30→1 road,
-  // so propose only what was actually heard and let the teacher decide.
-  const rows = [on(15, 1), on(16, 2)];
-  assertEquals(frontierPara(rows), null);
-  assertEquals(proposePortion("hifz", rows), "Para 1–2");
-});
-
-Deno.test("a clean record fills down; the frontier is what was last heard", () => {
-  assertEquals(frontierPara([on(15, 25), on(16, 24)]), 24);
+Deno.test("revision never sets the frontier, however deep it reaches", () => {
+  // Sabaq says Para 20. Sabqi happens to be revising Para 3 today.
+  const rows = [para(20), sabqi(3), manzil(2)];
+  assertEquals(frontierPara(rows), 20);
+  assertEquals(proposePortion("hifz", rows), "Para 20\u201330");
 });
 
 Deno.test("an absence does not move the frontier", () => {
-  const rows = [on(15, 20), on(16, 5, { missed: true })];
+  const rows = [para(20), para(5, { missed: true })];
   assertEquals(frontierPara(rows), 20);
-  assertEquals(proposePortion("hifz", rows), "Para 20–30");
+  assertEquals(proposePortion("hifz", rows), "Para 20\u201330");
 });
 
-Deno.test("the baseline still wins where it reaches further", () => {
-  // Frontier says 25–30; the office recorded 19 onwards from before we
-  // kept records. The child holds both.
-  assertEquals(proposePortion("hifz", [on(16, 25)], [19, 20, 21, 22, 23, 24]), "Para 19–30");
+Deno.test("nazra travels the same road: 30, 29, 28", () => {
+  const rows = [para(29, { kind: "nazra" }), para(28, { kind: "nazra" })];
+  assertEquals(proposePortion("nazra", rows), "Para 28\u201330");
 });
 
-Deno.test("surah/ayah hearings map through the Indo-Pak boundaries", () => {
-  // 9:94 starts Para 11 on the Indo-Pak mushaf, not the Madani one.
-  assertEquals(parasCovered([at(9, 94, 100)]), [11]);
+Deno.test("the baseline still counts where it reaches further", () => {
+  assertEquals(proposePortion("hifz", [para(25)], [19, 20, 21, 22, 23, 24]), "Para 19\u201330");
+});
+
+Deno.test("no sabaq at all leaves the frontier unknown", () => {
+  assertEquals(frontierPara([sabqi(4), manzil(9)]), null);
 });

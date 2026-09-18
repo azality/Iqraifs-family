@@ -3,18 +3,24 @@
 // Pure — no database, no Hono — so the rule the whole Hifz exam rests on
 // can be tested directly (hifzPortion_test.ts).
 //
-// The school's question, 18 Sep: "the system will only generate from
-// wherever we started recording in the LMS. But our children memorise
-// backwards — Para 30 first, then 29, 28, 27 down to 19. Surely it will
-// just say Para 1, 2, 3, 4?"
+// The road runs BACKWARDS here: Para 30, then 29, 28 … down to 1, and
+// completing Para 1 is khatam. So a child heard on Para 19 today
+// memorised 30, 29, 28 … 19 to get there, and the exam portion is
+// Para 19–30 — twelve paras — not the single para we happen to have
+// logged since 3 Sep 2026.
 //
-// It will not, and never could: nothing here counts upwards from Para 1.
-// It collects the set of paras the child was ACTUALLY heard on and
-// collapses that set into ranges, so a child taught backwards reads
-// "Para 19–30" and one who has jumped around reads "Para 1, 18".
-// What the school is right about is the OTHER half — we only hold
-// hearings since 3 Sep 2026 — and that is what the per-child baseline
-// (hifz_baseline_paras) exists to supply, entered once.
+// Nothing here counts upwards from Para 1, and no case exists in which
+// it could. Two rules carry the whole file:
+//
+//   · the frontier is the LOWEST sabaq. Sabaq is the new lesson and only
+//     it advances the road; sabqi and manzil are revision and sit
+//     wherever the cycle happens to be.
+//   · everything from the frontier to Para 30 is held, because that is
+//     the road already travelled.
+//
+// The per-child baseline (hifz_baseline_paras) remains for anything the
+// record cannot show — a child whose earlier paras were never logged
+// here at all.
 
 import { juzOfPosition, formatParaRanges } from "./quranParas.ts";
 
@@ -22,6 +28,9 @@ import { juzOfPosition, formatParaRanges } from "./quranParas.ts";
  *  a portion — it must never widen a child's syllabus. */
 export const PORTION_KINDS = new Set(["sabaq", "memorized", "revised", "tested"]);
 export const NAZRA_KINDS = new Set(["nazra", "nazra_revision"]);
+/** The reading lesson itself. Re-reading, like sabqi, does not advance
+ *  the road and so cannot set the frontier. */
+export const NAZRA_LESSON_KINDS = new Set(["nazra"]);
 
 export interface ProgressRow {
   student_id: string;
@@ -32,9 +41,6 @@ export interface ProgressRow {
   juz_number: number | null;
   qaida_lesson: number | null;
   missed: boolean | null;
-  /** Used only to find the most recent hearing. Optional so callers that
-   *  do not select it still type-check. */
-  recorded_at?: string | null;
 }
 
 /** A row carrying no position at all.
@@ -77,47 +83,43 @@ export function parasCovered(rows: ProgressRow[]): number[] {
   return [...paras];
 }
 
+/** Only the new lesson advances the road. Sabqi (recent revision) and
+ *  manzil (older revision) sit wherever the child's revision cycle
+ *  happens to be and say nothing about how much is memorised. */
+export const SABAQ_KINDS = new Set(["sabaq", "memorized"]);
+
 /** How far down the mushaf a child has reached — their memorisation
- *  frontier — or null when we cannot tell.
+ *  frontier — or null when nothing has been heard.
  *
  *  Hifz here runs BACKWARDS: Para 30, then 29, 28 … down to 1, and
- *  reaching Para 1 means the Quran is complete. Nazra runs 30, 29, 28
- *  and the child then moves into Hifz. So the para of the MOST RECENT
- *  hearing is the deepest point reached — not the lowest number ever
- *  recorded, which one stray row would drag to the floor and have us
- *  announce a child had finished the Quran.
+ *  completing Para 1 is khatam — the whole Quran.
  *
- *  Null when the record contradicts that pattern — when something below
- *  the frontier was also logged. Those children keep a proposal built
- *  only from what was actually heard, and the teacher decides. Better to
- *  understate and have a portion added than to examine a child on paras
- *  nobody ever heard them recite. */
+ *  The LOWEST sabaq para, and sabaq only. Both halves of that were
+ *  learned from Fahad Ansari (Hifz I), whom the school tells us has just
+ *  completed Para 1:
+ *
+ *    sabaq   2:31 → 2:141 across 4–14 Sep   … Para 1, finished
+ *    sabaq   9:94 on 16 Sep                 … Para 11, he has begun dour
+ *    sabqi   1:1 every day                  … revising Para 1
+ *    manzil  4:24, then 78:1                … Para 5, then Para 30
+ *
+ *  Reading the frontier from his most recent hearing gives Para 11 and
+ *  understates him by twenty-nine paras — it hides a completed Quran.
+ *  Reading it from revision gives Para 5, or 30, depending on the day.
+ *  The lowest sabaq gives Para 1, which is the truth.
+ *
+ *  This trusts sabaq completely, so a mistyped one proposes more than a
+ *  child holds. That is what the teacher's review before publishing is
+ *  for — and a portion that is too large is visible on the screen, where
+ *  a missing khatam is not. */
 export function frontierPara(
   rows: ProgressRow[],
-  kinds: Set<string> = PORTION_KINDS,
+  kinds: Set<string> = SABAQ_KINDS,
 ): number | null {
-  const usable = rows
+  const paras = rows
     .filter((r) => !r.missed && kinds.has(r.kind))
-    .map((r) => ({ at: r.recorded_at ?? "", paras: parasOfRow(r) }))
-    .filter((x) => x.paras.length > 0);
-  if (usable.length === 0) return null;
-  // Stable sort by time; rows arrive oldest-first already, and an absent
-  // timestamp keeps its position rather than jumping to the front.
-  const ordered = usable
-    .map((x, i) => ({ ...x, i }))
-    .sort((a, b) => (a.at === b.at ? a.i - b.i : a.at < b.at ? -1 : 1));
-  const frontier = Math.min(...ordered[ordered.length - 1].paras);
-
-  const distinct = [...new Set(usable.flatMap((x) => x.paras))].sort((a, b) => a - b);
-  // Something below the latest hearing was logged earlier: that is not
-  // the 30→1 road, it is a record with a stray in it.
-  if (distinct[0] < frontier) return null;
-  // The road is continuous — a child reaches 19 only by way of 20. A
-  // frontier sitting alone, paras away from everything else heard, is a
-  // slip of the pen, and filling down from it would hand a child half
-  // the Quran. One para on its own is fine: that is simply where they are.
-  if (distinct.length > 1 && distinct[1] - frontier > 1) return null;
-  return frontier;
+    .flatMap(parasOfRow);
+  return paras.length > 0 ? Math.min(...paras) : null;
 }
 
 /** The paras a child holds, given the frontier: everything from there to
@@ -162,8 +164,8 @@ export function proposePortion(
     // proposing a blank line.
     const use = paras.length > 0 ? paras : parasCovered(rows);
     const frontier = paras.length > 0
-      ? frontierPara(nazraRows, NAZRA_KINDS)
-      : frontierPara(rows, new Set([...PORTION_KINDS, ...NAZRA_KINDS]));
+      ? frontierPara(nazraRows, NAZRA_LESSON_KINDS)
+      : frontierPara(rows, new Set([...SABAQ_KINDS, ...NAZRA_LESSON_KINDS]));
     return formatParaRanges([
       ...use,
       ...(frontier === null ? [] : fillDownFrom(frontier)),
