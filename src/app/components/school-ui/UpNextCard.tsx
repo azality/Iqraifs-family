@@ -181,6 +181,22 @@ function PrepStateBadge({ item, audience }: { item: LessonPrepItem; audience: "t
   // otherwise it's the next topic in sequence. Teachers see the
   // distinction; students just see the topic.
   const planned = audience === "teacher" && item.topicSource === "planned";
+  // A hifz period has no curriculum topic — each child is on their own
+  // portion — so "Topic to be announced" sat under Sabqi and Manzil
+  // forever (18 Sep). The child's own next target is the real answer.
+  if (item.hifzKind) {
+    return item.hifzNext ? (
+      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">
+        <Lightbulb className="h-3 w-3" />
+        {t("upNext.hifzPrepare")} <span dir="auto">{item.hifzNext.text}</span>
+      </span>
+    ) : (
+      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+        <ListChecks className="h-3 w-3" />
+        {t("upNext.hifzNothingSet")}
+      </span>
+    );
+  }
   if (item.prepState === "lesson_ready") {
     return (
       <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">

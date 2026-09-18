@@ -13,7 +13,7 @@ import { HeroCard, TimeOffModal } from "../../components/school-ui";
 import { UpNextCard } from "../../components/school-ui/UpNextCard";
 import { useExamSchedule } from "./ExamDatesheetCard";
 import { surahDisplayName } from "../../../utils/quranSurahs";
-import { formatJuzExtent } from "../../../utils/hifzExtent";
+import { hifzLine } from "../../../utils/hifzWording";
 import {
   getStudentDashboard,
   getStudentUpcoming,
@@ -30,6 +30,16 @@ import {
 // old partial list fell back to "Surah 79" for most of Juz Amma.
 const surahLabel = (n: number, t: (k: string) => string, lang?: string) =>
   `${t("hifzTeach.surah")} ${surahDisplayName(n, lang) || n}`;
+
+/** "Thu 17 Sep" — YYYY-MM-DD read as a LOCAL date, not UTC midnight, so
+ *  it never slips a day in a browser west of Greenwich. */
+const shortDate = (iso: string, lang: string) => {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(
+    lang.startsWith("ur") ? "ur-PK" : undefined,
+    { weekday: "short", day: "numeric", month: "short" },
+  );
+};
 
 /** "Today's Diary" card. Spec-shaped:
  *    English: Worksheet completed
@@ -63,36 +73,11 @@ function DiaryCard({ diary }: { diary: MyStudentDiaryResponse }) {
   // heard three times a day and "Today's sabaq" alone read as the
   // school skipping sabqi/manzil (parent report, 17 Sep). Older
   // backends without `entries` fall back to the sabaq/revision pair.
-  const qualityWord = (q: string | null): string => {
-    const map: Record<string, string> = {
-      excellent: t("hifzTeach.qExcellent"), good: t("hifzTeach.qGood"),
-      weak: t("hifzTeach.qWeak"), needs_practice: t("hifzTeach.qNeedsPractice"),
-      not_learned: t("hifzTeach.qNotLearned"),
-    };
-    return q ? (map[q] ?? q) : "";
-  };
   const hifzLines: string[] = (() => {
     if (!diary.hifz) return [];
     const entries = diary.hifz.entries ?? [];
     if (entries.length > 0) {
-      return entries.map((e) => {
-        const kindWord =
-          e.kind === "qaida" ? t("portal.hifz.kindQaida")
-          : e.kind === "nazra" ? t("portal.hifz.kindNazra")
-          : e.kind === "nazra_revision" ? t("portal.hifz.kindNazraRevision")
-          : ["sabaq", "sabqi", "manzil"].includes(e.kind) ? t(`hifzTeach.${e.kind}`)
-          : e.kind;
-        const portion =
-          e.kind === "qaida"
-            ? t("portal.hifz.qaidaLesson", { n: e.qaidaLesson ?? "—" })
-            : (e.kind === "manzil" || e.juzExtent) && e.juzNumber
-            ? `${t("hifzTeach.juzN", { n: e.juzNumber })}${formatJuzExtent(e.juzExtent ?? null)}`
-            : e.surahNumber != null
-            ? `${surahLabel(e.surahNumber, t, lang)}, ${t("portal.hifz.ayahWord")} ${ayahRange(e.ayahFrom ?? 0, e.ayahTo ?? e.ayahFrom ?? 0)}`
-            : "";
-        const q = qualityWord(e.quality);
-        return `${kindWord} — ${portion}${q ? ` (${q})` : ""}`;
-      });
+      return entries.map((e) => hifzLine(e, t, lang));
     }
     const { sabaq, revision } = diary.hifz;
     if (sabaq) {
@@ -111,10 +96,16 @@ function DiaryCard({ diary }: { diary: MyStudentDiaryResponse }) {
     return [];
   })();
 
+  // What to prepare next, as the teacher set it. Parents said hifz
+  // homework was invisible (18 Sep); it was recorded on nearly every
+  // hearing and never sent.
+  const hifzHomework = diary.hifzHomework ?? [];
+
   const isEmpty =
     lessonsBySubject.size === 0 &&
     diary.assignments.length === 0 &&
     hifzLines.length === 0 &&
+    hifzHomework.length === 0 &&
     diary.reminders.length === 0;
 
   return (
@@ -181,6 +172,26 @@ function DiaryCard({ diary }: { diary: MyStudentDiaryResponse }) {
             </div>
           </div>
         ))}
+
+        {hifzHomework.length > 0 && (
+          <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+            <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+              {t("portal.hifz.homeworkTitle")}
+            </div>
+            <ul className="mt-1.5 space-y-1">
+              {hifzHomework.map((h) => (
+                <li key={h.kind} className="flex flex-wrap items-baseline gap-x-2 text-sm text-emerald-900">
+                  <span dir="auto">{h.text}</span>
+                  {h.setOn && h.setOn !== diary.date && (
+                    <span className="text-[11px] text-emerald-700/80">
+                      {t("portal.hifz.homeworkSetOn", { date: shortDate(h.setOn, lang) })}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {diary.hifz?.parentAction && (
           <div className="mt-3 rounded-lg bg-emerald-50 border border-emerald-200 p-3">

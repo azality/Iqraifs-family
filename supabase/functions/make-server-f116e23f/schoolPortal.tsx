@@ -28,6 +28,7 @@ import type { Hono, Context } from "npm:hono";
 import { serviceRoleClient } from "./middleware.tsx";
 import { computeMemorizedTotals } from "./schoolPhaseC.tsx";
 import { todayInOrgTz } from "./tz.ts";
+import { currentHomework, groupByDay, schoolDateOf, type HifzRow } from "./portalHifz.ts";
 import * as kv from "./kv_store.tsx";
 import { windowStarts, sectionTallies, parseStatsPeriod } from "./schoolBehaviorStats.tsx";
 
@@ -480,6 +481,31 @@ export function installPortal(school: Hono): void {
   // ---------------------------------------------------------------------------
   // GET /school/pin-me/students/:studentId/lessons
   // ---------------------------------------------------------------------------
+  /** A child's recent hifz hearings, newest first, in the shape the
+   *  portalHifz rules read. Paged-free on purpose: a hifz child is heard
+   *  about three times a school day, so 90 rows is a month — enough for
+   *  every parent screen, and far under the 1000-row PostgREST cap. */
+  async function loadHifzRows(
+    studentId: string,
+    opts: { since?: string; limit?: number } = {},
+  ): Promise<HifzRow[]> {
+    let q = serviceRoleClient
+      .from("hifz_progress")
+      .select("kind, surah_number, ayah_from, ayah_to, juz_number, juz_extent, qaida_lesson, quality, next_target, recorded_at, missed")
+      .eq("student_id", studentId)
+      .order("recorded_at", { ascending: false })
+      .limit(opts.limit ?? 90);
+    // A day early in UTC, so the whole first school day is inside the
+    // window whatever the offset; groupByDay then drops what is outside.
+    if (opts.since) {
+      const d = new Date(opts.since + "T00:00:00Z");
+      d.setUTCDate(d.getUTCDate() - 1);
+      q = q.gte("recorded_at", d.toISOString());
+    }
+    const { data } = await q;
+    return (data ?? []) as HifzRow[];
+  }
+
   school.get("/pin-me/students/:studentId/lessons", async (c) => {
     const g = await gatePerStudent(c);
     if (!g.ok) return g.resp;
@@ -574,11 +600,20 @@ export function installPortal(school: Hono): void {
       for (const r of (comps ?? []) as any[]) completed.add(r.lesson_id);
     }
 
+    // A hifz child's classwork is the hifz round, not a lesson row — hifz
+    // teachers never write lessons, so this page was empty for every one
+    // of them (18 Sep). The same range, day by day, from the round itself.
+    const hifzRows = await loadHifzRows(studentId, { since: startDate ?? undefined });
+    const hifzDays = groupByDay(hifzRows).filter((d) =>
+      (!startDate || d.date >= startDate) && (!endDate || d.date <= endDate),
+    );
+
     return c.json({
       lessons: lessons.map((r) => ({
         ...lessonToJson(r),
         completed: completed.has(r.id),
       })),
+      hifzDays,
     });
   });
 
@@ -695,12 +730,14 @@ export function installPortal(school: Hono): void {
     } | null = null;
     const { data: hifzRows } = await serviceRoleClient
       .from("hifz_progress")
-      .select("kind, surah_number, ayah_from, ayah_to, juz_number, juz_extent, qaida_lesson, quality, tajweed_notes, fluency_notes, parent_comments, notes, parent_action, recorded_at, missed")
+      .select("kind, surah_number, ayah_from, ayah_to, juz_number, juz_extent, qaida_lesson, quality, tajweed_notes, fluency_notes, parent_comments, notes, parent_action, next_target, recorded_at, missed")
       .eq("student_id", studentId)
       .order("recorded_at", { ascending: false })
       .limit(20);
+    // "Today" on the school's clock, not the UTC date — a hearing saved
+    // late in the evening in Karachi would otherwise land on tomorrow.
     const recent = ((hifzRows ?? []) as any[]).filter((h) =>
-      !h.missed && (h.recorded_at ?? "").slice(0, 10) === today,
+      !h.missed && schoolDateOf(h.recorded_at) === today,
     );
     const sabaqRow = recent.find((h) => h.kind === "sabaq");
     const revisionRow = recent.find((h) => h.kind === "sabqi" || h.kind === "manzil");
@@ -774,12 +811,20 @@ export function installPortal(school: Hono): void {
       }
     }
 
+    // The hifz homework: what the teacher set to prepare next, one line
+    // per kind. Teachers record it on nearly every hearing
+    // (next_target); no parent screen ever read it (18 Sep). Carried
+    // across days — a hearing rated without a new target has not
+    // cancelled yesterday's — so it still shows on a day nothing was heard.
+    const hifzHomework = currentHomework((hifzRows ?? []) as HifzRow[]);
+
     return c.json({
       date: today,
       studentName: (stu as any).full_name,
       lessons,
       assignments,
       hifz,
+      hifzHomework,
       reminders,
     });
   });
@@ -2554,7 +2599,14 @@ export function installPortal(school: Hono): void {
       }
     }
 
+    // Hifz homework never lived in the assignment table: it is the next
+    // target the teacher sets on each hearing. Without this the Homework
+    // page was blank for every hifz child (18 Sep).
+    const hifzRows = await loadHifzRows(studentId, { limit: 60 });
+
     return c.json({
+      hifzHomework: currentHomework(hifzRows),
+      hifzDays: groupByDay(hifzRows).filter((d) => d.homework.length > 0).slice(0, 14),
       assignments: (assigns ?? []).map((a: any) => {
         const sub = subByAssign.get(a.id);
         const gr = gradeByAssign.get(a.id);

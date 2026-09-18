@@ -13,7 +13,9 @@ import {
   unmarkLessonComplete,
   getLessonCompletion,
   type Lesson,
+  type HifzDay,
 } from "../../../utils/schoolPortalApi";
+import { hifzLine } from "../../../utils/hifzWording";
 
 function isoDaysAgo(days: number): string {
   const d = new Date();
@@ -36,6 +38,10 @@ export function StudentLessons() {
   const [startDate, setStartDate] = useState<string>(isoDaysAgo(7));
   const [endDate, setEndDate] = useState<string>(todayIso());
   const [lessons, setLessons] = useState<Lesson[] | null>(null);
+  // A hifz child's classwork is the hifz round, not lesson rows — hifz
+  // teachers never write lessons, so this page was empty for every hifz
+  // child (18 Sep). The server sends the round for the same range.
+  const [hifzDays, setHifzDays] = useState<HifzDay[]>([]);
   const [error, setError] = useState<string | null>(null);
   // Map of lessonId → completedAt ISO (null = not completed). Hydrated
   // lazily; null entries are "unknown until fetched".
@@ -52,7 +58,10 @@ export function StudentLessons() {
     (async () => {
       try {
         const res = await getMyStudentLessons(studentId, range);
-        if (!cancelled) setLessons(res.lessons);
+        if (!cancelled) {
+          setLessons(res.lessons);
+          setHifzDays(res.hifzDays ?? []);
+        }
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load");
       }
@@ -240,7 +249,54 @@ export function StudentLessons() {
         );
       })()}
 
-      {lessons && lessons.length === 0 && (
+      {/* Hifz classwork, day by day: what was heard, and what was set to
+          prepare. Shown first because for a hifz child it IS the lessons. */}
+      {hifzDays.length > 0 && (
+        <div className="space-y-3">
+          {hifzDays.map((day) => (
+            <article key={day.date} className={`${cardBase} ${cardElev} p-5`}>
+              <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                {(() => {
+                  const [y, m, d] = day.date.split("-").map(Number);
+                  return new Date(y, m - 1, d).toLocaleDateString(
+                    (i18n.language ?? "en").startsWith("ur") ? "ur-PK" : undefined,
+                    { weekday: "long", day: "numeric", month: "long" },
+                  );
+                })()}
+              </div>
+              {day.heard.length > 0 && (
+                <div className="mt-2">
+                  <div className="text-[11px] font-medium text-slate-500">
+                    {t("portal.hifz.heardInClass")}
+                  </div>
+                  <ul className="mt-1 space-y-1">
+                    {day.heard.map((h) => (
+                      <li key={h.kind} className="flex gap-2 text-sm text-slate-800">
+                        <BookOpen className="h-4 w-4 mt-0.5 shrink-0 text-emerald-600" />
+                        <span>{hifzLine(h, t, i18n.language ?? "en")}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {day.homework.length > 0 && (
+                <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+                    {t("portal.hifz.homeworkTitle")}
+                  </div>
+                  <ul className="mt-1 space-y-0.5">
+                    {day.homework.map((h) => (
+                      <li key={h.kind} dir="auto" className="text-sm text-emerald-900">{h.text}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </article>
+          ))}
+        </div>
+      )}
+
+      {lessons && lessons.length === 0 && hifzDays.length === 0 && (
         <div className={`${cardBase} ${cardElev} p-6 text-sm text-slate-500 text-center`}>
           {t("portal.lessonsNoRange")}
         </div>

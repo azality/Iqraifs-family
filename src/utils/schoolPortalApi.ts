@@ -278,8 +278,39 @@ export interface StudentDashboardResponse {
 export const getStudentDashboard = (studentId: string): Promise<StudentDashboardResponse> =>
   pinApiCall(`/school/pin-me/students/${studentId}/dashboard`);
 
+// ─── Hifz work: what was heard, and what to prepare ────────────────
+// Hifz teachers never write lesson or assignment rows — they log the hifz
+// round — so the portal's Lessons and Homework pages were empty for every
+// hifz child. The server now derives both from the round itself. The
+// homework is the "next lesson" the teacher records on each hearing.
+export interface HifzHomeworkLine {
+  kind: string;
+  /** As the teacher wrote it, e.g. "Sabaq: Al-Furqan 1–8". */
+  text: string;
+  /** The school day it was set — shown so a parent can see how current. */
+  setOn: string | null;
+}
+/** One hearing, in the server's raw shape. */
+export interface HifzHeardRow {
+  kind: string;
+  surah_number: number | null;
+  ayah_from: number | null;
+  ayah_to: number | null;
+  juz_number: number | null;
+  juz_extent: string | null;
+  qaida_lesson: number | null;
+  quality: string | null;
+}
+export interface HifzDay {
+  date: string;
+  heard: HifzHeardRow[];
+  homework: HifzHomeworkLine[];
+}
+
 export interface MyStudentLessonsResponse {
   lessons: Lesson[];
+  /** A hifz child's classwork, day by day, over the same range. */
+  hifzDays?: HifzDay[];
 }
 
 export const getMyStudentLessons = (
@@ -423,6 +454,8 @@ export interface MyStudentDiaryResponse {
   lessons: DiaryLessonRow[];
   assignments: DiaryAssignmentRow[];
   hifz: DiaryHifz | null;
+  /** What to prepare next, one line per kind, carried across days. */
+  hifzHomework?: HifzHomeworkLine[];
   reminders: string[];
 }
 
@@ -881,7 +914,13 @@ export interface PortalAssignmentRow {
 
 export const listMyAssignments = (
   studentId: string,
-): Promise<{ assignments: PortalAssignmentRow[] }> =>
+): Promise<{
+  assignments: PortalAssignmentRow[];
+  /** Hifz homework the child is carrying now, one line per kind. */
+  hifzHomework?: HifzHomeworkLine[];
+  /** Recent days on which hifz homework was set. */
+  hifzDays?: HifzDay[];
+}> =>
   pinApiCall(`/school/pin-me/students/${studentId}/assignments`);
 
 export const submitAssignmentWork = (
