@@ -68,7 +68,9 @@ function parasOfRow(r: ProgressRow): number[] {
   if (r.missed) return [];
   if (r.juz_number && r.juz_number >= 1 && r.juz_number <= 30) return [r.juz_number];
   if (!r.surah_number || !r.ayah_from) return [];
-  if (isEmptyPosition(r)) return [];
+  // Neither the form's untouched default nor Al-Fatiha describes a
+  // portion — see isEmptyPosition and isFatihaOnly.
+  if (isEmptyPosition(r) || isFatihaOnly(r)) return [];
   const start = juzOfPosition(r.surah_number, r.ayah_from);
   const end = juzOfPosition(r.surah_number, r.ayah_to ?? r.ayah_from);
   const out: number[] = [];
@@ -117,9 +119,26 @@ export function frontierPara(
   kinds: Set<string> = SABAQ_KINDS,
 ): number | null {
   const paras = rows
-    .filter((r) => !r.missed && kinds.has(r.kind))
+    .filter((r) => !r.missed && kinds.has(r.kind) && !isFatihaOnly(r))
     .flatMap(parasOfRow);
   return paras.length > 0 ? Math.min(...paras) : null;
+}
+
+/** Al-Fatiha, and nothing else in the row.
+ *
+ *  Al-Fatiha sits in Para 1, and every child recites it — the beginner
+ *  on his third day as much as the hafiz at khatam. Muhammad Aliyan
+ *  Noman (Hifz IV, nazra) is working through Surahs 114, 113 and 111 a
+ *  few ayahs at a time; the one 1:1–7 in his record would otherwise set
+ *  his frontier to Para 1 and announce that he has memorised the Quran.
+ *
+ *  So Al-Fatiha never sets the frontier. Real evidence of holding Para 1
+ *  is Al-Baqarah running up to 2:141, which is where the para ends — or
+ *  Para 1 chosen outright in para mode, which carries juz_number and is
+ *  not affected by this. Such a row adds nothing to the portion either;
+ *  it remains in the diary and the child's history untouched. */
+export function isFatihaOnly(r: ProgressRow): boolean {
+  return !r.juz_number && r.surah_number === 1;
 }
 
 /** The paras a child holds, given the frontier: everything from there to
