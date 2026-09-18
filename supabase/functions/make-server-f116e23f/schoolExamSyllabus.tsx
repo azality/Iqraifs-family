@@ -22,23 +22,16 @@
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { requireTeacherOfSection } from "./schoolAuth.ts";
-import { juzOfPosition, formatParaRanges } from "./quranParas.ts";
+import { proposePortion, type ProgressRow } from "./hifzPortion.ts";
 
-/** Rows a proposal may be built from. A missed marker is an absence, not
- *  a portion — it must never widen a child's syllabus. */
-const PORTION_KINDS = new Set(["sabaq", "memorized", "revised", "tested"]);
-const NAZRA_KINDS = new Set(["nazra", "nazra_revision"]);
-
-interface ProgressRow {
-  student_id: string;
-  kind: string;
-  surah_number: number | null;
-  ayah_from: number | null;
-  ayah_to: number | null;
-  juz_number: number | null;
-  qaida_lesson: number | null;
-  missed: boolean | null;
-}
+// Re-exported so existing importers (and the regression suite) keep
+// working now that the pure logic lives in its own, testable module.
+export {
+  proposePortion,
+  parasCovered,
+  isEmptyPosition,
+  type ProgressRow,
+} from "./hifzPortion.ts";
 
 /** Fetch every progress row for these students, paged — an unpaged
  *  select silently stops at 1000 and would quietly shrink a child's
@@ -60,62 +53,6 @@ async function loadProgress(studentIds: string[]): Promise<ProgressRow[]> {
     if (rows.length < PAGE) break;
   }
   return out;
-}
-
-/** Which paras a set of rows covers. Para-mode rows carry juz_number
- *  directly; surah/ayah rows are mapped through the Indo-Pak boundaries. */
-function parasCovered(rows: ProgressRow[]): number[] {
-  const paras = new Set<number>();
-  for (const r of rows) {
-    if (r.missed) continue;
-    if (r.juz_number && r.juz_number >= 1 && r.juz_number <= 30) {
-      paras.add(r.juz_number);
-      continue;
-    }
-    if (!r.surah_number || !r.ayah_from) continue;
-    const start = juzOfPosition(r.surah_number, r.ayah_from);
-    const end = juzOfPosition(r.surah_number, r.ayah_to ?? r.ayah_from);
-    for (let p = Math.min(start, end); p <= Math.max(start, end); p++) paras.add(p);
-  }
-  return [...paras];
-}
-
-/** The proposed syllabus line for one child.
- *
- *  Two sources, merged: what the child has been HEARD on since logging
- *  began (3 Sep 2026), plus whatever the office recorded as already
- *  memorized BEFORE that. Without the baseline the first exam's
- *  proposals understate nearly everyone, because we only hold a few
- *  weeks of hearings.
- *
- *  Empty string when we have neither — the teacher types it, and we
- *  never invent a portion a child was not actually heard on. */
-export function proposePortion(
-  track: string | null,
-  rows: ProgressRow[],
-  baselineParas: number[] = [],
-): string {
-  const baseline = baselineParas.filter((p) => p >= 1 && p <= 30);
-  if (track === "qaida") {
-    // Qaida is counted in takhtis, not paras — the baseline (a para set)
-    // has nothing to say about it.
-    const lessons = rows
-      .filter((r) => !r.missed && r.kind === "qaida" && r.qaida_lesson)
-      .map((r) => r.qaida_lesson as number);
-    if (lessons.length === 0) return "";
-    return `Qaida — takhti 1–${Math.max(...lessons)}`;
-  }
-  if (track === "nazra") {
-    const paras = parasCovered(rows.filter((r) => NAZRA_KINDS.has(r.kind)));
-    // A reader who has also been heard on sabaq (mid-move to hifz) still
-    // has their reading counted — fall back to everything rather than
-    // proposing a blank line.
-    const use = paras.length > 0 ? paras : parasCovered(rows);
-    return formatParaRanges([...use, ...baseline]);
-  }
-  // hifz / revision / unknown: what they have memorized.
-  const paras = parasCovered(rows.filter((r) => PORTION_KINDS.has(r.kind)));
-  return formatParaRanges([...paras, ...baseline]);
 }
 
 export function installExamSyllabus(school: Hono): void {

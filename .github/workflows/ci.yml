@@ -28,4 +28,10 @@ jobs:
       # missing-import ReferenceErrors ship.)
       - run: npm run typecheck
 
+      # The unit tests never ran here, so every rule they pin — the two
+      # product hostnames, the para ranges, the permission matrix — was
+      # only ever checked on a laptop. Vitest only; the Deno backend
+      # tests stay local so CI doesn't have to install a second runtime.
+      - run: npx vitest run
+
       - run: npm run build
