@@ -396,8 +396,16 @@ export interface MyStudentHifzResponse {
   } | null;
 }
 
-export const getMyStudentHifz = (studentId: string): Promise<MyStudentHifzResponse> =>
-  pinApiCall(`/school/pin-me/students/${studentId}/hifz`);
+export const getMyStudentHifz = (
+  studentId: string,
+  opts: { startDate?: string; limit?: number } = {},
+): Promise<MyStudentHifzResponse> => {
+  const qs = new URLSearchParams();
+  if (opts.startDate) qs.set("startDate", opts.startDate);
+  if (opts.limit) qs.set("limit", String(opts.limit));
+  const q = qs.toString();
+  return pinApiCall(`/school/pin-me/students/${studentId}/hifz${q ? `?${q}` : ""}`);
+};
 
 // ─── Daily Diary (PR feat/daily-diary) ──────────────────────────────────
 // Single-round-trip aggregate of "what happened today + what to do

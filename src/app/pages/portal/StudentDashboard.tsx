@@ -14,6 +14,7 @@ import { UpNextCard } from "../../components/school-ui/UpNextCard";
 import { useExamSchedule } from "./ExamDatesheetCard";
 import { surahDisplayName } from "../../../utils/quranSurahs";
 import { hifzLine } from "../../../utils/hifzWording";
+import { HifzWeekCard } from "./HifzWeekCard";
 import {
   getStudentDashboard,
   getStudentUpcoming,
@@ -300,7 +301,9 @@ export function StudentDashboard() {
   if (data) {
     const rows = data.recentActivity ?? [];
     const attRows = rows.filter((r) => r.kind === "attendance");
-    const others = rows.filter((r) => r.kind !== "attendance").slice(0, 5);
+    // Hifz hearings have their own day-by-day card (HifzWeekCard) — here
+    // they crowded out everything else, three rows a day (18 Sep).
+    const others = rows.filter((r) => r.kind !== "attendance" && r.kind !== "hifz").slice(0, 5);
     for (const r of others) {
       const d = new Date(r.at);
       digest.push({
@@ -390,6 +393,10 @@ export function StudentDashboard() {
 
       {/* Today's Diary — narrative for today (what we did, what to do tonight). */}
       {diary && <DiaryCard diary={diary} />}
+
+      {/* A hifz child's days, sabaq / sabqi / manzil — renders nothing
+          for a child with no hifz record. */}
+      <HifzWeekCard studentId={studentId} />
 
       {/* This week — the human digest that replaced the activity table. */}
       {data && (
