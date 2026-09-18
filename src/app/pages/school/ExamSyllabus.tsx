@@ -45,9 +45,7 @@ export function ExamSyllabus() {
   const [me, setMe] = useState<SchoolMeResponse | null>(null);
   const [meLoading, setMeLoading] = useState(true);
   const [classes, setClasses] = useState<AdminClass[]>([]);
-  const [terms, setTerms] = useState<AcademicTerm[]>([]);
   const [exams, setExams] = useState<Exam[]>([]);
-  const [termId, setTermId] = useState("");
   const [examId, setExamId] = useState(params.get("examId") ?? "");
   const [sectionId, setSectionId] = useState(params.get("sectionId") ?? "");
   const [rows, setRows] = useState<ExamSyllabusRow[]>([]);
@@ -60,24 +58,30 @@ export function ExamSyllabus() {
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
   }, []);
+  // Every exam the school has, across all terms, newest first.
+  //
+  // This page used to ask for a term before it would show an exam, which
+  // is a question with no answer for Hifz: Hifz sits two exams a year,
+  // the half-yearly and the annual, and neither is "2nd Assessment" —
+  // that is the name of a term the main school uses (Muneeb, 18 Sep).
+  // Picking the paper by its own name and date asks nothing of anyone.
   useEffect(() => {
     if (!orgId) return;
     listClasses(orgId).then(setClasses).catch(() => {});
     listTerms(orgId)
-      .then((r) => {
-        setTerms(r.terms);
-        const current = r.terms.find((t) => t.isCurrent) ?? r.terms[0];
-        if (current && !termId) setTermId(current.id);
+      .then(async (r) => {
+        const lists = await Promise.all(
+          r.terms.map((t) =>
+            listExams(orgId, t.id).then((x) => x.exams).catch(() => []),
+          ),
+        );
+        const all = lists.flat().filter((e) => !e.archivedAt);
+        all.sort((a, b) => (b.examDate ?? "").localeCompare(a.examDate ?? ""));
+        setExams(all);
       })
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId]);
-  useEffect(() => {
-    if (!orgId || !termId) return;
-    listExams(orgId, termId)
-      .then((r) => setExams(r.exams.filter((e) => !e.archivedAt)))
-      .catch(() => setExams([]));
-  }, [orgId, termId]);
 
   // Hifz sections lead the picker — this page exists for them, though the
   // model is generic enough for any class whose children sit different
@@ -192,24 +196,20 @@ export function ExamSyllabus() {
 
       <div className="flex flex-wrap items-end gap-3">
         <div>
-          <Label className="text-xs text-slate-500">Term</Label>
-          <Select value={termId} onValueChange={(v) => { setTermId(v); setExamId(""); }}>
-            <SelectTrigger className="h-9 w-52 text-sm"><SelectValue placeholder="Pick a term" /></SelectTrigger>
-            <SelectContent>
-              {terms.map((t) => (
-                <SelectItem key={t.id} value={t.id}>{t.name}{t.isCurrent ? " (current)" : ""}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div>
           <Label className="text-xs text-slate-500">Exam</Label>
           <Select value={examId} onValueChange={setExamId}>
-            <SelectTrigger className="h-9 w-56 text-sm"><SelectValue placeholder="Pick an exam" /></SelectTrigger>
+            <SelectTrigger className="h-9 w-72 text-sm"><SelectValue placeholder="Pick an exam" /></SelectTrigger>
             <SelectContent>
-              {exams.length === 0 && <div className="px-2 py-1.5 text-xs text-slate-500">No exams in this term yet.</div>}
+              {exams.length === 0 && <div className="px-2 py-1.5 text-xs text-slate-500">No exams yet.</div>}
               {exams.map((e) => (
-                <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>
+                <SelectItem key={e.id} value={e.id}>
+                  {e.name}
+                  {e.examDate
+                    ? ` · ${new Date(e.examDate + "T00:00:00").toLocaleDateString(undefined, {
+                        day: "numeric", month: "short", year: "numeric",
+                      })}`
+                    : ""}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
