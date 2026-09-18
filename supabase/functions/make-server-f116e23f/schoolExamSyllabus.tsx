@@ -92,7 +92,7 @@ export function installExamSyllabus(school: Hono): void {
 
     const { data: students } = await serviceRoleClient
       .from("student")
-      .select("id, full_name, gr_number, quran_track, hifz_baseline_paras")
+      .select("id, full_name, gr_number, quran_track, hifz_baseline_paras, hafiz_since")
       .eq("org_id", g.orgId).eq("class_section_id", sectionId).eq("status", "active")
       .order("full_name");
     const list = (students ?? []) as any[];
@@ -123,7 +123,7 @@ export function installExamSyllabus(school: Hono): void {
       const track = explicit ?? (sectionIsHifz ? "hifz" : null);
       const mine = byStudent.get(s.id) ?? [];
       const baselineParas = ((s.hifz_baseline_paras ?? []) as number[]).map(Number);
-      const proposed = proposePortion(track, mine, baselineParas);
+      const proposed = proposePortion(track, mine, baselineParas, !!s.hafiz_since);
       const row = savedBy.get(s.id);
       return {
         studentId: s.id,
@@ -255,7 +255,7 @@ export function installExamSyllabus(school: Hono): void {
     const unpublish = body?.unpublish === true;
 
     const { data: students } = await serviceRoleClient
-      .from("student").select("id, full_name, quran_track, hifz_baseline_paras")
+      .from("student").select("id, full_name, quran_track, hifz_baseline_paras, hafiz_since")
       .eq("org_id", g.orgId).eq("class_section_id", sectionId).eq("status", "active");
     const list = (students ?? []) as any[];
     const ids = list.map((s) => s.id);
@@ -302,6 +302,7 @@ export function installExamSyllabus(school: Hono): void {
         track,
         byStudent.get(s.id) ?? [],
         ((s.hifz_baseline_paras ?? []) as number[]).map(Number),
+        !!s.hafiz_since,
       )).trim();
       if (!portion) { missing.push({ studentId: s.id, name: s.full_name }); continue; }
       toWrite.push({

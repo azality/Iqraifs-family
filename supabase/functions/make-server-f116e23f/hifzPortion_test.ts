@@ -271,3 +271,28 @@ Deno.test("the furthest point in the para wins, not the last logged", () => {
   const rows = [at(23, 1, 90), at(23, 40, 60)];
   assertEquals(frontier(rows)?.at, { surah: 23, ayah: 90 });
 });
+
+// ── A declared hafiz holds the whole Quran ──────────────────────────
+// Three children completed in September 2026 and were announced for the
+// 19 Sep ceremony. A record that began on 3 Sep cannot always show the
+// last para closing, so the school's declaration has to win.
+
+Deno.test("a declared hafiz is proposed the whole Quran", () => {
+  assertEquals(proposePortion("hifz", [], [], true), "Para 1\u201330");
+});
+
+Deno.test("Muskan Muhammad: the log stops mid-para, the declaration does not", () => {
+  const rows = [at(2, 84, 91), at(2, 204, 235), at(2, 236, 252)];
+  // What the record alone can say:
+  assertEquals(proposePortion("hifz", rows), "Para 2\u201330, and Para 1 up to 2:91");
+  // What the school says:
+  assertEquals(proposePortion("hifz", rows, [], true), "Para 1\u201330");
+});
+
+Deno.test("the declaration outranks an empty record entirely", () => {
+  assertEquals(proposePortion("hifz", [para(30)], [], true), "Para 1\u201330");
+});
+
+Deno.test("without the declaration nothing changes", () => {
+  assertEquals(proposePortion("hifz", [para(30)], [], false), "Para 30");
+});
