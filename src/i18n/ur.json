@@ -424,6 +424,18 @@
       "next": "اگلا پرچہ",
       "seeDatesheet": "ڈیٹ شیٹ ←"
     },
+    "hifzWeek": {
+      "title": "حفظ، دن بہ دن",
+      "thisWeek": "اس ہفتے",
+      "lastWeek": "پچھلا ہفتہ",
+      "thisMonth": "اس مہینے",
+      "today": "آج",
+      "heardDays": "سنے گئے دن: {{count}}",
+      "missedDays": "سبق نہیں ہوا: {{count}}",
+      "nothingRecorded": "کچھ درج نہیں",
+      "nothingYet": "ان دنوں میں کچھ درج نہیں۔",
+      "fullRecord": "حفظ کا مکمل ریکارڈ ←"
+    },
     "hifz": {
       "tonight": "آج رات گھر پر",
       "next": "اگلا:",

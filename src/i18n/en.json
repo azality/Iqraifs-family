@@ -424,6 +424,18 @@
       "next": "Next paper",
       "seeDatesheet": "Datesheet →"
     },
+    "hifzWeek": {
+      "title": "Hifz, day by day",
+      "thisWeek": "This week",
+      "lastWeek": "Last week",
+      "thisMonth": "This month",
+      "today": "Today",
+      "heardDays": "Days heard: {{count}}",
+      "missedDays": "Sabaq missed: {{count}}",
+      "nothingRecorded": "Nothing recorded",
+      "nothingYet": "Nothing recorded for these days.",
+      "fullRecord": "Full Hifz record →"
+    },
     "hifz": {
       "tonight": "Tonight at home",
       "next": "Next:",
