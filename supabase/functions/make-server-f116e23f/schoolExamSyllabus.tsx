@@ -30,6 +30,7 @@ export {
   proposePortion,
   parasCovered,
   isEmptyPosition,
+  frontierPara,
   type ProgressRow,
 } from "./hifzPortion.ts";
 
@@ -43,7 +44,7 @@ async function loadProgress(studentIds: string[]): Promise<ProgressRow[]> {
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await serviceRoleClient
       .from("hifz_progress")
-      .select("student_id, kind, surah_number, ayah_from, ayah_to, juz_number, qaida_lesson, missed")
+      .select("student_id, kind, surah_number, ayah_from, ayah_to, juz_number, qaida_lesson, missed, recorded_at")
       .in("student_id", studentIds)
       .order("recorded_at", { ascending: true })
       .range(from, from + PAGE - 1);

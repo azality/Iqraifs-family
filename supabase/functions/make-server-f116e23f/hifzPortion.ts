@@ -32,6 +32,9 @@ export interface ProgressRow {
   juz_number: number | null;
   qaida_lesson: number | null;
   missed: boolean | null;
+  /** Used only to find the most recent hearing. Optional so callers that
+   *  do not select it still type-check. */
+  recorded_at?: string | null;
 }
 
 /** A row carrying no position at all.
@@ -53,23 +56,77 @@ export function isEmptyPosition(r: ProgressRow): boolean {
   return r.surah_number === 1 && r.ayah_from === 1 && r.ayah_to === 1;
 }
 
-/** Which paras a set of rows covers. Para-mode rows carry juz_number
- *  directly; surah/ayah rows are mapped through the Indo-Pak boundaries. */
+/** Every para one row touches. Para-mode rows carry juz_number directly;
+ *  surah/ayah rows are mapped through the Indo-Pak boundaries. */
+function parasOfRow(r: ProgressRow): number[] {
+  if (r.missed) return [];
+  if (r.juz_number && r.juz_number >= 1 && r.juz_number <= 30) return [r.juz_number];
+  if (!r.surah_number || !r.ayah_from) return [];
+  if (isEmptyPosition(r)) return [];
+  const start = juzOfPosition(r.surah_number, r.ayah_from);
+  const end = juzOfPosition(r.surah_number, r.ayah_to ?? r.ayah_from);
+  const out: number[] = [];
+  for (let p = Math.min(start, end); p <= Math.max(start, end); p++) out.push(p);
+  return out;
+}
+
+/** Which paras a set of rows covers. */
 export function parasCovered(rows: ProgressRow[]): number[] {
   const paras = new Set<number>();
-  for (const r of rows) {
-    if (r.missed) continue;
-    if (r.juz_number && r.juz_number >= 1 && r.juz_number <= 30) {
-      paras.add(r.juz_number);
-      continue;
-    }
-    if (!r.surah_number || !r.ayah_from) continue;
-    if (isEmptyPosition(r)) continue;
-    const start = juzOfPosition(r.surah_number, r.ayah_from);
-    const end = juzOfPosition(r.surah_number, r.ayah_to ?? r.ayah_from);
-    for (let p = Math.min(start, end); p <= Math.max(start, end); p++) paras.add(p);
-  }
+  for (const r of rows) for (const p of parasOfRow(r)) paras.add(p);
   return [...paras];
+}
+
+/** How far down the mushaf a child has reached — their memorisation
+ *  frontier — or null when we cannot tell.
+ *
+ *  Hifz here runs BACKWARDS: Para 30, then 29, 28 … down to 1, and
+ *  reaching Para 1 means the Quran is complete. Nazra runs 30, 29, 28
+ *  and the child then moves into Hifz. So the para of the MOST RECENT
+ *  hearing is the deepest point reached — not the lowest number ever
+ *  recorded, which one stray row would drag to the floor and have us
+ *  announce a child had finished the Quran.
+ *
+ *  Null when the record contradicts that pattern — when something below
+ *  the frontier was also logged. Those children keep a proposal built
+ *  only from what was actually heard, and the teacher decides. Better to
+ *  understate and have a portion added than to examine a child on paras
+ *  nobody ever heard them recite. */
+export function frontierPara(
+  rows: ProgressRow[],
+  kinds: Set<string> = PORTION_KINDS,
+): number | null {
+  const usable = rows
+    .filter((r) => !r.missed && kinds.has(r.kind))
+    .map((r) => ({ at: r.recorded_at ?? "", paras: parasOfRow(r) }))
+    .filter((x) => x.paras.length > 0);
+  if (usable.length === 0) return null;
+  // Stable sort by time; rows arrive oldest-first already, and an absent
+  // timestamp keeps its position rather than jumping to the front.
+  const ordered = usable
+    .map((x, i) => ({ ...x, i }))
+    .sort((a, b) => (a.at === b.at ? a.i - b.i : a.at < b.at ? -1 : 1));
+  const frontier = Math.min(...ordered[ordered.length - 1].paras);
+
+  const distinct = [...new Set(usable.flatMap((x) => x.paras))].sort((a, b) => a - b);
+  // Something below the latest hearing was logged earlier: that is not
+  // the 30→1 road, it is a record with a stray in it.
+  if (distinct[0] < frontier) return null;
+  // The road is continuous — a child reaches 19 only by way of 20. A
+  // frontier sitting alone, paras away from everything else heard, is a
+  // slip of the pen, and filling down from it would hand a child half
+  // the Quran. One para on its own is fine: that is simply where they are.
+  if (distinct.length > 1 && distinct[1] - frontier > 1) return null;
+  return frontier;
+}
+
+/** The paras a child holds, given the frontier: everything from there to
+ *  the end of the mushaf, because that is the road they travelled. A
+ *  child on Para 19 has 19 through 30 — twelve paras. */
+function fillDownFrom(frontier: number): number[] {
+  const out: number[] = [];
+  for (let p = frontier; p <= 30; p++) out.push(p);
+  return out;
 }
 
 /** The proposed syllabus line for one child.
@@ -98,14 +155,33 @@ export function proposePortion(
     return `Qaida — takhti 1–${Math.max(...lessons)}`;
   }
   if (track === "nazra") {
-    const paras = parasCovered(rows.filter((r) => NAZRA_KINDS.has(r.kind)));
+    const nazraRows = rows.filter((r) => NAZRA_KINDS.has(r.kind));
+    const paras = parasCovered(nazraRows);
     // A reader who has also been heard on sabaq (mid-move to hifz) still
     // has their reading counted — fall back to everything rather than
     // proposing a blank line.
     const use = paras.length > 0 ? paras : parasCovered(rows);
-    return formatParaRanges([...use, ...baseline]);
+    const frontier = paras.length > 0
+      ? frontierPara(nazraRows, NAZRA_KINDS)
+      : frontierPara(rows, new Set([...PORTION_KINDS, ...NAZRA_KINDS]));
+    return formatParaRanges([
+      ...use,
+      ...(frontier === null ? [] : fillDownFrom(frontier)),
+      ...baseline,
+    ]);
   }
   // hifz / revision / unknown: what they have memorized.
-  const paras = parasCovered(rows.filter((r) => PORTION_KINDS.has(r.kind)));
-  return formatParaRanges([...paras, ...baseline]);
+  const portionRows = rows.filter((r) => PORTION_KINDS.has(r.kind));
+  const paras = parasCovered(portionRows);
+  // The road travelled, not just the fortnight we happened to record.
+  // A child heard on Para 19 today memorised 30, 29, 28 … 19 to get
+  // there, so the syllabus is Para 19–30 (Muneeb, 18 Sep). Without this
+  // every child's portion would be understated to whatever they were
+  // heard on since logging began on 3 Sep.
+  const frontier = frontierPara(portionRows);
+  return formatParaRanges([
+    ...paras,
+    ...(frontier === null ? [] : fillDownFrom(frontier)),
+    ...baseline,
+  ]);
 }
