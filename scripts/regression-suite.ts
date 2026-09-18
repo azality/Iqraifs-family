@@ -5788,6 +5788,70 @@ await check("104. marking progress: the office sees every section, teachers and 
   }
 });
 
+await check("105. an incharge can VIEW every column of their wing's marks sheet - and still cannot change a teacher's marks", async () => {
+  // Class I's own incharge opened a marks sheet to see what the teacher
+  // had entered and got "you don't teach a subject in this section" (18
+  // Sep). The sheet used one rule for seeing AND saving. Viewing is now
+  // open to the wing's incharge; saving is not.
+  const inch = await ensureUser("qa-incharge@azality.com", "QA Incharge", "class_teacher");
+  const cleanup: Array<() => Promise<unknown>> = [];
+  try {
+    const { data: term } = await admin.from("academic_term").select("id")
+      .eq("org_id", ORG).eq("is_current", true).is("archived_at", null).maybeSingle();
+    assert(term, "no current term");
+    const { data: exam } = await admin.from("exam").insert({
+      org_id: ORG, term_id: (term as any).id, name: "QA INCHARGE VIEW — Written",
+      exam_type: "other", weight: 1,
+    }).select("id").single();
+    assert(exam, "exam insert");
+    cleanup.push(() => admin.from("exam").delete().eq("id", (exam as any).id));
+    const url = `/school/orgs/${ORG}/exams/${(exam as any).id}/marks-sheet`;
+
+    const { data: subs } = await admin.from("class_subject").select("id")
+      .eq("class_id", sandboxClass.id).is("archived_at", null);
+    const allSubjectIds = ((subs ?? []) as any[]).map((x) => x.id);
+    assert(allSubjectIds.length > 0, "the Sandbox class needs a subject");
+
+    // With the wing: every column, flagged as a view.
+    const wingRowId = await ensureWingRow(inch.id, sandboxClass.id, principal.id);
+    cleanup.push(() => admin.from("user_roles").delete().eq("id", wingRowId));
+    const r = await api(inch.token, `${url}?sectionId=${sandboxSec.id}`);
+    const j = await r.json();
+    assert(r.status === 200, `incharge must see the sheet, got ${r.status}: ${JSON.stringify(j).slice(0, 120)}`);
+    assert(j.oversees === true, "the response must say this is an incharge's view");
+    assert((j.subjects ?? []).length === allSubjectIds.length,
+      `every subject must be shown: ${(j.subjects ?? []).length} of ${allSubjectIds.length}`);
+
+    // ...and saving into a column they do not teach is still refused.
+    const notMine = allSubjectIds.find((id) => !(j.editableSubjectIds ?? []).includes(id));
+    const { data: stu } = await admin.from("student").select("id")
+      .eq("class_section_id", sandboxSec.id).eq("status", "active").limit(1).maybeSingle();
+    if (notMine && stu) {
+      const w = await api(inch.token, url, {
+        method: "POST",
+        body: JSON.stringify({
+          sectionId: sandboxSec.id,
+          rows: [{ studentId: (stu as any).id, classSubjectId: notMine, maxMarks: 50, obtainedMarks: 40, absent: false }],
+        }),
+      });
+      assert(w.status === 403 || w.status === 400,
+        `an incharge must not write a teacher's column, got ${w.status}`);
+      const { data: leaked } = await admin.from("exam_subject_score").select("id")
+        .eq("exam_id", (exam as any).id).eq("class_subject_id", notMine);
+      assert(!(leaked ?? []).length, "no mark may have been written");
+    }
+
+    // Take the wing away and the view goes with it.
+    await admin.from("user_roles").update({ revoked_at: new Date().toISOString() }).eq("id", wingRowId);
+    const gone = await api(inch.token, `${url}?sectionId=${sandboxSec.id}`);
+    const gj = await gone.json();
+    assert(gone.status === 403 || gj.oversees !== true,
+      `without the wing the incharge view must go, got ${gone.status} oversees=${gj.oversees}`);
+  } finally {
+    for (const fn of cleanup.reverse()) await fn();
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

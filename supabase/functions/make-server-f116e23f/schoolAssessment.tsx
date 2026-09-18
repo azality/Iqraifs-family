@@ -1123,10 +1123,18 @@ export function installAssessment(school: Hono): void {
     // Subject teachers get ONLY their own columns — fewer mistakes, no
     // peeking at colleagues' marks. Admin/class teacher see everything.
     const editable = await editableSubjects(userId, orgId, sectionId);
-    if (editable !== null && editable.size === 0) {
+    // An incharge oversees the wing: they READ every column, so they can
+    // check what each teacher has entered — which is the whole reason they
+    // open this sheet (18 Sep: "you don't teach a subject in this section",
+    // shown to Class I's own incharge). Viewing only. Saving still goes
+    // through editableSubjects, so an incharge edits only a subject they
+    // actually teach — the POST below is unchanged.
+    const oversees = editable !== null &&
+      await isInchargeOfClass(userId, orgId, classId);
+    if (editable !== null && editable.size === 0 && !oversees) {
       return c.json({ error: "you don't teach a subject in this section" }, 403);
     }
-    const visibleSubjects = editable === null
+    const visibleSubjects = editable === null || oversees
       ? ((subjects ?? []) as any[])
       : ((subjects ?? []) as any[]).filter((s) => editable.has(s.id));
 
@@ -1179,6 +1187,9 @@ export function installAssessment(school: Hono): void {
         assessmentWeights: s.assessment_weights ?? null,
       })),
       editableSubjectIds: editable === null ? null : Array.from(editable),
+      // True when the caller sees columns they cannot edit — an incharge
+      // viewing their wing. The screen locks those columns read-only.
+      oversees,
       students: ((students ?? []) as any[]).map((s) => ({
         id: s.id,
         fullName: s.full_name,

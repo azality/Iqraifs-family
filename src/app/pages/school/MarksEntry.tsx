@@ -170,6 +170,20 @@ export function MarksEntry() {
     ),
     [sheet, isOnThisPaper, subjectsHoldingMarks],
   );
+  // May this viewer change a given column? null editableSubjectIds = every
+  // column (office, class teacher). An incharge is sent every column to
+  // READ, but may change only a subject they themselves teach (18 Sep).
+  const editableSet = useMemo(
+    () => (sheet?.editableSubjectIds ? new Set(sheet.editableSubjectIds) : null),
+    [sheet],
+  );
+  const canEditCol = useCallback(
+    (subjectId: string) => editableSet === null || editableSet.has(subjectId),
+    [editableSet],
+  );
+  const canEditRef = useRef(canEditCol);
+  canEditRef.current = canEditCol;
+
   // Per-subject "my column is complete" sign-off for this exam's term.
   // Local mirror of sheet.confirmations so the check flips instantly.
   const [confirmations, setConfirmations] = useState<Record<string, { by: string; byName: string; at: string }>>({});
@@ -294,7 +308,10 @@ export function MarksEntry() {
     if (!s || !sid) return;
     // Signed-off columns are locked server-side (409): leave them out of
     // the payload entirely, so saving the OTHER columns still works.
-    const subs = allSubs.filter((x: any) => !confirmationsRef.current[x.id]);
+    // Columns this viewer cannot change (an incharge's view of other
+    // teachers' subjects) are left out the same way.
+    const subs = allSubs.filter((x: any) =>
+      !confirmationsRef.current[x.id] && canEditRef.current(x.id));
     setSaveStatus("saving");
     setError(null);
     try {
@@ -547,9 +564,11 @@ export function MarksEntry() {
               </Button>
             )
           )}
-          <Button size="sm" onClick={() => void doSave()} disabled={saveStatus === "saving" || !sheet}>
-            <Save className="h-3.5 w-3.5 mr-1" /> Save now
-          </Button>
+          {!(sheet?.oversees && (sheet.editableSubjectIds ?? []).length === 0) && (
+            <Button size="sm" onClick={() => void doSave()} disabled={saveStatus === "saving" || !sheet}>
+              <Save className="h-3.5 w-3.5 mr-1" /> Save now
+            </Button>
+          )}
         </div>
       </div>
 
@@ -601,7 +620,12 @@ export function MarksEntry() {
         </CardContent></Card>
       ) : (
         <>
-        {sheet.editableSubjectIds && (
+        {sheet.oversees ? (
+          <div className="rounded-md border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs text-indigo-800">
+            Viewing as incharge — every subject is shown so you can check what each
+            teacher has entered. Marks are entered and signed off by each subject's own teacher.
+          </div>
+        ) : sheet.editableSubjectIds && (
           <div className="rounded-md border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs text-indigo-800">
             Showing only the subjects you teach in this section — other columns are entered by their own teachers.
           </div>
@@ -629,7 +653,21 @@ export function MarksEntry() {
                         edit (the server enforces the same rule) — the
                         sign-off covers BOTH papers of the term at once,
                         and the tabulation sheet displays who signed. */}
-                    {!stray && sheet.exam?.termId && (
+                    {!stray && sheet.exam?.termId && !canEditCol(s.id) && (
+                      confirmations[s.id] ? (
+                        <span
+                          className="mt-0.5 block text-[10px] font-semibold normal-case text-emerald-700"
+                          title={`Signed off by ${confirmations[s.id].byName || "a teacher"}`}
+                        >
+                          ✓ Signed off
+                        </span>
+                      ) : (
+                        <span className="mt-0.5 block text-[10px] font-normal normal-case text-slate-400">
+                          Not signed off yet
+                        </span>
+                      )
+                    )}
+                    {!stray && sheet.exam?.termId && canEditCol(s.id) && (
                       confirmations[s.id] ? (
                         <button
                           type="button"
@@ -696,8 +734,9 @@ export function MarksEntry() {
                       const key = `${stu.id}:${subj.id}`;
                       const c = cells.get(key) ?? { obtained: "", maxOverride: "", absent: false };
                       // A signed-off column is locked — the server refuses
-                      // its saves, so the cells go read-only too.
-                      const colLocked = !!confirmations[subj.id];
+                      // its saves, so the cells go read-only too. So is a
+                      // column this viewer can only look at.
+                      const colLocked = !!confirmations[subj.id] || !canEditCol(subj.id);
                       const mx = cellMax(c.maxOverride, subjectMax.get(subj.id) ?? null, defaultMax);
                       const ob = c.obtained ? Number(c.obtained) : null;
                       const cellPct = !c.absent ? pct(ob, mx) : null;
