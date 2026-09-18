@@ -5460,13 +5460,14 @@ await check("101. hifz exam syllabus: proposed from the child's own record, then
     cleanup.push(() => admin.from("student_exam_syllabus").delete().eq("exam_id", exam.id));
     cleanup.push(() => admin.from("exam").delete().eq("id", exam.id));
 
-    // Seed two sabaq positions that pin the INDO-PAK para boundaries:
-    // 9:94 is para 11 on the school's mushaf (it is para 10 on a Madani
-    // one), and 2:142 opens para 2. If the server's copy of the
-    // boundaries ever drifts from src/utils/hifzTargets.ts, the proposed
-    // portion changes and this check fails.
+    // One sabaq position, which pins three things at once:
+    //   · the INDO-PAK boundary — 9:94 is para 11 on the school's mushaf
+    //     and para 10 on a Madani one, so drift changes the line;
+    //   · the road travelled — paras 12-30 are held, because a child
+    //     reaches para 11 by way of everything below it;
+    //   · the para in progress — 9:96 is nowhere near 11:5 where para 11
+    //     ends, so it is named separately rather than claimed as held.
     for (const row of [
-      { surah_number: 2, ayah_from: 142, ayah_to: 145 },
       { surah_number: 9, ayah_from: 94, ayah_to: 96 },
     ]) {
       const { error } = await admin.from("hifz_progress").insert({
@@ -5484,8 +5485,9 @@ await check("101. hifz exam syllabus: proposed from the child's own record, then
     assert(r1.status === 200, `syllabus ${r1.status}: ${JSON.stringify(j1).slice(0, 150)}`);
     const mine = (j1.rows ?? []).find((x: any) => x.studentId === pStu1);
     assert(mine, "the QA student must appear on the roster");
-    assert(/\b2\b/.test(mine.proposed) && /\b11\b/.test(mine.proposed),
-      `proposal must name paras 2 and 11 (Indo-Pak boundaries), got "${mine.proposed}"`);
+    const expected = "Para 12–30, and Para 11 up to 9:96";
+    assert(mine.proposed === expected,
+      `proposal must be "${expected}", got "${mine.proposed}"`);
     assert(mine.source === "proposed" && !mine.saved, "an untouched row is a proposal, not a save");
 
     // BASELINE: what the child memorized before we started logging
@@ -5505,13 +5507,12 @@ await check("101. hifz exam syllabus: proposed from the child's own record, then
     const bRow = (withBase.rows ?? []).find((x: any) => x.studentId === pStu1);
     assert(JSON.stringify(bRow.baselineParas) === JSON.stringify([5, 6, 7]),
       `baseline must come back: ${JSON.stringify(bRow.baselineParas)}`);
-    // The proposal now carries BOTH the baseline and the logged paras.
-    // pStu1 was seeded at 2:142 (para 2) and 9:94 (para 11); the
-    // baseline adds 5,6,7 -> "Para 2, 5–7, 11".
-    assert(bRow.proposed.includes("5–7"),
-      `proposal must fold in the baseline 5–7, got "${bRow.proposed}"`);
-    assert(/(^|\D)11(\D|$)/.test(bRow.proposed),
-      `proposal must keep the logged para 11, got "${bRow.proposed}"`);
+    // The proposal now carries the baseline as well as the road: the
+    // office's 5,6,7 sit beside the 12-30 the child reached by way of
+    // para 11, which is still only partly done.
+    const withBaseExpected = "Para 5–7, 12–30, and Para 11 up to 9:96";
+    assert(bRow.proposed === withBaseExpected,
+      `proposal must be "${withBaseExpected}", got "${bRow.proposed}"`);
 
     // The teacher corrects the line.
     const edited = "Para 1–12 (QA edited)";

@@ -22,7 +22,11 @@
 // record cannot show — a child whose earlier paras were never logged
 // here at all.
 
-import { juzOfPosition, formatParaRanges } from "./quranParas.ts";
+import {
+  juzOfPosition,
+  formatParaRanges,
+  paraIsComplete,
+} from "./quranParas.ts";
 
 /** Rows a proposal may be built from. A missed marker is an absence, not
  *  a portion — it must never widen a child's syllabus. */
@@ -41,6 +45,9 @@ export interface ProgressRow {
   juz_number: number | null;
   qaida_lesson: number | null;
   missed: boolean | null;
+  /** Para-mode rows record how much of the para the lesson covered
+   *  ("full", "half", "quarter", …) instead of an ayah range. */
+  juz_extent?: string | null;
 }
 
 /** A row carrying no position at all.
@@ -118,10 +125,57 @@ export function frontierPara(
   rows: ProgressRow[],
   kinds: Set<string> = SABAQ_KINDS,
 ): number | null {
-  const paras = rows
-    .filter((r) => !r.missed && kinds.has(r.kind) && !isFatihaOnly(r))
-    .flatMap(parasOfRow);
-  return paras.length > 0 ? Math.min(...paras) : null;
+  const f = frontier(rows, kinds);
+  return f === null ? null : f.para;
+}
+
+/** Where a child has reached, and whether that para is finished.
+ *
+ *  `para` is the lowest para any sabaq has touched. `complete` says
+ *  whether the sabaq reached its final ayah — within a para the road
+ *  runs forwards, first page to last, so being partway in means the
+ *  child is working through it, not that they hold it. `at` is that
+ *  furthest position, for naming it on the slip; null when the lesson
+ *  was logged in para mode, which records an extent rather than an ayah.
+ */
+export interface Frontier {
+  para: number;
+  complete: boolean;
+  at: { surah: number; ayah: number } | null;
+}
+
+export function frontier(
+  rows: ProgressRow[],
+  kinds: Set<string> = SABAQ_KINDS,
+): Frontier | null {
+  const usable = rows.filter(
+    (r) => !r.missed && kinds.has(r.kind) && !isFatihaOnly(r) && parasOfRow(r).length > 0,
+  );
+  if (usable.length === 0) return null;
+  const para = Math.min(...usable.flatMap(parasOfRow));
+
+  // Of the hearings inside that para, how far did the child get?
+  let at: { surah: number; ayah: number } | null = null;
+  let complete = false;
+  for (const r of usable) {
+    if (!parasOfRow(r).includes(para)) continue;
+    if (r.juz_number) {
+      // Para mode records an extent, not an ayah, so there is no point
+      // to name. An explicit part of a para ("half", "quarter", …) means
+      // the child is still inside it; "full", or no extent at all, means
+      // the para itself was the lesson and is done.
+      if (!r.juz_extent || r.juz_extent === "full") complete = true;
+      continue;
+    }
+    const surah = r.surah_number as number;
+    const ayah = (r.ayah_to ?? r.ayah_from) as number;
+    // Keep the furthest point reached, not the latest logged.
+    if (!at || surah > at.surah || (surah === at.surah && ayah > at.ayah)) {
+      at = { surah, ayah };
+    }
+  }
+  if (at && paraIsComplete(para, at.surah, at.ayah)) complete = true;
+  return { para, complete, at: complete ? null : at };
 }
 
 /** Al-Fatiha, and nothing else in the row.
@@ -139,15 +193,6 @@ export function frontierPara(
  *  it remains in the diary and the child's history untouched. */
 export function isFatihaOnly(r: ProgressRow): boolean {
   return !r.juz_number && r.surah_number === 1;
-}
-
-/** The paras a child holds, given the frontier: everything from there to
- *  the end of the mushaf, because that is the road they travelled. A
- *  child on Para 19 has 19 through 30 — twelve paras. */
-function fillDownFrom(frontier: number): number[] {
-  const out: number[] = [];
-  for (let p = frontier; p <= 30; p++) out.push(p);
-  return out;
 }
 
 /** The proposed syllabus line for one child.
@@ -181,28 +226,48 @@ export function proposePortion(
     // A reader who has also been heard on sabaq (mid-move to hifz) still
     // has their reading counted — fall back to everything rather than
     // proposing a blank line.
-    const use = paras.length > 0 ? paras : parasCovered(rows);
-    const frontier = paras.length > 0
-      ? frontierPara(nazraRows, NAZRA_LESSON_KINDS)
-      : frontierPara(rows, new Set([...SABAQ_KINDS, ...NAZRA_LESSON_KINDS]));
-    return formatParaRanges([
-      ...use,
-      ...(frontier === null ? [] : fillDownFrom(frontier)),
-      ...baseline,
-    ]);
+    const readingRows = paras.length > 0 ? nazraRows : rows;
+    const kinds = paras.length > 0
+      ? NAZRA_LESSON_KINDS
+      : new Set([...SABAQ_KINDS, ...NAZRA_LESSON_KINDS]);
+    return portionLine(
+      paras.length > 0 ? paras : parasCovered(rows),
+      frontier(readingRows, kinds),
+      baseline,
+    );
   }
   // hifz / revision / unknown: what they have memorized.
   const portionRows = rows.filter((r) => PORTION_KINDS.has(r.kind));
-  const paras = parasCovered(portionRows);
-  // The road travelled, not just the fortnight we happened to record.
-  // A child heard on Para 19 today memorised 30, 29, 28 … 19 to get
-  // there, so the syllabus is Para 19–30 (Muneeb, 18 Sep). Without this
-  // every child's portion would be understated to whatever they were
-  // heard on since logging began on 3 Sep.
-  const frontier = frontierPara(portionRows);
-  return formatParaRanges([
-    ...paras,
-    ...(frontier === null ? [] : fillDownFrom(frontier)),
-    ...baseline,
-  ]);
+  return portionLine(parasCovered(portionRows), frontier(portionRows), baseline);
+}
+
+/** Assemble the line: the paras held, then how far into the current one.
+ *
+ *  "Para 19–30, and Para 18 up to 23:50" — the finished paras named as
+ *  ranges, and the para still in progress named separately with the
+ *  point reached, because a question must not land past it. */
+function portionLine(
+  heard: number[],
+  f: Frontier | null,
+  baseline: number[],
+): string {
+  const held = new Set<number>([...baseline]);
+  for (const p of heard) held.add(p);
+  let partial: string | null = null;
+
+  if (f) {
+    // Everything below the frontier's para is finished ground.
+    for (let p = f.complete ? f.para : f.para + 1; p <= 30; p++) held.add(p);
+    if (!f.complete) {
+      // The para in progress is not held, however often it was heard.
+      held.delete(f.para);
+      partial = f.at
+        ? `Para ${f.para} up to ${f.at.surah}:${f.at.ayah}`
+        : `part of Para ${f.para}`;
+    }
+  }
+
+  const ranges = formatParaRanges([...held]);
+  if (!partial) return ranges;
+  return ranges ? `${ranges}, and ${partial}` : partial;
 }

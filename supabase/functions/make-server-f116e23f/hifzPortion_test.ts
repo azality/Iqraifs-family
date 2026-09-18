@@ -12,6 +12,7 @@ import {
   parasCovered,
   isEmptyPosition,
   frontierPara,
+  frontier,
   isFatihaOnly,
 } from "./hifzPortion.ts";
 
@@ -86,7 +87,8 @@ Deno.test("a hearing left on the form's default 1:1 carries no portion", () => {
   assertEquals(isEmptyPosition(at(1, 1, 1)), true);
   // Surah 18 ayah 75 is the start of Para 16.
   const rows = [at(1, 1, 1), at(18, 75, 80)];
-  assertEquals(proposePortion("hifz", rows), "Para 16–30");
+  // 18:75 opens Para 16, and 18:80 is only a little way in.
+  assertEquals(proposePortion("hifz", rows), "Para 17–30, and Para 16 up to 18:80");
 });
 
 Deno.test("Al-Fatiha alone describes no portion, however it is written", () => {
@@ -190,7 +192,8 @@ Deno.test("Al-Fatiha never sets the frontier — everyone recites it", () => {
   ];
   assertEquals(isFatihaOnly(at(1, 1, 7)), true);
   assertEquals(frontierPara(rows), 29);
-  assertEquals(proposePortion("hifz", rows), "Para 29\u201330");
+  // Para 29 runs to 77:50, so 70:11 is only part of the way in.
+  assertEquals(proposePortion("hifz", rows), "Para 30, and Para 29 up to 70:11");
 });
 
 Deno.test("Al-Baqarah to 2:141 IS evidence — that is where Para 1 ends", () => {
@@ -208,4 +211,63 @@ Deno.test("Para 1 chosen outright in para mode still counts", () => {
 
 Deno.test("a Fatiha row adds nothing to the portion either", () => {
   assertEquals(parasCovered([at(1, 1, 7)]), []);
+});
+
+// ── Within a para the road runs forwards ────────────────────────────
+// "They still start from the first page of the para — it's not like they
+//  start from the last page then go to the first page." (Muneeb, 18 Sep)
+//
+// So being heard inside Para 18 means the child is working through it,
+// not that they hold it. The line names the finished paras and how far
+// into the current one they have reached.
+
+Deno.test("part-way through a para: finished paras, then the point reached", () => {
+  // Para 18 runs 23:1 to 25:20. Heard at 23:50 — well inside it.
+  const rows = [at(25, 21, 40), at(23, 1, 50)];
+  const f = frontier(rows);
+  assertEquals(f?.para, 18);
+  assertEquals(f?.complete, false);
+  assertEquals(proposePortion("hifz", rows), "Para 19\u201330, and Para 18 up to 23:50");
+});
+
+Deno.test("reaching a para's last ayah completes it", () => {
+  // Para 1 ends at 2:141. Fahad Ansari and Bisma Sajid both got there.
+  const rows = [at(2, 110, 141)];
+  const f = frontier(rows);
+  assertEquals(f?.complete, true);
+  assertEquals(proposePortion("hifz", rows), "Para 1\u201330");
+});
+
+Deno.test("one ayah short is not complete", () => {
+  const rows = [at(2, 110, 140)];
+  assertEquals(frontier(rows)?.complete, false);
+  assertEquals(proposePortion("hifz", rows), "Para 2\u201330, and Para 1 up to 2:140");
+});
+
+Deno.test("Muskan Muhammad: finished Para 2, one stray row inside Para 1", () => {
+  // Her sabaq worked through Para 2 to its last ayah, 2:252. The 2:84-91
+  // of 14 Sep sits inside Para 1 and is not its end, so Para 1 is shown
+  // as in progress rather than held — which is the truth either way.
+  const rows = [at(2, 84, 91), at(2, 204, 235), at(2, 236, 252)];
+  assertEquals(proposePortion("hifz", rows), "Para 2\u201330, and Para 1 up to 2:91");
+});
+
+Deno.test("a beginner inside Para 30 holds nothing yet", () => {
+  // Para 30 runs 78:1 to 114:6. Heard at 111:2.
+  const rows = [at(111, 1, 2)];
+  assertEquals(proposePortion("hifz", rows), "Para 30 up to 111:2");
+});
+
+Deno.test("para mode: only a full para counts as finished", () => {
+  assertEquals(frontier([para(18, { juz_extent: "full" })])?.complete, true);
+  const half = frontier([para(18, { juz_extent: "half" })]);
+  assertEquals(half?.complete, false);
+  assertEquals(half?.at, null);
+  assertEquals(proposePortion("hifz", [para(18, { juz_extent: "half" })]),
+    "Para 19\u201330, and part of Para 18");
+});
+
+Deno.test("the furthest point in the para wins, not the last logged", () => {
+  const rows = [at(23, 1, 90), at(23, 40, 60)];
+  assertEquals(frontier(rows)?.at, { surah: 23, ayah: 90 });
 });
