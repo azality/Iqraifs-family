@@ -5728,6 +5728,130 @@ await check("103. hifz homework reaches parent AND student - diary, Lessons and 
   }
 });
 
+await check("104. marking progress: the office sees every section, teachers and office staff do not, and the count skips papers a subject does not sit", async () => {
+  // "For the admin or the incharge and the principal, if they want to see
+  // how the marking progress is going" (Muneeb, 18 Sep). One grid, every
+  // section - and it must count only subjects that SIT a paper: the old
+  // section-page count held Class VIII's oral at 1/8 forever.
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const r = await api(admin2.token, `/school/orgs/${ORG}/marking-progress`);
+  const j = await r.json();
+  assert(r.status === 200, `board ${r.status}: ${JSON.stringify(j).slice(0, 150)}`);
+  assert(j.term && Array.isArray(j.sections), "board must carry a term and sections");
+  assert(j.sections.length > 0, "the office must see the school's sections");
+
+  // Hifz is marked on its own paper; the Sandbox is scaffolding.
+  const labels = (j.sections as any[]).map((s) => s.label as string);
+  assert(!labels.some((l) => /^Hifz /.test(l)), `hifz must not be on the board: ${labels.join(", ")}`);
+  assert(!labels.some((l) => /Sandbox/i.test(l)), `the Sandbox must not be on the board`);
+
+  // Every section carries one cell per paper, aligned with exams[].
+  for (const s of j.sections as any[]) {
+    assert(s.exams.length === j.exams.length,
+      `${s.label}: ${s.exams.length} cells for ${j.exams.length} papers`);
+    for (const c of s.exams) {
+      assert(c.subjectsDone <= c.subjectCount, `${s.label}: ${c.subjectsDone}/${c.subjectCount}`);
+      assert(c.subjects.length === c.subjectCount, `${s.label}: subject lines must match the count`);
+    }
+  }
+
+  // A written-only class sits no oral: its oral cell must count nothing,
+  // not "0 of 8" forever. Checked on whichever section is written-only.
+  const oralIdx = (j.exams as any[]).findIndex((e) => e.paper === "oral");
+  if (oralIdx >= 0) {
+    const writtenOnly = (j.sections as any[]).find((s) => s.exams[oralIdx].subjectCount === 0);
+    if (writtenOnly) {
+      assert(writtenOnly.exams[oralIdx].marksExpected === 0,
+        `${writtenOnly.label}: no oral means nothing owed`);
+    }
+  }
+
+  // Not for teachers or office staff - their own progress lives on the
+  // section page.
+  const t = await api(teacher.token, `/school/orgs/${ORG}/marking-progress`);
+  assert(t.status === 403, `a class teacher must be refused, got ${t.status}`);
+  const o = await api(office.token, `/school/orgs/${ORG}/marking-progress`);
+  assert(o.status === 403, `office staff must be refused, got ${o.status}`);
+
+  // The section page's own count is now the same function: same shape,
+  // and never more subjects done than it has.
+  const sec = (j.sections as any[])[0];
+  const sp = await api(admin2.token, `/school/orgs/${ORG}/sections/${sec.sectionId}/exam-marks-progress`);
+  const spj = await sp.json();
+  assert(sp.status === 200, `section progress ${sp.status}`);
+  for (const [i, e] of (spj.exams as any[]).entries()) {
+    const board = sec.exams.find((c: any) => c.examId === e.id);
+    assert(board, `section page exam ${e.name} missing from the board`);
+    assert(board.subjectsDone === e.subjectsDone && board.subjectCount === e.subjectCount,
+      `section page ${e.subjectsDone}/${e.subjectCount} vs board ${board.subjectsDone}/${board.subjectCount} for ${e.name}`);
+    void i;
+  }
+});
+
+await check("105. an incharge can VIEW every column of their wing's marks sheet - and still cannot change a teacher's marks", async () => {
+  // Class I's own incharge opened a marks sheet to see what the teacher
+  // had entered and got "you don't teach a subject in this section" (18
+  // Sep). The sheet used one rule for seeing AND saving. Viewing is now
+  // open to the wing's incharge; saving is not.
+  const inch = await ensureUser("qa-incharge@azality.com", "QA Incharge", "class_teacher");
+  const cleanup: Array<() => Promise<unknown>> = [];
+  try {
+    const { data: term } = await admin.from("academic_term").select("id")
+      .eq("org_id", ORG).eq("is_current", true).is("archived_at", null).maybeSingle();
+    assert(term, "no current term");
+    const { data: exam } = await admin.from("exam").insert({
+      org_id: ORG, term_id: (term as any).id, name: "QA INCHARGE VIEW — Written",
+      exam_type: "other", weight: 1,
+    }).select("id").single();
+    assert(exam, "exam insert");
+    cleanup.push(() => admin.from("exam").delete().eq("id", (exam as any).id));
+    const url = `/school/orgs/${ORG}/exams/${(exam as any).id}/marks-sheet`;
+
+    const { data: subs } = await admin.from("class_subject").select("id")
+      .eq("class_id", sandboxClass.id).is("archived_at", null);
+    const allSubjectIds = ((subs ?? []) as any[]).map((x) => x.id);
+    assert(allSubjectIds.length > 0, "the Sandbox class needs a subject");
+
+    // With the wing: every column, flagged as a view.
+    const wingRowId = await ensureWingRow(inch.id, sandboxClass.id, principal.id);
+    cleanup.push(() => admin.from("user_roles").delete().eq("id", wingRowId));
+    const r = await api(inch.token, `${url}?sectionId=${sandboxSec.id}`);
+    const j = await r.json();
+    assert(r.status === 200, `incharge must see the sheet, got ${r.status}: ${JSON.stringify(j).slice(0, 120)}`);
+    assert(j.oversees === true, "the response must say this is an incharge's view");
+    assert((j.subjects ?? []).length === allSubjectIds.length,
+      `every subject must be shown: ${(j.subjects ?? []).length} of ${allSubjectIds.length}`);
+
+    // ...and saving into a column they do not teach is still refused.
+    const notMine = allSubjectIds.find((id) => !(j.editableSubjectIds ?? []).includes(id));
+    const { data: stu } = await admin.from("student").select("id")
+      .eq("class_section_id", sandboxSec.id).eq("status", "active").limit(1).maybeSingle();
+    if (notMine && stu) {
+      const w = await api(inch.token, url, {
+        method: "POST",
+        body: JSON.stringify({
+          sectionId: sandboxSec.id,
+          rows: [{ studentId: (stu as any).id, classSubjectId: notMine, maxMarks: 50, obtainedMarks: 40, absent: false }],
+        }),
+      });
+      assert(w.status === 403 || w.status === 400,
+        `an incharge must not write a teacher's column, got ${w.status}`);
+      const { data: leaked } = await admin.from("exam_subject_score").select("id")
+        .eq("exam_id", (exam as any).id).eq("class_subject_id", notMine);
+      assert(!(leaked ?? []).length, "no mark may have been written");
+    }
+
+    // Take the wing away and the view goes with it.
+    await admin.from("user_roles").update({ revoked_at: new Date().toISOString() }).eq("id", wingRowId);
+    const gone = await api(inch.token, `${url}?sectionId=${sandboxSec.id}`);
+    const gj = await gone.json();
+    assert(gone.status === 403 || gj.oversees !== true,
+      `without the wing the incharge view must go, got ${gone.status} oversees=${gj.oversees}`);
+  } finally {
+    for (const fn of cleanup.reverse()) await fn();
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

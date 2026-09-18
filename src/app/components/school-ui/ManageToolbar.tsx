@@ -100,6 +100,9 @@ function flatItemsForRole(
         I("dashboard", t("toolbar.dashboard"), `/school/orgs/${orgId}`, Home),
         I("academics-day", "Daily academics", `/school/orgs/${orgId}/admin/academics-day`, ListChecks),
         I("teaching-overview", "Teaching overview", `/school/orgs/${orgId}/admin/teaching-overview`, GraduationCap),
+        // Their wing's marks entry, section by section — the server trims
+        // the board to the wing (18 Sep).
+        I("marking-progress", "Marking progress", `/school/orgs/${orgId}/admin/assessment/marking-progress`, ClipboardList),
         // Their wing's classes + syllabus (Upload syllabus included) —
         // the page filters to the wing (16 Sep).
         I("classes", t("toolbar.classes"), `/school/orgs/${orgId}/admin/classes`, BookOpen),
@@ -212,6 +215,9 @@ function groupsForAdmin(
         // Route /admin/hifz-groups still works by direct URL.
         I("timetable", "Timetable", `/school/orgs/${orgId}/admin/timetable`, Calendar),
         I("assessment", "Assessment", `/school/orgs/${orgId}/admin/assessment`, ClipboardList),
+        // Every section's marks entry on one screen, while papers are
+        // being checked (18 Sep).
+        I("marking-progress", "Marking progress", `/school/orgs/${orgId}/admin/assessment/marking-progress`, ClipboardList),
       ],
     },
     {

@@ -4197,6 +4197,46 @@ export const saveExamSyllabusLine = (
     body: JSON.stringify({ portion }),
   });
 
+// ─── Marking progress (18 Sep) ───────────────────────────────────────
+// Every section's marks entry on one screen, for the office and incharges.
+// Counted by the same rule as the section page (server markingProgress.ts):
+// a subject is done when every active student has a mark or an absence,
+// and only subjects that actually sit that paper are counted.
+export interface MarkingSubjectCell {
+  subjectId: string;
+  subjectName: string;
+  marked: number;
+  done: boolean;
+}
+export interface MarkingExamCell {
+  examId: string;
+  subjectsDone: number;
+  subjectCount: number;
+  marksEntered: number;
+  marksExpected: number;
+  subjects: MarkingSubjectCell[];
+}
+export interface MarkingSectionRow {
+  sectionId: string;
+  label: string;
+  className: string;
+  studentCount: number;
+  /** Aligned with the response's `exams`. */
+  exams: MarkingExamCell[];
+  signedOff: number;
+  signOffNeeded: number;
+}
+export interface MarkingProgressResponse {
+  term: { id: string; name: string } | null;
+  exams: Array<{ id: string; name: string; examDate: string | null; paper: "oral" | "written" | null }>;
+  sections: MarkingSectionRow[];
+}
+export const getMarkingProgress = (
+  orgId: string,
+  termId?: string,
+): Promise<MarkingProgressResponse> =>
+  apiCall(`/school/orgs/${orgId}/marking-progress${termId ? `?termId=${encodeURIComponent(termId)}` : ""}`);
+
 // ─── Exam marks (Hifz half-yearly) ────────────────────────────────────
 // A paper is a list of components — the rows on the school's slip, each
 // with its own maximum. They are data, per exam, so a school whose paper
@@ -5337,8 +5377,13 @@ export interface MarksSheetResponse {
   section: { id: string; name: string; className: string };
   subjects: { id: string; name: string; assessmentWeights?: AssessmentWeight[] | null }[];
   /** null = caller may edit every column; otherwise the subject ids
-   *  they teach (the subjects list is already filtered to these). */
+   *  they teach. Normally the subjects list is already filtered to these;
+   *  when `oversees` is true it is NOT — see below. */
   editableSubjectIds?: string[] | null;
+  /** True for an incharge viewing their wing: every column is sent so
+   *  they can check what each teacher entered, but only the ids in
+   *  editableSubjectIds (usually none) can be changed. */
+  oversees?: boolean;
   /** Per-subject "column complete" sign-off for this exam's TERM (the
    *  sign-off covers both papers at once), keyed by classSubjectId. */
   confirmations?: Record<string, MarksConfirmation>;

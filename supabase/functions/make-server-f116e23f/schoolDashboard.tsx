@@ -1463,8 +1463,10 @@ export function installDashboard(school: Hono): void {
               kind: "signoffs_pending",
               title: `${pending.length} section${pending.length === 1 ? "" : "s"} awaiting marks sign-off`,
               body: `Subject columns confirmed: ${pending.slice(0, 5).join(" · ")}${pending.length > 5 ? " …" : ""}`,
-              actionLabel: "Open tabulation",
-              actionPath: `/school/orgs/${orgId}/admin/assessment/tabulation`,
+              // The whole school's marking on one screen, rather than one
+              // section's tabulation that has to be picked first (18 Sep).
+              actionLabel: "Open marking progress",
+              actionPath: `/school/orgs/${orgId}/admin/assessment/marking-progress`,
             });
           }
         }
