@@ -3,7 +3,9 @@
 // rendering on family.theilmnetwork.com after an in-app link.
 
 import { describe, it, expect } from "vitest";
-import { onFamilyHost, isSchoolPath, schoolPathOnFamilyHost } from "./productHost";
+import {
+  onFamilyHost, isSchoolPath, schoolPathOnFamilyHost, noFamilyDestination,
+} from "./productHost";
 
 const FAMILY = "family.theilmnetwork.com";
 const PLATFORM = "app.theilmnetwork.com";
@@ -50,6 +52,56 @@ describe("isSchoolPath", () => {
 
   it("does not match a path that merely starts with the letters", () => {
     expect(isSchoolPath("/schoolyard")).toBe(false);
+  });
+});
+
+describe("noFamilyDestination — the redirect loop this closes", () => {
+  const schoolUser = { hasSchoolAccess: true };
+
+  // The loop, exactly as it happened: a school user with no family
+  // signed in on the family host. "/" sent them to /school, the host
+  // guard sent /school back to "/", forever.
+  it("never sends a school user into /school on the family host", () => {
+    expect(noFamilyDestination({ hostname: FAMILY, pathname: "/", ...schoolUser }))
+      .toBe("onboarding");
+    expect(noFamilyDestination({ hostname: FAMILY, pathname: "/school", ...schoolUser }))
+      .toBe("onboarding");
+  });
+
+  it("terminates: onboarding renders instead of redirecting again", () => {
+    expect(noFamilyDestination({ hostname: FAMILY, pathname: "/onboarding", ...schoolUser }))
+      .toBe("render");
+  });
+
+  it("walks the whole path without revisiting a destination", () => {
+    // Follow the redirects the way a browser would and assert it stops.
+    const seen = new Set<string>();
+    let pathname = "/";
+    for (let hop = 0; hop < 10; hop++) {
+      const next = noFamilyDestination({ hostname: FAMILY, pathname, ...schoolUser });
+      if (next === "render") break;
+      pathname = next === "school" ? "/school" : "/onboarding";
+      expect(seen.has(pathname)).toBe(false);
+      seen.add(pathname);
+    }
+    expect(pathname).toBe("/onboarding");
+  });
+
+  it("still routes a school user to /school everywhere else", () => {
+    for (const host of [PLATFORM, SCHOOL]) {
+      expect(noFamilyDestination({ hostname: host, pathname: "/", ...schoolUser }))
+        .toBe("school");
+      // Already under /school: render, or the Outlet blanks the page.
+      expect(noFamilyDestination({ hostname: host, pathname: "/school/orgs/a", ...schoolUser }))
+        .toBe("render");
+    }
+  });
+
+  it("a user with neither family nor school goes to onboarding anywhere", () => {
+    for (const host of [FAMILY, PLATFORM, SCHOOL]) {
+      expect(noFamilyDestination({ hostname: host, pathname: "/", hasSchoolAccess: false }))
+        .toBe("onboarding");
+    }
   });
 });
 

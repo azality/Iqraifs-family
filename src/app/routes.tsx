@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { createBrowserRouter, Navigate, useLocation, useRouteError } from "react-router";
-import { schoolPathOnFamilyHost } from "../utils/productHost";
+import { schoolPathOnFamilyHost, onFamilyHost, noFamilyDestination } from "../utils/productHost";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { RequireParentRole } from "./components/RequireParentRole";
 import { Welcome } from "./pages/Welcome";
@@ -313,7 +313,12 @@ function RequireFamily({ children }: { children: JSX.Element }) {
   // Index-route redirects for users who shouldn't land on the family
   // Dashboard. Two cases, both scoped to location.pathname === '/' so
   // we never short-circuit nested routes' Outlet rendering.
-  if (location.pathname === '/') {
+  // …but never on the family product's own host, where there is no
+  // school to route to. Both redirects below would land on /school, the
+  // host guard would send it back to "/", and we would be here again.
+  const familyHost = onFamilyHost(window.location.hostname);
+
+  if (!familyHost && location.pathname === '/') {
     // signupIntent='school' is the strongest signal: this person signed
     // up as a school principal and should never see the family side at
     // all. Redirect regardless of any stale workspace state.
@@ -336,19 +341,19 @@ function RequireFamily({ children }: { children: JSX.Element }) {
 
   if (!hasFamilyAccess) {
     // School-only user (no family, has principal/teacher role) →
-    // /school routes them to the right surface (principal dashboard
-    // or teacher class list). If already under /school don't redirect
-    // (would short-circuit the Outlet and blank the page).
-    if (workspaceCtx?.hasSchoolAccess) {
-      if (location.pathname.startsWith('/school')) {
-        return children;
-      }
-      return <Navigate to="/school" replace />;
+    // /school routes them to the right surface (principal dashboard or
+    // teacher class list), and rendering in place under /school is what
+    // lets the Outlet through. On the family host there is no school to
+    // send them to, so the answer is the family one: make a family.
+    switch (noFamilyDestination({
+      hostname: window.location.hostname,
+      pathname: location.pathname,
+      hasSchoolAccess: !!workspaceCtx?.hasSchoolAccess,
+    })) {
+      case "render": return children;
+      case "school": return <Navigate to="/school" replace />;
+      default: return <Navigate to="/onboarding" replace />;
     }
-    if (location.pathname === '/onboarding') {
-      return children;
-    }
-    return <Navigate to="/onboarding" replace />;
   }
 
   return children;
