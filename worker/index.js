@@ -26,16 +26,16 @@ const ANON_KEY =
 // school #2 arriving with their own domain needs no extra work.
 const FAMILY_HOST = "family.theilmnetwork.com";
 
-// The platform's own host, where a school with no domain of its own is
-// served. Anything school-shaped that turns up on the family host is
-// sent here — the two products do not share a hostname in either
-// direction.
-const PLATFORM_HOST = "app.theilmnetwork.com";
-
 // First path segment of every school route. The mirror image of
 // FAMILY_SEGMENTS: these must never render on the family host.
+//
+// NOT "parent-login": despite the name it is the FAMILY parent's login,
+// an alias of /login (routes.tsx) — school parents sign in at
+// /<slug>/login or /school-login. Listing it here sent family parents
+// off their own host, which is exactly the bug this file exists to
+// prevent. Caught 18 Sep, one merge later.
 const SCHOOL_SEGMENTS = new Set([
-  "school", "school-login", "school-portal", "parent-login",
+  "school", "school-login", "school-portal",
 ]);
 
 // First path segment of every family-only route (src/app/routes.tsx).
@@ -162,8 +162,14 @@ export function productRedirect(url) {
     // School-shaped: an explicit school route, a ?org= login link, or a
     // /<slug> public site. RESERVED keeps family routes out of the last
     // test, so /rewards is never read as a school called "rewards".
+    //
+    // Home, on the family's OWN hostname — not the platform host. This
+    // visitor is using the family product; handing them to
+    // app.theilmnetwork.com would take them off their product's domain
+    // and make them sign in again on a school app they never asked for.
+    // The path is dropped because the family app has no page to keep.
     if (SCHOOL_SEGMENTS.has(seg) || slugFrom(url)) {
-      return `https://${PLATFORM_HOST}${url.pathname}${url.search}`;
+      return `https://${FAMILY_HOST}/`;
     }
     return null;
   }
