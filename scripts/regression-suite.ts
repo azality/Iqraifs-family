@@ -5666,6 +5666,50 @@ await check("102. exam marks: the paper's own rows, totalled and graded, and nev
   }
 });
 
+await check("103. a hifz parent sees the homework - diary, Lessons and Homework all carry the next lesson", async () => {
+  // "Parents are still complaining about not being able to see Hifz
+  // homework" (18 Sep). Teachers record the next lesson on nearly every
+  // hearing (next_target); Learning -> Lessons and -> Homework read only
+  // the lesson/assignment tables, which hifz teachers never write, and the
+  // diary never selected the column. Every one of those screens was blank.
+  const karachiToday = new Date(Date.now() + 5 * 3600e3).toISOString().slice(0, 10);
+  const at = `${karachiToday}T09:00:00+05:00`;
+  const NEXT = "Sabaq: Al-Furqan 1-8 (QA)";
+  try {
+    const { error } = await admin.from("hifz_progress").insert({
+      org_id: ORG, student_id: pStu1, notes: "QA HIFZ HOMEWORK", recorded_at: at,
+      kind: "sabaq", surah_number: 24, ayah_from: 62, ayah_to: 64, quality: "good",
+      next_target: NEXT,
+    });
+    if (error) throw new Error(`seed: ${error.message}`);
+    const pTok = (await (await pinLogin(PARENT_PHONE, "3456")).json()).token;
+
+    // The diary carries it as homework.
+    const d = await (await portalGet(pTok, `/pin-me/students/${pStu1}/diary`)).json();
+    const dHw = (d.hifzHomework ?? []) as Array<{ kind: string; text: string }>;
+    assert(dHw.some((h) => h.kind === "sabaq" && h.text === NEXT),
+      `diary must carry the next lesson as homework: ${JSON.stringify(dHw)}`);
+
+    // The Homework page is no longer blank for a hifz child.
+    const hw = await (await portalGet(pTok, `/pin-me/students/${pStu1}/assignments`)).json();
+    assert((hw.hifzHomework ?? []).some((h: any) => h.text === NEXT),
+      `Homework page must carry the hifz homework: ${JSON.stringify(hw.hifzHomework)}`);
+
+    // Lessons shows the day's classwork AND what was set that day.
+    const ls = await (await portalGet(pTok,
+      `/pin-me/students/${pStu1}/lessons?startDate=${karachiToday}&endDate=${karachiToday}`)).json();
+    const day = (ls.hifzDays ?? []).find((x: any) => x.date === karachiToday);
+    assert(day, `Lessons must carry today's hifz day: ${JSON.stringify(ls.hifzDays)}`);
+    assert(day.heard.some((h: any) => h.kind === "sabaq"),
+      "the day must list the sabaq heard in class");
+    assert(day.homework.some((h: any) => h.text === NEXT),
+      "the day must list the homework set that day");
+  } finally {
+    await admin.from("hifz_progress").delete()
+      .eq("student_id", pStu1).eq("notes", "QA HIFZ HOMEWORK");
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

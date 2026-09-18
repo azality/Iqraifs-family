@@ -20,6 +20,7 @@
 // =============================================================================
 
 import type { Hono, Context } from "npm:hono";
+import { currentHomework, hifzKindOfSubject, type HifzRow } from "./portalHifz.ts";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { todayInOrgTz } from "./tz.ts";
 import { verifyPinToken } from "./schoolPhaseA.tsx";
@@ -407,6 +408,29 @@ export function installLessonPrep(school: Hono): void {
       .eq("org_id", (stu as any).org_id)
       .eq("scope_section_id", sectionId);
     const items = await decorate((stu as any).org_id, (data ?? []) as EntryRow[], limit);
+
+    // Hifz periods have no curriculum topic — each child is on their own
+    // portion — so the card showed "Topic to be announced" under Sabqi and
+    // Manzil forever (18 Sep). The child's own next target for that kind
+    // is the honest answer, and teachers already record it.
+    const hifzKinds = items.map((it) => hifzKindOfSubject(it.subjectName ?? null));
+    if (hifzKinds.some((k) => k !== null)) {
+      const { data: rows } = await serviceRoleClient
+        .from("hifz_progress")
+        .select("kind, surah_number, ayah_from, ayah_to, juz_number, juz_extent, qaida_lesson, quality, next_target, recorded_at, missed")
+        .eq("student_id", studentId)
+        .order("recorded_at", { ascending: false })
+        .limit(60);
+      const next = new Map(currentHomework((rows ?? []) as HifzRow[]).map((h) => [h.kind, h]));
+      return c.json({
+        upcoming: items.map((it, i) => {
+          const kind = hifzKinds[i];
+          if (!kind) return it;
+          const h = next.get(kind);
+          return { ...it, hifzKind: kind, hifzNext: h ? { text: h.text, setOn: h.setOn } : null };
+        }),
+      });
+    }
     return c.json({ upcoming: items });
   });
 

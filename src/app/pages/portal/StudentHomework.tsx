@@ -15,6 +15,7 @@ import { Textarea } from "../../components/ui/textarea";
 import {
   getMyQuiz,
   listMyAssignments,
+  type HifzHomeworkLine,
   submitAssignmentWork,
   submitQuizAttempt,
   uploadSubmissionFile,
@@ -264,13 +265,20 @@ export function StudentHomework() {
   const { t } = useTranslation();
   const { studentId = "" } = useParams();
   const [rows, setRows] = useState<PortalAssignmentRow[]>([]);
+  // Hifz homework is the next lesson the teacher sets on each hearing —
+  // it never lived in the assignment table, so this page was blank for
+  // every hifz child (18 Sep).
+  const [hifzHomework, setHifzHomework] = useState<HifzHomeworkLine[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = () => {
     if (!studentId) return;
     listMyAssignments(studentId)
-      .then((r) => setRows(r.assignments))
+      .then((r) => {
+        setRows(r.assignments);
+        setHifzHomework(r.hifzHomework ?? []);
+      })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load homework"))
       .finally(() => setLoading(false));
   };
@@ -313,9 +321,38 @@ export function StudentHomework() {
       />
 
       {error && <p className="text-sm text-rose-600">{error}</p>}
+
+      {!loading && hifzHomework.length > 0 && (
+        <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-emerald-700">
+            {t("portal.hifz.homeworkTitle")}
+          </h2>
+          <p className="mt-0.5 text-xs text-emerald-800/80">{t("portal.hifz.homeworkIntro")}</p>
+          <ul className="mt-2 space-y-1.5">
+            {hifzHomework.map((h) => (
+              <li key={h.kind} className="flex flex-wrap items-baseline gap-x-2">
+                <span dir="auto" className="text-sm font-medium text-emerald-950">{h.text}</span>
+                {h.setOn && (
+                  <span className="text-[11px] text-emerald-700/80">
+                    {t("portal.hifz.homeworkSetOn", {
+                      date: (() => {
+                        const [y, m, d] = h.setOn.split("-").map(Number);
+                        return new Date(y, m - 1, d).toLocaleDateString(undefined, {
+                          weekday: "short", day: "numeric", month: "short",
+                        });
+                      })(),
+                    })}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {loading ? (
         <p className="text-sm text-slate-500">{t("common.loading")}</p>
-      ) : rows.length === 0 ? (
+      ) : rows.length === 0 && hifzHomework.length === 0 ? (
         <div className="rounded-xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">
           <BookOpen className="mx-auto mb-2 h-6 w-6 text-slate-300" />
           {t("portal.hw.empty")}

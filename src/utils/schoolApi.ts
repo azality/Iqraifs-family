@@ -6141,6 +6141,11 @@ export interface LessonPrepItem {
   topic: { id: string; name: string; sequenceNo: number; targetDate: string | null } | null;
   lesson: { id: string; title: string; lessonDate: string; publishedAt: string | null } | null;
   resources: { total: number; worksheets: number; videos: number; quizzes: number; pdfs: number; links: number };
+  /** Set when the period is a hifz one (Sabaq / Sabqi / Manzil). Hifz has
+   *  no curriculum topic — each child is on their own portion — so the
+   *  card shows the child's own next target instead of a topic. */
+  hifzKind?: string;
+  hifzNext?: { text: string; setOn: string | null } | null;
 }
 export const getMyUpcoming = (
   orgId: string,
