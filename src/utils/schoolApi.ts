@@ -4197,6 +4197,99 @@ export const saveExamSyllabusLine = (
     body: JSON.stringify({ portion }),
   });
 
+// ─── Exam marks (Hifz half-yearly) ────────────────────────────────────
+// A paper is a list of components — the rows on the school's slip, each
+// with its own maximum. They are data, per exam, so a school whose paper
+// looks different configures their own.
+export interface ExamComponent {
+  id: string;
+  name: string;
+  /** Rows the slip braces together, e.g. the three questions under
+   *  "حفظ القرآن / ناظرہ". Null for an ungrouped row. */
+  groupLabel: string | null;
+  maxMarks: number;
+  sortOrder: number;
+}
+
+export interface ExamBand {
+  letter: string;
+  minPct: number;
+  maxPct: number;
+  remark: string | null;
+}
+
+export interface ExamMarkTotals {
+  obtained: number;
+  max: number;
+  /** Null until every row is marked — a part-marked paper has no
+   *  meaningful percentage, and 48/100 beside a child whose examiner
+   *  simply has not finished would read راسب. */
+  pct: number | null;
+  unmarked: number;
+  groups: Array<{ label: string; obtained: number; max: number }>;
+}
+
+export interface ExamMarkRow {
+  studentId: string;
+  studentName: string;
+  grNumber: string | null;
+  /** The child's own syllabus line — the three questions are drawn from
+   *  it, so the examiner needs it on the row. */
+  portion: string;
+  portionPublished: boolean;
+  absent: boolean;
+  /** componentId -> mark, or null where not yet marked. */
+  marks: Record<string, number | null>;
+  totals: ExamMarkTotals;
+  band: { letter: string; remark: string | null } | null;
+}
+
+export const getExamComponents = (
+  orgId: string,
+  examId: string,
+): Promise<{ components: ExamComponent[]; total: number; bands: ExamBand[] }> =>
+  apiCall(`/school/orgs/${orgId}/exams/${examId}/components`);
+
+export const replaceExamComponents = (
+  orgId: string,
+  examId: string,
+  components: Array<Pick<ExamComponent, "name" | "groupLabel" | "maxMarks">>,
+  discardMarks = false,
+): Promise<{ ok: true; components: ExamComponent[] }> =>
+  apiCall(`/school/orgs/${orgId}/exams/${examId}/components`, {
+    method: "PUT",
+    body: JSON.stringify({ components, discardMarks }),
+  });
+
+export const getExamMarks = (
+  orgId: string,
+  examId: string,
+  sectionId: string,
+): Promise<{
+  exam: { id: string; name: string; examDate: string | null };
+  components: ExamComponent[];
+  bands: ExamBand[];
+  rows: ExamMarkRow[];
+}> =>
+  apiCall(`/school/orgs/${orgId}/exams/${examId}/marks?sectionId=${encodeURIComponent(sectionId)}`);
+
+export const saveExamMarks = (
+  orgId: string,
+  examId: string,
+  studentId: string,
+  marks: Record<string, number | null>,
+  absent = false,
+): Promise<{
+  ok: true;
+  marks: Record<string, number | null>;
+  totals: ExamMarkTotals;
+  band: { letter: string; remark: string | null } | null;
+}> =>
+  apiCall(`/school/orgs/${orgId}/exams/${examId}/marks/${studentId}`, {
+    method: "PUT",
+    body: JSON.stringify({ marks, absent }),
+  });
+
 export const publishExamSyllabus = (
   orgId: string,
   examId: string,
