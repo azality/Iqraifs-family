@@ -75,6 +75,7 @@ interface OrgFormState {
   pass_mark_pct: string;
   qaida_lesson_count: string;
   hifz_nazra_paras: string;
+  hifz_memorization_order: string;
   office_day_start: string;
   office_day_end: string;
 }
@@ -114,6 +115,7 @@ export function OrgSettings() {
     pass_mark_pct: "",
     qaida_lesson_count: "",
     hifz_nazra_paras: "",
+    hifz_memorization_order: "reverse",
   });
   const [orgSaving, setOrgSaving] = useState(false);
   const [orgError, setOrgError] = useState<string | null>(null);
@@ -208,6 +210,9 @@ export function OrgSettings() {
           pass_mark_pct: String((o.organization.settings?.pass_mark_pct as number | undefined) ?? 40),
           qaida_lesson_count: String((o.organization.settings?.qaida_lesson_count as number | undefined) ?? 17),
           hifz_nazra_paras: String((o.organization.settings?.hifz_nazra_paras as number | undefined) ?? 30),
+          hifz_memorization_order:
+            (o.organization.settings?.hifz_memorization_order as string | undefined) === "forward"
+              ? "forward" : "reverse",
           logo_url: (o.organization.settings?.logo_url as string | undefined) ?? "",
           theme_color: (o.organization.settings?.theme_color as string | undefined) ?? "",
           school_motto: (o.organization.settings?.school_motto as string | undefined) ?? "",
@@ -273,6 +278,8 @@ export function OrgSettings() {
         pass_mark_pct: Math.min(100, Math.max(1, Number(orgForm.pass_mark_pct) || 40)),
         qaida_lesson_count: Math.min(60, Math.max(1, Math.round(Number(orgForm.qaida_lesson_count)) || 17)),
         hifz_nazra_paras: Math.min(30, Math.max(1, Math.round(Number(orgForm.hifz_nazra_paras)) || 30)),
+        hifz_memorization_order:
+          orgForm.hifz_memorization_order === "forward" ? "forward" : "reverse",
         // Accounts without a number are half-typed rows - dropped on save.
         fee_bank_accounts: feeAccounts
           .filter((a) => a.accountNumber.trim() !== "")
@@ -828,6 +835,42 @@ export function OrgSettings() {
                 className="mt-1.5 w-24 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm"
               />
             </label>
+          </div>
+
+          {/* Which way the hifz programme travels. Iqra IFS, and most
+              schools in the region, start at Para 30 and work down to 1.
+              A school that goes the other way sets it here and the exam
+              syllabus reads the road that way instead (18 Sep). */}
+          <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-3">
+            <span className="block text-sm font-medium text-slate-800">
+              Order children memorise in
+            </span>
+            <span className="mt-0.5 block text-xs text-slate-500">
+              Decides what counts as already memorised. A child heard on
+              Para 19 holds Para 19–30 if you start from the back, or
+              Para 1–19 if you start from the front.
+            </span>
+            <div className="mt-2 space-y-1.5">
+              {[
+                { v: "reverse", label: "Para 30 first, down to Para 1", hint: "Amma first — the usual method" },
+                { v: "forward", label: "Para 1 first, up to Para 30", hint: "From the beginning of the mushaf" },
+              ].map((o) => (
+                <label key={o.v} className="flex items-start gap-2 text-sm text-slate-800">
+                  <input
+                    type="radio"
+                    name="hifz_memorization_order"
+                    className="mt-1"
+                    checked={orgForm.hifz_memorization_order === o.v}
+                    onChange={() =>
+                      setOrgForm((st) => ({ ...st, hifz_memorization_order: o.v }))}
+                  />
+                  <span>
+                    {o.label}
+                    <span className="block text-xs text-slate-500">{o.hint}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
           </div>
 
           {/* Hifz intake: a child in a hifz class reads this many paras of

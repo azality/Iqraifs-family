@@ -14,6 +14,8 @@ import {
   frontierPara,
   frontier,
   isFatihaOnly,
+  hifzOrderOf,
+  SABAQ_KINDS,
 } from "./hifzPortion.ts";
 
 type Row = Parameters<typeof parasCovered>[0][number];
@@ -278,7 +280,7 @@ Deno.test("the furthest point in the para wins, not the last logged", () => {
 // last para closing, so the school's declaration has to win.
 
 Deno.test("a declared hafiz is proposed the whole Quran", () => {
-  assertEquals(proposePortion("hifz", [], [], true), "Para 1\u201330");
+  assertEquals(proposePortion("hifz", [], [], { isHafiz: true }), "Para 1\u201330");
 });
 
 Deno.test("Muskan Muhammad: the log stops mid-para, the declaration does not", () => {
@@ -286,13 +288,58 @@ Deno.test("Muskan Muhammad: the log stops mid-para, the declaration does not", (
   // What the record alone can say:
   assertEquals(proposePortion("hifz", rows), "Para 2\u201330, and Para 1 up to 2:91");
   // What the school says:
-  assertEquals(proposePortion("hifz", rows, [], true), "Para 1\u201330");
+  assertEquals(proposePortion("hifz", rows, [], { isHafiz: true }), "Para 1\u201330");
 });
 
 Deno.test("the declaration outranks an empty record entirely", () => {
-  assertEquals(proposePortion("hifz", [para(30)], [], true), "Para 1\u201330");
+  assertEquals(proposePortion("hifz", [para(30)], [], { isHafiz: true }), "Para 1\u201330");
 });
 
 Deno.test("without the declaration nothing changes", () => {
-  assertEquals(proposePortion("hifz", [para(30)], [], false), "Para 30");
+  assertEquals(proposePortion("hifz", [para(30)], [], { isHafiz: false }), "Para 30");
+});
+
+// ── A school that memorises the other way ───────────────────────────
+// Iqra IFS goes 30 → 1, and so does most of the region. A school that
+// goes 1 → 30 sets settings.hifz_memorization_order and needs nothing
+// else from us.
+
+Deno.test("the order defaults to reverse, and only 'forward' changes it", () => {
+  assertEquals(hifzOrderOf(null), "reverse");
+  assertEquals(hifzOrderOf({}), "reverse");
+  assertEquals(hifzOrderOf({ hifz_memorization_order: "reverse" }), "reverse");
+  assertEquals(hifzOrderOf({ hifz_memorization_order: "nonsense" }), "reverse");
+  assertEquals(hifzOrderOf({ hifz_memorization_order: "forward" }), "forward");
+});
+
+Deno.test("forward: the frontier is the HIGHEST para, and 1 to it is held", () => {
+  const rows = [para(1), para(2), para(3)];
+  assertEquals(frontier(rows, SABAQ_KINDS, "forward")?.para, 3);
+  assertEquals(proposePortion("hifz", rows, [], { order: "forward" }), "Para 1–3");
+});
+
+Deno.test("forward: a child on Para 12 holds 1 to 12, not 12 to 30", () => {
+  assertEquals(proposePortion("hifz", [para(12)], [], { order: "forward" }), "Para 1–12");
+  // The same record, read the way this school actually works:
+  assertEquals(proposePortion("hifz", [para(12)]), "Para 12–30");
+});
+
+Deno.test("forward: part-way into a para names it the same way", () => {
+  // Para 2 runs 2:142 to 2:252. Heard at 2:180.
+  const rows = [at(2, 142, 180)];
+  assertEquals(
+    proposePortion("hifz", rows, [], { order: "forward" }),
+    "Para 1, and Para 2 up to 2:180",
+  );
+});
+
+Deno.test("forward: khatam is completing Para 30, not Para 1", () => {
+  // Para 30 ends at 114:6.
+  const rows = [at(114, 1, 6)];
+  assertEquals(proposePortion("hifz", rows, [], { order: "forward" }), "Para 1–30");
+});
+
+Deno.test("forward: nothing finished yet inside the first para", () => {
+  const rows = [at(2, 30, 50)];
+  assertEquals(proposePortion("hifz", rows, [], { order: "forward" }), "Para 1 up to 2:50");
 });
