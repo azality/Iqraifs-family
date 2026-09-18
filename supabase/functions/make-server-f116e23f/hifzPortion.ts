@@ -209,7 +209,24 @@ export function proposePortion(
   track: string | null,
   rows: ProgressRow[],
   baselineParas: number[] = [],
+  isHafiz = false,
 ): string {
+  // A child the school has DECLARED hafiz holds the whole Quran, whatever
+  // the log happens to show. Three completed in September 2026 — Bisma
+  // Sajid, Fahad Ansari and Aroush Azeem Khan, announced for the
+  // 19 Sep دعائیہ تقریب — and a record that began on 3 Sep cannot always
+  // show the last para closing.
+  //
+  // This is the only thing that outranks the record, and it should be:
+  // marking a child hafiz is a human act, attributed to the person who
+  // made it (student.hafiz_since, set from Student detail or the Hifz
+  // overview). Inference fills gaps; it does not overrule a declaration —
+  // and, just as important, a declaration is the ONLY thing that may
+  // shortcut it. Muskan Muhammad has around half a para still to go, and
+  // the log says exactly that.
+  if (isHafiz) {
+    return formatParaRanges(Array.from({ length: 30 }, (_, i) => i + 1));
+  }
   const baseline = baselineParas.filter((p) => p >= 1 && p <= 30);
   if (track === "qaida") {
     // Qaida is counted in takhtis, not paras — the baseline (a para set)
