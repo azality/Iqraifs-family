@@ -5998,7 +5998,13 @@ await check("108. a teacher can find every column again, review it, submit it - 
 
   const { data: cs } = await admin.from("class_subject").insert({
     org_id: ORG, class_id: sandboxClass.id, name: "QA Review Sub", sort_order: 977,
-    assessment_weights: [{ label: "Paper", marks: 50 }],
+    // The weight must NAME its paper - a marks-typed weight with no
+    // paper sits neither exam (subjectSitsExam), which is exactly what
+    // the first run of this check tripped over.
+    assessment_weights: [
+      { label: "Written", marks: 50, paper: "written" },
+      { label: "Oral", marks: 50, paper: "oral" },
+    ],
   }).select("id").single();
   const { data: ss } = await admin.from("section_subject").insert({
     org_id: ORG, class_section_id: sandboxSec.id, class_subject_id: cs!.id,
