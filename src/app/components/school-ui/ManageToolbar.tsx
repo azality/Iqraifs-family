@@ -105,6 +105,11 @@ function flatItemsForRole(
         // Their wing's marks entry, section by section — the server trims
         // the board to the wing (18 Sep).
         I("marking-progress", "Marking progress", `/school/orgs/${orgId}/admin/assessment/marking-progress`, ClipboardList),
+        // An incharge who also TEACHES enters marks like anyone else -
+        // Amna is incharge AND a class teacher, and the incharge role
+        // wins the toolbar, so removing this left her no door to her
+        // own sheets (22 Sep). The page lists only what she teaches.
+        I("my-marks", "Enter marks", `/school/orgs/${orgId}/my-marks`, ClipboardList),
         // Their wing's classes + syllabus (Upload syllabus included) —
         // the page filters to the wing (16 Sep).
         I("classes", t("toolbar.classes"), `/school/orgs/${orgId}/admin/classes`, BookOpen),

@@ -903,9 +903,16 @@ export function TeacherHome({ orgId, me }: Props) {
             <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
               {t("teacherHome.mySubjects")}
             </h2>
-            <span className="text-xs text-slate-400">
-              {t("teacherHome.curriculumProgress")}
-            </span>
+            {/* The standing door to Review and submit. The marks nudges
+                above disappear the moment a column is finished, so a
+                teacher asking "where do I submit?" had nowhere to look
+                once they had entered everything (teachers, 22 Sep). */}
+            <Link
+              to={`/school/orgs/${orgId}/my-marks`}
+              className="text-xs font-semibold text-indigo-700 hover:underline"
+            >
+              {t("teacherHome.enterMarksLink")}
+            </Link>
           </div>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             {mySubjects.map((s) => {
