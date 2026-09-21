@@ -6314,6 +6314,92 @@ await check("111. a revising hafiz is heard ONCE, for dawr - and it still reache
       .update({ quran_track: (before as any)?.quran_track ?? null }).eq("id", pStu1);
   }
 });
+await check("112. the PASS MARK is the school's own - change it and every surface follows", async () => {
+  // "Whatever the school sets as a passing threshold, it should show
+  // that" (Muneeb, 22 Sep). IFS uses 40; the next school may use 33.
+  // This check deliberately does NOT assert 40 anywhere - it moves the
+  // setting and watches the surfaces move with it.
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const { data: org } = await admin.from("organizations").select("settings").eq("id", ORG).maybeSingle();
+  const original = (((org as any)?.settings ?? {}) as Record<string, unknown>).pass_mark_pct;
+  const term = await markedTerm();
+  assert(term, "no term with papers");
+
+  const tabulation = async () => {
+    const r = await api(admin2.token,
+      `/school/orgs/${ORG}/sections/${sandboxSec.id}/tabulation?termId=${term!.id}`);
+    assert(r.status === 200, `tabulation ${r.status}`);
+    return await r.json();
+  };
+
+  try {
+    // Settings owns it: write through the real endpoint, not the table.
+    for (const pct of [33, 60]) {
+      // ONE key, merged server-side. Writing back a whole settings
+      // snapshot once took the points league dark - never again.
+      const put = await api(admin2.token, `/school/orgs/${ORG}`, {
+        method: "PATCH",
+        body: JSON.stringify({ pass_mark_pct: pct }),
+      });
+      assert(put.status === 200, `settings ${put.status}: ${(await put.text()).slice(0, 120)}`);
+
+      const j = await tabulation();
+      assert(j.passMarkPct === pct,
+        `the register must carry the school's ${pct}%, got ${j.passMarkPct}`);
+
+      // Nobody at or above the line may be marked failed, and nobody
+      // below it may hold a position - at WHATEVER the school set.
+      for (const s of (j.students ?? []) as any[]) {
+        if (s.percentage === null) continue;
+        if (s.percentage < pct) {
+          assert(s.failedOverall === true,
+            `${s.studentName} at ${s.percentage}% is under ${pct}% and must read failed`);
+          assert(s.position === null,
+            `${s.studentName} failed at ${pct}% and must hold no position`);
+        } else {
+          assert(s.failedOverall === false,
+            `${s.studentName} at ${s.percentage}% is at or above ${pct}% and must NOT read failed`);
+        }
+      }
+
+      // The marks sheet a teacher types into carries the same line.
+      const { data: exams } = await admin.from("exam").select("id, name")
+        .eq("term_id", term!.id).is("archived_at", null);
+      const paper = (exams ?? []).find((e: any) => /Oral|Written/.test(e.name));
+      if (paper) {
+        const ms = await api(admin2.token,
+          `/school/orgs/${ORG}/exams/${(paper as any).id}/marks-sheet?sectionId=${sandboxSec.id}`);
+        const mj = await ms.json();
+        assert(ms.status === 200 && mj.passMarkPct === pct,
+          `the marks sheet must carry ${pct}%, got ${mj.passMarkPct}`);
+      }
+
+      // And the report card judges by it too.
+      const rc = await api(admin2.token,
+        `/school/orgs/${ORG}/students/${pStu1}/terms/${term!.id}/report-card`);
+      if (rc.status === 200) {
+        const card = await rc.json();
+        const o = card.academic?.overall ?? card.academics?.overall;
+        if (o) {
+          assert(o.passMarkPct === pct, `the card must carry ${pct}%, got ${o.passMarkPct}`);
+          if (o.percentage !== null) {
+            assert(o.failed === (o.percentage < pct),
+              `card verdict must follow ${pct}%: ${o.percentage}% -> failed=${o.failed}`);
+          }
+        }
+      }
+    }
+  } finally {
+    const restore = original === undefined ? 40 : original;
+    await api(admin2.token, `/school/orgs/${ORG}`, {
+      method: "PATCH",
+      body: JSON.stringify({ pass_mark_pct: restore }),
+    });
+    const { data: after } = await admin.from("organizations").select("settings").eq("id", ORG).maybeSingle();
+    assert(Number(((after as any)?.settings ?? {}).pass_mark_pct) === Number(restore),
+      "the school's own pass mark must be put back exactly as it was");
+  }
+});
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
