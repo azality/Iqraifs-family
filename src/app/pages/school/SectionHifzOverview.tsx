@@ -520,6 +520,20 @@ export function SectionHifzOverview() {
         if (isReader(s)) {
           return <span className="text-xs text-slate-600">{positionText(s)}</span>;
         }
+        // A hafiz who arrived mid-year has everything on file and
+        // nothing logged here. An empty red bar at 0 read as a child
+        // who has memorised nothing - it was OUR ignorance, shown as
+        // their failure (22 Sep). Say what the school told us instead.
+        const baseline = s.baselineParas ?? [];
+        if (s.ayahsMemorized === 0 && baseline.length > 0) {
+          return (
+            <span className="text-xs text-slate-600">
+              {baseline.length >= 30
+                ? t("hifzTeach.baselineWholeQuran")
+                : t("hifzTeach.baselineParas", { n: baseline.length })}
+            </span>
+          );
+        }
         const pct = (s.ayahsMemorized / maxAyahs) * 100;
         const color =
           pct >= 75 ? "bg-emerald-500" : pct >= 40 ? "bg-amber-500" : "bg-rose-500";
@@ -694,6 +708,7 @@ export function SectionHifzOverview() {
             // A nazra reader in the intake class logs through this same
             // dialog: their sabaq/sabqi ARE the reading pair (check 75).
             hifzOnly={isHifzSection}
+            quranTrack={logTarget.quranTrack ?? null}
             positionLabel={idx >= 0 ? t("hifzTeach.studentOf", { n: idx + 1, total: logRoster.length }) : null}
             onNextStudent={next ? () => setLogTarget(next) : null}
             open={!!logTarget}

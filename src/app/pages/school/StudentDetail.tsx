@@ -905,6 +905,7 @@ export function StudentDetail() {
         studentId={studentId}
         studentName={student.full_name}
         hifzOnly={sectionInfo?.isHifz ?? false}
+        quranTrack={(student as any)?.quran_track ?? null}
         open={hifzOpen}
         onOpenChange={setHifzOpen}
         onSuccess={() => setHifzReloadKey((k) => k + 1)}

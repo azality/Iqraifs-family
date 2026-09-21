@@ -4139,6 +4139,9 @@ export interface SectionHifzSummaryRow {
   studentName: string;
   grNumber?: string | null;
   ayahsMemorized: number;
+  /** Paras the child knew BEFORE anything was logged here. A hafiz who
+   *  arrived mid-year has 30 of these and no rows at all. Server >= v1.2.8. */
+  baselineParas?: number[];
   lastEntry: string | null;
   /** Which of the daily trio has been logged today (org-local day).
    *  `nazra` is the reading equivalent — one hearing, not three. */

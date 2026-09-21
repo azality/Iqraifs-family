@@ -43,6 +43,7 @@ import {
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { Textarea } from "../../components/ui/textarea";
+import { kindsForTrack, isDawrOnly } from "../../../utils/hifzTargets";
 import {
   getOrganization,
   getStudentHifz,
@@ -271,11 +272,13 @@ export function HifzRoundMode({
     // A qaida child has ONE hearing a day — their takhti — whatever
     // scope the round is running in.
     if (rosterById.get(id)?.quranTrack === "qaida") return h.qaida;
-    if (s === "sabaq") return h.sabaq;
-    if (s === "revision") return h.sabqi && h.manzil;
-    if (s === "sabqi") return h.sabqi;
-    if (s === "manzil") return h.manzil;
-    return h.sabaq || h.sabqi || h.manzil;
+    // A revising hafiz is heard ONCE, for dawr. Judging them against
+    // sabaq would keep them in the queue for a lesson that cannot
+    // exist, and the round would never finish (22 Sep).
+    const mine = kindsForTrack(rosterById.get(id)?.quranTrack);
+    const wanted = SCOPE_KINDS[s].filter((k) => mine.includes(k));
+    if (wanted.length === 0) return true;
+    return wanted.every((k) => h[k]);
   };
   const doneForScope = (id: string): boolean => doneFor(id, scope);
 
@@ -285,6 +288,11 @@ export function HifzRoundMode({
   const currentId =
     currentOverride ?? queue.find((id) => !doneForScope(id)) ?? null;
   const current = currentId ? rosterById.get(currentId) ?? null : null;
+
+  // What THIS child is heard for today - the shared rule, so the round
+  // and the log dialog can never disagree.
+  const currentKinds = kindsForTrack(current?.quranTrack);
+  const currentIsDawr = isDawrOnly(current?.quranTrack);
 
   // ── Per-student form state ────────────────────────────────────────────
   const [kinds, setKinds] = useState<Record<KindKey, KindState>>({
@@ -1273,7 +1281,13 @@ export function HifzRoundMode({
             <>
           {/* Kind rows — filtered by the round's Hearing scope. */}
           <div className="mt-4 flex flex-col gap-2.5">
-            {KIND_META.filter((m) => SCOPE_KINDS[scope].includes(m.key)).map((meta) => {
+            {KIND_META
+              .filter((m) => SCOPE_KINDS[scope].includes(m.key))
+              // A hafiz has no new lesson: their day is one dawr
+              // portion, logged as manzil (22 Sep). In a mixed round
+              // the memorizer beside them still gets the trio.
+              .filter((m) => currentKinds.includes(m.key))
+              .map((meta) => {
               const k = kinds[meta.key];
               const active = k.quality !== "";
               const alreadyHeard = heardToday[currentId]?.[meta.key];
@@ -1286,9 +1300,15 @@ export function HifzRoundMode({
                   }
                 >
                   <div className="flex flex-wrap items-center gap-2.5">
+                    {/* For a hafiz the manzil row IS the day's dawr, so
+                        it says so rather than "older juz cycle". */}
                     <span className="w-20 flex-none">
-                      <span className="block text-[12.5px] font-extrabold text-slate-900">{t(meta.labelKey)}</span>
-                      <span className="text-[10px] text-slate-400">{t(meta.subKey)}</span>
+                      <span className="block text-[12.5px] font-extrabold text-slate-900">
+                        {currentIsDawr && meta.key === "manzil" ? t("hifzRound.dawr") : t(meta.labelKey)}
+                      </span>
+                      <span className="text-[10px] text-slate-400">
+                        {currentIsDawr && meta.key === "manzil" ? t("hifzRound.dawrSub") : t(meta.subKey)}
+                      </span>
                     </span>
                     <button
                       type="button"

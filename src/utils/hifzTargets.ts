@@ -435,3 +435,30 @@ export function parseNextManzil(
   const parts = parseNextManzilParts(text);
   return parts ? parts[0] : null;
 }
+
+/** The daily hearings a child gets, by their Quran track.
+ *
+ *  A HAFIZ has no new lesson left to learn: their daily work is dawr,
+ *  one revision portion, logged as `manzil` (the kind that already
+ *  means older-portion revision). Showing them the full trio asked a
+ *  teacher to fill a Sabaq row that cannot exist, and Catch Up hears
+ *  ten children in a 45-minute period - three hearings each is not a
+ *  period, it is an afternoon (Muneeb, 22 Sep).
+ *
+ *  A memorizing child keeps the trio. Readers and qaida children are
+ *  not hifz at all and are handled by their own screens.
+ *
+ *  Shared by BOTH surfaces - the round screen and the one-off log
+ *  dialog - so a child's card cannot say one thing in one place and
+ *  something else in the other.
+ */
+export type HifzKindKey = "sabaq" | "sabqi" | "manzil";
+
+export function kindsForTrack(track: string | null | undefined): HifzKindKey[] {
+  return track === "revision" ? ["manzil"] : ["sabaq", "sabqi", "manzil"];
+}
+
+/** True when this child's daily hearing is a single dawr portion. */
+export function isDawrOnly(track: string | null | undefined): boolean {
+  return kindsForTrack(track).length === 1;
+}
