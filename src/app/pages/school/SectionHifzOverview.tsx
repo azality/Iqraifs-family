@@ -93,10 +93,7 @@ export function SectionHifzOverview() {
   // assignments, para break, manzil skip — for hifz/revision students.
   // Which one the teacher started; null on non-mixed rosters and
   // ?round=1 deep links (those keep the old combined behavior).
-  // One-off logging for a reading child in an ACADEMIC Quran/Nazra
-  // group: their Log button runs the per-child round screen for JUST
-  // that child (the round IS that group's logging surface).
-  const [roundQueue, setRoundQueue] = useState<SectionHifzSummaryRow[] | null>(null);
+
   useEffect(() => {
     if (!orgId || !sectionId) return;
     listClasses(orgId)
@@ -191,12 +188,20 @@ export function SectionHifzOverview() {
   // "ayahs memorized" reads 0 for every one of them and the S/Sq/M
   // chips describe a routine they don't follow. Show reading position
   // instead. (Pilot report: Uroosa Basit, Class II A, Sep 2026.)
-  const isNazraGroup = !isHifzSection;
+  // A class is a NAZRA GROUP only when everyone in it reads. It used to
+  // be every non-hifz section - so Catch Up, which mixes readers with
+  // hifz children and huffaz, was branded a nazra group whole: the
+  // green reading round swallowed its hifz children and the table hid
+  // the track control (Muneeb, 22 Sep: two surfaces only - the log and
+  // the round - never a third view).
+  const isNazraGroup = !isHifzSection && sorted.length > 0 && sorted.every(isReader);
   // Hifz IV is the INTAKE class (Ambreen, 7 Sep): a new child starts on
   // Noorani Qaida, then reads nazra, and only then starts hifz — so a
   // hifz-kind section can hold qaida and nazra readers. When it does, the
   // round uses the per-child screen and the table shows each child's track.
-  const mixedRoster = isHifzSection && sorted.some(isReader);
+  // Mixed = readers AND memorizers together, whatever the section kind:
+  // the hifz intake classes, and academic classes like Catch Up.
+  const mixedRoster = sorted.some(isReader) && sorted.some((s) => !isReader(s));
   const readerCount = sorted.filter(isReader).length;
 
   const changeTrack = async (row: SectionHifzSummaryRow, track: QuranTrack) => {
@@ -225,15 +230,15 @@ export function SectionHifzOverview() {
     // should only have log hifz and start today's round"). A qaida
     // child gets the takhti card inside it; a nazra reader is heard as
     // sabaq/sabqi — the school's own words for the reading pair.
-    const useNazraRound = roundQueue !== null || isNazraGroup;
+    const useNazraRound = isNazraGroup;
     return useNazraRound ? (
       <QuranRoundMode
         orgId={orgId}
         groupLabel={sectionLabel || "Nazra"}
-        roster={(roundQueue ?? sorted).map((r) =>
+        roster={sorted.map((r) =>
           dismissedHafiz.has(r.studentId) ? { ...r, needsHafizConfirmation: false } : r,
         )}
-        onClose={() => { setRoundActive(false); setRoundQueue(null); }}
+        onClose={() => setRoundActive(false)}
         onSaved={() => setReloadKey((k) => k + 1)}
         onConfirmHafiz={confirmHafiz}
         onDismissHafiz={(row) => setDismissedHafiz((p) => new Set(p).add(row.studentId))}
@@ -358,20 +363,48 @@ export function SectionHifzOverview() {
     );
   };
 
-  // In a hifz section EVERY child logs through the one dialog — a qaida
-  // child gets the takhti card, a nazra reader logs sabaq/sabqi (their
-  // reading pair). Only an ACADEMIC Quran/Nazra group still opens the
-  // per-child round screen, which is that group's whole system.
+  // EVERY child's Log opens the one dialog — a qaida child gets the
+  // takhti card, a nazra reader logs their reading pair, a hifz child
+  // the trio. The round screen is never a log: an academic reader's Log
+  // used to throw the teacher into the full round screen for one child,
+  // which read as a third system (Muneeb, 22 Sep).
   const openLog = (s: SectionHifzSummaryRow) => {
-    if (!isHifzSection && isReader(s)) {
-      setRoundQueue([s]);
-      setRoundActive(true);
-      return;
-    }
     setLogRoster(sorted);
     setLogTarget(s);
   };
 
+  // One track control for both tables - the reading table used to have
+  // none, which is how Catch Up's huffaz stayed stuck on nazra.
+  const trackSelect = (s: SectionHifzSummaryRow, fallback: QuranTrack) => (
+    <select
+      value={s.quranTrack ?? fallback}
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => {
+        e.stopPropagation();
+        changeTrack(s, e.target.value as QuranTrack);
+      }}
+      className={
+        "rounded-md border px-1.5 py-0.5 text-[11px] font-medium " +
+        (s.quranTrack === "qaida"
+          ? "border-orange-200 bg-orange-50 text-orange-800"
+          : s.quranTrack === "nazra"
+          ? "border-sky-200 bg-sky-50 text-sky-800"
+          : "border-slate-200 bg-white text-slate-700")
+      }
+      title={
+        s.quranTrack === "qaida"
+          ? "Noorani Qaida \u2192 Nazra \u2192 Hifz. Set for this child"
+          : s.quranTrackInferred
+          ? "Automatic (from the class) \u2014 pick to set it for this child"
+          : "Set for this child"
+      }
+    >
+      <option value="qaida">Qaida</option>
+      <option value="nazra">Nazra</option>
+      <option value="hifz">Hifz</option>
+      <option value="revision">Revision</option>
+    </select>
+  );
   const nazraColumns: DataTableColumn<SectionHifzSummaryRow>[] = [
     {
       key: "name",
@@ -419,6 +452,44 @@ export function SectionHifzOverview() {
         </button>
       ),
       cell: (s) => <span className="text-xs text-slate-500">{formatDate(s.lastEntry)}</span>,
+    },
+    // The same track control the hifz table has: a hafiz sitting in a
+    // reading group (Catch Up) is the TEACHER's to move onto revision -
+    // until then the child was stuck being heard as a nazra reader.
+    {
+      key: "track",
+      header: "Track",
+      cell: (s) => trackSelect(s, "nazra"),
+    },
+    {
+      key: "actions",
+      header: "",
+      align: "right",
+      width: "w-40",
+      cell: (s) => (
+        <div className="inline-flex gap-1.5">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              setHistoryTarget(s);
+            }}
+          >
+            {t("hifzTeach.history")}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              openLog(s);
+            }}
+          >
+            {t("hifzTeach.log")}
+          </Button>
+        </div>
+      ),
     },
   ];
 
@@ -509,36 +580,7 @@ export function SectionHifzOverview() {
     {
       key: "track",
       header: "Track",
-      cell: (s) => (
-        <select
-          value={s.quranTrack ?? "hifz"}
-          onClick={(e) => e.stopPropagation()}
-          onChange={(e) => {
-            e.stopPropagation();
-            changeTrack(s, e.target.value as QuranTrack);
-          }}
-          className={
-            "rounded-md border px-1.5 py-0.5 text-[11px] font-medium " +
-            (s.quranTrack === "qaida"
-              ? "border-orange-200 bg-orange-50 text-orange-800"
-              : s.quranTrack === "nazra"
-              ? "border-sky-200 bg-sky-50 text-sky-800"
-              : "border-slate-200 bg-white text-slate-700")
-          }
-          title={
-            s.quranTrack === "qaida"
-              ? "Noorani Qaida → Nazra → Hifz. Set for this child"
-              : s.quranTrackInferred
-              ? "Automatic (from the class) — pick to set it for this child"
-              : "Set for this child"
-          }
-        >
-          <option value="qaida">Qaida</option>
-          <option value="nazra">Nazra</option>
-          <option value="hifz">Hifz</option>
-          <option value="revision">Revision</option>
-        </select>
-      ),
+      cell: (s) => trackSelect(s, "hifz"),
     },
     {
       key: "actions",
