@@ -800,8 +800,14 @@ export function OrgSettings() {
             <label className="block text-sm text-slate-800">
               <span className="font-medium">Pass mark (%)</span>
               <span className="block text-xs text-slate-500">
-                A score at or above this counts as a pass in teacher
-                performance metrics. Default 40.
+                A score below this is a fail: it shows in red on the
+                tabulation register, and counts against the pass rate in
+                teacher performance. One percentage covers every paper
+                size — 40% is 30 of 75 and 40 of 100. Default 40.
+              </span>
+              <span className="block text-xs text-slate-500">
+                The letters and words on report cards come from your
+                grading chart, under Assessment → Grade scales.
               </span>
               <input
                 type="number"

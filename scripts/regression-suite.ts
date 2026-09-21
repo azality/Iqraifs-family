@@ -6208,6 +6208,43 @@ await check("109. the report card grades on the SCHOOL's remarks chart, and belo
     }
   }
 });
+
+await check("110. a school with no grading chart is TOLD, on the dashboard", async () => {
+  // IFS marked an entire term on the bands hardcoded in
+  // schoolReportCard.tsx and nothing ever said so - it surfaced only
+  // when their printed chart was compared by hand (22 Sep). Every
+  // school after them must be warned where they will see it, before
+  // any marks are entered.
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const alertsNow = async () => {
+    const r = await api(admin2.token, `/school/orgs/${ORG}/dashboard`);
+    const j = await r.json();
+    assert(r.status === 200, `dashboard ${r.status}`);
+    return ((j.alerts ?? []) as any[]).map((x: any) => x.kind);
+  };
+
+  const { data: def } = await admin.from("grade_scale")
+    .select("id").eq("org_id", ORG).eq("is_default", true).is("archived_at", null).maybeSingle();
+
+  if (def) {
+    // A chart exists: the warning must be silent, and must appear the
+    // moment the chart stops being the default.
+    assert(!(await alertsNow()).includes("grading_not_set_up"),
+      "with a chart set up the warning must stay silent");
+    await admin.from("grade_scale").update({ is_default: false }).eq("id", (def as any).id);
+    try {
+      assert((await alertsNow()).includes("grading_not_set_up"),
+        "with no default grade scale the dashboard must say so - otherwise report cards silently use built-in bands");
+    } finally {
+      await admin.from("grade_scale").update({ is_default: true }).eq("id", (def as any).id);
+    }
+    assert(!(await alertsNow()).includes("grading_not_set_up"),
+      "restoring the chart must clear the warning");
+  } else {
+    assert((await alertsNow()).includes("grading_not_set_up"),
+      "this org has no default grade scale, so the dashboard must be warning about it");
+  }
+});
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

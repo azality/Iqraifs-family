@@ -823,7 +823,8 @@ export function installDashboard(school: Hono): void {
         | "no_assignment"
         | "untagged_content"
         | "signoffs_pending"
-        | "ready_to_finalize";
+        | "ready_to_finalize"
+        | "grading_not_set_up";
       title: string;
       body: string;
       actionLabel?: string;
@@ -1473,6 +1474,36 @@ export function installDashboard(school: Hono): void {
       }
     } catch (e) {
       console.error("[dashboard] sign-off alerts failed:", e);
+    }
+
+    // ── Grading not set up ────────────────────────────────────────
+    // A school with no default grade scale gets the bands hardcoded in
+    // schoolReportCard.tsx, silently: IFS marked an entire term that
+    // way and only found out when the printed chart was compared by
+    // hand (22 Sep). Every school after them should be TOLD, on the
+    // screen they open every morning, before any marks are entered.
+    if (isOrgView) {
+      try {
+        const { data: defScale } = await serviceRoleClient
+          .from("grade_scale").select("id")
+          .eq("org_id", orgId).eq("is_default", true).is("archived_at", null)
+          .maybeSingle();
+        if (!defScale) {
+          alerts.push({
+            id: "grading_not_set_up",
+            severity: "warning",
+            kind: "grading_not_set_up",
+            title: "Your grading chart is not set up yet",
+            body:
+              "Report cards are using a built-in A+/A/B/C/D/F scale, not your school's own. " +
+              "Add your remarks chart so the letters and the words on every card are yours.",
+            actionLabel: "Set up grading",
+            actionPath: `/school/orgs/${orgId}/admin/assessment/grade-scales`,
+          });
+        }
+      } catch (e) {
+        console.error("[dashboard] grade scale alert failed:", e);
+      }
     }
 
     // Sort by severity (critical > warning > info), cap to 8.
