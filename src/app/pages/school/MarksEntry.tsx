@@ -505,6 +505,9 @@ export function MarksEntry() {
   // "There should be a way for them to review, and when they are done,
   // say submit, and then it is locked" (teachers, 22 Sep). Per column
   // the teacher owns: who still has no mark, and whether it can go.
+  // The school's own pass mark, from the sheet. Whatever they set.
+  const passMarkPct = sheet?.passMarkPct ?? null;
+
   const review = useMemo(() => {
     if (!sheet) return [];
     return visibleSubjects
@@ -609,6 +612,9 @@ export function MarksEntry() {
         <p className="mt-1 text-sm text-slate-600">
           Tab / arrow-keys move between cells. Paste a block from Excel to fill
           a rectangle. Sheet auto-saves {AUTOSAVE_DELAY_MS / 1000}s after the last edit.
+          {passMarkPct !== null && (
+            <> A mark under your school&apos;s pass mark of <strong>{passMarkPct}%</strong> shows in red.</>
+          )}
         </p>
       </div>
 
@@ -892,7 +898,16 @@ export function MarksEntry() {
                               />
                               A
                             </label>
-                            <span className="text-[10px] text-slate-500">
+                            {/* Under the SCHOOL's pass mark the cell's own
+                                percentage reads red, as the mark is typed -
+                                the teacher should not have to wait for the
+                                register to learn a child failed (22 Sep). */}
+                            <span className={
+                              "text-[10px] " +
+                              (cellPct !== null && passMarkPct !== null && cellPct < passMarkPct
+                                ? "font-bold text-rose-600"
+                                : "text-slate-500")
+                            }>
                               {cellPct !== null ? `${cellPct.toFixed(0)}%` : ""}
                             </span>
                           </div>

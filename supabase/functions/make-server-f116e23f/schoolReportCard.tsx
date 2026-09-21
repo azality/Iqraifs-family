@@ -35,6 +35,7 @@ import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { hasAnyRoleInOrg as hasAnyOrgRole, hasAdminOrPrincipal as isAdminOrPrincipal } from "./schoolAuth.ts";
 import { verifyPinToken } from "./schoolPhaseA.tsx";
 import { attendanceTotals } from "./attendanceOpening.ts";
+import { orgPassMarkPct, isFailing } from "./passMark.ts";
 
 async function isClassTeacherOfStudent(userId: string, studentId: string): Promise<boolean> {
   const { data: stu } = await serviceRoleClient
@@ -253,6 +254,9 @@ async function assembleReportCard(
   const overallObtained = subjects.reduce((s, x) => s + x.totalObtained, 0);
   const overallMax = subjects.reduce((s, x) => s + x.totalMax, 0);
   const overallPct = overallMax > 0 ? (overallObtained / overallMax) * 100 : null;
+  // The school's own pass line (passMark.ts) - the same one the
+  // register ranks by, so a card and the register cannot disagree.
+  const passMarkPct = await orgPassMarkPct(orgId);
 
   // ── Attendance in term window ──
   const startD = (term as any).start_date;
@@ -399,6 +403,11 @@ async function assembleReportCard(
           percentage: overallPct,
           letter: letterFor(bands, overallPct),
           remark: remarkFor(bands, overallPct),
+          // The verdict, by the SCHOOL's threshold - the letter comes
+          // from their grading chart, but whether it is a pass is this
+          // setting, and the two can be set independently (22 Sep).
+          passMarkPct,
+          failed: isFailing(overallPct, passMarkPct),
         },
       },
       attendance: {

@@ -31,6 +31,7 @@ import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { hasAnyRoleInOrg as hasAnyOrgRole, hasAdminOrPrincipal as isAdminOrPrincipal, isInchargeOfClass } from "./schoolAuth.ts";
 import { orgTimezone, todayInOrgTz } from "./tz.ts";
+import { orgPassMarkPct, isFailing } from "./passMark.ts";
 import * as kv from "./kv_store.tsx";
 
 // Per-subject "my column is complete" sign-off, one small map per
@@ -419,13 +420,8 @@ export function installAssessment(school: Hono): void {
       };
     });
 
-    // The school's pass line (settings.pass_mark_pct, IFS 40): 30 of 75
-    // and 40 of 100 are both 40%, so one percentage covers every paper
-    // size. The sheet paints marks under it red, and it decides who is
-    // ranked (Ambreen, 22 Sep).
-    const { data: orgRow } = await serviceRoleClient
-      .from("organizations").select("settings").eq("id", orgId).maybeSingle();
-    const passMarkPct = Number((orgRow as any)?.settings?.pass_mark_pct) || 40;
+    // The school's pass line — one reader for every surface (passMark.ts).
+    const passMarkPct = await orgPassMarkPct(orgId);
 
     // Position: rank by percentage, equal percentages share a position —
     // how the school's own registers do it.
@@ -438,7 +434,7 @@ export function installAssessment(school: Hono): void {
     // the pass mark - a child who dropped one subject but passed
     // overall keeps their rank (Muneeb's call).
     const failed = (r: { percentage: number | null }) =>
-      r.percentage !== null && r.percentage < passMarkPct;
+      isFailing(r.percentage, passMarkPct);
     const ranked = rows
       .filter((r) => r.percentage !== null && !failed(r))
       .sort((a, b) => (b.percentage! - a.percentage!));
@@ -1266,6 +1262,9 @@ export function installAssessment(school: Hono): void {
       exam: examRow
         ? { id: (examRow as any).id, name: (examRow as any).name, examType: (examRow as any).exam_type, termId: sheetTermId }
         : null,
+      // The school's pass line, so a mark under it reads red AS IT IS
+      // TYPED rather than only on the register afterwards (22 Sep).
+      passMarkPct: await orgPassMarkPct(orgId),
       // Which subject columns are signed off for this exam's TERM (the
       // sign-off covers both papers at once).
       confirmations,

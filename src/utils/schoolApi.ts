@@ -5460,6 +5460,9 @@ export interface MarksSheetResponse {
   /** Which exam this sheet is for — its name says oral vs written
    *  (server >= v1.1.49); termId from v1.1.56 powers the sign-off. */
   exam?: { id: string; name: string; examType: string; termId?: string | null } | null;
+  /** The school's pass mark, so a mark under it reads red as it is
+   *  typed. Whatever the school set — server >= v1.3.0. */
+  passMarkPct?: number;
   section: { id: string; name: string; className: string };
   subjects: { id: string; name: string; assessmentWeights?: AssessmentWeight[] | null }[];
   /** null = caller may edit every column; otherwise the subject ids
@@ -5650,7 +5653,9 @@ export interface TermReportCardResponse {
   exams: Array<{ id: string; name: string; examType: string; weight: number; examDate: string | null }>;
   academic: {
     subjects: TermReportCardSubject[];
-    overall: { obtained: number; max: number; percentage: number | null; letter: string; remark: string };
+    overall: { obtained: number; max: number; percentage: number | null; letter: string; remark: string;
+      /** The school's own threshold and its verdict — server >= v1.3.0. */
+      passMarkPct?: number; failed?: boolean };
   };
   attendance: { present: number; late: number; absent: number; excused: number; total: number; attendancePct: number | null; daysPresent?: number; workingDays?: number; carriedDays?: number; carriedAsOf?: string | null };
   behavior: { positive: number; concern: number; netPoints: number };

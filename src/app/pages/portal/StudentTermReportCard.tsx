@@ -181,9 +181,19 @@ export function StudentTermReportCard() {
                       <td className="px-2 py-1.5 text-right">
                         {card.academic.overall.max > 0 ? `${card.academic.overall.obtained}/${card.academic.overall.max}` : "—"}
                       </td>
-                      <td className="px-2 py-1.5 text-right">{fmtPct(card.academic.overall.percentage)}</td>
+                      <td className={"px-2 py-1.5 text-right " +
+                        (card.academic.overall.failed ? "font-bold text-rose-700" : "")}>
+                        {fmtPct(card.academic.overall.percentage)}
+                      </td>
                       <td className="px-2 py-1.5 text-center">{card.academic.overall.letter}</td>
-                      <td className="px-2 py-1.5">{card.academic.overall.remark}</td>
+                      <td className="px-2 py-1.5">
+                        {card.academic.overall.remark}
+                        {card.academic.overall.failed && (
+                          <span className="ml-1.5 font-bold text-rose-700">
+                            {t("portal.rc.failedBelow", { pct: card.academic.overall.passMarkPct })}
+                          </span>
+                        )}
+                      </td>
                     </tr>
                   </tbody>
                 </table>
