@@ -419,10 +419,28 @@ export function installAssessment(school: Hono): void {
       };
     });
 
+    // The school's pass line (settings.pass_mark_pct, IFS 40): 30 of 75
+    // and 40 of 100 are both 40%, so one percentage covers every paper
+    // size. The sheet paints marks under it red, and it decides who is
+    // ranked (Ambreen, 22 Sep).
+    const { data: orgRow } = await serviceRoleClient
+      .from("organizations").select("settings").eq("id", orgId).maybeSingle();
+    const passMarkPct = Number((orgRow as any)?.settings?.pass_mark_pct) || 40;
+
     // Position: rank by percentage, equal percentages share a position —
     // how the school's own registers do it.
+    //
+    // A child who FAILED is not ranked. Ambreen said it in the same
+    // breath as the absentees ("agar koi fail ho raha hai... to phir
+    // bhi position count kar raha hai") and only the absent half was
+    // built; the school then saw a failing child still holding a
+    // position (22 Sep). Failing here means the grand total is under
+    // the pass mark - a child who dropped one subject but passed
+    // overall keeps their rank (Muneeb's call).
+    const failed = (r: { percentage: number | null }) =>
+      r.percentage !== null && r.percentage < passMarkPct;
     const ranked = rows
-      .filter((r) => r.percentage !== null)
+      .filter((r) => r.percentage !== null && !failed(r))
       .sort((a, b) => (b.percentage! - a.percentage!));
     const posByStudent = new Map<string, number>();
     let pos = 0, prevPct: number | null = null;
@@ -447,12 +465,6 @@ export function installAssessment(school: Hono): void {
       }
     }
 
-    // The school's pass line (settings.pass_mark_pct, IFS 40): 30 of 75
-    // and 40 of 100 are both 40%, so one percentage covers every paper
-    // size. The sheet paints marks under it red (Ambreen, 22 Sep).
-    const { data: orgRow } = await serviceRoleClient
-      .from("organizations").select("settings").eq("id", orgId).maybeSingle();
-    const passMarkPct = Number((orgRow as any)?.settings?.pass_mark_pct) || 40;
 
     return c.json({
       section: { id: (sec as any).id, name: (sec as any).name, className: (sec as any).class.name },
@@ -460,7 +472,13 @@ export function installAssessment(school: Hono): void {
       passMarkPct,
       exams: examList.map((e) => ({ id: e.id, name: e.name, weight: Number(e.weight) || 1 })),
       subjects: subjectCols,
-      students: rows.map((r) => ({ ...r, position: posByStudent.get(r.studentId) ?? null })),
+      students: rows.map((r) => ({
+        ...r,
+        position: posByStudent.get(r.studentId) ?? null,
+        /** Why there is no position: the grand total is under the pass
+         *  mark. Absence is reported separately as absentPapers. */
+        failedOverall: failed(r),
+      })),
       confirmations,
       reportCards: { studentCount: stuList.length, finalizedCount, publishedCount },
       canFinalize: isOffice,

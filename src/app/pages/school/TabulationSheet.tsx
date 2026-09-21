@@ -151,8 +151,8 @@ export function TabulationSheet() {
           The whole section's result register for one term — every paper's marks combined
           into each subject's total, with the grand total, percentage and position.
           A missed paper still counts its full marks in the total; a child who missed
-          any paper is not ranked. Marks under the pass line
-          {passPct !== null ? ` (${passPct}% — 30 of 75, 40 of 100)` : ""} show in red.
+          any paper is not ranked, and neither is a child whose grand total is under
+          the pass line. Marks under it{passPct !== null ? ` (${passPct}%)` : ""} show in red.
         </p>
       </div>
 
@@ -366,7 +366,11 @@ export function TabulationSheet() {
                         : "—"}
                     </td>
                     <td className="px-2 py-2 text-center bg-slate-50/60 font-semibold">
-                      {r.position ?? ((r.absentPapers ?? 0) > 0
+                      {/* A failing child holds no position - the school
+                          saw one ranked 14th on 33.2% (Ambreen, 22 Sep). */}
+                      {r.position ?? (r.failedOverall
+                        ? <span className="text-[10px] font-bold text-rose-600">Failed</span>
+                        : (r.absentPapers ?? 0) > 0
                         ? <span className="text-[10px] font-normal text-amber-700">not ranked</span>
                         : "—")}
                     </td>

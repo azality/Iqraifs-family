@@ -3915,6 +3915,32 @@ await check("76. tabulation sheet: papers combine per subject, with totals and p
     const rowA2 = (j2.students ?? []).find((x: any) => x.studentId === stuA.id);
     assert(rowA2.position === 1, `A sat everything and leads alone, got ${rowA2.position}`);
 
+    // A child who FAILED holds no position either. The school saw one
+    // ranked 14th on 33.2% - Ambreen said it in the same breath as the
+    // absentees and only the absent half had been built (22 Sep).
+    // Failing = the grand total under the school's pass mark; dropping
+    // one subject while passing overall keeps the rank.
+    const { data: org } = await admin.from("organizations")
+      .select("settings").eq("id", ORG).maybeSingle();
+    const passPct = Number((org as any)?.settings?.pass_mark_pct) || 40;
+    // B sat both papers this time, and fails them.
+    await admin.from("exam_subject_score").delete()
+      .eq("class_subject_id", cs.id).eq("student_id", stuB.id);
+    await score(oralEx, stuB.id, 2, 15);
+    await score(writEx, stuB.id, 8, 60);
+    const r4 = await api(admin2.token,
+      `/school/orgs/${ORG}/sections/${sandboxSec.id}/tabulation?termId=${term!.id}`);
+    const j4 = await r4.json();
+    const rowB4 = (j4.students ?? []).find((x: any) => x.studentId === stuB.id);
+    assert(rowB4.percentage !== null && rowB4.percentage < passPct,
+      `B must be failing for this check to mean anything, got ${rowB4.percentage}`);
+    assert(rowB4.failedOverall === true, "a failing child must be flagged as failed");
+    assert(rowB4.position === null,
+      `a failing child must hold NO position, got ${rowB4.position}`);
+    const rowA4 = (j4.students ?? []).find((x: any) => x.studentId === stuA.id);
+    assert(rowA4.position === 1 && rowA4.failedOverall === false,
+      `a passing child keeps their rank: pos ${rowA4.position} failed ${rowA4.failedOverall}`);
+
     // An absence in a NOT-EXAMINED subject (empty weights, no marks -
     // Art & Craft on the real registers) must not conjure a column,
     // skew a total, or cost the child their rank.
