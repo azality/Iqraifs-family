@@ -21,7 +21,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "../../components/ui/dialog";
 import {
-  getSchoolMe, isOrgAdmin,
+  getSchoolMe, isOrgAdmin, getOrganization,
   listGradeScales, createGradeScale, updateGradeScale, archiveGradeScale,
   replaceGradeScaleBands,
   type GradeBand, type GradeScale, type SchoolMeResponse,
@@ -52,6 +52,9 @@ export function ManageGradeScales() {
   const [scales, setScales] = useState<GradeScale[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // The school's pass mark, so this page can say where the fail line
+  // sits and flag a chart that disagrees with it (22 Sep).
+  const [passPct, setPassPct] = useState<number | null>(null);
 
   const [addOpen, setAddOpen] = useState(false);
   const [newName, setNewName] = useState("");
@@ -62,6 +65,16 @@ export function ManageGradeScales() {
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!orgId) return;
+    getOrganization(orgId)
+      .then((o) => {
+        const p = Number((o as any)?.organization?.settings?.pass_mark_pct);
+        setPassPct(Number.isFinite(p) && p > 0 ? p : 40);
+      })
+      .catch(() => setPassPct(null));
+  }, [orgId]);
 
   const refresh = () => {
     if (!orgId) return;
@@ -159,6 +172,16 @@ export function ManageGradeScales() {
   }
   const hasIssues = Object.keys(issues).length > 0;
 
+  // The pass mark and the chart are two settings that must agree: a
+  // school with the fail line at 40 but no band boundary there would
+  // see red marks on the register that the report card calls a pass
+  // (22 Sep). This only warns - the school decides.
+  const passLineOff =
+    passPct !== null && sortedDraft.length > 0 &&
+    !sortedDraft.some((b) => Math.abs(b.minPct - passPct) < 0.001);
+  const bandAtPass = passPct === null ? null : sortedDraft.find(
+    (b) => passPct >= b.minPct && (b.maxPct === 100 ? passPct <= 100 : passPct < b.maxPct));
+
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-2">
@@ -175,10 +198,27 @@ export function ManageGradeScales() {
           drives every report card's letters + remarks. Bands must cover 0–100
           with no gaps or overlaps.
         </p>
+        {passPct !== null && (
+          <p className="mt-1 text-sm text-slate-600">
+            Your pass mark is <strong>{passPct}%</strong>
+            {bandAtPass ? <> — a child on it is graded <strong>{bandAtPass.letter}</strong>
+              {bandAtPass.remark ? <> ({bandAtPass.remark})</> : null}</> : null}.
+            {" "}Change it under Settings → Organization.
+          </p>
+        )}
       </div>
 
       {error && (
         <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>
+      )}
+
+      {passLineOff && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          No band starts at your pass mark of <strong>{passPct}%</strong>, so the
+          tabulation can mark a score red while this chart still calls it a pass.
+          Either start a band at {passPct}% or change the pass mark under
+          Settings → Organization.
+        </div>
       )}
 
       <section className="space-y-2">
