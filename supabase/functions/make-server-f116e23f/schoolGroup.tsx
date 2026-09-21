@@ -23,18 +23,16 @@ import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { hasAdminOrPrincipal as isAdminOrPrincipalOrg } from "./schoolAuth.ts";
 import { todayInOrgTz } from "./tz.ts";
 
-async function callerOrgsInGroup(
-  userId: string,
-  groupId: string,
-): Promise<string[]> {
-  // Chain visibility is HEAD-OFFICE ONLY: it requires an explicit
-  // school_group-scoped admin/principal role (Phase 4). A campus-only
-  // admin sees only their own campus and never the cross-campus
-  // rollup — that's the head office's job.
-  //
-  // Previously this function fell back to org-scoped roles, which
-  // leaked the chain dashboard to every campus admin. Removed.
-  const { data: groupRoles } = await serviceRoleClient
+/** Does the caller hold a head-office role on this chain at all?
+ *
+ *  Separate from "which campuses can they see", because a chain whose
+ *  campuses are all archived returns an EMPTY list for a caller who is
+ *  perfectly entitled to it. Conflating the two told Muneeb - principal
+ *  of the chain - that he lacked permission, when the truth was that
+ *  the chain's only campus had been soft-deleted (22 Sep).
+ */
+async function hasHeadOfficeRole(userId: string, groupId: string): Promise<boolean> {
+  const { data } = await serviceRoleClient
     .from("user_roles")
     .select("id")
     .eq("user_id", userId)
@@ -43,15 +41,7 @@ async function callerOrgsInGroup(
     .in("role_type", ["principal", "admin"])
     .is("revoked_at", null)
     .limit(1);
-  if (groupRoles && groupRoles.length > 0) {
-    const { data: orgs } = await serviceRoleClient
-      .from("organizations")
-      .select("id")
-      .eq("school_group_id", groupId)
-      .is("deleted_at", null);
-    return (orgs ?? []).map((o: any) => o.id);
-  }
-  return [];
+  return !!data && data.length > 0;
 }
 
 export function installSchoolGroup(school: Hono): void {
@@ -60,8 +50,8 @@ export function installSchoolGroup(school: Hono): void {
     const userId = getAuthUserId(c);
     if (!userId) return c.json({ error: "unauthenticated" }, 401);
     const groupId = c.req.param("groupId");
-    const callerOrgs = await callerOrgsInGroup(userId, groupId);
-    if (callerOrgs.length === 0) {
+    // Permission and emptiness are different answers (22 Sep).
+    if (!(await hasHeadOfficeRole(userId, groupId))) {
       return c.json({ error: "forbidden" }, 403);
     }
     const { data: group } = await serviceRoleClient
@@ -100,8 +90,8 @@ export function installSchoolGroup(school: Hono): void {
     const userId = getAuthUserId(c);
     if (!userId) return c.json({ error: "unauthenticated" }, 401);
     const groupId = c.req.param("groupId");
-    const callerOrgs = await callerOrgsInGroup(userId, groupId);
-    if (callerOrgs.length === 0) {
+    // Permission and emptiness are different answers (22 Sep).
+    if (!(await hasHeadOfficeRole(userId, groupId))) {
       return c.json({ error: "forbidden" }, 403);
     }
     const { data: orgs } = await serviceRoleClient
