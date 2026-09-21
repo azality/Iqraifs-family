@@ -5983,6 +5983,103 @@ await check("107. marking surfaces follow the term being MARKED, not merely the 
   assert(todo.status === 200, `marks todo ${todo.status}`);
   assert(Array.isArray((await todo.json()).todos), "todos must be a list");
 });
+await check("108. a teacher can find every column again, review it, submit it - and unlock it to fix one", async () => {
+  // "As soon as they enter a few students' marks there is no way to go
+  // back to tally, to confirm or to enter one or two students"
+  // (teachers, 22 Sep). The nudge lists drop a column the moment it is
+  // finished; My marks lists them all, and submitting locks the sheet.
+  const t2 = await ensureUser("qa-teacher2@azality.com", "QA Teacher Two", "class_teacher");
+  const term = await markedTerm();
+  assert(term, "no term with papers");
+  const { data: exams } = await admin.from("exam").select("id, name")
+    .eq("term_id", term!.id).is("archived_at", null);
+  const paper = (exams ?? []).find((e: any) => /Oral|Written/.test(e.name));
+  assert(paper, "need a gradebook paper");
+
+  const { data: cs } = await admin.from("class_subject").insert({
+    org_id: ORG, class_id: sandboxClass.id, name: "QA Review Sub", sort_order: 977,
+    assessment_weights: [{ label: "Paper", marks: 50 }],
+  }).select("id").single();
+  const { data: ss } = await admin.from("section_subject").insert({
+    org_id: ORG, class_section_id: sandboxSec.id, class_subject_id: cs!.id,
+    name: "QA Review Sub", teacher_user_id: t2.id, sort_order: 977,
+  }).select("id").single();
+  const confKey = `school:marksconfirm:${term!.id}:${sandboxSec.id}`;
+
+  try {
+    const { data: stus } = await admin.from("student").select("id")
+      .eq("class_section_id", sandboxSec.id).eq("status", "active");
+    const ids = (stus ?? []).map((s: any) => s.id);
+    assert(ids.length >= 2, "need two sandbox students");
+
+    const mine = async () => {
+      const r = await api(t2.token, `/school/orgs/${ORG}/me/exam-marks-todo`);
+      const j = await r.json();
+      assert(r.status === 200, `marks todo ${r.status}`);
+      return ((j.columns ?? []) as any[]).find(
+        (c) => c.classSubjectId === cs!.id && c.examId === paper!.id);
+    };
+
+    // Nothing entered: the column is listed, and it is listed as empty.
+    const before = await mine();
+    assert(before, "an untouched column must still be listed in My marks");
+    assert(before.marked === 0 && before.studentCount === ids.length,
+      `expected 0 of ${ids.length}, got ${before.marked} of ${before.studentCount}`);
+    assert(before.signedOff === null, "nothing submitted yet");
+
+    // Part-marked: still listed, now with its real progress - this is
+    // the state the teachers could not get back to.
+    const save = (rows: any[]) => api(t2.token, `/school/orgs/${ORG}/exams/${paper!.id}/marks-sheet`, {
+      method: "POST",
+      body: JSON.stringify({ sectionId: sandboxSec.id, rows }),
+    });
+    const one = await save([{ studentId: ids[0], classSubjectId: cs!.id, maxMarks: 50, obtainedMarks: 40, absent: false }]);
+    assert(one.status === 200, `save one ${one.status}`);
+    const part = await mine();
+    assert(part && part.marked === 1,
+      `a part-marked column must still be findable: ${JSON.stringify(part)}`);
+
+    // Every student marked or absent: ready to submit.
+    const rest = ids.slice(1).map((id: string, i: number) => (
+      i === 0
+        ? { studentId: id, classSubjectId: cs!.id, maxMarks: 50, obtainedMarks: null, absent: true }
+        : { studentId: id, classSubjectId: cs!.id, maxMarks: 50, obtainedMarks: 30, absent: false }));
+    const all = await save(rest);
+    assert(all.status === 200, `save rest ${all.status}`);
+    const full = await mine();
+    assert(full.marked === ids.length, `expected all ${ids.length} marked, got ${full.marked}`);
+    assert(full.absent >= 1, "an absence must be counted as an absence");
+
+    // Submit: the column locks, and stays listed as submitted.
+    const confirmUrl =
+      `/school/orgs/${ORG}/sections/${sandboxSec.id}/subjects/${cs!.id}/marks-confirmation`;
+    const sub = await api(t2.token, confirmUrl, {
+      method: "POST",
+      body: JSON.stringify({ termId: term!.id, confirmed: true }),
+    });
+    assert(sub.status === 200, `submit ${sub.status}`);
+    const locked = await mine();
+    assert(locked.signedOff, "a submitted column must say who submitted it");
+    const blocked = await save([{ studentId: ids[0], classSubjectId: cs!.id, maxMarks: 50, obtainedMarks: 45, absent: false }]);
+    assert(blocked.status !== 200, `a locked column must refuse a write, got ${blocked.status}`);
+
+    // Unlock to fix one mark, then submit again.
+    const un = await api(t2.token, confirmUrl, {
+      method: "POST",
+      body: JSON.stringify({ termId: term!.id, confirmed: false }),
+    });
+    assert(un.status === 200, `unlock ${un.status}`);
+    const fix = await save([{ studentId: ids[0], classSubjectId: cs!.id, maxMarks: 50, obtainedMarks: 45, absent: false }]);
+    assert(fix.status === 200, `after unlocking, a correction must save, got ${fix.status}`);
+    const reopened = await mine();
+    assert(reopened.signedOff === null, "an unlocked column is no longer submitted");
+  } finally {
+    await admin.from("exam_subject_score").delete().eq("class_subject_id", cs!.id);
+    await admin.from("section_subject").delete().eq("id", ss!.id);
+    await admin.from("class_subject").delete().eq("id", cs!.id);
+    await admin.from("kv_store_f116e23f").delete().eq("key", confKey);
+  }
+});
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

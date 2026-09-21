@@ -66,6 +66,7 @@ import { StudentDetail } from "./pages/school/StudentDetail";
 import { ExamSyllabus } from "./pages/school/ExamSyllabus";
 import { ExamMarks } from "./pages/school/ExamMarks";
 import { MarkingProgress } from "./pages/school/MarkingProgress";
+import { MyMarks } from "./pages/school/MyMarks";
 import { CarriedAttendance } from "./pages/school/CarriedAttendance";
 import { StudentReportCard } from "./pages/school/StudentReportCard";
 import { ImportCenter } from "./pages/school/ImportCenter";
@@ -670,6 +671,7 @@ export const router = createBrowserRouter([
               { path: "admin/assessment/exam-marks", element: <ExamMarks /> },
               { path: "admin/assessment/marking-progress", element: <MarkingProgress /> },
               { path: "admin/attendance-carried-forward", element: <CarriedAttendance /> },
+              { path: "my-marks", element: <MyMarks /> },
               { path: "admin/pin-slips", element: <PinSlips /> },
               { path: "admin/assessment/grade-scales", element: <ManageGradeScales /> },
               { path: "admin/inbox", element: <ParentInbox /> },

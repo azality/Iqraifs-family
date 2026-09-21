@@ -1026,15 +1026,29 @@ export function installAssessment(school: Hono): void {
       .in("exam_id", (exams as any[]).map((e) => e.id))
       .in("class_subject_id", subjectIds);
     const marked = new Map<string, Set<string>>(); // examId|subjectId -> student ids
+    // Absences counted apart, so a teacher reviewing the column can see
+    // "26 marked, 2 absent" rather than one undifferentiated number.
+    const absentees = new Map<string, Set<string>>();
     for (const sc of ((scores ?? []) as any[])) {
       if (sc.obtained_marks === null && sc.absent !== true) continue;
       const key = `${sc.exam_id}|${sc.class_subject_id}`;
       let set = marked.get(key);
       if (!set) { set = new Set(); marked.set(key, set); }
       set.add(sc.student_id);
+      if (sc.absent === true) {
+        let abs = absentees.get(key);
+        if (!abs) { abs = new Set(); absentees.set(key, abs); }
+        abs.add(sc.student_id);
+      }
     }
 
     const todos: any[] = [];
+    // EVERY column this teacher owns, finished ones included. The nudge
+    // lists below drop a column the moment it is done, which left a
+    // teacher with no way back to check or correct it - the only
+    // doorway into a marks sheet was a nudge that had disappeared
+    // (teachers, 22 Sep). "My marks" reads this.
+    const columns: any[] = [];
     // "My column is complete but unsigned" - the green-check nudge
     // (Muneeb, 12 Sep). Confirmation maps are per (term, section).
     const signOffs: any[] = [];
@@ -1055,9 +1069,24 @@ export function installAssessment(school: Hono): void {
         if (!subjectSitsExam(w, e.name)) continue;
         applicable += 1;
         lastExamId = e.id;
-        const done = stuIds.filter(
-          (id) => marked.get(`${e.id}|${row.class_subject_id}`)?.has(id),
-        ).length;
+        const key = `${e.id}|${row.class_subject_id}`;
+        const done = stuIds.filter((id) => marked.get(key)?.has(id)).length;
+        const absentCount = stuIds.filter((id) => absentees.get(key)?.has(id)).length;
+        const signed = confBySection.get(row.class_section_id)?.[row.class_subject_id] ?? null;
+        columns.push({
+          examId: e.id,
+          examName: e.name,
+          examDate: e.exam_date,
+          termId: (term as any).id,
+          classSectionId: row.class_section_id,
+          sectionLabel: secName.get(row.class_section_id) ?? "",
+          classSubjectId: row.class_subject_id,
+          subjectName: row.class_subject?.name ?? "",
+          marked: done,
+          absent: absentCount,
+          studentCount: stuIds.length,
+          signedOff: signed ? { byName: signed.byName ?? "", at: signed.at ?? null } : null,
+        });
         if (done >= stuIds.length) { complete += 1; continue; }
         todos.push({
           examId: e.id,
@@ -1082,7 +1111,13 @@ export function installAssessment(school: Hono): void {
         });
       }
     }
-    return c.json({ todos, signOffs });
+    // Newest paper first, then class, so "My marks" opens on the work
+    // most likely still in hand.
+    columns.sort((a, b) =>
+      String(b.examDate ?? "").localeCompare(String(a.examDate ?? "")) ||
+      a.sectionLabel.localeCompare(b.sectionLabel) ||
+      a.subjectName.localeCompare(b.subjectName));
+    return c.json({ todos, signOffs, columns, term: { id: term.id, name: (term as any).name ?? null } });
   });
 
   // ─── Marks sheet ────────────────────────────────────────────────────
