@@ -4321,10 +4321,15 @@ export const saveAttendanceOpening = (
 // looks different configures their own.
 export interface ExamComponent {
   id: string;
+  /** The row as the paper prints it — Urdu on the IFS slip. */
   name: string;
+  /** The same row in English, when the school gave one. The sheet shows
+   *  whichever matches the reader (22 Sep). Server >= v1.2.5. */
+  nameEn?: string | null;
   /** Rows the slip braces together, e.g. the three questions under
    *  "حفظ القرآن / ناظرہ". Null for an ungrouped row. */
   groupLabel: string | null;
+  groupLabelEn?: string | null;
   maxMarks: number;
   sortOrder: number;
 }
@@ -4371,7 +4376,7 @@ export const getExamComponents = (
 export const replaceExamComponents = (
   orgId: string,
   examId: string,
-  components: Array<Pick<ExamComponent, "name" | "groupLabel" | "maxMarks">>,
+  components: Array<Pick<ExamComponent, "name" | "nameEn" | "groupLabel" | "groupLabelEn" | "maxMarks">>,
   discardMarks = false,
 ): Promise<{ ok: true; components: ExamComponent[] }> =>
   apiCall(`/school/orgs/${orgId}/exams/${examId}/components`, {
