@@ -197,7 +197,26 @@ export function StudentTermReportCard() {
                 <Calendar className="h-3.5 w-3.5 text-indigo-500" /> {t("portal.rc.attendance")}
               </div>
               <div className="text-xs space-y-0.5">
-                <div>{t("portal.rc.present")}: <span className="font-medium">{card.attendance.present}</span></div>
+                {/* Days present leads; the school's own paper register
+                    is carried in, so the counts under it are only the
+                    days marked in the system (21 Sep). */}
+                <div>
+                  {t("portal.rc.present")}:{" "}
+                  <span className="font-medium">
+                    {t("portal.rc.ofDays", {
+                      present: card.attendance.daysPresent ?? card.attendance.present,
+                      total: card.attendance.workingDays ?? card.attendance.total,
+                    })}
+                  </span>
+                </div>
+                {!!card.attendance.carriedDays && (
+                  <div className="text-[10px] leading-tight text-slate-500">
+                    {t("portal.rc.carried", {
+                      count: card.attendance.carriedDays,
+                      date: card.attendance.carriedAsOf ?? "",
+                    })}
+                  </div>
+                )}
                 <div>{t("portal.rc.late")}: <span className="font-medium">{card.attendance.late}</span></div>
                 <div>{t("portal.rc.absent")}: <span className="font-medium">{card.attendance.absent}</span></div>
                 <div className="pt-1 border-t border-slate-100 mt-1">

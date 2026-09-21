@@ -13,6 +13,8 @@
 //     GET    /school/orgs/:orgId/sections/:sectionId/attendance
 //     GET    /school/orgs/:orgId/students/:studentId/attendance
 //     GET    /school/orgs/:orgId/sections/:sectionId/attendance/summary
+//     GET    /school/orgs/:orgId/sections/:sectionId/attendance-opening
+//     PUT    /school/orgs/:orgId/sections/:sectionId/attendance-opening
 //   Behavior notes:
 //     POST   /school/orgs/:orgId/behavior-notes
 //     GET    /school/orgs/:orgId/students/:studentId/behavior-notes
@@ -41,6 +43,7 @@ import {
   userHasRoleRow,
 } from "./schoolAuth.ts";
 import { zonedDayRangeUtc, orgTimezone } from "./tz.ts";
+import { openingError } from "./attendanceOpening.ts";
 
 // Date-only behavior filters resolve on the SCHOOL's day, not midnight
 // UTC. `observed_at <= '2026-09-08'` parses as 00:00Z, which silently
@@ -630,6 +633,139 @@ export function installPhaseB(school: Hono): void {
         recordedBy: r.recorded_by,
       })),
     });
+  });
+
+  // ---------------------------------------------------------------------------
+  // GET  /school/orgs/:orgId/sections/:sectionId/attendance-opening
+  // PUT  /school/orgs/:orgId/sections/:sectionId/attendance-opening
+  //
+  // Attendance carried forward from the school's own register - the
+  // months that pre-date roll call in the system, plus the weeks the
+  // school went on counting by hand. One total per child. See
+  // attendanceOpening.ts for why the overlapping days are dropped.
+  // ---------------------------------------------------------------------------
+  school.get("/orgs/:orgId/sections/:sectionId/attendance-opening", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    const sectionId = c.req.param("sectionId");
+    if (!(await hasAnyRoleInOrg(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const section = await loadSection(sectionId);
+    if (!section || section.orgId !== orgId) {
+      return c.json({ error: "section not found" }, 404);
+    }
+
+    const { data: students, error: stuErr } = await serviceRoleClient
+      .from("student")
+      .select("id, gr_number, full_name, status")
+      .eq("class_section_id", sectionId)
+      .eq("status", "active")
+      .order("full_name");
+    if (stuErr) return c.json({ error: stuErr.message }, 500);
+
+    const ids = (students ?? []).map((s: any) => s.id);
+    const { data: openings } = ids.length
+      ? await serviceRoleClient
+          .from("student_attendance_opening")
+          .select("student_id, days_present, working_days, as_of_date, source, notes, updated_at")
+          .in("student_id", ids)
+      : { data: [] as any[] };
+    const byStudent = new Map<string, any>(
+      (openings ?? []).map((o: any) => [o.student_id, o]),
+    );
+
+    return c.json({
+      sectionId,
+      canEdit: await hasAdminOrPrincipal(userId, orgId),
+      students: (students ?? []).map((s: any) => {
+        const o = byStudent.get(s.id);
+        return {
+          studentId: s.id,
+          grNumber: s.gr_number,
+          fullName: s.full_name,
+          daysPresent: o ? o.days_present : null,
+          workingDays: o ? o.working_days : null,
+          asOfDate: o ? o.as_of_date : null,
+          source: o ? o.source : null,
+          notes: o ? o.notes : null,
+          updatedAt: o ? o.updated_at : null,
+        };
+      }),
+    });
+  });
+
+  school.put("/orgs/:orgId/sections/:sectionId/attendance-opening", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    const sectionId = c.req.param("sectionId");
+    // The carried balance rewrites what every report card prints, so it
+    // is the office's to set - not a class teacher's.
+    if (!(await hasAdminOrPrincipal(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const section = await loadSection(sectionId);
+    if (!section || section.orgId !== orgId) {
+      return c.json({ error: "section not found" }, 404);
+    }
+
+    const body = await c.req.json().catch(() => null);
+    const asOfDate = body?.asOfDate;
+    const workingDays = Number(body?.workingDays);
+    const entries = Array.isArray(body?.entries) ? body.entries : null;
+    if (!entries) return c.json({ error: "entries must be an array" }, 400);
+    if (!isIsoDate(String(asOfDate ?? ""))) {
+      return c.json({ error: "asOfDate must be YYYY-MM-DD" }, 400);
+    }
+
+    // Only this section's own students, so one section can never write
+    // another's numbers.
+    const { data: students } = await serviceRoleClient
+      .from("student").select("id").eq("class_section_id", sectionId);
+    const mine = new Set((students ?? []).map((s: any) => s.id));
+
+    const toUpsert: any[] = [];
+    const toClear: string[] = [];
+    for (const e of entries) {
+      const studentId = String(e?.studentId ?? "");
+      if (!mine.has(studentId)) {
+        return c.json({ error: "student not in this section" }, 400);
+      }
+      if (e?.daysPresent === null || e?.daysPresent === undefined || e?.daysPresent === "") {
+        toClear.push(studentId);
+        continue;
+      }
+      const daysPresent = Number(e.daysPresent);
+      const bad = openingError({ daysPresent, workingDays, asOf: String(asOfDate) });
+      if (bad) return c.json({ error: bad }, 400);
+      toUpsert.push({
+        org_id: orgId,
+        student_id: studentId,
+        days_present: daysPresent,
+        working_days: workingDays,
+        as_of_date: asOfDate,
+        source: typeof body?.source === "string" && body.source ? body.source : "register",
+        notes: typeof e?.notes === "string" ? e.notes : null,
+        updated_by: userId,
+        updated_at: new Date().toISOString(),
+      });
+    }
+
+    if (toUpsert.length > 0) {
+      const { error } = await serviceRoleClient
+        .from("student_attendance_opening")
+        .upsert(toUpsert, { onConflict: "student_id" });
+      if (error) return c.json({ error: error.message }, 500);
+    }
+    if (toClear.length > 0) {
+      const { error } = await serviceRoleClient
+        .from("student_attendance_opening")
+        .delete().in("student_id", toClear);
+      if (error) return c.json({ error: error.message }, 500);
+    }
+    return c.json({ saved: toUpsert.length, cleared: toClear.length });
   });
 
   // ---------------------------------------------------------------------------

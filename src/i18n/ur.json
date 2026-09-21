@@ -318,6 +318,8 @@
       "late": "تاخیر",
       "absent": "غیر حاضر",
       "attendanceWord": "حاضری",
+      "ofDays": "{{total}} میں سے {{present}} دن",
+      "carried": "اس میں اسکول کے رجسٹر کے {{date}} تک کے {{count}} دن شامل ہیں۔",
       "behavior": "رویہ",
       "positiveNotes": "مثبت نوٹس",
       "concerns": "تشویشات",

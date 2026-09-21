@@ -34,6 +34,7 @@ import type { Context, Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { hasAnyRoleInOrg as hasAnyOrgRole, hasAdminOrPrincipal as isAdminOrPrincipal } from "./schoolAuth.ts";
 import { verifyPinToken } from "./schoolPhaseA.tsx";
+import { attendanceTotals } from "./attendanceOpening.ts";
 
 async function isClassTeacherOfStudent(userId: string, studentId: string): Promise<boolean> {
   const { data: stu } = await serviceRoleClient
@@ -255,19 +256,33 @@ async function assembleReportCard(
   const endD = (term as any).end_date;
   const { data: att } = await serviceRoleClient
     .from("school_attendance")
-    .select("status")
+    .select("attendance_date, status")
     .eq("student_id", studentId)
     .gte("attendance_date", startD)
     .lte("attendance_date", endD);
-  let present = 0, late = 0, absent = 0, excused = 0;
-  for (const a of (att ?? []) as any[]) {
-    if (a.status === "present") present++;
-    else if (a.status === "late") late++;
-    else if (a.status === "absent") absent++;
-    else if (a.status === "excused") excused++;
-  }
-  const totalAtt = present + late + absent + excused;
-  const attendancePct = totalAtt > 0 ? ((present + late) / totalAtt) * 100 : null;
+  // Attendance the school counted on paper before (and alongside) roll
+  // call is carried in here, and our own rows for those same days are
+  // dropped so nothing counts twice - see attendanceOpening.ts.
+  const { data: openingRow } = await serviceRoleClient
+    .from("student_attendance_opening")
+    .select("days_present, working_days, as_of_date")
+    .eq("student_id", studentId)
+    .maybeSingle();
+  const opening = openingRow
+    ? {
+        daysPresent: (openingRow as any).days_present,
+        workingDays: (openingRow as any).working_days,
+        asOf: (openingRow as any).as_of_date,
+      }
+    : null;
+  const attTotals = attendanceTotals(
+    ((att ?? []) as any[]).map((a) => ({ date: a.attendance_date, status: a.status })),
+    { start: startD, end: endD },
+    opening,
+  );
+  const { present, late, absent, excused } = attTotals;
+  const totalAtt = attTotals.workingDays;
+  const attendancePct = attTotals.percentage;
 
   // ── Behavior in term window ──
   const { data: beh } = await serviceRoleClient
@@ -385,6 +400,10 @@ async function assembleReportCard(
       },
       attendance: {
         present, late, absent, excused, total: totalAtt, attendancePct,
+        daysPresent: attTotals.daysPresent,
+        workingDays: attTotals.workingDays,
+        carriedDays: attTotals.carriedDays,
+        carriedAsOf: opening?.asOf ?? null,
       },
       behavior: { positive, concern, netPoints },
       hifz: {
