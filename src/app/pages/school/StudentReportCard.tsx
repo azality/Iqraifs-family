@@ -339,10 +339,28 @@ export function StudentReportCard() {
                     <Calendar className="h-3.5 w-3.5 text-indigo-500" /> Attendance
                   </div>
                   <div className="text-xs space-y-0.5">
-                    <div>Present: <span className="font-medium">{card.attendance.present}</span></div>
-                    <div>Late: <span className="font-medium">{card.attendance.late}</span></div>
-                    <div>Absent: <span className="font-medium">{card.attendance.absent}</span></div>
-                    <div>Excused: <span className="font-medium">{card.attendance.excused}</span></div>
+                    {/* Days present leads. With a carried balance the
+                        per-status counts below cover only the days marked
+                        here, so they are labelled (21 Sep). */}
+                    <div>
+                      Present:{" "}
+                      <span className="font-medium">
+                        {card.attendance.daysPresent ?? card.attendance.present} of{" "}
+                        {card.attendance.workingDays ?? card.attendance.total} days
+                      </span>
+                    </div>
+                    {!!card.attendance.carriedDays && (
+                      <div className="text-[10px] leading-tight text-slate-500">
+                        Includes {card.attendance.carriedDays} days from the school
+                        {card.attendance.carriedAsOf ? ` register up to ${card.attendance.carriedAsOf}` : " register"}.
+                      </div>
+                    )}
+                    <div className="pt-1">
+                      {card.attendance.carriedDays ? "Since then — " : ""}
+                      Late: <span className="font-medium">{card.attendance.late}</span>
+                      {" · "}Absent: <span className="font-medium">{card.attendance.absent}</span>
+                      {" · "}Excused: <span className="font-medium">{card.attendance.excused}</span>
+                    </div>
                     <div className="pt-1 border-t border-slate-100 mt-1">
                       <span className="font-semibold">{fmtPct(card.attendance.attendancePct)}</span> attendance
                     </div>

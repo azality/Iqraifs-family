@@ -41,6 +41,7 @@ import {
   Globe,
   ScrollText,
   ChevronDown,
+  CalendarCheck,
   CalendarClock,
   GraduationCap,
   Wrench,
@@ -219,6 +220,10 @@ function groupsForAdmin(
         // Every section's marks entry on one screen, while papers are
         // being checked (18 Sep).
         I("marking-progress", "Marking progress", `/school/orgs/${orgId}/admin/assessment/marking-progress`, ClipboardList),
+        // The paper register the school kept before roll call reached
+        // the system - a report card adds those days (21 Sep). Office
+        // work, so it is not on the incharge list above.
+        I("attendance-carried", "Attendance carried forward", `/school/orgs/${orgId}/admin/attendance-carried-forward`, CalendarCheck),
       ],
     },
     {

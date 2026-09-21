@@ -5852,6 +5852,87 @@ await check("105. an incharge can VIEW every column of their wing's marks sheet 
   }
 });
 
+await check("106. attendance carried from the school's own register counts once - never twice, never a teacher's to set", async () => {
+  // IFS ran on paper from 4 May and kept counting by hand past the day
+  // roll call started here, so every class handed in one total per child
+  // (21 Sep). The report card must add those days AND drop our own rows
+  // for the days that total already covers.
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const url = `/school/orgs/${ORG}/sections/${sandboxSec.id}/attendance-opening`;
+  const { data: term } = await admin.from("academic_term").select("id, start_date, end_date")
+    .eq("org_id", ORG).eq("is_current", true).is("archived_at", null).maybeSingle();
+  assert(term, "a current term is needed");
+
+  // A day inside the term to carry up to, and the next day for roll call.
+  const asOf = (term as any).start_date;
+  const after = new Date(`${asOf}T12:00:00Z`);
+  after.setUTCDate(after.getUTCDate() + 1);
+  const afterDate = after.toISOString().slice(0, 10);
+
+  try {
+    // A teacher may read the page but never write it.
+    const tRead = await api(teacher.token, url);
+    assert(tRead.status === 200, `a teacher may read the carried page, got ${tRead.status}`);
+    assert((await tRead.json()).canEdit === false, "a teacher must not be offered the edit");
+    const tWrite = await api(teacher.token, url, {
+      method: "PUT",
+      body: JSON.stringify({ asOfDate: asOf, workingDays: 10, entries: [{ studentId: pStu1, daysPresent: 9 }] }),
+    });
+    assert(tWrite.status === 403, `a teacher must not write the register, got ${tWrite.status}`);
+
+    // A count above the working days is a miscount, not a record.
+    const over = await api(admin2.token, url, {
+      method: "PUT",
+      body: JSON.stringify({ asOfDate: asOf, workingDays: 10, entries: [{ studentId: pStu1, daysPresent: 11 }] }),
+    });
+    assert(over.status === 400, `11 of 10 days must be refused, got ${over.status}`);
+
+    // The office writes it, and it reads back.
+    const put = await api(admin2.token, url, {
+      method: "PUT",
+      body: JSON.stringify({ asOfDate: asOf, workingDays: 10, source: "qa", entries: [{ studentId: pStu1, daysPresent: 8 }] }),
+    });
+    assert(put.status === 200, `save ${put.status}: ${(await put.text()).slice(0, 120)}`);
+    const back = await api(admin2.token, url);
+    const row = ((await back.json()).students as any[]).find((s) => s.studentId === pStu1);
+    assert(row && row.daysPresent === 8 && row.workingDays === 10 && row.asOfDate === asOf,
+      `carried balance must read back: ${JSON.stringify(row)}`);
+
+    // Two roll-call days: one INSIDE the carried period, one after it.
+    await admin.from("school_attendance").delete().eq("student_id", pStu1).in("attendance_date", [asOf, afterDate]);
+    await admin.from("school_attendance").insert([
+      { org_id: ORG, student_id: pStu1, class_section_id: sandboxSec.id, attendance_date: asOf, status: "absent" },
+      { org_id: ORG, student_id: pStu1, class_section_id: sandboxSec.id, attendance_date: afterDate, status: "present" },
+    ]);
+
+    const rc = await api(admin2.token,
+      `/school/orgs/${ORG}/students/${pStu1}/terms/${(term as any).id}/report-card`);
+    const card = await rc.json();
+    assert(rc.status === 200, `report card ${rc.status}: ${JSON.stringify(card).slice(0, 150)}`);
+    const a = card.attendance;
+    assert(a.carriedDays === 10, `the register's 10 days must be carried, got ${a.carriedDays}`);
+    assert(a.workingDays === 11, `10 carried + 1 marked after = 11, got ${a.workingDays}`);
+    assert(a.daysPresent === 9, `8 carried + 1 present after = 9, got ${a.daysPresent}`);
+    assert(a.absent === 0, "the absence inside the carried period must not be counted again");
+
+    // Cleared again, the card falls back to the marked days alone.
+    const clear = await api(admin2.token, url, {
+      method: "PUT",
+      body: JSON.stringify({ asOfDate: asOf, workingDays: 10, entries: [{ studentId: pStu1, daysPresent: null }] }),
+    });
+    assert(clear.status === 200, `clear ${clear.status}`);
+    const rc2 = await api(admin2.token,
+      `/school/orgs/${ORG}/students/${pStu1}/terms/${(term as any).id}/report-card`);
+    const a2 = (await rc2.json()).attendance;
+    assert(!a2.carriedDays, `nothing may be carried after clearing, got ${a2.carriedDays}`);
+    assert(a2.absent === 1, `the absence returns once nothing is carried, got ${a2.absent}`);
+  } finally {
+    await admin.from("student_attendance_opening").delete().eq("student_id", pStu1);
+    await admin.from("school_attendance").delete()
+      .eq("student_id", pStu1).in("attendance_date", [asOf, afterDate]);
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

@@ -318,6 +318,8 @@
       "late": "Late",
       "absent": "Absent",
       "attendanceWord": "attendance",
+      "ofDays": "{{present}} of {{total}} days",
+      "carried": "Includes {{count}} days counted in the school register up to {{date}}.",
       "behavior": "Behavior",
       "positiveNotes": "Positive notes",
       "concerns": "Concerns",

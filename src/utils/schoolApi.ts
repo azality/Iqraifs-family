@@ -3675,6 +3675,14 @@ export interface ReportCardResponse {
     excused: number;
     total: number;
     attendancePct: number | null;
+    /** Days present including any carried from the school register. */
+    daysPresent?: number;
+    /** Working days including the carried ones. */
+    workingDays?: number;
+    /** How many of the working days came from the register. */
+    carriedDays?: number;
+    /** Last day that register count covers. */
+    carriedAsOf?: string | null;
   };
   behavior: {
     positive: number;
@@ -4236,6 +4244,48 @@ export const getMarkingProgress = (
   termId?: string,
 ): Promise<MarkingProgressResponse> =>
   apiCall(`/school/orgs/${orgId}/marking-progress${termId ? `?termId=${encodeURIComponent(termId)}` : ""}`);
+
+// ─── Attendance carried forward ───────────────────────────────────────
+// The months the school kept on paper before roll call reached the
+// system, as one total per child. See attendanceOpening.ts on the
+// server for why the overlapping days are dropped, not added.
+export interface AttendanceOpeningRow {
+  studentId: string;
+  grNumber: string | null;
+  fullName: string;
+  daysPresent: number | null;
+  workingDays: number | null;
+  asOfDate: string | null;
+  source: string | null;
+  notes: string | null;
+  updatedAt: string | null;
+}
+export interface AttendanceOpeningResponse {
+  sectionId: string;
+  canEdit: boolean;
+  students: AttendanceOpeningRow[];
+}
+
+export const getAttendanceOpening = (
+  orgId: string,
+  sectionId: string,
+): Promise<AttendanceOpeningResponse> =>
+  apiCall(`/school/orgs/${orgId}/sections/${sectionId}/attendance-opening`);
+
+export const saveAttendanceOpening = (
+  orgId: string,
+  sectionId: string,
+  body: {
+    asOfDate: string;
+    workingDays: number;
+    source?: string;
+    entries: Array<{ studentId: string; daysPresent: number | null }>;
+  },
+): Promise<{ saved: number; cleared: number }> =>
+  apiCall(`/school/orgs/${orgId}/sections/${sectionId}/attendance-opening`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
 
 // ─── Exam marks (Hifz half-yearly) ────────────────────────────────────
 // A paper is a list of components — the rows on the school's slip, each
@@ -5553,7 +5603,7 @@ export interface TermReportCardResponse {
     subjects: TermReportCardSubject[];
     overall: { obtained: number; max: number; percentage: number | null; letter: string; remark: string };
   };
-  attendance: { present: number; late: number; absent: number; excused: number; total: number; attendancePct: number | null };
+  attendance: { present: number; late: number; absent: number; excused: number; total: number; attendancePct: number | null; daysPresent?: number; workingDays?: number; carriedDays?: number; carriedAsOf?: string | null };
   behavior: { positive: number; concern: number; netPoints: number };
   hifz: {
     /** False when the child is not memorizing (nazra/qaida or no Quran
