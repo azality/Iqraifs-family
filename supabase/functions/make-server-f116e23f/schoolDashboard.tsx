@@ -26,6 +26,7 @@ import { termExpectedPct } from "./termPace.ts";
 import { hasAnyRoleInOrg, hasAdminOrPrincipal, inchargeClassIds } from "./schoolAuth.ts";
 import { todayInOrgTz, nowTimeInOrgTz, schoolDayAnchor, orgTimezone, zonedDayRangeUtc } from "./tz.ts";
 import { loadSchoolWeek, lastNSchoolDays } from "./schoolWeek.ts";
+import { resolveMarkingTerm } from "./schoolMarkingProgress.tsx";
 
 // -----------------------------------------------------------------------------
 // Period math — period boundaries computed server-side. All dates are
@@ -1372,12 +1373,11 @@ export function installDashboard(school: Hono): void {
     // confirmation maps straight off the kv table (one query) - the
     // third and last place that knows their key layout.
     try {
-      const { data: curTermRow } = await serviceRoleClient
-        .from("academic_term").select("id")
-        .eq("org_id", orgId).eq("is_current", true)
-        .is("archived_at", null).maybeSingle();
+      // The term being marked, which outlives the term boundary the
+      // school crossed mid-marking on 21 Sep.
+      const curTermRow = await resolveMarkingTerm(orgId);
       if (curTermRow) {
-        const signTermId = (curTermRow as any).id;
+        const signTermId = curTermRow.id;
         const { data: startedExams } = await serviceRoleClient
           .from("exam").select("id")
           .eq("term_id", signTermId).is("archived_at", null)

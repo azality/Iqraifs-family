@@ -151,3 +151,36 @@ export function classOrder(name: string): number {
   }
   return 100;
 }
+
+/** A term as the marking surfaces need to see it. */
+export interface MarkableTerm {
+  id: string;
+  startDate: string;
+  isCurrent: boolean;
+}
+
+/** The term whose papers are being marked right now.
+ *
+ *  Every marking surface used to read `is_current` straight off the
+ *  term. On 21 Sep the school rolled into the 2nd Assessment while the
+ *  1st Assessment marks were still half entered, and the marking board,
+ *  the teachers' "enter marks" nudges and the office sign-off alert all
+ *  went blank on the same morning - the term that owns the papers was no
+ *  longer the current one.
+ *
+ *  So: the current term when it actually has gradebook papers, else the
+ *  most recent EARLIER term that does. Marking a term only ever runs on
+ *  or after its own papers, never ahead of them, so a future term is
+ *  never picked.
+ */
+export function termBeingMarked(
+  terms: MarkableTerm[], termIdsWithExams: Set<string>,
+): MarkableTerm | null {
+  const current = terms.find((t) => t.isCurrent) ?? null;
+  if (current && termIdsWithExams.has(current.id)) return current;
+  const earlier = terms
+    .filter((t) => termIdsWithExams.has(t.id))
+    .filter((t) => !current || t.startDate <= current.startDate)
+    .sort((a, b) => b.startDate.localeCompare(a.startDate));
+  return earlier[0] ?? current;
+}

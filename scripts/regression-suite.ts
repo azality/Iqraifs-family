@@ -3959,15 +3959,32 @@ await check("77. marks sign-off: the subject's own teacher checks the column, ot
   }
 });
 
+/** The term whose papers are being marked - NOT simply the current one.
+ *  The school rolled into the 2nd Assessment on 21 Sep with the 1st
+ *  still half marked, so a check keyed on is_current looked in an empty
+ *  term and failed with "no written exam in the current term". */
+async function markedTerm(): Promise<any> {
+  const { data: terms } = await admin.from("academic_term")
+    .select("id, name, start_date, is_current").eq("org_id", ORG)
+    .is("archived_at", null).order("start_date", { ascending: false });
+  const list = (terms ?? []) as any[];
+  const current = list.find((t) => t.is_current);
+  for (const cand of [current, ...list].filter(Boolean)) {
+    const { data: ex } = await admin.from("exam").select("id, name")
+      .eq("term_id", cand.id).is("archived_at", null);
+    const names = (ex ?? []).map((e: any) => e.name as string);
+    if (names.some((n) => /Oral/.test(n)) && names.some((n) => /Written/.test(n))) return cand;
+  }
+  return current ?? list[0] ?? null;
+}
 await check("78. finalize locks the term's marks; publish needs finalize; unfinalize reopens", async () => {
   // The principal's end-of-term buttons (Muneeb, 12 Sep): one click
   // finalizes every report card in the section AND locks the marks
   // sheets for that term; publish then shows the cards to parents;
   // unfinalize reopens the term and pulls the cards back.
   const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
-  const { data: term } = await admin.from("academic_term").select("id")
-    .eq("org_id", ORG).eq("is_current", true).is("archived_at", null).maybeSingle();
-  assert(term, "no current term");
+  const term = await markedTerm();
+  assert(term, "no term with papers");
   const { data: sbStudents } = await admin.from("student").select("id")
     .eq("class_section_id", sandboxSec.id).eq("status", "active");
   const n = (sbStudents ?? []).length;
@@ -4039,9 +4056,8 @@ await check("79. needs-attention nudges: enter marks, then sign off - paper-awar
   // nags "sign off"; a paper the subject does not sit never nags (Nazra
   // has no written paper), and a not-examined subject never appears.
   const t2 = await ensureUser("qa-teacher2@azality.com", "QA Teacher Two", "class_teacher");
-  const { data: term } = await admin.from("academic_term").select("id")
-    .eq("org_id", ORG).eq("is_current", true).is("archived_at", null).maybeSingle();
-  assert(term, "no current term");
+  const term = await markedTerm();
+  assert(term, "no term with papers");
   const { data: exams } = await admin.from("exam").select("id, name")
     .eq("term_id", term!.id).is("archived_at", null);
   const oralEx = (exams ?? []).find((e: any) => /Oral/.test(e.name));
@@ -5933,6 +5949,40 @@ await check("106. attendance carried from the school's own register counts once 
   }
 });
 
+await check("107. marking surfaces follow the term being MARKED, not merely the current one", async () => {
+  // 21 Sep: the school rolled into the 2nd Assessment with the 1st still
+  // half marked. Every surface read is_current, so the board, the
+  // teachers' marks nudges and the sign-off alert all emptied on the
+  // same morning. They now resolve the term that owns the papers.
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const r = await api(admin2.token, `/school/orgs/${ORG}/marking-progress`);
+  const j = await r.json();
+  assert(r.status === 200, `board ${r.status}`);
+  assert(j.term, "the board must land on a term");
+  assert((j.terms ?? []).length >= 1, "the board must offer its terms as a picker");
+
+  // Whichever term the school is in, the board opens on papers.
+  const marked = await markedTerm();
+  if (marked) {
+    assert(j.term.id === marked.id,
+      `the board opened on ${j.term.name}, not the term being marked (${marked.name})`);
+    assert(j.exams.length > 0, "the term being marked must carry its papers");
+  }
+
+  // A term picked by hand is still honoured, even an empty one.
+  const other = (j.terms as any[]).find((x) => x.id !== j.term.id);
+  if (other) {
+    const r2 = await api(admin2.token, `/school/orgs/${ORG}/marking-progress?termId=${other.id}`);
+    const j2 = await r2.json();
+    assert(r2.status === 200 && j2.term?.id === other.id,
+      `picking ${other.name} must show ${other.name}, got ${JSON.stringify(j2.term)}`);
+  }
+
+  // And the teachers' nudge endpoint still answers for the marked term.
+  const todo = await api(teacher.token, `/school/orgs/${ORG}/me/exam-marks-todo`);
+  assert(todo.status === 200, `marks todo ${todo.status}`);
+  assert(Array.isArray((await todo.json()).todos), "todos must be a list");
+});
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

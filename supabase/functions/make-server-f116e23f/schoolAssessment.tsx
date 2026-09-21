@@ -26,7 +26,7 @@
 // marks entry). Reads accept any org role.
 
 import { paperOfExam, subjectSitsExam, progressForSection } from "./markingProgress.ts";
-import { loadExamScores, gradebookExams } from "./schoolMarkingProgress.tsx";
+import { loadExamScores, gradebookExams, resolveMarkingTerm } from "./schoolMarkingProgress.tsx";
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { hasAnyRoleInOrg as hasAnyOrgRole, hasAdminOrPrincipal as isAdminOrPrincipal, isInchargeOfClass } from "./schoolAuth.ts";
@@ -960,12 +960,10 @@ export function installAssessment(school: Hono): void {
     if (!(await hasAnyOrgRole(userId, orgId))) {
       return c.json({ error: "forbidden" }, 403);
     }
-    const { data: term } = await serviceRoleClient
-      .from("academic_term")
-      .select("id")
-      .eq("org_id", orgId).eq("is_current", true)
-      .is("archived_at", null)
-      .maybeSingle();
+    // The term being MARKED, not merely the current one: marking runs
+    // past a term boundary and the nudges used to vanish with it
+    // (21 Sep).
+    const term = await resolveMarkingTerm(orgId);
     if (!term) return c.json({ todos: [] });
 
     const tz = await orgTimezone(orgId);

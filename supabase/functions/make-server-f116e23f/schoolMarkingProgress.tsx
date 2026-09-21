@@ -19,7 +19,7 @@ import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { hasAdminOrPrincipal, inchargeClassIds } from "./schoolAuth.ts";
 import {
-  progressForSection, subjectIsExamined, paperOfExam, classOrder,
+  progressForSection, subjectIsExamined, paperOfExam, classOrder, termBeingMarked,
   type ProgressScore,
 } from "./markingProgress.ts";
 
@@ -72,6 +72,33 @@ export async function gradebookExams(termId: string) {
   return list.filter((e) => !ownPaper.has(e.id));
 }
 
+/** The term whose papers are being marked - what every marking surface
+ *  should default to. The rule is termBeingMarked(); this just feeds it
+ *  the school's terms and which of them have gradebook papers.
+ *  Shared by the board, the teachers' marks nudges and the office
+ *  sign-off alert, so the three can never disagree again (21 Sep). */
+export async function resolveMarkingTerm(orgId: string): Promise<
+  { id: string; name: string } | null
+> {
+  const { data: terms } = await serviceRoleClient
+    .from("academic_term").select("id, name, start_date, is_current")
+    .eq("org_id", orgId).is("archived_at", null)
+    .order("start_date", { ascending: true });
+  const list = (terms ?? []) as any[];
+  if (!list.length) return null;
+  const withExams = new Set<string>();
+  for (const t of list) {
+    const exams = await gradebookExams(t.id);
+    if (exams.length) withExams.add(t.id);
+  }
+  const picked = termBeingMarked(
+    list.map((t) => ({ id: t.id, startDate: t.start_date, isCurrent: !!t.is_current })),
+    withExams,
+  );
+  if (!picked) return null;
+  const row = list.find((t) => t.id === picked.id)!;
+  return { id: row.id, name: row.name };
+}
 export function installMarkingProgress(school: Hono): void {
   school.get("/orgs/:orgId/marking-progress", async (c) => {
     const userId = getAuthUserId(c);
@@ -92,18 +119,27 @@ export function installMarkingProgress(school: Hono): void {
     // Term: the one asked for, else the current one.
     let termId = c.req.query("termId") ?? "";
     if (!termId) {
-      const { data: cur } = await serviceRoleClient
-        .from("academic_term").select("id")
-        .eq("org_id", orgId).eq("is_current", true).is("archived_at", null)
-        .maybeSingle();
-      termId = (cur as any)?.id ?? "";
+      // NOT simply the current term: the school rolled into the 2nd
+      // Assessment on 21 Sep with the 1st still half marked, and the
+      // board went blank (21 Sep).
+      termId = (await resolveMarkingTerm(orgId))?.id ?? "";
     }
     const { data: term } = await serviceRoleClient
       .from("academic_term").select("id, name, org_id")
       .eq("id", termId).maybeSingle();
     if (!term || (term as any).org_id !== orgId) {
-      return c.json({ term: null, exams: [], sections: [] });
+      return c.json({ term: null, terms: [], exams: [], sections: [] });
     }
+
+    // Every term, so the page can offer a picker - a school finishing
+    // one assessment inside the next one needs to reach both.
+    const { data: allTerms } = await serviceRoleClient
+      .from("academic_term").select("id, name, start_date, is_current")
+      .eq("org_id", orgId).is("archived_at", null)
+      .order("start_date", { ascending: true });
+    const termList = ((allTerms ?? []) as any[]).map((t) => ({
+      id: t.id, name: t.name, isCurrent: !!t.is_current,
+    }));
 
     const exams = await gradebookExams(termId);
 
@@ -119,7 +155,7 @@ export function installMarkingProgress(school: Hono): void {
       s.schedule_key !== "sandbox",
     );
     if (!sections.length) {
-      return c.json({ term: { id: termId, name: (term as any).name }, exams: [], sections: [] });
+      return c.json({ term: { id: termId, name: (term as any).name }, terms: termList, exams: [], sections: [] });
     }
     const secIds = sections.map((s) => s.id);
     const classIds = [...new Set(sections.map((s) => s.class.id))];
@@ -196,6 +232,7 @@ export function installMarkingProgress(school: Hono): void {
 
     return c.json({
       term: { id: termId, name: (term as any).name },
+      terms: termList,
       exams: exams.map((e) => ({
         id: e.id, name: e.name, examDate: e.exam_date, paper: paperOfExam(e.name),
       })),

@@ -3,6 +3,7 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import {
   progressForSection, cellState, subjectSitsExam, subjectIsExamined, classOrder,
+  termBeingMarked,
   type ProgressSubject, type ProgressScore,
 } from "./markingProgress.ts";
 
@@ -113,4 +114,35 @@ Deno.test("classes sort youngest first, and IX follows VIII", () => {
     "Class I", "Class IV", "Class VIII", "Class IX", "Class X",
     "Catch Up",
   ]);
+});
+
+// The school rolled into the 2nd Assessment on 21 Sep with the 1st
+// Assessment still half marked - every marking surface went blank.
+const TERMS = [
+  { id: "t1", startDate: "2026-05-04", isCurrent: false },
+  { id: "t2", startDate: "2026-09-21", isCurrent: true },
+  { id: "t3", startDate: "2027-01-01", isCurrent: false },
+];
+
+Deno.test("the current term wins while it has papers of its own", () => {
+  assertEquals(termBeingMarked(TERMS, new Set(["t1", "t2"]))?.id, "t2");
+});
+
+Deno.test("a term with no papers falls back to the one still being marked", () => {
+  assertEquals(termBeingMarked(TERMS, new Set(["t1"]))?.id, "t1");
+});
+
+Deno.test("a LATER term's papers are never picked ahead of time", () => {
+  assertEquals(termBeingMarked(TERMS, new Set(["t3"]))?.id, "t2",
+    "the current term stays, rather than jumping to January's papers");
+});
+
+Deno.test("the most recent of several marked terms wins", () => {
+  const terms = [...TERMS, { id: "t0", startDate: "2026-01-05", isCurrent: false }];
+  assertEquals(termBeingMarked(terms, new Set(["t0", "t1"]))?.id, "t1");
+});
+
+Deno.test("no papers anywhere leaves the current term", () => {
+  assertEquals(termBeingMarked(TERMS, new Set())?.id, "t2");
+  assertEquals(termBeingMarked([], new Set()), null);
 });

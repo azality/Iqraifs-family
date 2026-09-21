@@ -58,6 +58,10 @@ export function MarkingProgress() {
   const [open, setOpen] = useState<string | null>(null); // `${sectionId}:${examId}`
   const [attentionFirst, setAttentionFirst] = useState(false);
   const [loadedAt, setLoadedAt] = useState<Date | null>(null);
+  // Which term's papers to show. Empty = let the server pick the one
+  // being marked, which is NOT always the current term: the school rolled
+  // into the 2nd Assessment on 21 Sep with the 1st still half marked.
+  const [termId, setTermId] = useState("");
 
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
@@ -67,12 +71,12 @@ export function MarkingProgress() {
     if (!orgId) return;
     setLoading(true);
     setError(null);
-    getMarkingProgress(orgId)
+    getMarkingProgress(orgId, termId || undefined)
       .then((r) => { setData(r); setLoadedAt(new Date()); })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
   };
-  useEffect(load, [orgId]);
+  useEffect(load, [orgId, termId]);
 
   // Marks arrive while the papers are being checked, so re-read when the
   // tab comes back rather than showing a morning's numbers all afternoon.
@@ -128,6 +132,20 @@ export function MarkingProgress() {
           </Button>
         </Link>
         <div className="flex items-center gap-2 text-xs text-slate-500">
+          {(data?.terms ?? []).length > 1 && (
+            <select
+              aria-label="Assessment"
+              value={termId || data?.term?.id || ""}
+              onChange={(e) => setTermId(e.target.value)}
+              className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700"
+            >
+              {(data?.terms ?? []).map((tm) => (
+                <option key={tm.id} value={tm.id}>
+                  {tm.name}{tm.isCurrent ? " (current)" : ""}
+                </option>
+              ))}
+            </select>
+          )}
           {loadedAt && <span>Updated {loadedAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>}
           <Button variant="outline" size="sm" onClick={load} disabled={loading}>
             <RefreshCw className={"h-3.5 w-3.5 mr-1 " + (loading ? "animate-spin" : "")} /> Refresh
