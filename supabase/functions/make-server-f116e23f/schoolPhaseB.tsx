@@ -653,7 +653,7 @@ export function installPhaseB(school: Hono): void {
       return c.json({ error: "forbidden" }, 403);
     }
     const section = await loadSection(sectionId);
-    if (!section || section.orgId !== orgId) {
+    if (!section || section.org_id !== orgId) {
       return c.json({ error: "section not found" }, 404);
     }
 
@@ -707,7 +707,7 @@ export function installPhaseB(school: Hono): void {
       return c.json({ error: "forbidden" }, 403);
     }
     const section = await loadSection(sectionId);
-    if (!section || section.orgId !== orgId) {
+    if (!section || section.org_id !== orgId) {
       return c.json({ error: "section not found" }, 404);
     }
 

@@ -4236,6 +4236,9 @@ export interface MarkingSectionRow {
 }
 export interface MarkingProgressResponse {
   term: { id: string; name: string } | null;
+  /** Every term, so the page can offer a picker: marking often runs on
+   *  past the term boundary (21 Sep). */
+  terms?: Array<{ id: string; name: string; isCurrent: boolean }>;
   exams: Array<{ id: string; name: string; examDate: string | null; paper: "oral" | "written" | null }>;
   sections: MarkingSectionRow[];
 }
