@@ -5527,6 +5527,9 @@ export interface TabulationRow {
   percentage: number | null;
   position: number | null;
   absentPapers?: number;
+  /** True when the grand total is under the school's pass mark. A
+   *  failing child is not ranked (22 Sep). Server >= v1.2.9. */
+  failedOverall?: boolean;
 }
 export interface TabulationResponse {
   section: { id: string; name: string; className: string };
