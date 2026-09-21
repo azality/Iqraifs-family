@@ -317,12 +317,24 @@ export function installAssessment(school: Hono): void {
       .eq("class_id", (sec as any).class.id).is("archived_at", null)
       .order("sort_order").order("name");
 
-    const { data: scores } = stuIds.length && examIds.length
-      ? await serviceRoleClient
-          .from("exam_subject_score")
-          .select("student_id, exam_id, class_subject_id, obtained_marks, max_marks, absent")
-          .in("student_id", stuIds).in("exam_id", examIds)
-      : { data: [] as any[] };
+    // PAGED: an unpaged select stops silently at 1000 rows (#620 class).
+    // Class I already holds 778 for one term; one more paper crosses it,
+    // and half a register would simply not be there.
+    const scores: any[] = [];
+    if (stuIds.length && examIds.length) {
+      for (let i = 0; i < stuIds.length; i += 150) {
+        const chunk = stuIds.slice(i, i + 150);
+        for (let from = 0; ; from += 1000) {
+          const { data: page } = await serviceRoleClient
+            .from("exam_subject_score")
+            .select("student_id, exam_id, class_subject_id, obtained_marks, max_marks, absent")
+            .in("student_id", chunk).in("exam_id", examIds)
+            .order("id").range(from, from + 999);
+          scores.push(...(page ?? []));
+          if (!page || page.length < 1000) break;
+        }
+      }
+    }
 
     // The subject's expected combined total from the school's marks
     // distribution — the "out of 75" on the printed register. Null when
@@ -356,8 +368,11 @@ export function installAssessment(school: Hono): void {
       // (null, not absent) stays out of both sides - the register is
       // read mid-marking and pending papers must not deflate anyone.
       if (r.absent) {
+        // The max lands in the cell, but an absence alone does not make
+        // the subject a COLUMN - an absent stamp in a not-examined
+        // subject (Art & Craft holds stale null stamps on Class I)
+        // must not conjure a column and skew one child's total.
         cell.max += w * Number(r.max_marks);
-        heldSubjects.add(r.class_subject_id);
       } else if (obt !== null) {
         cell.obtained += w * obt;
         cell.max += w * Number(r.max_marks);
