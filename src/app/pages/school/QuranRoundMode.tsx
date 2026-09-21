@@ -371,14 +371,16 @@ export function QuranRoundMode({
   return (
     <div className="space-y-3">
       {/* Header — who, where in the round, and a way out. */}
-      <div className="rounded-xl bg-gradient-to-r from-emerald-700 to-emerald-900 px-4 py-3 text-white">
+      {/* Same frame as the hifz round - the green header made this read
+          as a third system next to the log and the hifz round (22 Sep). */}
+      <div className="rounded-xl bg-slate-900 px-4 py-3 text-white">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-emerald-200">
+            <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-slate-400">
               <BookOpen className="h-3.5 w-3.5" /> {roundName} round · {groupLabel}
             </div>
             <h2 className="truncate text-lg font-bold">{student.studentName}</h2>
-            <p className="text-[12px] text-emerald-100">
+            <p className="text-[12px] text-slate-300">
               {positionLabel(student)}
             </p>
           </div>
@@ -396,7 +398,7 @@ export function QuranRoundMode({
               {absentIds.size > 0 ? ` · ${absentIds.size} absent` : ""}
             </span>
             <button type="button" onClick={onClose} aria-label="Close round"
-              className="rounded-md p-1 text-emerald-100 hover:bg-white/10">
+              className="rounded-md p-1 text-slate-300 hover:bg-white/10">
               <X className="h-4 w-4" />
             </button>
           </div>
@@ -452,11 +454,11 @@ export function QuranRoundMode({
           it only knows what was logged here. So it says so, and the
           teacher decides. */}
       {student.needsHafizConfirmation && (
-        <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-4">
-          <p className="text-sm font-semibold text-emerald-900">
+        <div className="rounded-xl border border-sky-200 bg-sky-50 p-4">
+          <p className="text-sm font-semibold text-sky-900">
             {student.studentName} has now covered all 30 juz.
           </p>
-          <p className="mt-0.5 text-[12px] text-emerald-800">
+          <p className="mt-0.5 text-[12px] text-sky-800">
             Based on the sabaq logged here. Confirm once you have heard the
             full recitation — it records the milestone and switches them to
             revision.
@@ -464,7 +466,7 @@ export function QuranRoundMode({
           <div className="mt-2 flex flex-wrap gap-2">
             <Button
               size="sm" disabled={busy}
-              className="bg-emerald-700 hover:bg-emerald-800"
+              className="bg-sky-700 hover:bg-sky-800"
               onClick={() => onConfirmHafiz?.(student)}
             >
               Confirm as hafiz
@@ -564,7 +566,7 @@ export function QuranRoundMode({
                     disabled={isTrio && trioKind === "manzil" && u === "surah"}
                     className={
                       "px-3 py-1.5 text-xs font-semibold capitalize disabled:opacity-40 " +
-                      (unit === u ? "bg-emerald-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50")
+                      (unit === u ? "bg-indigo-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50")
                     }
                   >
                     {u}
@@ -694,7 +696,7 @@ export function QuranRoundMode({
                 type="button" onClick={() => { setJustFinished(null); setIdx(i); }}
                 className={
                   "flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50 " +
-                  (i === idx ? "bg-emerald-50/60" : "")
+                  (i === idx ? "bg-indigo-50/40" : "")
                 }
               >
                 <span className="min-w-0 flex-1 truncate font-medium text-slate-800">{s.studentName}</span>
