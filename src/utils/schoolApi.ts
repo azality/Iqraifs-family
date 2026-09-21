@@ -5503,8 +5503,12 @@ export const bulkTermReportCards = (
  *  position. Generic across however many exams the term holds. */
 export interface TabulationCell {
   obtained: number;
+  /** Includes the maximum of any paper the child was ABSENT for - a
+   *  missed paper scores 0, it does not shrink the paper (22 Sep). */
   max: number;
   percentage: number | null;
+  /** Papers in this subject the child was marked absent for. */
+  absentPapers?: number;
   perExam: Record<string, { obtained: number | null; max: number; absent: boolean }>;
 }
 export interface TabulationRow {
@@ -5515,8 +5519,11 @@ export interface TabulationRow {
   subjects: Record<string, TabulationCell>;
   totalObtained: number;
   totalMax: number;
+  /** Null for a child who missed any paper - they are not ranked
+   *  against those who sat everything (22 Sep). */
   percentage: number | null;
   position: number | null;
+  absentPapers?: number;
 }
 export interface TabulationResponse {
   section: { id: string; name: string; className: string };
@@ -5529,6 +5536,9 @@ export interface TabulationResponse {
   reportCards?: { studentCount: number; finalizedCount: number; publishedCount: number };
   /** True when the caller may finalize/publish (admin/principal). */
   canFinalize?: boolean;
+  /** The school's pass line (settings.pass_mark_pct; IFS 40): 30 of 75
+   *  and 40 of 100 are both 40%. Marks under it paint red. */
+  passMarkPct?: number;
 }
 export const getTabulation = (
   orgId: string,

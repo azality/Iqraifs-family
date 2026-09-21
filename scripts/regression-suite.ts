@@ -3882,9 +3882,38 @@ await check("76. tabulation sheet: papers combine per subject, with totals and p
     const cellB = rowB.subjects[cs.id];
     assert(cellB && cellB.obtained === 10 && cellB.max === 15,
       `a lone oral stays 10/15, got ${JSON.stringify(cellB)}`);
-    // 76% beats 66.7% - position follows percentage.
+    // 76% beats 66.7% - position follows percentage. B's written is
+    // merely UNMARKED (pending), so B still ranks - only absence
+    // withholds a rank.
     assert(rowA.position !== null && rowB.position !== null && rowA.position < rowB.position,
       `positions must rank A above B, got ${rowA.position} vs ${rowB.position}`);
+    assert(typeof j.passMarkPct === "number" && j.passMarkPct > 0,
+      `the register must carry the school's pass line, got ${j.passMarkPct}`);
+
+    // Now B is marked ABSENT for the written. The paper does not
+    // shrink: B's max grows to 75 with the obtained staying 10, and B
+    // is no longer ranked against children who sat everything -
+    // Ayesha missed one written and still ranked 11th on a smaller
+    // denominator (Ambreen, 22 Sep).
+    {
+      const { error } = await admin.from("exam_subject_score").insert({
+        org_id: ORG, exam_id: writEx, class_subject_id: cs.id, student_id: stuB.id,
+        obtained_marks: null, max_marks: 60, absent: true, recorded_by: admin2.id,
+      });
+      if (error) throw new Error(`absent row: ${error.message}`);
+    }
+    const r2 = await api(admin2.token,
+      `/school/orgs/${ORG}/sections/${sandboxSec.id}/tabulation?termId=${term!.id}`);
+    const j2 = await r2.json();
+    const rowB2 = (j2.students ?? []).find((x: any) => x.studentId === stuB.id);
+    const cellB2 = rowB2.subjects[cs.id];
+    assert(cellB2.obtained === 10 && cellB2.max === 75,
+      `an absent paper keeps its maximum: expected 10/75, got ${JSON.stringify({ o: cellB2.obtained, m: cellB2.max })}`);
+    assert(rowB2.absentPapers === 1, `the row must count its absence, got ${rowB2.absentPapers}`);
+    assert(rowB2.percentage === null && rowB2.position === null,
+      `a child who missed a paper is not ranked, got pct=${rowB2.percentage} pos=${rowB2.position}`);
+    const rowA2 = (j2.students ?? []).find((x: any) => x.studentId === stuA.id);
+    assert(rowA2.position === 1, `A sat everything and leads alone, got ${rowA2.position}`);
   } finally {
     for (const fn of cleanup.reverse()) await fn();
   }

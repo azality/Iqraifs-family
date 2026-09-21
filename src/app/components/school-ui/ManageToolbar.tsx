@@ -111,7 +111,6 @@ function flatItemsForRole(
         I("weekly-digest", "Weekly digest", `/school/orgs/${orgId}/admin/weekly-digest`, ListChecks),
         I("hifz-program", "Hifz program", `/school/orgs/${orgId}/admin/hifz-program`, BookMarked),
         I("my-schedule", t("toolbar.mySchedule"), `/school/orgs/${orgId}/my-schedule`, Calendar),
-        I("my-marks", "My marks", `/school/orgs/${orgId}/my-marks`, ClipboardList),
         announcements,
         I("time-off", t("toolbar.timeOff"), `/school/orgs/${orgId}/my-schedule?action=time-off`, CalendarOff),
       ];
@@ -138,9 +137,10 @@ function flatItemsForRole(
         I("my-schedule", t("toolbar.mySchedule"), `/school/orgs/${orgId}/my-schedule`, Calendar),
         I("my-classes", t("toolbar.myClasses"), `/school/orgs/${orgId}#my-classes`, Users),
         I("my-subjects", t("toolbar.mySubjects"), `/school/orgs/${orgId}#my-subjects`, BookOpen),
-        // The marks columns this teacher owns - the door that stays open
-        // after a nudge has gone (teachers, 22 Sep).
-        I("my-marks", "My marks", `/school/orgs/${orgId}/my-marks`, ClipboardList),
+        // "Enter marks" - every column this teacher owns; the door that
+        // stays open after a nudge has gone. "My marks" read as marks
+        // ABOUT the teacher and confused them (Muneeb, 22 Sep).
+        I("my-marks", "Enter marks", `/school/orgs/${orgId}/my-marks`, ClipboardList),
         announcements,
         I("time-off", t("toolbar.timeOff"), `/school/orgs/${orgId}/my-schedule?action=time-off`, CalendarOff),
       ];
