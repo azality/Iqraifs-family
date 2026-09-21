@@ -1022,7 +1022,7 @@ export function installPhaseC(school: Hono): void {
 
     const { data: students, error: stuErr } = await serviceRoleClient
       .from("student")
-      .select("id, full_name, gr_number, quran_track, hafiz_since, hifz_coverage_complete_at")
+      .select("id, full_name, gr_number, quran_track, hafiz_since, hifz_coverage_complete_at, hifz_baseline_paras")
       .eq("org_id", orgId)
       .eq("class_section_id", sectionId);
     if (stuErr) return c.json({ error: stuErr.message }, 500);
@@ -1175,6 +1175,13 @@ export function installPhaseC(school: Hono): void {
         studentName: s.full_name,
         grNumber: s.gr_number,
         ayahsMemorized,
+        /** Paras the child already knew before anything was logged here.
+         *  Catch Up's huffaz have 30 of them and NOTHING logged, so the
+         *  roster showed them at 0 memorized with an empty red bar - the
+         *  system's ignorance rendered as the child's failure (22 Sep). */
+        baselineParas: Array.isArray((s as any).hifz_baseline_paras)
+          ? ((s as any).hifz_baseline_paras as number[])
+          : [],
         lastEntry,
         today,
         quranTrack: effectiveTrack,

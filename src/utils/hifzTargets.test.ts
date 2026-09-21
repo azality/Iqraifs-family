@@ -11,6 +11,8 @@ import {
   serializeNextSabaq,
   parseNextSabaq,
   parseSabaqParaRevision,
+  kindsForTrack,
+  isDawrOnly,
   type SabaqPart,
 } from "./hifzTargets";
 
@@ -126,5 +128,25 @@ describe("sabaq progression across two surahs", () => {
     // An-Nas (114) has 6 ayahs — nothing follows it.
     expect(nextSabaqPartsAfter([{ surahNumber: 114, from: 1, to: 6 }], false))
       .toBeNull();
+  });
+});
+
+// A hafiz revising has no new lesson - their day is one dawr portion
+// (Muneeb, 22 Sep). Catch Up hears ten children in 45 minutes.
+describe("kindsForTrack", () => {
+  it("a revising hafiz is heard once, as manzil", () => {
+    expect(kindsForTrack("revision")).toEqual(["manzil"]);
+    expect(isDawrOnly("revision")).toBe(true);
+  });
+
+  it("a memorizing child keeps the full trio", () => {
+    expect(kindsForTrack("hifz")).toEqual(["sabaq", "sabqi", "manzil"]);
+    expect(isDawrOnly("hifz")).toBe(false);
+  });
+
+  it("an unset track is treated as memorizing, not as a hafiz", () => {
+    expect(kindsForTrack(null)).toEqual(["sabaq", "sabqi", "manzil"]);
+    expect(kindsForTrack(undefined)).toEqual(["sabaq", "sabqi", "manzil"]);
+    expect(isDawrOnly(null)).toBe(false);
   });
 });

@@ -6245,6 +6245,49 @@ await check("110. a school with no grading chart is TOLD, on the dashboard", asy
       "this org has no default grade scale, so the dashboard must be warning about it");
   }
 });
+await check("111. a revising hafiz is heard ONCE, for dawr - and it still reaches the parent", async () => {
+  // Catch Up hears ten children in a 45-minute period, seven of them
+  // huffaz. A hafiz has no new lesson to learn, so their card is one
+  // dawr portion rather than the trio (Muneeb, 22 Sep). The rows the
+  // UI shows come from kindsForTrack(); what the SERVER must guarantee
+  // is that a manzil-only day is a complete day everywhere downstream.
+  const tt = await ensureUser("qa-teacher@azality.com", "QA Teacher", "class_teacher");
+  const made: string[] = [];
+  const today = new Date().toISOString().slice(0, 10);
+  const { data: before } = await admin.from("student")
+    .select("quran_track").eq("id", pStu1).maybeSingle();
+  try {
+    await admin.from("student").update({ quran_track: "revision" }).eq("id", pStu1);
+
+    // One hearing: dawr, stored as manzil, by para - no ayah typing.
+    const r = await api(tt.token, `/school/orgs/${ORG}/hifz-progress`, {
+      method: "POST",
+      body: JSON.stringify({
+        studentId: pStu1, kind: "manzil", juzNumber: 7, juzExtent: "full",
+        surahNumber: 1, ayahFrom: 1, ayahTo: 1, quality: "good",
+      }),
+    });
+    const rj = await r.json();
+    assert(r.status === 201, `dawr entry ${r.status}: ${JSON.stringify(rj).slice(0, 150)}`);
+    made.push(rj.entry.id);
+
+    // The roster must call that child DONE for today on one hearing.
+    const sum = await api(tt.token,
+      `/school/orgs/${ORG}/sections/${sandboxSec.id}/hifz-progress/summary`);
+    const sj = await sum.json();
+    assert(sum.status === 200, `summary ${sum.status}`);
+    const row = (sj.students ?? sj.rows ?? []).find((x: any) => x.studentId === pStu1);
+    assert(row, "the child must be on the hifz roster");
+    assert(row.quranTrack === "revision", `track must read revision, got ${row.quranTrack}`);
+    assert(row.today?.manzil === true,
+      `the dawr hearing must show on the roster: ${JSON.stringify(row.today)}`);
+
+  } finally {
+    for (const id of made) await admin.from("hifz_progress").delete().eq("id", id);
+    await admin.from("student")
+      .update({ quran_track: (before as any)?.quran_track ?? null }).eq("id", pStu1);
+  }
+});
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

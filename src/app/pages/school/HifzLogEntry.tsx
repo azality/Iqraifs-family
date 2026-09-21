@@ -69,6 +69,8 @@ import {
   type SabqiPart,
   type SabqiParaPart,
   type ManzilPart,
+  kindsForTrack,
+  isDawrOnly,
 } from "../../../utils/hifzTargets";
 
 interface Props {
@@ -80,6 +82,10 @@ interface Props {
   onSuccess?: () => void;
   /** Hifz classes log only the daily trio — sabaq / sabqi / manzil. */
   hifzOnly?: boolean;
+  /** The child's Quran track. A revising hafiz has no new lesson: they
+   *  are heard once, for dawr. Same rule as the round screen, from
+   *  hifzTargets.kindsForTrack (22 Sep). */
+  quranTrack?: string | null;
   /** Classroom flow (pilot): students come to the teacher one by one, so
    *  after saving the teacher moves to the NEXT student without closing
    *  the dialog. The parent swaps studentId/studentName; state resets on
@@ -124,6 +130,7 @@ export function HifzLogEntry({
   onOpenChange,
   onSuccess,
   hifzOnly = false,
+  quranTrack = null,
   onNextStudent = null,
   positionLabel = null,
 }: Props) {
@@ -132,7 +139,11 @@ export function HifzLogEntry({
   const [surahNumber, setSurahNumber] = useState<number>(1);
   const [ayahFrom, setAyahFrom] = useState<number | "">(1);
   const [ayahTo, setAyahTo] = useState<number | "">(1);
-  const [kind, setKind] = useState<HifzKind>("sabaq");
+  // A revising hafiz opens on dawr - "sabaq" is not one of their
+  // options, and a hidden default would save the wrong kind.
+  const [kind, setKind] = useState<HifzKind>(
+    isDawrOnly(quranTrack) ? "manzil" : "sabaq",
+  );
   const [quality, setQuality] = useState<HifzQuality | "">("");
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -264,7 +275,12 @@ export function HifzLogEntry({
     }
   }, [kind]);
 
-  const kindOptions = hifzOnly ? TRIO : [...TRIO, ...EXTRA_KINDS];
+  // A revising hafiz gets one option - dawr, stored as manzil. The
+  // round screen shows them the same single row.
+  const trackKinds = kindsForTrack(quranTrack);
+  const dawrOnly = isDawrOnly(quranTrack);
+  const kindOptions = (hifzOnly ? TRIO : [...TRIO, ...EXTRA_KINDS])
+    .filter((o) => !dawrOnly || trackKinds.includes(o.value as any));
 
   // Reset on open + pull the standing assignment so today's sabaq is
   // prefilled with what the teacher assigned last time.

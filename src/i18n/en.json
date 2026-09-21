@@ -728,6 +728,8 @@
     "partMarkedNote": "A grade appears once every row has a mark. Part-marked papers show the running total instead \u2014 48 out of 100 beside a child whose examiner has not finished would read \u0631\u0627\u0633\u0628."
   },
   "hifzTeach": {
+      "baselineWholeQuran": "Whole Quran, on file",
+      "baselineParas": "{{n}} paras on file",
     "startNazraRound": "Qaida / Nazra round ({{n}})",
     "startHifzRound": "Hifz round ({{n}})",
     "manzilSkipToday": "Skip manzil today",
@@ -860,6 +862,8 @@
     "saving": "Saving…"
   },
   "hifzRound": {
+      "dawr": "Dawr",
+      "dawrSub": "today's revision",
     "scopeSabqi": "Hearing: sabqi only",
     "scopeManzil": "Hearing: manzil only",
     "manzilSkipLink": "Skip manzil today",
