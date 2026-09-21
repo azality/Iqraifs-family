@@ -501,6 +501,31 @@ export function MarksEntry() {
     return m;
   }, [sheet, cells, defaultMax, subjectMax, visibleSubjects]);
 
+  // ─── Review before submitting ────────────────────────────────────
+  // "There should be a way for them to review, and when they are done,
+  // say submit, and then it is locked" (teachers, 22 Sep). Per column
+  // the teacher owns: who still has no mark, and whether it can go.
+  const review = useMemo(() => {
+    if (!sheet) return [];
+    return visibleSubjects
+      .filter((s) => canEditCol(s.id) && isOnThisPaper(s))
+      .map((s) => {
+        const missing: string[] = [];
+        let marked = 0, absent = 0;
+        for (const stu of sheet.students) {
+          const c = cells.get(`${stu.id}:${s.id}`);
+          if (c?.absent) { absent++; marked++; continue; }
+          if (c && c.obtained !== "") { marked++; continue; }
+          missing.push(stu.fullName);
+        }
+        return {
+          id: s.id, name: s.name, marked, absent, missing,
+          total: sheet.students.length,
+          signed: !!confirmations[s.id],
+        };
+      });
+  }, [sheet, cells, visibleSubjects, confirmations, canEditCol, isOnThisPaper]);
+
   if (meLoading) return null;
   // Admins browse any section; teachers arrive via the section deep
   // link (the marks-sheet write endpoint checks their rights).
@@ -529,11 +554,18 @@ export function MarksEntry() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <Link to={`/school/orgs/${orgId}/admin/assessment`}>
-          <Button variant="outline" size="sm">
-            <ArrowLeft className="h-3.5 w-3.5 mr-1" /> Assessment
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link to={`/school/orgs/${orgId}/admin/assessment`}>
+            <Button variant="outline" size="sm">
+              <ArrowLeft className="h-3.5 w-3.5 mr-1" /> Assessment
+            </Button>
+          </Link>
+          {/* A teacher arrives here from a nudge that vanishes once the
+              column is done; this is the door that stays (22 Sep). */}
+          <Link to={`/school/orgs/${orgId}/my-marks`}>
+            <Button variant="outline" size="sm">My marks</Button>
+          </Link>
+        </div>
         <div className="flex items-center gap-2">
           {statusPill()}
           {/* Auto-save means closing the page keeps everything, so a
@@ -630,6 +662,66 @@ export function MarksEntry() {
             Showing only the subjects you teach in this section — other columns are entered by their own teachers.
           </div>
         )}
+        {review.length > 0 && (
+          <div className="rounded-lg border border-slate-200 bg-white">
+            <div className="border-b border-slate-100 px-3 py-2 text-xs font-bold uppercase tracking-wide text-slate-500">
+              Review and submit
+            </div>
+            <div className="divide-y divide-slate-100">
+              {review.map((r) => (
+                <div key={r.id} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-slate-900">{r.name}</div>
+                    <div className="text-[11.5px] text-slate-500">
+                      {r.marked} of {r.total} entered
+                      {r.absent > 0 ? ` · ${r.absent} absent` : ""}
+                      {r.missing.length > 0 ? (
+                        <span className="text-amber-700">
+                          {" · still to enter: "}
+                          {r.missing.slice(0, 4).join(", ")}
+                          {r.missing.length > 4 ? ` and ${r.missing.length - 4} more` : ""}
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                  {r.signed ? (
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11.5px] font-semibold text-emerald-800">
+                        Submitted · locked
+                      </span>
+                      <Button
+                        size="sm" variant="outline"
+                        disabled={confirmBusy === r.id}
+                        onClick={() => void toggleConfirm(r.id)}
+                        title="Unlock to correct a mark, then submit again"
+                      >
+                        Unlock to edit
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      size="sm"
+                      disabled={confirmBusy === r.id || r.missing.length > 0 || saveStatus === "saving"}
+                      onClick={async () => { await doSave(); await toggleConfirm(r.id); }}
+                      title={r.missing.length > 0
+                        ? `${r.missing.length} student${r.missing.length === 1 ? "" : "s"} still need a mark or an absence`
+                        : "Submit this subject for the term — it locks, and you can unlock it again to correct"}
+                    >
+                      {r.missing.length > 0
+                        ? `${r.missing.length} to go`
+                        : "Submit marks"}
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="border-t border-slate-100 px-3 py-2 text-[11.5px] text-slate-500">
+              Submitting locks the subject for this term — both papers. You can unlock it
+              yourself to fix a mark. Everything you type is saved as you go, even before you submit.
+            </div>
+          </div>
+        )}
+
         <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
           <table className="w-full text-xs">
             <thead className="bg-slate-50 text-slate-700">

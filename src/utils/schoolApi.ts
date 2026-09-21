@@ -731,6 +731,25 @@ export interface MyExamMarksTodo {
   marked: number;
   studentCount: number;
 }
+/** One marks column a teacher owns - every one of them, finished
+ *  included. The nudge lists drop a column as soon as it is done, which
+ *  left a teacher no way back into a sheet to check or correct it
+ *  (teachers, 22 Sep). "My marks" lists these. */
+export interface MyMarksColumn {
+  examId: string;
+  examName: string;
+  examDate: string | null;
+  termId: string;
+  classSectionId: string;
+  sectionLabel: string;
+  classSubjectId: string;
+  subjectName: string;
+  /** Students with a mark OR an absence. */
+  marked: number;
+  absent: number;
+  studentCount: number;
+  signedOff: { byName: string; at: string | null } | null;
+}
 /** "Column complete but unsigned" — the green-check nudge. */
 export interface MyMarksSignOff {
   termId: string;
@@ -743,7 +762,13 @@ export interface MyMarksSignOff {
 }
 export const getMyExamMarksTodo = (
   orgId: string,
-): Promise<{ todos: MyExamMarksTodo[]; signOffs?: MyMarksSignOff[] }> =>
+): Promise<{
+  todos: MyExamMarksTodo[];
+  signOffs?: MyMarksSignOff[];
+  /** Every column this teacher owns - server >= v1.2.4. */
+  columns?: MyMarksColumn[];
+  term?: { id: string; name: string | null };
+}> =>
   apiCall(`/school/orgs/${orgId}/me/exam-marks-todo`);
 
 /** A reported leave for a child of one of MY sections — upcoming or
