@@ -121,6 +121,19 @@ export function SchoolGroupDashboard() {
         </div>
       )}
 
+      {/* A chain the caller IS entitled to, that simply has no live
+          campuses - an archived campus used to read as a permission
+          problem (22 Sep). */}
+      {snap && (snap.perCampus?.length ?? 0) === 0 && (
+        <div className="rounded-xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-600">
+          <p className="font-medium text-slate-800">This chain has no campuses yet.</p>
+          <p className="mt-1 text-slate-500">
+            A campus appears here once a school is added to the chain. An archived
+            campus is not counted.
+          </p>
+        </div>
+      )}
+
       {snap && (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           <Card>

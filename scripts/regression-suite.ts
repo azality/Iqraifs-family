@@ -6400,6 +6400,55 @@ await check("112. the PASS MARK is the school's own - change it and every surfac
       "the school's own pass mark must be put back exactly as it was");
   }
 });
+await check("113. an empty chain is not a permission error", async () => {
+  // Muneeb - principal of the Iqra Academy Chain - clicked All
+  // campuses and was told he lacked permission. He did not: the
+  // chain's only campus had been soft-deleted, and the endpoint read
+  // "no campuses" as "not allowed" (22 Sep). The two answers are
+  // different, and a head office adding its first campus must not be
+  // told it is forbidden from its own chain.
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const { data: group } = await admin.from("school_group").select("id, name").limit(1).maybeSingle();
+  if (!group) { console.log("     (no school_group in this database - skipped)"); return; }
+  const gid = (group as any).id;
+
+  // Someone with NO head-office role is still refused.
+  const stranger = await api(teacher.token, `/school/school-groups/${gid}`);
+  assert(stranger.status === 403,
+    `a campus teacher must not reach the chain, got ${stranger.status}`);
+
+  // Grant the QA admin a head-office role, then read the chain even
+  // though it may have no live campuses at all.
+  const { data: existing } = await admin.from("user_roles").select("id")
+    .eq("user_id", admin2.id).eq("scope_type", "school_group").eq("scope_id", gid)
+    .is("revoked_at", null).maybeSingle();
+  let granted: string | null = null;
+  if (!existing) {
+    const { data: row, error } = await admin.from("user_roles").insert({
+      user_id: admin2.id, role_type: "principal",
+      scope_type: "school_group", scope_id: gid, granted_by: admin2.id,
+    }).select("id").single();
+    if (error) throw new Error(`grant: ${error.message}`);
+    granted = (row as any).id;
+  }
+  try {
+    const { count } = await admin.from("organizations")
+      .select("id", { count: "exact", head: true })
+      .eq("school_group_id", gid).is("deleted_at", null);
+    const r = await api(admin2.token, `/school/school-groups/${gid}`);
+    assert(r.status === 200,
+      `a head-office principal must reach their chain even with ${count} live campuses, got ${r.status}`);
+    const snap = await api(admin2.token, `/school/school-groups/${gid}/snapshot`);
+    assert(snap.status === 200, `the chain snapshot must load, got ${snap.status}`);
+    const sj = await snap.json();
+    assert(Array.isArray(sj.perCampus),
+      "the snapshot must list campuses - an empty list is a valid answer");
+    assert((sj.perCampus ?? []).length === (count ?? 0),
+      `the snapshot must show every live campus: ${sj.perCampus?.length} vs ${count}`);
+  } finally {
+    if (granted) await admin.from("user_roles").delete().eq("id", granted);
+  }
+});
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
