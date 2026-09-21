@@ -44,6 +44,39 @@ const WINDOW: Record<string, { workingDays: number; asOf: string }> = {
 // Handwritten sheets: the name as the class teacher wrote it, then days
 // present. Matched to the roster below, never trusted as an identifier.
 const SHEETS: Record<string, Array<[string, number]>> = {
+  // Typed sheets, 21 Sep. Class I carries its own "Total days = 61".
+  "Class I": [
+    ["Maheen Misbah", 52], ["Zehra Fatima", 55], ["Mirha Fatima", 53], ["Syed Iqbal", 42],
+    ["M. Arham Siddiqui", 54], ["Muhammad Rafay", 55], ["Saim Danish", 48],
+    ["Hoorain Shafiq", 57], ["Muhammad Anas", 45], ["M. Sulfan Rana", 49],
+    ["M. Hassan farrukh", 43], ["Eshal", 38], ["Farwaa Maqsood", 54],
+    ["Mir Hasnain Uddin", 60], ["Anaya", 45], ["Muhammad Shafay", 52],
+    ["Fatima Hashmi", 44], ["Syed Aairah", 50], ["Muhammad Hamdan Yasir", 36],
+    ["Minsa Hassan Siddiqui", 14], ["M. Abu Bakar", 48], ["Roshane Rehan", 50],
+    ["Fabiha Siddiqui", 59], ["Parihaan Gul", 48], ["M. Umair", 56],
+    ["Hooria Saheem", 39], ["Anabiya Salman", 47], ["Muhammad Ali", 34],
+    ["Mariyam Rehan", 54], ["Ayesha Rehman Butt", 34], ["Abdul Bari", 38],
+    ["Abdul Hadi", 61], ["Rohan Ahmed", 59], ["Muhammad Wajdan", 42],
+    ["M. Ayan Khan", 43], ["Muntaha Khan", 43], ["Ayesha Mannan", 41],
+    ["Armish Imran", 56], ["M. Faizan Elahi", 59],
+  ],
+  "Class II": [
+    ["Hoor-ul-Ain", 49], ["M. Ahmed Zeeshan", 50], ["Abdul Moiz", 49],
+    ["Rohaan Salman", 51], ["M. Arman Ali", 28], ["Hoorain Yasin", 51],
+    ["Urooj Fatima", 55], ["M. Ali", 58], ["Eshaal Fatima", 59], ["Anabia Amjad", 44],
+    ["Anabia Fatima", 57], ["Hajirah Imran", 58], ["Maheen Sadiq", 54],
+    ["M. Yaseen", 12], ["Fariha Gulshan", 58], ["Eshaal Khubab", 49],
+    ["M. Ahmed Tariq", 39], ["Zohaan Hassan", 46], ["M. Ayan", 60],
+    ["Ifrah Osama", 61], ["Hamna Adeel", 61], ["Subhaan", 42], ["Areesh", 38],
+    ["Hunain Aqil", 15], ["Hamza Baig", 24], ["Rehan Hassan", 11],
+  ],
+  "Class III": [
+    ["Abu Bakar", 40], ["M. Salik", 38], ["Anabiya", 47], ["M. Rohan", 41],
+    ["M. Aryan", 42], ["M. Uzair", 35], ["Fariha", 29], ["S. Sarwa", 33],
+    ["Rida Moin", 45], ["Shiza", 43], ["Fabiha", 39], ["Abrish", 32],
+    ["Abdul Moiz", 27], ["Abdul Samad", 40], ["Ayesha", 39], ["Hunaiza", 41],
+    ["Rao Azan", 41],
+  ],
   "Class IV": [
     ["Abrish Danish", 58], ["Bareera Amjad", 36], ["Hiba Asif", 53], ["Ifrah Irshad", 58],
     ["Maliha Noor", 43], ["Musfirah Talha", 32], ["Misha Vohra", 40], ["Zainab Shafiq", 45],
@@ -102,6 +135,24 @@ const SENIOR_BY_GR: Record<string, number> = {
 // Where a sheet's name is not simply a shortened roster name. Each one
 // was read off the photo and checked against the class list by hand.
 const ALIAS: Record<string, string> = {
+  // Class I - the sheet spells four names differently from the roster.
+  // Worth confirming with the office which spelling is the real one.
+  "Class I|Zehra Fatima": "Zahra Fatima",
+  "Class I|Muhammad Anas": "Muhammad Anus",
+  "Class I|M. Sulfan Rana": "Muhammad Sufyan Rana",
+  "Class I|Farwaa Maqsood": "Farwa Maqsood",
+  "Class I|Syed Aairah": "Syeda Aairah",
+  "Class I|Hooria Saheem": "Hooria Faheem",
+  // Class II - two Ahmeds: the sheet calls one Zeeshan, the roster has
+  // no surname for him; the other is Tariq on both.
+  "Class II|M. Ahmed Zeeshan": "Muhammad Ahmed",
+  "Class II|M. Ali": "Muhammad Ali",
+  "Class II|Rohaan Salman": "Rohan Salman",
+  "Class II|Hajirah Imran": "Hajira Imran",
+  "Class II|Subhaan": "Muhammad Subhan",
+  "Class III|Abu Bakar": "Abubakar Bin Masroor",
+  "Class III|M. Rohan": "Muhammad Rohaan Muhajid",
+  "Class III|Anabiya": "Anabia Altaf",
   "Class IV|Misha Vohra": "Mirha Vohra",
   "Class IV|Musfirah Talha": "Musfira Talha",
   "Class IV|M. Ahmed": "Muhammad Ahmed",
