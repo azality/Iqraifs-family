@@ -4025,7 +4025,7 @@ async function markedTerm(): Promise<any> {
     const { data: ex } = await admin.from("exam").select("id, name")
       .eq("term_id", cand.id).is("archived_at", null);
     const names = (ex ?? []).map((e: any) => e.name as string);
-    if (names.some((n) => /Oral/.test(n)) && names.some((n) => /Written/.test(n))) return cand;
+    if (names.some((n: string) => /Oral/.test(n)) && names.some((n: string) => /Written/.test(n))) return cand;
   }
   return current ?? list[0] ?? null;
 }
@@ -6147,6 +6147,65 @@ await check("108. a teacher can find every column again, review it, submit it - 
     await admin.from("section_subject").delete().eq("id", ss!.id);
     await admin.from("class_subject").delete().eq("id", cs!.id);
     await admin.from("kv_store_f116e23f").delete().eq("key", confKey);
+  }
+});
+await check("109. the report card grades on the SCHOOL's remarks chart, and below the pass mark reads Fail", async () => {
+  // IFS had no grade scale, so every card fell back to the built-in
+  // bands: a child at 25% read "Unsatisfactory" instead of FAIL, and
+  // 60-69 read "Satisfactory" instead of their "Above Average"
+  // (Muneeb's photo of the printed REMARKS CHART, 22 Sep). The chart
+  // is the school's own data - this pins that it is being used, not
+  // that it says any particular thing.
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const r = await api(admin2.token, `/school/orgs/${ORG}/grade-scales`);
+  const j = await r.json();
+  assert(r.status === 200, `grade scales ${r.status}`);
+  const def = ((j.scales ?? j) as any[]).find((s: any) => s.isDefault || s.is_default);
+  assert(def, "the school must have a DEFAULT grade scale - without one every report card silently falls back to built-in bands");
+
+  const bands = (def.bands ?? []).map((b: any) => ({
+    letter: b.letter, min: Number(b.minPct ?? b.min_pct), max: Number(b.maxPct ?? b.max_pct),
+    remark: b.remark ?? null,
+  }));
+  assert(bands.length >= 2, `the default scale needs bands, got ${bands.length}`);
+
+  // Same resolver the report card uses: half-open, top band inclusive.
+  const resolve = (pct: number) => bands.find((b: any) =>
+    (b.max === 100 && pct >= b.min && pct <= 100) || (pct >= b.min && pct < b.max));
+
+  // Every band must be reachable and the chart must cover 0..100 with
+  // no hole - a gap means some child gets no grade at all.
+  for (let pct = 0; pct <= 100; pct += 0.5) {
+    assert(resolve(pct), `no band covers ${pct}% - the chart has a hole`);
+  }
+
+  // Below the school's pass mark the remark must READ as a failure:
+  // the whole point of the chart is that a parent can see it.
+  const { data: org } = await admin.from("organizations").select("settings").eq("id", ORG).maybeSingle();
+  const passPct = Number((org as any)?.settings?.pass_mark_pct) || 40;
+  const failing: any = resolve(Math.max(0, passPct - 5));
+  assert(failing, `no band covers ${passPct - 5}%`);
+  assert(/fail/i.test(String(failing.remark ?? "")) || /^f/i.test(String(failing.letter)),
+    `below the pass mark must read as a failure, got ${failing.letter} "${failing.remark}"`);
+  const passing: any = resolve(Math.min(100, passPct + 5));
+  assert(passing && !/fail/i.test(String(passing.remark ?? "")),
+    `just above the pass mark must NOT read Fail, got ${passing.letter} "${passing.remark}"`);
+
+  // And the card itself renders a letter, not a dash, for a real pct.
+  const { data: term } = await admin.from("academic_term").select("id")
+    .eq("org_id", ORG).eq("name", "1st Assessment").maybeSingle();
+  if (term) {
+    const rc = await api(admin2.token,
+      `/school/orgs/${ORG}/students/${pStu1}/terms/${(term as any).id}/report-card`);
+    if (rc.status === 200) {
+      const card = await rc.json();
+      for (const s of (card.academics?.subjects ?? []) as any[]) {
+        if (s.percentage !== null) {
+          assert(s.letter && s.letter !== "—",
+            `a graded subject must carry a letter from the chart, got "${s.letter}"`);
+        }
+      }
+    }
   }
 });
 // ── Summary ─────────────────────────────────────────────────────────────
