@@ -225,10 +225,13 @@ async function assembleReportCard(
       examId, examName: exam.name,
       obtained: obt, max, absent: !!sc.absent,
     });
-    // Absent or unscored: don't count toward total (max stays 0 too —
-    // otherwise the % drops for cells the student hasn't yet been
-    // graded on, which is misleading mid-term).
-    if (sc.absent || obt === null) continue;
+    // An ABSENT paper keeps its maximum - the child scored 0 of it,
+    // they did not shrink the paper (Ambreen, 22 Sep; same rule as
+    // the tabulation register, which must always agree with this).
+    // Only an UNSCORED row (null, not absent) stays out of both
+    // sides - a pending paper must not deflate the % mid-term.
+    if (sc.absent) { agg.weightedMax += w * max; continue; }
+    if (obt === null) continue;
     agg.weightedObtained += w * obt;
     agg.weightedMax += w * max;
   }

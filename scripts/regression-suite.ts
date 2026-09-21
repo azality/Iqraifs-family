@@ -3882,9 +3882,61 @@ await check("76. tabulation sheet: papers combine per subject, with totals and p
     const cellB = rowB.subjects[cs.id];
     assert(cellB && cellB.obtained === 10 && cellB.max === 15,
       `a lone oral stays 10/15, got ${JSON.stringify(cellB)}`);
-    // 76% beats 66.7% - position follows percentage.
+    // 76% beats 66.7% - position follows percentage. B's written is
+    // merely UNMARKED (pending), so B still ranks - only absence
+    // withholds a rank.
     assert(rowA.position !== null && rowB.position !== null && rowA.position < rowB.position,
       `positions must rank A above B, got ${rowA.position} vs ${rowB.position}`);
+    assert(typeof j.passMarkPct === "number" && j.passMarkPct > 0,
+      `the register must carry the school's pass line, got ${j.passMarkPct}`);
+
+    // Now B is marked ABSENT for the written. The paper does not
+    // shrink: B's max grows to 75 with the obtained staying 10, and B
+    // is no longer ranked against children who sat everything -
+    // Ayesha missed one written and still ranked 11th on a smaller
+    // denominator (Ambreen, 22 Sep).
+    {
+      const { error } = await admin.from("exam_subject_score").insert({
+        org_id: ORG, exam_id: writEx, class_subject_id: cs.id, student_id: stuB.id,
+        obtained_marks: null, max_marks: 60, absent: true, recorded_by: admin2.id,
+      });
+      if (error) throw new Error(`absent row: ${error.message}`);
+    }
+    const r2 = await api(admin2.token,
+      `/school/orgs/${ORG}/sections/${sandboxSec.id}/tabulation?termId=${term!.id}`);
+    const j2 = await r2.json();
+    const rowB2 = (j2.students ?? []).find((x: any) => x.studentId === stuB.id);
+    const cellB2 = rowB2.subjects[cs.id];
+    assert(cellB2.obtained === 10 && cellB2.max === 75,
+      `an absent paper keeps its maximum: expected 10/75, got ${JSON.stringify({ o: cellB2.obtained, m: cellB2.max })}`);
+    assert(rowB2.absentPapers === 1, `the row must count its absence, got ${rowB2.absentPapers}`);
+    assert(rowB2.percentage === null && rowB2.position === null,
+      `a child who missed a paper is not ranked, got pct=${rowB2.percentage} pos=${rowB2.position}`);
+    const rowA2 = (j2.students ?? []).find((x: any) => x.studentId === stuA.id);
+    assert(rowA2.position === 1, `A sat everything and leads alone, got ${rowA2.position}`);
+
+    // An absence in a NOT-EXAMINED subject (empty weights, no marks -
+    // Art & Craft on the real registers) must not conjure a column,
+    // skew a total, or cost the child their rank.
+    const { data: cs2, error: cs2Err } = await admin.from("class_subject").insert({
+      org_id: ORG, class_id: sandboxClass.id, name: "QA Unexamined Sub", sort_order: 961,
+      assessment_weights: [],
+    }).select("id").single();
+    if (cs2Err) throw new Error(`subject2: ${cs2Err.message}`);
+    cleanup.push(() => admin.from("class_subject").delete().eq("id", cs2.id));
+    cleanup.push(() => admin.from("exam_subject_score").delete().eq("class_subject_id", cs2.id));
+    await admin.from("exam_subject_score").insert({
+      org_id: ORG, exam_id: oralEx, class_subject_id: cs2.id, student_id: stuA.id,
+      obtained_marks: null, max_marks: 25, absent: true, recorded_by: admin2.id,
+    });
+    const r3 = await api(admin2.token,
+      `/school/orgs/${ORG}/sections/${sandboxSec.id}/tabulation?termId=${term!.id}`);
+    const j3 = await r3.json();
+    assert(!(j3.subjects ?? []).some((x: any) => x.id === cs2.id),
+      "an absent-only, unexamined subject must not become a column");
+    const rowA3 = (j3.students ?? []).find((x: any) => x.studentId === stuA.id);
+    assert(rowA3.totalMax === rowA2.totalMax && rowA3.position === 1,
+      `the stray absence must not change A's total or rank: ${rowA3.totalMax} pos ${rowA3.position}`);
   } finally {
     for (const fn of cleanup.reverse()) await fn();
   }

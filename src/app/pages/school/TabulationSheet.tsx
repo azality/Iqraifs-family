@@ -46,6 +46,8 @@ export function TabulationSheet() {
   const [sectionId, setSectionId] = useState(presetSectionId);
   const [termId, setTermId] = useState(presetTermId);
   const [data, setData] = useState<TabulationResponse | null>(null);
+  // The school's pass line, from settings via the endpoint (IFS 40%).
+  const passPct = data?.passMarkPct ?? null;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Two-step confirm for finalize (it locks marks entry) and publish
@@ -148,6 +150,9 @@ export function TabulationSheet() {
         <p className="text-sm text-slate-500">
           The whole section's result register for one term — every paper's marks combined
           into each subject's total, with the grand total, percentage and position.
+          A missed paper still counts its full marks in the total; a child who missed
+          any paper is not ranked. Marks under the pass line
+          {passPct !== null ? ` (${passPct}% — 30 of 75, 40 of 100)` : ""} show in red.
         </p>
       </div>
 
@@ -330,13 +335,17 @@ export function TabulationSheet() {
                         .map((e) => ({ label: examLabel.get(e.id) ?? e.name, p: cell.perExam[e.id] }))
                         .filter(({ p }) => p && (p.absent || p.obtained !== null))
                         .map(({ label, p }) => `${label} ${p!.absent ? "Abs" : fmt(p!.obtained!)}`);
+                      // Under the school's pass line (30 of 75, 40 of
+                      // 100 - both 40%) the mark reads red, so a fail
+                      // is visible without reading numbers (22 Sep).
+                      const failing = cell.percentage !== null && passPct !== null && cell.percentage < passPct;
                       return (
                         <td key={s.id} className="px-2 py-2 text-center align-top">
-                          <div className="tabular-nums text-slate-900">
+                          <div className={"tabular-nums " + (failing ? "text-rose-600" : "text-slate-900")}>
                             <span className="font-semibold">{fmt(cell.obtained)}</span>
-                            <span className="text-slate-400">/{fmt(cell.max)}</span>
+                            <span className={failing ? "text-rose-300" : "text-slate-400"}>/{fmt(cell.max)}</span>
                             {cell.percentage !== null && (
-                              <span className="ml-1 text-[10px] text-slate-500">{cell.percentage.toFixed(0)}%</span>
+                              <span className={"ml-1 text-[10px] " + (failing ? "font-semibold text-rose-600" : "text-slate-500")}>{cell.percentage.toFixed(0)}%</span>
                             )}
                           </div>
                           <div className="text-[10px] text-slate-500">
@@ -348,11 +357,18 @@ export function TabulationSheet() {
                     <td className="px-2 py-2 text-right bg-slate-50/60 font-medium tabular-nums">
                       {r.totalMax > 0 ? <>{fmt(r.totalObtained)}<span className="text-slate-400">/{fmt(r.totalMax)}</span></> : "—"}
                     </td>
-                    <td className="px-2 py-2 text-right bg-slate-50/60 tabular-nums">
-                      {r.percentage !== null ? `${r.percentage.toFixed(1)}%` : "—"}
+                    <td className={"px-2 py-2 text-right bg-slate-50/60 tabular-nums " +
+                      (r.percentage !== null && passPct !== null && r.percentage < passPct ? "font-semibold text-rose-600" : "")}>
+                      {r.percentage !== null
+                        ? `${r.percentage.toFixed(1)}%`
+                        : (r.absentPapers ?? 0) > 0
+                        ? <span className="text-[10px] font-semibold text-amber-700" title={`Absent in ${r.absentPapers} paper${r.absentPapers === 1 ? "" : "s"} — not ranked`}>Abs ×{r.absentPapers}</span>
+                        : "—"}
                     </td>
                     <td className="px-2 py-2 text-center bg-slate-50/60 font-semibold">
-                      {r.position ?? "—"}
+                      {r.position ?? ((r.absentPapers ?? 0) > 0
+                        ? <span className="text-[10px] font-normal text-amber-700">not ranked</span>
+                        : "—")}
                     </td>
                   </tr>
                 ))}

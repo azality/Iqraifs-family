@@ -1,4 +1,8 @@
-// MyMarks — every marks column a teacher owns, in one list.
+// MyMarks — "Enter marks": every column a teacher enters, in one list.
+//
+// Named "My marks" for a day; teachers read that as marks ABOUT them
+// (Muneeb, 22 Sep). The verb says what the page is for. The route
+// stays /my-marks so nothing bookmarked breaks.
 //
 // "As soon as they enter a few students' marks there's no way for them to
 // go back to tally, to confirm or to enter one or two students"
@@ -86,10 +90,10 @@ export function MyMarks() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className={sectionTitleClasses}>My marks</h1>
+          <h1 className={sectionTitleClasses}>Enter marks</h1>
           <p className="mt-1 text-sm text-slate-600">
-            {termName ? `${termName} — ` : ""}every column you enter, finished ones included.
-            Open a sheet any time to check it or to add a student you missed.
+            {termName ? `${termName} — ` : ""}every class and subject you enter marks for,
+            finished ones included. Open a sheet any time to check it or to add a student you missed.
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={load} disabled={loading}>

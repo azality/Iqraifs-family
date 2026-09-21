@@ -317,12 +317,24 @@ export function installAssessment(school: Hono): void {
       .eq("class_id", (sec as any).class.id).is("archived_at", null)
       .order("sort_order").order("name");
 
-    const { data: scores } = stuIds.length && examIds.length
-      ? await serviceRoleClient
-          .from("exam_subject_score")
-          .select("student_id, exam_id, class_subject_id, obtained_marks, max_marks, absent")
-          .in("student_id", stuIds).in("exam_id", examIds)
-      : { data: [] as any[] };
+    // PAGED: an unpaged select stops silently at 1000 rows (#620 class).
+    // Class I already holds 778 for one term; one more paper crosses it,
+    // and half a register would simply not be there.
+    const scores: any[] = [];
+    if (stuIds.length && examIds.length) {
+      for (let i = 0; i < stuIds.length; i += 150) {
+        const chunk = stuIds.slice(i, i + 150);
+        for (let from = 0; ; from += 1000) {
+          const { data: page } = await serviceRoleClient
+            .from("exam_subject_score")
+            .select("student_id, exam_id, class_subject_id, obtained_marks, max_marks, absent")
+            .in("student_id", chunk).in("exam_id", examIds)
+            .order("id").range(from, from + 999);
+          scores.push(...(page ?? []));
+          if (!page || page.length < 1000) break;
+        }
+      }
+    }
 
     // The subject's expected combined total from the school's marks
     // distribution — the "out of 75" on the printed register. Null when
@@ -349,9 +361,19 @@ export function installAssessment(school: Hono): void {
       const cell = m.get(r.class_subject_id) ?? { obtained: 0, max: 0, perExam: {} };
       const obt = r.obtained_marks === null ? null : Number(r.obtained_marks);
       cell.perExam[r.exam_id] = { obtained: obt, max: Number(r.max_marks), absent: !!r.absent };
-      // Absent or unscored rows don't count toward the totals — same
-      // rule as the report card, so the two always agree.
-      if (!r.absent && obt !== null) {
+      // An ABSENT paper keeps its maximum: the child scored 0 of it,
+      // they did not shrink the paper. Ayesha missed a 70-mark written,
+      // her register read 505/505-max and she ranked 11th on the
+      // smaller denominator (Ambreen, 22 Sep). Only an UNMARKED row
+      // (null, not absent) stays out of both sides - the register is
+      // read mid-marking and pending papers must not deflate anyone.
+      if (r.absent) {
+        // The max lands in the cell, but an absence alone does not make
+        // the subject a COLUMN - an absent stamp in a not-examined
+        // subject (Art & Craft holds stale null stamps on Class I)
+        // must not conjure a column and skew one child's total.
+        cell.max += w * Number(r.max_marks);
+      } else if (obt !== null) {
         cell.obtained += w * obt;
         cell.max += w * Number(r.max_marks);
         heldSubjects.add(r.class_subject_id);
@@ -368,24 +390,32 @@ export function installAssessment(school: Hono): void {
 
     const rows = stuList.map((s) => {
       const m = byStudent.get(s.id) ?? new Map<string, Cell>();
-      let totalObtained = 0, totalMax = 0;
+      let totalObtained = 0, totalMax = 0, absentPapers = 0;
       const subjects: Record<string, any> = {};
       for (const col of subjectCols) {
         const cell = m.get(col.id);
         if (!cell) continue;
+        const cellAbsent = Object.values(cell.perExam).filter((p) => p.absent).length;
+        absentPapers += cellAbsent;
         subjects[col.id] = {
           obtained: cell.obtained, max: cell.max,
           percentage: cell.max > 0 ? (cell.obtained / cell.max) * 100 : null,
+          absentPapers: cellAbsent,
           perExam: cell.perExam,
         };
         totalObtained += cell.obtained;
         totalMax += cell.max;
       }
+      // A child who missed a paper is not RANKED against those who sat
+      // them all: no percentage line and no position - Maryam took
+      // 189/195 across the two papers she sat and ranked 7th over
+      // children who sat everything (Ambreen, 22 Sep). Their marks and
+      // the honest total (absences included) still print.
       return {
         studentId: s.id, studentName: s.full_name,
         grNumber: s.gr_number, rollNumber: null,
-        subjects, totalObtained, totalMax,
-        percentage: totalMax > 0 ? (totalObtained / totalMax) * 100 : null,
+        subjects, totalObtained, totalMax, absentPapers,
+        percentage: absentPapers === 0 && totalMax > 0 ? (totalObtained / totalMax) * 100 : null,
       };
     });
 
@@ -417,9 +447,17 @@ export function installAssessment(school: Hono): void {
       }
     }
 
+    // The school's pass line (settings.pass_mark_pct, IFS 40): 30 of 75
+    // and 40 of 100 are both 40%, so one percentage covers every paper
+    // size. The sheet paints marks under it red (Ambreen, 22 Sep).
+    const { data: orgRow } = await serviceRoleClient
+      .from("organizations").select("settings").eq("id", orgId).maybeSingle();
+    const passMarkPct = Number((orgRow as any)?.settings?.pass_mark_pct) || 40;
+
     return c.json({
       section: { id: (sec as any).id, name: (sec as any).name, className: (sec as any).class.name },
       term: { id: (term as any).id, name: (term as any).name },
+      passMarkPct,
       exams: examList.map((e) => ({ id: e.id, name: e.name, weight: Number(e.weight) || 1 })),
       subjects: subjectCols,
       students: rows.map((r) => ({ ...r, position: posByStudent.get(r.studentId) ?? null })),

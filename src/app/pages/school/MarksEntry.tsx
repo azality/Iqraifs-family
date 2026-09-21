@@ -563,7 +563,7 @@ export function MarksEntry() {
           {/* A teacher arrives here from a nudge that vanishes once the
               column is done; this is the door that stays (22 Sep). */}
           <Link to={`/school/orgs/${orgId}/my-marks`}>
-            <Button variant="outline" size="sm">My marks</Button>
+            <Button variant="outline" size="sm">Enter marks</Button>
           </Link>
         </div>
         <div className="flex items-center gap-2">
