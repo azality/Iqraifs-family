@@ -6443,6 +6443,32 @@ await check("113. an empty chain is not a permission error", async () => {
     const sj = await snap.json();
     assert(Array.isArray(sj.perCampus),
       "the snapshot must list campuses - an empty list is a valid answer");
+
+    // An EMPTY chain's snapshot must be the same SHAPE as a full one.
+    // It was missing attendancePct/fees/behavior, and the dashboard
+    // called .toFixed() on undefined - a crash screen where an empty
+    // state belonged (22 Sep). Every field the page reads is required.
+    assert(sj.totals && typeof sj.totals === "object", "totals must be present");
+    for (const k of ["activeStudents", "campuses", "feesCollected", "feesInvoiced"]) {
+      assert(typeof sj.totals[k] === "number",
+        `totals.${k} must be a number even with no campuses, got ${JSON.stringify(sj.totals[k])}`);
+    }
+    assert(sj.totals.attendancePct === null || typeof sj.totals.attendancePct === "number",
+      `totals.attendancePct must be a number or null, got ${JSON.stringify(sj.totals.attendancePct)}`);
+    assert(sj.totals.behavior && typeof sj.totals.behavior.positive === "number"
+      && typeof sj.totals.behavior.concern === "number",
+      `totals.behavior must be present, got ${JSON.stringify(sj.totals.behavior)}`);
+    assert(typeof sj.period === "string" && typeof sj.attendanceDate === "string",
+      "the snapshot must name its period and date");
+
+    // And the chain listing says how many campuses it has, so nothing
+    // offers a head office a chain with nothing in it.
+    const mine = await api(admin2.token, `/school/me/school-groups`);
+    const mj = await mine.json();
+    const row = ((mj.groups ?? []) as any[]).find((g) => g.id === gid);
+    assert(row, "the chain must be listed for its own principal");
+    assert(typeof row.campusCount === "number" && row.campusCount === (count ?? 0),
+      `campusCount must match the live campuses: ${row.campusCount} vs ${count}`);
     assert((sj.perCampus ?? []).length === (count ?? 0),
       `the snapshot must show every live campus: ${sj.perCampus?.length} vs ${count}`);
   } finally {

@@ -102,7 +102,24 @@ export function installSchoolGroup(school: Hono): void {
       .order("name", { ascending: true });
     const orgIds = (orgs ?? []).map((o: any) => o.id);
     if (orgIds.length === 0) {
-      return c.json({ totals: { activeStudents: 0, campuses: 0 }, perCampus: [] });
+      // A chain with no live campuses is a real, renderable answer - but
+      // only if it is the SAME SHAPE as a full one. This return used to
+      // omit attendancePct, fees and behavior, and the dashboard called
+      // .toFixed() on undefined: a crash screen where an empty state
+      // belonged (22 Sep). Every field a caller reads is present.
+      return c.json({
+        totals: {
+          activeStudents: 0,
+          campuses: 0,
+          attendancePct: null,
+          feesCollected: 0,
+          feesInvoiced: 0,
+          behavior: { positive: 0, concern: 0 },
+        },
+        period: todayInOrgTz().slice(0, 7),
+        attendanceDate: todayInOrgTz(),
+        perCampus: [],
+      });
     }
     // Per-campus metrics (Phase 5). Each campus contributes:
     //   activeStudents — non-archived, status='active' student count
@@ -502,8 +519,23 @@ export function installSchoolGroup(school: Hono): void {
       .select("id, name, slug")
       .in("id", groupIds)
       .order("name", { ascending: true });
+    // How many LIVE campuses each chain holds. The nav uses this: a
+    // chain with none has nothing to show, and offering "All campuses"
+    // to a school that is not in a chain is just a dead end (22 Sep).
+    const { data: memberOrgs } = await serviceRoleClient
+      .from("organizations")
+      .select("id, school_group_id")
+      .in("school_group_id", groupIds)
+      .is("deleted_at", null);
+    const campusCount = new Map<string, number>();
+    for (const o of (memberOrgs ?? []) as any[]) {
+      campusCount.set(o.school_group_id, (campusCount.get(o.school_group_id) ?? 0) + 1);
+    }
     return c.json({
-      groups: (groups ?? []).map((g: any) => ({ id: g.id, name: g.name, slug: g.slug })),
+      groups: (groups ?? []).map((g: any) => ({
+        id: g.id, name: g.name, slug: g.slug,
+        campusCount: campusCount.get(g.id) ?? 0,
+      })),
     });
   });
 

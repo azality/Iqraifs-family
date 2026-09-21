@@ -94,9 +94,15 @@ export function SchoolGroupDashboard() {
 
   const metricsByOrg = new Map<string, typeof snap extends null ? never : (NonNullable<typeof snap>)["perCampus"][number]>();
   for (const c of snap?.perCampus ?? []) metricsByOrg.set(c.orgId, c);
-  const fmtPct = (n: number | null) => n === null ? "—" : `${n.toFixed(0)}%`;
-  const fmtMoney = (n: number) => n === 0 ? "—" : new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(n);
-  const collectionRate = snap && snap.totals.feesInvoiced > 0
+  // Null AND undefined: an older or partial payload must render an em
+  // dash, never crash the page (22 Sep).
+  const fmtPct = (n: number | null | undefined) =>
+    typeof n === "number" && Number.isFinite(n) ? `${n.toFixed(0)}%` : "—";
+  const fmtMoney = (n: number | null | undefined) =>
+    typeof n === "number" && Number.isFinite(n) && n !== 0
+      ? new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(n)
+      : "—";
+  const collectionRate = snap && (snap.totals?.feesInvoiced ?? 0) > 0
     ? (snap.totals.feesCollected / snap.totals.feesInvoiced) * 100
     : null;
 
@@ -179,8 +185,8 @@ export function SchoolGroupDashboard() {
                 <TrendingUp className="h-3.5 w-3.5 text-indigo-500" /> Behavior this month
               </div>
               <div className="text-sm font-semibold mt-1 flex items-baseline gap-2">
-                <span className="text-emerald-700">+{snap.totals.behavior.positive}</span>
-                <span className="text-amber-700">−{snap.totals.behavior.concern}</span>
+                <span className="text-emerald-700">+{snap.totals.behavior?.positive ?? 0}</span>
+                <span className="text-amber-700">−{snap.totals.behavior?.concern ?? 0}</span>
               </div>
               <div className="text-[11px] text-slate-500 mt-0.5">positive · concern</div>
             </CardContent>
@@ -220,7 +226,7 @@ export function SchoolGroupDashboard() {
                     if (!m) return (
                       <div className="text-xs text-slate-400 mt-2">No data yet</div>
                     );
-                    const collected = m.feesInvoiced > 0
+                    const collected = (m.feesInvoiced ?? 0) > 0
                       ? (m.feesCollected / m.feesInvoiced) * 100 : null;
                     return (
                       <div className="mt-2 space-y-1 text-xs text-slate-600">
@@ -241,9 +247,9 @@ export function SchoolGroupDashboard() {
                         <div className="flex items-center justify-between">
                           <span>Behavior</span>
                           <span className="font-medium">
-                            <span className="text-emerald-700">+{m.behavior.positive}</span>
+                            <span className="text-emerald-700">+{m.behavior?.positive ?? 0}</span>
                             {" / "}
-                            <span className="text-amber-700">−{m.behavior.concern}</span>
+                            <span className="text-amber-700">−{m.behavior?.concern ?? 0}</span>
                           </span>
                         </div>
                       </div>

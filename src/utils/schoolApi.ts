@@ -6050,7 +6050,12 @@ export const executeYearRollover = (
 // =============================================================================
 // Multi-campus (school_group) — Phase 1
 // =============================================================================
-export interface SchoolGroupSummary { id: string; name: string; slug: string }
+export interface SchoolGroupSummary {
+  id: string; name: string; slug: string;
+  /** Live campuses in this chain. A chain with none has nothing to
+   *  show, so the nav does not offer it. Server >= v1.3.2. */
+  campusCount?: number;
+}
 export interface SchoolGroupCampus {
   orgId: string; name: string; slug: string;
   themeColor: string | null;

@@ -1217,7 +1217,13 @@ export function PerformanceDashboard() {
   const [myGroups, setMyGroups] = useState<SchoolGroupSummary[]>([]);
   useEffect(() => {
     listMySchoolGroups()
-      .then((r) => setMyGroups(r.groups))
+      // A chain with no live campuses is a dead end: IFS is in no
+      // chain at all, and the one chain that exists holds only the
+      // archived demo campus. Offering "All campuses" there sent the
+      // principal to an empty screen (Muneeb, 22 Sep). Older servers
+      // omit campusCount - then keep the old behaviour.
+      .then((r) => setMyGroups((r.groups ?? []).filter(
+        (g) => g.campusCount === undefined || g.campusCount > 0)))
       .catch(() => setMyGroups([]));
   }, []);
 
