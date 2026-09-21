@@ -5,12 +5,17 @@
 // the person entering marks is holding 84 different syllabi in their
 // head.
 //
+// Every heading follows the READER, not the paper: a row carries its
+// printed name and, when the school gave one, an English twin; میزان
+// and کیفیت come from the locale files (Muneeb, 22 Sep).
+//
 // The numbers are typed exactly as they appear on the paper — six rows,
 // each out of its own maximum — and the میزان, the braced subtotal and
-// the لیاقت band are computed. Nobody adds up 100 by hand for 84
+// the کیفیت band are computed. Nobody adds up 100 by hand for 84
 // children, and nobody looks up which band 78 falls in.
 
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, useParams, useSearchParams } from "react-router";
 import { ArrowLeft, ClipboardList, UserX } from "lucide-react";
 import { toast } from "sonner";
@@ -38,6 +43,13 @@ const BAND_CLASS: Record<string, string> = {
 };
 
 export function ExamMarks() {
+  const { t, i18n } = useTranslation();
+  // Urdu reader gets the paper's own name; everyone else gets the
+  // English twin, falling back to the printed name when the school
+  // never gave one.
+  const isUrdu = (i18n.language ?? "en").startsWith("ur");
+  const rowLabel = (c: { name: string; nameEn?: string | null }) =>
+    isUrdu ? c.name : (c.nameEn || c.name);
   const { orgId = "" } = useParams<{ orgId: string }>();
   const [params] = useSearchParams();
   const [me, setMe] = useState<SchoolMeResponse | null>(null);
@@ -148,7 +160,7 @@ export function ExamMarks() {
         </Link>
         {examId && sectionId && (
           <Link to={`/school/orgs/${orgId}/admin/assessment/exam-syllabus?examId=${examId}&sectionId=${sectionId}`}>
-            <Button variant="outline" size="sm">Exam syllabus →</Button>
+            <Button variant="outline" size="sm">{t("examMarks.syllabusLink")}</Button>
           </Link>
         )}
       </div>
@@ -156,23 +168,20 @@ export function ExamMarks() {
       <div>
         <h1 className={sectionTitleClasses}>
           <ClipboardList className="mr-2 inline h-5 w-5 text-indigo-600" />
-          Exam marks
+          {t("examMarks.title")}
         </h1>
         <p className="mt-1 text-sm text-slate-600">
-          Type each row exactly as it is on the paper. The میزان, the group
-          subtotal and the لیاقت grade are worked out here — and every child's
-          own syllabus is shown beside their name, because the questions come
-          from it.
+          {t("examMarks.intro", { total: t("examMarks.total"), grade: t("examMarks.grade") })}
         </p>
       </div>
 
       <div className="flex flex-wrap items-end gap-3">
         <div>
-          <Label className="text-xs text-slate-500">Exam</Label>
+          <Label className="text-xs text-slate-500">{t("examMarks.exam")}</Label>
           <Select value={examId} onValueChange={setExamId}>
-            <SelectTrigger className="h-9 w-72 text-sm"><SelectValue placeholder="Pick an exam" /></SelectTrigger>
+            <SelectTrigger className="h-9 w-72 text-sm"><SelectValue placeholder={t("examMarks.pickExam")} /></SelectTrigger>
             <SelectContent>
-              {exams.length === 0 && <div className="px-2 py-1.5 text-xs text-slate-500">No exams yet.</div>}
+              {exams.length === 0 && <div className="px-2 py-1.5 text-xs text-slate-500">{t("examMarks.noExams")}</div>}
               {exams.map((e) => (
                 <SelectItem key={e.id} value={e.id}>
                   {e.name}
@@ -187,9 +196,9 @@ export function ExamMarks() {
           </Select>
         </div>
         <div>
-          <Label className="text-xs text-slate-500">Section</Label>
+          <Label className="text-xs text-slate-500">{t("examMarks.section")}</Label>
           <Select value={sectionId} onValueChange={setSectionId}>
-            <SelectTrigger className="h-9 w-56 text-sm"><SelectValue placeholder="Pick a section" /></SelectTrigger>
+            <SelectTrigger className="h-9 w-56 text-sm"><SelectValue placeholder={t("examMarks.pickSection")} /></SelectTrigger>
             <SelectContent>
               {sectionOptions.map((o) => (
                 <SelectItem key={o.id} value={o.id}>{o.label}</SelectItem>
@@ -199,7 +208,7 @@ export function ExamMarks() {
         </div>
         {rows.length > 0 && (
           <span className="ms-auto text-xs text-slate-500">
-            {marked} of {rows.length} fully marked · paper out of {paperTotal}
+            {t("examMarks.progress", { marked, total: rows.length, paper: paperTotal })}
           </span>
         )}
       </div>
@@ -212,26 +221,26 @@ export function ExamMarks() {
 
       {examId && sectionId && components.length === 0 && !loading && (
         <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-          This exam has no rows yet, so there is nothing to mark against.
+          {t("examMarks.noRows")}
         </div>
       )}
 
       {loading ? (
-        <p className="py-8 text-center text-sm text-slate-500">Loading…</p>
+        <p className="py-8 text-center text-sm text-slate-500">{t("common.loading")}</p>
       ) : rows.length > 0 && components.length > 0 ? (
         <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-left">
-                <th className="px-3 py-2 font-semibold text-slate-700">Student</th>
+                <th className="px-3 py-2 font-semibold text-slate-700">{t("examMarks.student")}</th>
                 {components.map((c) => (
                   <th key={c.id} className="px-2 py-2 text-center font-semibold text-slate-700 whitespace-nowrap">
-                    <span className="block">{c.name}</span>
+                    <span className="block" dir="auto">{rowLabel(c)}</span>
                     <span className="block text-[10px] font-normal text-slate-500">/ {c.maxMarks}</span>
                   </th>
                 ))}
-                <th className="px-3 py-2 text-center font-semibold text-slate-700">میزان</th>
-                <th className="px-3 py-2 text-center font-semibold text-slate-700">لیاقت</th>
+                <th className="px-3 py-2 text-center font-semibold text-slate-700">{t("examMarks.total")}</th>
+                <th className="px-3 py-2 text-center font-semibold text-slate-700">{t("examMarks.grade")}</th>
                 <th className="px-2 py-2" />
               </tr>
             </thead>
@@ -249,7 +258,7 @@ export function ExamMarks() {
                         (row.portion ? "text-indigo-700" : "text-amber-700")}
                       dir="auto"
                     >
-                      {row.portion || "no syllabus published"}
+                      {row.portion || t("examMarks.noSyllabus")}
                     </span>
                   </td>
                   {components.map((c) => (
@@ -271,7 +280,7 @@ export function ExamMarks() {
                     {row.totals.unmarked === 0
                       ? `${row.totals.obtained} / ${row.totals.max}`
                       : <span className="text-xs font-normal text-slate-400">
-                          {row.totals.obtained} so far
+                          {t("examMarks.soFar", { n: row.totals.obtained })}
                         </span>}
                   </td>
                   <td className="px-3 py-2 text-center align-top">
@@ -290,7 +299,7 @@ export function ExamMarks() {
                   <td className="px-2 py-2 text-center align-top">
                     <button
                       type="button"
-                      title={row.absent ? "Mark present" : "Mark absent"}
+                      title={row.absent ? t("examMarks.markPresent") : t("examMarks.markAbsent")}
                       onClick={() => void saveRow(row, !row.absent)}
                       className={"rounded p-1 transition-colors " +
                         (row.absent ? "text-rose-600" : "text-slate-300 hover:text-slate-500")}
@@ -304,15 +313,11 @@ export function ExamMarks() {
           </table>
         </div>
       ) : examId && sectionId && !loading ? (
-        <p className="py-8 text-center text-sm text-slate-500">No students in this section.</p>
+        <p className="py-8 text-center text-sm text-slate-500">{t("examMarks.noStudents")}</p>
       ) : null}
 
       {rows.length > 0 && (
-        <p className="text-xs text-slate-500">
-          A grade appears once every row has a mark. Part-marked papers show
-          the running total instead — 48 out of 100 beside a child whose
-          examiner has not finished would read راسب.
-        </p>
+        <p className="text-xs text-slate-500">{t("examMarks.partMarkedNote")}</p>
       )}
     </div>
   );

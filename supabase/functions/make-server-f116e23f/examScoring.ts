@@ -5,8 +5,12 @@
 
 export interface Component {
   id: string;
+  /** The row as the paper prints it. */
   name: string;
+  /** The same row in English, when the school gave one (22 Sep). */
+  nameEn?: string | null;
   groupLabel: string | null;
+  groupLabelEn?: string | null;
   maxMarks: number;
   sortOrder: number;
 }

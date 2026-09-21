@@ -28,16 +28,21 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 const ORG = "63cd5732-5db4-40e1-8fb9-60782bcfd059";
 const EXAM_NAME = "ششماہی امتحان — Half-yearly (Hifz)";
-const SCALE_NAME = "Hifz — لیاقت";
+// The school calls the grade column کیفیت (22 Sep). The earlier name
+// came from my reading of a photographed slip.
+const SCALE_NAME = "Hifz — کیفیت";
 const QURAN = "حفظ القرآن / ناظرہ";
+const QURAN_EN = "Hifz al-Quran / Nazra";
 
 const ROWS = [
-  { name: "سوال اول", group_label: QURAN, max_marks: 20 },
-  { name: "سوال دوم", group_label: QURAN, max_marks: 20 },
-  { name: "سوال سوم", group_label: QURAN, max_marks: 20 },
-  { name: "صفات و مخارج", group_label: null, max_marks: 20 },
-  { name: "لہجہ", group_label: null, max_marks: 10 },
-  { name: "مسائل", group_label: null, max_marks: 10 },
+  // name = what the slip prints; name_en = the same row for an English
+  // reader. Transliterations, because that is what the teachers say.
+  { name: "سوال اول", name_en: "Question 1", group_label: QURAN, group_label_en: QURAN_EN, max_marks: 20 },
+  { name: "سوال دوم", name_en: "Question 2", group_label: QURAN, group_label_en: QURAN_EN, max_marks: 20 },
+  { name: "سوال سوم", name_en: "Question 3", group_label: QURAN, group_label_en: QURAN_EN, max_marks: 20 },
+  { name: "صفات و مخارج", name_en: "Sifaat & Makharij", group_label: null, group_label_en: null, max_marks: 20 },
+  { name: "لہجہ", name_en: "Lahja", group_label: null, group_label_en: null, max_marks: 10 },
+  { name: "مسائل", name_en: "Masail", group_label: null, group_label_en: null, max_marks: 10 },
 ];
 
 const admin = createClient(

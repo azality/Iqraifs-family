@@ -28,7 +28,9 @@ import {
 const rowToComponent = (r: Record<string, unknown>): Component => ({
   id: String(r.id),
   name: String(r.name),
+  nameEn: (r.name_en as string | null) ?? null,
   groupLabel: (r.group_label as string | null) ?? null,
+  groupLabelEn: (r.group_label_en as string | null) ?? null,
   maxMarks: Number(r.max_marks),
   sortOrder: Number(r.sort_order ?? 0),
 });
@@ -36,7 +38,7 @@ const rowToComponent = (r: Record<string, unknown>): Component => ({
 async function componentsOf(examId: string): Promise<Component[]> {
   const { data } = await serviceRoleClient
     .from("exam_component")
-    .select("id, name, group_label, max_marks, sort_order")
+    .select("id, name, name_en, group_label, group_label_en, max_marks, sort_order")
     .eq("exam_id", examId).is("archived_at", null)
     .order("sort_order");
   return ((data ?? []) as Array<Record<string, unknown>>).map(rowToComponent);
@@ -124,10 +126,16 @@ export function installExamMarks(school: Hono): void {
       if (!Number.isFinite(max) || max <= 0) {
         return c.json({ error: `"${name}" needs marks greater than zero` }, 400);
       }
+      // The English twin is optional: a school that prints one language
+      // sends only `name` and both readers see it.
+      const nameEn = typeof r?.nameEn === "string" && r.nameEn.trim() ? r.nameEn.trim() : null;
+      const groupEn = typeof r?.groupLabelEn === "string" && r.groupLabelEn.trim()
+        ? r.groupLabelEn.trim() : null;
       clean.push({
-        org_id: orgId, exam_id: examId, name,
+        org_id: orgId, exam_id: examId, name, name_en: nameEn,
         group_label: typeof r?.groupLabel === "string" && r.groupLabel.trim()
           ? r.groupLabel.trim() : null,
+        group_label_en: groupEn,
         max_marks: max,
         sort_order: i,
       });

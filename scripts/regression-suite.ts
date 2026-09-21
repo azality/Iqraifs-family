@@ -5612,17 +5612,28 @@ await check("102. exam marks: the paper's own rows, totalled and graded, and nev
     // The paper is data: an admin writes the rows.
     const put = await api(admin2.token, `${base}/components`, {
       method: "PUT",
+      // A row may carry an English twin; one row deliberately does not,
+      // because a school that prints one language must still work.
       body: JSON.stringify({ components: [
-        { name: "سوال اول", groupLabel: "حفظ القرآن", maxMarks: 20 },
-        { name: "سوال دوم", groupLabel: "حفظ القرآن", maxMarks: 20 },
+        { name: "سوال اول", nameEn: "Question 1", groupLabel: "حفظ القرآن", groupLabelEn: "Hifz al-Quran", maxMarks: 20 },
+        { name: "سوال دوم", nameEn: "Question 2", groupLabel: "حفظ القرآن", groupLabelEn: "Hifz al-Quran", maxMarks: 20 },
         { name: "لہجہ", maxMarks: 10 },
       ] }),
     });
     const putJ = await put.json();
     assert(put.status === 200 && putJ.components?.length === 3,
       `components ${put.status}: ${JSON.stringify(putJ).slice(0, 150)}`);
-    const comps = putJ.components as Array<{ id: string; name: string; maxMarks: number }>;
+    const comps = putJ.components as Array<{ id: string; name: string; nameEn: string | null; groupLabelEn: string | null; maxMarks: number }>;
     const byName = new Map(comps.map((c) => [c.name, c]));
+
+    // Both names come back, so the sheet can follow its reader rather
+    // than showing Urdu headings to an English one (22 Sep).
+    assert(byName.get("سوال اول")?.nameEn === "Question 1",
+      `the English twin must round-trip: ${JSON.stringify(byName.get("سوال اول"))}`);
+    assert(byName.get("سوال اول")?.groupLabelEn === "Hifz al-Quran",
+      "the braced heading keeps its English twin too");
+    assert(byName.get("لہجہ")?.nameEn === null,
+      "a row with no twin stays null - the printed name is shown to everyone");
 
     // A teacher of the section can mark; the roster carries the portion.
     const r1 = await api(admin2.token, `${base}/marks?sectionId=${sandboxSec.id}`);

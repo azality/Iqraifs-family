@@ -705,6 +705,27 @@
       "openResources": "Open resources",
       "openLesson": "Open lesson"
   },
+  "examMarks": {
+    "title": "Exam marks",
+    "intro": "Type each row exactly as it is on the paper. The {{total}}, the group subtotal and the {{grade}} are worked out here \u2014 and every child's own syllabus is shown beside their name, because the questions come from it.",
+    "exam": "Exam",
+    "pickExam": "Pick an exam",
+    "noExams": "No exams yet.",
+    "section": "Section",
+    "pickSection": "Pick a section",
+    "syllabusLink": "Exam syllabus \u2192",
+    "progress": "{{marked}} of {{total}} fully marked \u00b7 paper out of {{paper}}",
+    "noRows": "This exam has no rows yet, so there is nothing to mark against.",
+    "noStudents": "No students in this section.",
+    "student": "Student",
+    "total": "Total",
+    "grade": "Grade",
+    "noSyllabus": "no syllabus published",
+    "soFar": "{{n}} so far",
+    "markPresent": "Mark present",
+    "markAbsent": "Mark absent",
+    "partMarkedNote": "A grade appears once every row has a mark. Part-marked papers show the running total instead \u2014 48 out of 100 beside a child whose examiner has not finished would read \u0631\u0627\u0633\u0628."
+  },
   "hifzTeach": {
     "startNazraRound": "Qaida / Nazra round ({{n}})",
     "startHifzRound": "Hifz round ({{n}})",

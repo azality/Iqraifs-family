@@ -1,4 +1,4 @@
-// The school's grading bands (لیاقت), from their own printed sheet.
+// The school's grading bands (کیفیت), from their own printed sheet.
 //
 //   ممتاز 80-100 · جید جدا 65-79 · جید 50-64 · مقبول 40-49 · راسب below 40
 //
@@ -20,7 +20,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const ORG = "63cd5732-5db4-40e1-8fb9-60782bcfd059";
-const SCALE_NAME = "Hifz — لیاقت";
+const SCALE_NAME = "Hifz — کیفیت";
 
 /** Highest first, the way the sheet reads. `remark` carries the English
  *  gloss so a non-Urdu reader can still tell the bands apart. */
