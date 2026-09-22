@@ -118,6 +118,14 @@ export interface StudentOutstandingRow {
 
 export async function outstandingByStudent(
   orgId: string,
+  /** Ignore vouchers for months AFTER this one (YYYY-MM). A bill that
+   *  is not due yet is not arrears: the fees page is an aging view of
+   *  the month you are reading, and a family that paid ahead must not
+   *  be listed among those who owe. Schools also open next month's
+   *  vouchers early so parents can pay early - without this, doing so
+   *  would flip the whole school to "owing" overnight. Omit for the
+   *  true all-months balance (the student profile, finance rollups). */
+  upToPeriod?: string,
 ): Promise<Record<string, StudentOutstandingRow>> {
   const { data } = await serviceRoleClient
     .from("fee_status")
@@ -127,6 +135,7 @@ export async function outstandingByStudent(
   const out: Record<string, StudentOutstandingRow> = {};
   for (const r of (data ?? []) as any[]) {
     if (r.student?.class_section?.schedule_key === "sandbox") continue;
+    if (upToPeriod && String(r.period) > upToPeriod) continue;
     const owed = Math.max(0, (Number(r.amount_due) || 0) - (Number(r.amount_paid) || 0));
     if (owed <= 0) continue;
     const cur = out[r.student_id] ?? { total: 0, months: 0, oldestPeriod: null, owedPeriods: [], lastPayment: null };
