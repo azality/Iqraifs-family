@@ -273,11 +273,22 @@ await check("5. subject-teacher change propagates to timetable entries (#346)", 
 });
 
 let qaStudentId: string | null = null;
+// The GR this check probes with. NEVER the school's real next number:
+// this check once took the suggested "2487", its silent cleanup failed,
+// and the office could not admit the real Muhammad Suleman - the form
+// said the GR belonged to "QA Student, who left" (22 Sep). QA fixtures
+// stay in the QA namespace, like QA-PORTAL-1.
+const QA_GR = "QA-GRCHECK";
 await check("6. GR: next suggestion, duplicate names holder, withdrawn hints re-admit (#344/#345)", async () => {
+  // Orphans from a killed run self-heal before we begin.
+  await admin.from("student").delete().eq("org_id", ORG).eq("gr_number", QA_GR);
+
   const n = await api(office.token, `/school/orgs/${ORG}/students-next-gr`);
   const nj = await n.json();
   assert(n.ok && typeof nj.suggested === "string", `next-gr ${n.status}`);
-  const gr = nj.suggested as string;
+  // The suggestion is verified but NOT used - creating a student on it
+  // would consume the school's actual next admission number.
+  const gr = QA_GR;
   const mk = await api(office.token, `/school/orgs/${ORG}/students`, {
     method: "POST", body: JSON.stringify({ grNumber: gr, fullName: "QA Student", classSectionId: sandboxSec.id }),
   });
@@ -298,7 +309,17 @@ await check("6. GR: next suggestion, duplicate names holder, withdrawn hints re-
   assert(dup2.status === 409 && dj2.code === "GR_EXISTS_WITHDRAWN" && String(dj2.error).includes("Re-admit"), `withdrawn dup: ${dup2.status} ${JSON.stringify(dj2).slice(0, 140)}`);
 });
 if (qaStudentId) {
+  // The old cleanup never checked its own result; a refused DELETE left
+  // "QA Student" squatting on a real GR for four days (22 Sep). Service
+  // role, then VERIFY the row is gone.
   await api(office.token, `/school/orgs/${ORG}/students/${qaStudentId}`, { method: "DELETE" });
+  await admin.from("student").delete().eq("id", qaStudentId);
+  const { data: leftover } = await admin.from("student").select("id")
+    .eq("org_id", ORG).eq("gr_number", QA_GR);
+  if ((leftover ?? []).length > 0) {
+    console.error(`FIXTURE LEAK: ${QA_GR} still exists after cleanup`);
+    Deno.exit(1);
+  }
 }
 
 await check("7. upload ticket validates type, signed PUT lands in storage (#338)", async () => {
