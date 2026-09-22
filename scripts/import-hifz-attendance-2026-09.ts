@@ -32,13 +32,47 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
 const ORG = "63cd5732-5db4-40e1-8fb9-60782bcfd059"; // iqra-ifs
 const SOURCE = "hifz-register-2026-09";
-const AS_OF = "2026-09-02";
+// Hifz II-IV counted through 2 Sep (92 days); Hifz I through 1 Sep
+// (91 days = May-Aug 90 + 1 Sep, its own header says so) - roll call
+// for Hifz I starts 2 Sep, for the rest 3 Sep.
+const AS_OF_BY_CLASS: Record<string, string> = {
+  "Hifz I": "2026-09-01",
+  "Hifz II": "2026-09-02",
+  "Hifz III": "2026-09-02",
+  "Hifz IV": "2026-09-02",
+  "Class II": "2026-09-02", // Yousuf's Hifz IV window
+};
 const APPLY = Deno.args.includes("--apply");
 
 type Row = { gr: string; days: number; total: number; written?: string };
 
 // gr, present days, working days, [name as written on the sheet]
 const SHEETS: Record<string, Row[]> = {
+  // Handwritten sheet (arrived 22 Sep, after the first apply): NN present
+  // days May-Aug of 90, plus a 1/0 prefix for 1 Sep. Every percentage on
+  // the sheet equals floor(NN/90), which pins the reading; days below are
+  // prefix + NN out of 91. Two boys were absent on 1 Sep.
+  "Hifz I": [
+    { gr: "2077", days: 71, total: 91, written: "Muhammad Ashar" },
+    { gr: "2190", days: 83, total: 91, written: "Fahad Ansari" },
+    { gr: "1887", days: 63, total: 91, written: "Abdullah Idreesi" },
+    { gr: "2244", days: 78, total: 91, written: "Muhammad Mohib" },
+    { gr: "1921", days: 71, total: 91, written: "Syed Shayan Ali" },
+    { gr: "1831", days: 71, total: 91, written: "Syed Saffan Ali" },
+    { gr: "1690", days: 74, total: 91, written: "Abdul Hannan" },
+    { gr: "2294", days: 79, total: 91, written: "Abdullah Rafiq" },
+    { gr: "2150", days: 56, total: 91, written: "Abdullah Waseem" },
+    { gr: "1926", days: 68, total: 91, written: "Muhammad Mustafa" },
+    { gr: "1709", days: 66, total: 91, written: "Hasan Shahid" },
+    { gr: "2228", days: 90, total: 91, written: "Muhammad Umar" },
+    { gr: "1979", days: 70, total: 91, written: "Arbad Ahmed (absent 1 Sep)" },
+    { gr: "2396", days: 86, total: 91, written: "Zain Ul Abideen" },
+    { gr: "1967", days: 81, total: 91, written: "Muhammad Affan Abbasi" },
+    { gr: "2311", days: 68, total: 91, written: "Rayan Tahir" },
+    { gr: "1548", days: 72, total: 91, written: "Ayan Nasir (absent 1 Sep)" },
+    { gr: "2035", days: 81, total: 91, written: "Ismail Zubair" },
+    { gr: "2408", days: 87, total: 91, written: "Muhammad Muzammil" },
+  ],
   "Hifz IV": [
     { gr: "1898", days: 44, total: 92 },
     { gr: "1962", days: 88, total: 92 },
@@ -150,9 +184,9 @@ for (const [className, rows] of Object.entries(SHEETS)) {
     console.log(`  ${r.gr}  ${s.full_name}  ${r.days}/${r.total}`);
     upserts.push({
       org_id: ORG, student_id: s.id, days_present: r.days,
-      working_days: r.total, as_of_date: AS_OF, source: SOURCE,
+      working_days: r.total, as_of_date: AS_OF_BY_CLASS[className], source: SOURCE,
       notes: r.written
-        ? `Hifz register (4 May - 2 Sep), written as "${r.written}"`
+        ? `Hifz register (4 May - ${AS_OF_BY_CLASS[className] === "2026-09-01" ? "1" : "2"} Sep), written as "${r.written}"`
         : "Hifz register spreadsheet (4 May - 2 Sep)",
     });
   }
