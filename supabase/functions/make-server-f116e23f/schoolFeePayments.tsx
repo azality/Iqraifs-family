@@ -198,12 +198,25 @@ export async function concessionByStudent(
 export async function parentNamesByStudent(
   orgId: string,
 ): Promise<Record<string, string>> {
-  const { data } = await serviceRoleClient
-    .from("student_parent")
-    .select("student_id, parent_role, is_primary, parent:parent_id(full_name, org_id)")
-    .order("is_primary", { ascending: false });
+  // PAGED: an unpaged read stops at 1000 rows (the #620 class). This
+  // school passed 400 links while the office was still entering
+  // parents, and a silent truncation here would drop names off the
+  // END of the roll - a search that quietly finds nobody.
+  const rows: any[] = [];
+  const PAGE = 1000;
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await serviceRoleClient
+      .from("student_parent")
+      .select("student_id, parent_role, is_primary, parent:parent_id(full_name, org_id)")
+      .order("is_primary", { ascending: false })
+      .order("student_id", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) break;
+    rows.push(...(data ?? []));
+    if ((data ?? []).length < PAGE) break;
+  }
   const names: Record<string, string[]> = {};
-  for (const r of (data ?? []) as any[]) {
+  for (const r of rows) {
     const name = String(r.parent?.full_name ?? "").trim();
     // student_parent has no org column — filter on the parent's.
     if (!name || r.parent?.org_id !== orgId) continue;
