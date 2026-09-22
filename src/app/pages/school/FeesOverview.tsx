@@ -32,7 +32,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../../components/ui/dialog";
-import { FileText, MessageSquare } from "lucide-react";
+import { FileText, MessageSquare, Search } from "lucide-react";
 import { HeroCard, NoAccessRedirect } from "../../components/school-ui";
 import {
   getSchoolMe,
@@ -294,6 +294,8 @@ interface StudentRow {
   studentId: string;
   name: string;
   gr: string | null;
+  parents: string | null;
+  phone: string | null;
   cls: string;
   sec: string;
   monthlyFee: number | null;
@@ -309,6 +311,7 @@ export function FeesOverview() {
   const [meLoading, setMeLoading] = useState(true);
   const [period, setPeriod] = useState(currentPeriod());
   const [sectionFilter, setSectionFilter] = useState("__all__");
+  const [query, setQuery] = useState("");
   const [bucket, setBucket] = useState<Bucket>("all");
   const [fees, setFees] = useState<FeeStatus[]>([]);
   const [outstanding, setOutstanding] = useState<Record<string, StudentOutstanding>>({});
@@ -318,7 +321,6 @@ export function FeesOverview() {
   const [payTarget, setPayTarget] = useState<AllocateTarget | null>(null);
   const [dryInfo, setDryInfo] = useState<BulkFeeGenerateResult | null>(null);
   const [generating, setGenerating] = useState(false);
-  const [genClassId, setGenClassId] = useState("__all__");
 
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
@@ -346,26 +348,42 @@ export function FeesOverview() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId, period, sectionFilter]);
 
-  const monthEmpty = feesLoaded && fees.length === 0 && sectionFilter === "__all__";
+  // ONE control decides what you're looking at AND what you'd bill (22
+  // Sep: the header's section filter and a second "Whole school" picker
+  // beside Generate read as duplicates). Billing is per CLASS in the
+  // backend, so a section filter widens to its class — the button says
+  // so rather than quietly billing the sibling section too.
+  const genScope = useMemo(() => {
+    if (sectionFilter === "__all__") return null;
+    for (const c of classes) {
+      const sections = c.sections || [];
+      if (sections.some((s) => s.id === sectionFilter)) {
+        return { classId: c.id, className: c.name, sectionCount: sections.length };
+      }
+    }
+    return null;
+  }, [classes, sectionFilter]);
+
+  const monthEmpty = feesLoaded && fees.length === 0;
   useEffect(() => {
     if (!orgId || !monthEmpty) { setDryInfo(null); return; }
     let cancelled = false;
     bulkGenerateFees(orgId, {
       period, dryRun: true,
-      ...(genClassId !== "__all__" ? { classIds: [genClassId] } : {}),
+      ...(genScope ? { classIds: [genScope.classId] } : {}),
     })
       .then((r) => { if (!cancelled) setDryInfo(r); })
       .catch(() => { if (!cancelled) setDryInfo(null); });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orgId, period, monthEmpty, genClassId]);
+  }, [orgId, period, monthEmpty, genScope?.classId]);
 
   const runGenerate = async () => {
     setGenerating(true);
     try {
       const r = await bulkGenerateFees(orgId, {
         period,
-        ...(genClassId !== "__all__" ? { classIds: [genClassId] } : {}),
+        ...(genScope ? { classIds: [genScope.classId] } : {}),
       });
       const prot = (r as any).protected ?? 0;
       toast.success(
@@ -398,6 +416,8 @@ export function FeesOverview() {
         studentId: f.student_id,
         name: f.student_name ?? f.student_id,
         gr: f.gr_number ?? null,
+        parents: f.parent_names ?? null,
+        phone: f.guardian_phone ?? null,
         cls: f.class_name ?? "—",
         sec: f.section_name ?? "",
         monthlyFee: f.amount_due,
@@ -448,15 +468,31 @@ export function FeesOverview() {
   }, [rows]);
 
   const filtered = useMemo(() => {
-    switch (bucket) {
-      case "paid": return rows.filter((r) => (r.out?.months ?? 0) === 0);
-      case "dueMonth": return rows.filter((r) => (r.out?.months ?? 0) >= 1);
-      case "two": return rows.filter((r) => (r.out?.months ?? 0) >= 2);
-      case "defaulters": return rows.filter((r) => (r.out?.months ?? 0) >= 3);
-      case "concessions": return rows.filter((r) => !!r.concession);
-      default: return rows;
-    }
-  }, [rows, bucket]);
+    const byBucket = (() => {
+      switch (bucket) {
+        case "paid": return rows.filter((r) => (r.out?.months ?? 0) === 0);
+        case "dueMonth": return rows.filter((r) => (r.out?.months ?? 0) >= 1);
+        case "two": return rows.filter((r) => (r.out?.months ?? 0) >= 2);
+        case "defaulters": return rows.filter((r) => (r.out?.months ?? 0) >= 3);
+        case "concessions": return rows.filter((r) => !!r.concession);
+        default: return rows;
+      }
+    })();
+    // The counter searches by whatever the family said first: the
+    // child's name, the father's, the GR on the voucher, or the phone
+    // they're calling from. Digits match the phone loosely so 0313…,
+    // 313… and +92313… all find the same family.
+    const q = query.trim().toLowerCase();
+    if (!q) return byBucket;
+    const digits = q.replace(/\D/g, "");
+    return byBucket.filter((r) => {
+      if (r.name.toLowerCase().includes(q)) return true;
+      if (r.parents && r.parents.toLowerCase().includes(q)) return true;
+      if (r.gr && r.gr.toLowerCase().includes(q)) return true;
+      if (digits.length >= 3 && r.phone && r.phone.replace(/\D/g, "").includes(digits)) return true;
+      return false;
+    });
+  }, [rows, bucket, query]);
 
   const viewerRole = me ? viewerRoleForOrg(me, orgId) : null;
   const perm = useOrgPermissionState(orgId, viewerRole, "mark_fees_status");
@@ -570,7 +606,8 @@ export function FeesOverview() {
       {monthEmpty ? (
         <div className="rounded-xl border bg-white px-6 py-9 text-center" style={{ borderColor: "rgba(20,22,58,.08)" }}>
           <div className="text-[15px] font-extrabold text-slate-900">
-            No vouchers generated for {longPeriod(period)} yet
+            No vouchers generated for {longPeriod(period)}
+            {genScope ? ` · ${genScope.className}` : ""} yet
           </div>
           <p className="mx-auto mt-1.5 max-w-md text-[13px] leading-relaxed text-slate-500">
             {dryInfo
@@ -578,15 +615,12 @@ export function FeesOverview() {
               : "Vouchers are created from each class's monthly fee plan, honoring per-student overrides."}
           </p>
           <div className="mt-4 flex flex-wrap items-center justify-center gap-2.5">
-            <Select value={genClassId} onValueChange={setGenClassId}>
-              <SelectTrigger className="h-10 w-44"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__all__">Whole school</SelectItem>
-                {classes.map((c) => <SelectItem key={c.id} value={c.id}>{c.name} only</SelectItem>)}
-              </SelectContent>
-            </Select>
             <Button className="bg-indigo-600 hover:bg-indigo-700" onClick={runGenerate} disabled={generating}>
-              {generating ? "Generating…" : `Generate ${longPeriod(period)} vouchers`}
+              {generating
+                ? "Generating…"
+                : genScope
+                  ? `Generate ${longPeriod(period)} vouchers · ${genScope.className}`
+                  : `Generate ${longPeriod(period)} vouchers`}
             </Button>
             <Link to={`/school/orgs/${orgId}/admin/fees/plans`}>
               <Button variant="outline">Review fee plans first</Button>
@@ -640,21 +674,32 @@ export function FeesOverview() {
             </button>
           ))}
           <div className="ml-auto flex items-center gap-2">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search student, father, GR, phone"
+                aria-label="Search students by name, father's name, GR number or phone"
+                className="h-8 w-60 rounded-lg border border-slate-200 pl-8 pr-2.5 text-xs text-slate-700 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none"
+              />
+            </div>
             {rows.some((r) => (r.out?.months ?? 0) >= 2) && (
               <button type="button" onClick={copyBulkReminders}
                 className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100">
                 Copy follow-up list · 2+ months ({rows.filter((r) => (r.out?.months ?? 0) >= 2).length})
               </button>
             )}
-            <Select value={genClassId} onValueChange={setGenClassId}>
-              <SelectTrigger className="h-8 w-36 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__all__">Whole school</SelectItem>
-                {classes.map((c) => <SelectItem key={c.id} value={c.id}>{c.name} only</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <Button variant="outline" size="sm" onClick={runGenerate} disabled={generating}>
-              {generating ? "Generating…" : "Generate vouchers"}
+            <Button variant="outline" size="sm" onClick={runGenerate} disabled={generating}
+              title={genScope && genScope.sectionCount > 1
+                ? `Bills all ${genScope.sectionCount} sections of ${genScope.className}`
+                : undefined}>
+              {generating
+                ? "Generating…"
+                : genScope
+                  ? `Generate · ${genScope.className}${genScope.sectionCount > 1 ? " (all sections)" : ""}`
+                  : "Generate vouchers"}
             </Button>
           </div>
         </div>
@@ -682,7 +727,10 @@ export function FeesOverview() {
                     onClick={() => navigate(`/school/orgs/${orgId}/students/${r.studentId}/fees`)}>
                     <td className="py-2 pr-3">
                       <div className="text-[13px] font-semibold text-slate-900">{r.name}</div>
-                      <div className="text-[11px] text-slate-400">GR# {r.gr ?? "—"}</div>
+                      <div className="text-[11px] text-slate-400">
+                        GR# {r.gr ?? "—"}
+                        {r.parents ? <span className="text-slate-400"> · {r.parents}</span> : null}
+                      </div>
                     </td>
                     <td className="py-2 pr-3 text-xs text-slate-600">{r.cls} {r.sec}</td>
                     <td className="py-2 pr-3">
@@ -730,7 +778,11 @@ export function FeesOverview() {
             </tbody>
           </table>
           {filtered.length === 0 && (
-            <div className="py-8 text-center text-sm text-slate-400">No students in this view.</div>
+            <div className="py-8 text-center text-sm text-slate-400">
+              {query.trim()
+                ? <>No one matching “{query.trim()}” in this view.{bucket !== "all" ? " Try the All filter." : ""}</>
+                : "No students in this view."}
+            </div>
           )}
           <div className="py-2.5 text-[11.5px] text-slate-400">
             Sorted by months behind, then amount — paid-up students sit at the bottom.

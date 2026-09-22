@@ -24,6 +24,7 @@ import {
   paymentsByFeeId,
   outstandingByStudent,
   concessionByStudent,
+  parentNamesByStudent,
   recomputeFeeFromLedger,
   renderFeeReceiptHtml,
   bankAccountFromSettings,
@@ -945,7 +946,7 @@ export function installPhaseCD(school: Hono): void {
       // Pull class + section names alongside student so the table can
       // render 'Grade 3 · 3-A' without N follow-up queries.
       .select(
-        "*, student:student_id(id, full_name, gr_number, class_section_id, class_section:class_section_id(name, schedule_key, class:class_id(name)))",
+        "*, student:student_id(id, full_name, gr_number, guardian_phone, class_section_id, class_section:class_section_id(name, schedule_key, class:class_id(name)))",
       )
       .eq("org_id", orgId)
       .order("period", { ascending: false });
@@ -971,6 +972,7 @@ export function installPhaseCD(school: Hono): void {
     // 8000, not 4000", 17 Sep).
     const outstanding = await outstandingByStudent(orgId);
     const concessions = await concessionByStudent(orgId);
+    const parentNames = await parentNamesByStudent(orgId);
 
     return c.json({
       outstandingByStudent: outstanding,
@@ -984,6 +986,11 @@ export function installPhaseCD(school: Hono): void {
         student_name: r.student?.full_name ?? null,
         gr_number: r.student?.gr_number ?? null,
         section_id: r.student?.class_section_id ?? null,
+        // The office searches by the father's name as often as the
+        // child's (22 Sep) - the phone is theirs too, and both are on
+        // every voucher they hand over the counter.
+        parent_names: parentNames[r.student_id] ?? null,
+        guardian_phone: r.student?.guardian_phone ?? null,
         // Phase: surface class + section names as separate display fields
         // AND as a combined label for the existing FeeStatus.section_label
         // field that the FeesOverview table already reads.

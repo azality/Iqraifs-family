@@ -186,6 +186,37 @@ export async function concessionByStudent(
   return out;
 }
 
+/** Father / guardian name per student, for the fees page's search box
+ *  (22 Sep: "if someone wants to search parents name or the student
+ *  name they should be able to do so"). The office knows many families
+ *  by the father's name — it is how their own register is headed — and
+ *  a sibling pair shares it, so searching it finds both at once.
+ *
+ *  One query for the whole org, keyed by student: the fees table is the
+ *  only caller and it renders hundreds of rows. Father first, then any
+ *  other linked parent; children with no parent row are simply absent. */
+export async function parentNamesByStudent(
+  orgId: string,
+): Promise<Record<string, string>> {
+  const { data } = await serviceRoleClient
+    .from("student_parent")
+    .select("student_id, parent_role, is_primary, parent:parent_id(full_name, org_id)")
+    .order("is_primary", { ascending: false });
+  const names: Record<string, string[]> = {};
+  for (const r of (data ?? []) as any[]) {
+    const name = String(r.parent?.full_name ?? "").trim();
+    // student_parent has no org column — filter on the parent's.
+    if (!name || r.parent?.org_id !== orgId) continue;
+    const list = names[r.student_id] ?? (names[r.student_id] = []);
+    if (list.includes(name)) continue;
+    if (r.parent_role === "father") list.unshift(name);
+    else list.push(name);
+  }
+  const out: Record<string, string> = {};
+  for (const [studentId, list] of Object.entries(names)) out[studentId] = list.join(", ");
+  return out;
+}
+
 /** Which bank account this class's fees go to — the school banks per
  *  class group (settings.fee_bank_accounts, set in Org Settings). Same
  *  resolution the parent portal's fees page uses. */
