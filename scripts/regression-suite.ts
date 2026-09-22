@@ -3853,6 +3853,23 @@ await check("76. tabulation sheet: papers combine per subject, with totals and p
   assert((sbStudents ?? []).length >= 2, "need >=2 sandbox students");
   const [stuA, stuB] = sbStudents!;
   const cleanup: Array<() => Promise<unknown>> = [];
+  // Self-heal first (checks 60 and 96 do the same): a run killed part
+  // way through - to redeploy, say - leaves "QA Tab" fixtures behind,
+  // and every later run then died on a unique-key clash instead of
+  // testing anything (22 Sep, twice).
+  {
+    const { data: staleExams } = await admin.from("exam").select("id").like("name", "QA Tab%");
+    for (const e of (staleExams ?? []) as any[]) {
+      await admin.from("exam_subject_score").delete().eq("exam_id", e.id);
+      await admin.from("exam").delete().eq("id", e.id);
+    }
+    const { data: staleSubs } = await admin.from("class_subject")
+      .select("id").eq("class_id", sandboxClass.id).like("name", "QA Tab%");
+    for (const s of (staleSubs ?? []) as any[]) {
+      await admin.from("section_subject").delete().eq("class_subject_id", s.id);
+      await admin.from("class_subject").delete().eq("id", s.id);
+    }
+  }
   try {
     const { data: cs, error: csErr } = await admin.from("class_subject").insert({
       org_id: ORG, class_id: sandboxClass.id, name: "QA Tab Sub", sort_order: 960,
