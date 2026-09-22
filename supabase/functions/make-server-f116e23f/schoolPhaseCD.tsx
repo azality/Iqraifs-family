@@ -970,7 +970,11 @@ export function installPhaseCD(school: Hono): void {
     // What each family owes RIGHT NOW across every month - the number the
     // office was challenged on ("unpaid August + September should show
     // 8000, not 4000", 17 Sep).
-    const outstanding = await outstandingByStudent(orgId);
+    // Aging is read AS OF the month on screen: a voucher for a later
+    // month is not arrears (22 Sep - a family who paid Rs 200 ahead
+    // showed up owing on September's page, and generating October
+    // early would have flipped the whole school to "owing").
+    const outstanding = await outstandingByStudent(orgId, period || undefined);
     const concessions = await concessionByStudent(orgId);
     const parentNames = await parentNamesByStudent(orgId);
 

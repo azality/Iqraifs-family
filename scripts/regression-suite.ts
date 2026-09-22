@@ -6530,6 +6530,52 @@ await check("114. the fees list names the father, so the counter can search him"
   }
 });
 
+await check("115. a family who paid AHEAD is not listed among those who owe", async () => {
+  // A Class V family paid Rs 200 over September; the office asked for
+  // it to come off October, so the advance sits on an October voucher
+  // - and the SEPTEMBER page then listed them as owing Rs 5,800 and
+  // dropped them out of "Paid · Sep" (22 Sep). Aging is read as of the
+  // month on screen. This also guards the ordinary case: a school that
+  // opens next month's vouchers early must not see its whole roll flip
+  // to "owing" overnight.
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const cleanup: Array<() => Promise<unknown>> = [];
+  try {
+    const mk = async (period: string, due: number) => {
+      const r = await (await api(admin2.token, `/school/orgs/${ORG}/students/${pStu1}/fees`, {
+        method: "POST", body: JSON.stringify({ period, amountDue: due, dueDate: `${period}-15` }),
+      })).json();
+      cleanup.push(() => admin.from("fee_payment").delete().eq("fee_status_id", r.fee.id));
+      cleanup.push(() => admin.from("fee_status").delete().eq("id", r.fee.id));
+      return r.fee.id as string;
+    };
+    const sepId = await mk("2097-09", 6000);
+    await mk("2097-10", 6000); // next month, opened early - NOT arrears yet
+    await api(admin2.token, `/school/orgs/${ORG}/fees/${sepId}/payments`, {
+      method: "POST", body: JSON.stringify({ amount: 6000, paidOn: "2097-09-07" }),
+    });
+
+    const sep = await (await api(admin2.token,
+      `/school/orgs/${ORG}/fees?period=2097-09&sectionId=${sandboxSec.id}`)).json();
+    assert(sep.outstandingByStudent?.[pStu1] === undefined,
+      `September settled, so nothing may be owing as of September - got ${JSON.stringify(sep.outstandingByStudent?.[pStu1])}`);
+
+    const oct = await (await api(admin2.token,
+      `/school/orgs/${ORG}/fees?period=2097-10&sectionId=${sandboxSec.id}`)).json();
+    const o = oct.outstandingByStudent?.[pStu1];
+    assert(o && o.total === 6000 && o.months === 1,
+      `October's own page must still show the October bill, got ${JSON.stringify(o)}`);
+
+    // The student's profile keeps the TRUE all-months balance - that
+    // read is not an aging view and must not be filtered.
+    const stu = await (await api(admin2.token, `/school/orgs/${ORG}/students/${pStu1}`)).json();
+    assert(stu.quickFacts?.feeOutstanding?.total === 6000,
+      `the profile must still see the whole balance, got ${JSON.stringify(stu.quickFacts?.feeOutstanding)}`);
+  } finally {
+    for (const undo of cleanup.reverse()) await undo();
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
