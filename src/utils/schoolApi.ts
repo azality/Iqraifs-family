@@ -4922,6 +4922,9 @@ export interface FeeStatus {
   student_id: string;
   student_name?: string | null;
   gr_number?: string | null;
+  /** Father first, then any other linked parent — the fees page searches it. */
+  parent_names?: string | null;
+  guardian_phone?: string | null;
   section_id?: string | null;
   /** Combined 'Grade X · X-A' label for compact table cells. */
   section_label?: string | null;

@@ -6496,6 +6496,40 @@ await check("113. an empty chain is not a permission error", async () => {
     if (granted) await admin.from("user_roles").delete().eq("id", granted);
   }
 });
+await check("114. the fees list names the father, so the counter can search him", async () => {
+  // The office knows half the school by the father's name - their own
+  // register is headed with it, and a sibling pair shares it - but the
+  // fees page could only be read class by class (Muneeb, 22 Sep). The
+  // page searches in the browser, so every row must CARRY the parent's
+  // name and the phone; a payload that omits them makes search a lie
+  // that silently finds nobody.
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const cleanup: Array<() => Promise<unknown>> = [];
+  try {
+    const r = await (await api(admin2.token, `/school/orgs/${ORG}/students/${pStu1}/fees`, {
+      method: "POST",
+      body: JSON.stringify({ period: "2097-04", amountDue: 1000, dueDate: "2097-04-05" }),
+    })).json();
+    cleanup.push(() => admin.from("fee_payment").delete().eq("fee_status_id", r.fee.id));
+    cleanup.push(() => admin.from("fee_status").delete().eq("id", r.fee.id));
+
+    // Explicitly scoped to the sandbox section - the org-wide sweep
+    // deliberately excludes it (check 62's rule).
+    const j = await (await api(admin2.token,
+      `/school/orgs/${ORG}/fees?period=2097-04&sectionId=${sandboxSec.id}`)).json();
+    const row = ((j.fees ?? []) as any[]).find((f) => f.student_id === pStu1);
+    assert(row, "the student's voucher must be listed");
+    assert(row.student_name === "QA Portal Student",
+      `student_name must be hydrated, got ${JSON.stringify(row.student_name)}`);
+    assert(typeof row.parent_names === "string" && row.parent_names.includes("QA Portal Parent"),
+      `parent_names must name the linked parent, got ${JSON.stringify(row.parent_names)}`);
+    assert("guardian_phone" in row,
+      "guardian_phone must be present on the row - the office searches by the number that rings them");
+  } finally {
+    for (const undo of cleanup.reverse()) await undo();
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
