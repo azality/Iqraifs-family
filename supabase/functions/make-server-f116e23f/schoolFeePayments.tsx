@@ -21,6 +21,7 @@ import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { userCanInOrg } from "./schoolAuth.ts";
 import { todayInOrgTz } from "./tz.ts";
+import { countsTowardAging, owedOn } from "./feeAging.ts";
 
 export const PAYMENT_METHODS = new Set(["cash", "bank", "online", "other"]);
 
@@ -135,8 +136,8 @@ export async function outstandingByStudent(
   const out: Record<string, StudentOutstandingRow> = {};
   for (const r of (data ?? []) as any[]) {
     if (r.student?.class_section?.schedule_key === "sandbox") continue;
-    if (upToPeriod && String(r.period) > upToPeriod) continue;
-    const owed = Math.max(0, (Number(r.amount_due) || 0) - (Number(r.amount_paid) || 0));
+    if (!countsTowardAging(r.period, upToPeriod)) continue;
+    const owed = owedOn(r.amount_due, r.amount_paid);
     if (owed <= 0) continue;
     const cur = out[r.student_id] ?? { total: 0, months: 0, oldestPeriod: null, owedPeriods: [], lastPayment: null };
     cur.total += owed;
