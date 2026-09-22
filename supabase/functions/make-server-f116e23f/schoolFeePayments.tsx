@@ -180,11 +180,20 @@ export async function concessionByStudent(
 ): Promise<Record<string, string>> {
   const { data } = await serviceRoleClient
     .from("student_fee_override")
-    .select("student_id, override_amount, waived, plan:class_fee_plan_id(amount, archived_at)")
+    .select(
+      "student_id, override_amount, waived, plan:class_fee_plan_id(amount, archived_at, class_id), student:student_id(class_section:class_section_id(class_id))",
+    )
     .eq("org_id", orgId);
   const out: Record<string, string> = {};
   for (const r of (data ?? []) as any[]) {
     if (r.plan?.archived_at) continue;
+    // A child who moves class keeps the override rows of the class they
+    // left, and the label was being computed against THAT plan - so a
+    // Junior child carried a "−500" from Senior's fee, which tells the
+    // office to stop chasing money that is owed in full (22 Sep). Only
+    // the plan of the class they are in now describes their fee.
+    const ownClass = r.student?.class_section?.class_id ?? null;
+    if (!ownClass || !r.plan?.class_id || ownClass !== r.plan.class_id) continue;
     if (r.waived) { out[r.student_id] = "waived"; continue; }
     const planAmt = Number(r.plan?.amount ?? 0);
     const ov = r.override_amount === null || r.override_amount === undefined ? null : Number(r.override_amount);

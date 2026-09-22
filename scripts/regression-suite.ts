@@ -6576,6 +6576,58 @@ await check("115. a family who paid AHEAD is not listed among those who owe", as
   }
 });
 
+await check("116. a concession is read from the class the child is in NOW", async () => {
+  // Overrides belong to a class's fee plan, and a child who changes
+  // class keeps the rows of the class they left. The fees page was
+  // labelling them from whichever row came first, so a Junior child
+  // carried a "−500" earned against Senior's fee - a chip that tells
+  // the office to stop chasing money that is owed in full (22 Sep).
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const cleanup: Array<() => Promise<unknown>> = [];
+  try {
+    // Two plans: the sandbox student's OWN class, and a foreign one.
+    const { data: sbSec } = await admin.from("class_section")
+      .select("class_id").eq("id", sandboxSec.id).single();
+    const ownClassId = (sbSec as any).class_id;
+    const { data: other } = await admin.from("class")
+      .select("id").eq("org_id", ORG).neq("id", ownClassId).limit(1).single();
+
+    const mkPlan = async (classId: string, amount: number) => {
+      const { data, error } = await admin.from("class_fee_plan").insert({
+        org_id: ORG, class_id: classId, name: "QA Concession Plan",
+        amount, frequency: "monthly", default_due_day: 5,
+      }).select("id").single();
+      if (error) throw new Error(`plan: ${error.message}`);
+      cleanup.push(() => admin.from("class_fee_plan").delete().eq("id", (data as any).id));
+      return (data as any).id as string;
+    };
+    const mkOverride = async (planId: string, amount: number) => {
+      const { data, error } = await admin.from("student_fee_override").insert({
+        org_id: ORG, student_id: pStu1, class_fee_plan_id: planId, override_amount: amount,
+      }).select("id").single();
+      if (error) throw new Error(`override: ${error.message}`);
+      cleanup.push(() => admin.from("student_fee_override").delete().eq("id", (data as any).id));
+    };
+
+    // The child has LEFT this one - a big discount that is not theirs.
+    await mkOverride(await mkPlan((other as any).id, 9000), 1000);
+    const foreignOnly = await (await api(admin2.token,
+      `/school/orgs/${ORG}/fees?period=2096-09&sectionId=${sandboxSec.id}`)).json();
+    assert(foreignOnly.concessionByStudent?.[pStu1] === undefined,
+      `another class's plan must not label this child, got ${JSON.stringify(foreignOnly.concessionByStudent?.[pStu1])}`);
+
+    // Their own class's discount still shows, and with ITS magnitude.
+    await mkOverride(await mkPlan(ownClassId, 5000), 4500);
+    const own = await (await api(admin2.token,
+      `/school/orgs/${ORG}/fees?period=2096-09&sectionId=${sandboxSec.id}`)).json();
+    const label = own.concessionByStudent?.[pStu1];
+    assert(typeof label === "string" && label.includes("500"),
+      `their own class's concession must show as −500, got ${JSON.stringify(label)}`);
+  } finally {
+    for (const undo of cleanup.reverse()) await undo();
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
