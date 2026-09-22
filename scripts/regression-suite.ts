@@ -6530,47 +6530,60 @@ await check("114. the fees list names the father, so the counter can search him"
   }
 });
 
-await check("115. a family who paid AHEAD is not listed among those who owe", async () => {
-  // A Class V family paid Rs 200 over September; the office asked for
-  // it to come off October, so the advance sits on an October voucher
-  // - and the SEPTEMBER page then listed them as owing Rs 5,800 and
-  // dropped them out of "Paid · Sep" (22 Sep). Aging is read as of the
-  // month on screen. This also guards the ordinary case: a school that
-  // opens next month's vouchers early must not see its whole roll flip
-  // to "owing" overnight.
+// 115 was "a family who paid AHEAD is not listed among those who owe".
+// It could never work here and was removed: this suite lives in the
+// Sandbox class, and outstandingByStudent deliberately skips sandbox
+// students, so the assertion passed whatever the rule said. The aging
+// window is pure and unit-tested instead - feeAging_test.ts, run by
+// `npm run test:backend`. Don't re-add it as an API check.
+
+await check("116. a concession is read from the class the child is in NOW", async () => {
+  // Overrides belong to a class's fee plan, and a child who changes
+  // class keeps the rows of the class they left. The fees page was
+  // labelling them from whichever row came first, so a Junior child
+  // carried a "−500" earned against Senior's fee - a chip that tells
+  // the office to stop chasing money that is owed in full (22 Sep).
   const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
   const cleanup: Array<() => Promise<unknown>> = [];
   try {
-    const mk = async (period: string, due: number) => {
-      const r = await (await api(admin2.token, `/school/orgs/${ORG}/students/${pStu1}/fees`, {
-        method: "POST", body: JSON.stringify({ period, amountDue: due, dueDate: `${period}-15` }),
-      })).json();
-      cleanup.push(() => admin.from("fee_payment").delete().eq("fee_status_id", r.fee.id));
-      cleanup.push(() => admin.from("fee_status").delete().eq("id", r.fee.id));
-      return r.fee.id as string;
+    // Two plans: the sandbox student's OWN class, and a foreign one.
+    const { data: sbSec } = await admin.from("class_section")
+      .select("class_id").eq("id", sandboxSec.id).single();
+    const ownClassId = (sbSec as any).class_id;
+    const { data: other } = await admin.from("class")
+      .select("id").eq("org_id", ORG).neq("id", ownClassId).limit(1).single();
+
+    const mkPlan = async (classId: string, amount: number) => {
+      const { data, error } = await admin.from("class_fee_plan").insert({
+        org_id: ORG, class_id: classId, name: "QA Concession Plan",
+        amount, frequency: "monthly", default_due_day: 5,
+      }).select("id").single();
+      if (error) throw new Error(`plan: ${error.message}`);
+      cleanup.push(() => admin.from("class_fee_plan").delete().eq("id", (data as any).id));
+      return (data as any).id as string;
     };
-    const sepId = await mk("2097-09", 6000);
-    await mk("2097-10", 6000); // next month, opened early - NOT arrears yet
-    await api(admin2.token, `/school/orgs/${ORG}/fees/${sepId}/payments`, {
-      method: "POST", body: JSON.stringify({ amount: 6000, paidOn: "2097-09-07" }),
-    });
+    const mkOverride = async (planId: string, amount: number) => {
+      const { data, error } = await admin.from("student_fee_override").insert({
+        org_id: ORG, student_id: pStu1, class_fee_plan_id: planId, override_amount: amount,
+      }).select("id").single();
+      if (error) throw new Error(`override: ${error.message}`);
+      cleanup.push(() => admin.from("student_fee_override").delete().eq("id", (data as any).id));
+    };
 
-    const sep = await (await api(admin2.token,
-      `/school/orgs/${ORG}/fees?period=2097-09&sectionId=${sandboxSec.id}`)).json();
-    assert(sep.outstandingByStudent?.[pStu1] === undefined,
-      `September settled, so nothing may be owing as of September - got ${JSON.stringify(sep.outstandingByStudent?.[pStu1])}`);
+    // The child has LEFT this one - a big discount that is not theirs.
+    await mkOverride(await mkPlan((other as any).id, 9000), 1000);
+    const foreignOnly = await (await api(admin2.token,
+      `/school/orgs/${ORG}/fees?period=2096-09&sectionId=${sandboxSec.id}`)).json();
+    assert(foreignOnly.concessionByStudent?.[pStu1] === undefined,
+      `another class's plan must not label this child, got ${JSON.stringify(foreignOnly.concessionByStudent?.[pStu1])}`);
 
-    const oct = await (await api(admin2.token,
-      `/school/orgs/${ORG}/fees?period=2097-10&sectionId=${sandboxSec.id}`)).json();
-    const o = oct.outstandingByStudent?.[pStu1];
-    assert(o && o.total === 6000 && o.months === 1,
-      `October's own page must still show the October bill, got ${JSON.stringify(o)}`);
-
-    // The student's profile keeps the TRUE all-months balance - that
-    // read is not an aging view and must not be filtered.
-    const stu = await (await api(admin2.token, `/school/orgs/${ORG}/students/${pStu1}`)).json();
-    assert(stu.quickFacts?.feeOutstanding?.total === 6000,
-      `the profile must still see the whole balance, got ${JSON.stringify(stu.quickFacts?.feeOutstanding)}`);
+    // Their own class's discount still shows, and with ITS magnitude.
+    await mkOverride(await mkPlan(ownClassId, 5000), 4500);
+    const own = await (await api(admin2.token,
+      `/school/orgs/${ORG}/fees?period=2096-09&sectionId=${sandboxSec.id}`)).json();
+    const label = own.concessionByStudent?.[pStu1];
+    assert(typeof label === "string" && label.includes("500"),
+      `their own class's concession must show as −500, got ${JSON.stringify(label)}`);
   } finally {
     for (const undo of cleanup.reverse()) await undo();
   }
