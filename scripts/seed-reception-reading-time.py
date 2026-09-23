@@ -40,8 +40,8 @@ TOPICS = [
     "اردو قاعدہ: حروف تہجی ف تا ں",
     "اردو قاعدہ: حروف تہجی و تا ے",
     "اردو قاعدہ: آوازیں اور تصویریں",
-    "English: Capital letters A–M",
-    "English: Capital letters N–Z",
+    # Capitals removed 23 Sep - Rabia: "Capital letters nai hoty inky"
+    # (Reception's English book teaches small letters only).
     "English: Small letters a–z",
     "English: Letter sounds and picture words (A for Apple …)",
     "Maths: Numbers 1–10 (recognition and tracing)",
