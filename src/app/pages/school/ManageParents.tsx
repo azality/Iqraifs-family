@@ -890,7 +890,7 @@ export function ManageParents() {
                           {/* Pilot (Younus): child names open the student
                               profile — the card was a dead end before. */}
                           <Link
-                            to={`/school/orgs/${orgId}/students/${k.id}`}
+                            to={`/school/orgs/${orgId}/admin/students/${k.id}`}
                             className="font-medium text-indigo-700 truncate hover:underline"
                           >
                             {k.full_name}
