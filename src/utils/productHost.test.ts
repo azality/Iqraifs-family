@@ -5,7 +5,7 @@
 import { describe, it, expect } from "vitest";
 import {
   onFamilyHost, isSchoolPath, schoolPathOnFamilyHost, noFamilyDestination,
-  familySetupOnSchoolHost, isFamilySetupPath,
+  familySetupOnSchoolHost, isFamilySetupPath, readCachedSchoolSlug, cacheSchoolSlug,
 } from "./productHost";
 
 const FAMILY = "family.theilmnetwork.com";
@@ -165,5 +165,13 @@ describe("noFamilyDestination on a school-slug host", () => {
     expect(noFamilyDestination({
       hostname: "theilmnetwork.com", pathname: "/", hasSchoolAccess: false,
     })).toBe("onboarding");
+  });
+});
+
+describe("slug cache", () => {
+  it("survives storage being unavailable (node has no localStorage)", () => {
+    // In the browser this remembers the host; here it must simply not throw.
+    expect(readCachedSchoolSlug("iqraifs.com")).toBe(null);
+    expect(() => cacheSchoolSlug("iqraifs.com", "iqra-ifs")).not.toThrow();
   });
 });

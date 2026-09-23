@@ -3,7 +3,7 @@
   import { projectId, publicAnonKey } from "/utils/supabase/info.tsx";
   import "./i18n";
   import App from "./app/App.tsx";
-  import { isFamilySetupPath } from "./utils/productHost";
+  import { isFamilySetupPath, readCachedSchoolSlug, cacheSchoolSlug } from "./utils/productHost";
   import "./styles/index.css";
 
   // Every deploy renames the hashed JS chunks; a tab opened before the
@@ -34,7 +34,20 @@
     // to read (23 Sep). Still nothing else: every other URL renders
     // immediately, untouched.
     const path = window.location.pathname;
-    if (path !== "/" && !isFamilySetupPath(path)) return;
+    // Any load: a hostname we have resolved before is known
+    // synchronously, so every guard sees the slug from the first
+    // render - a cold new tab of a school deep link included.
+    const cached = readCachedSchoolSlug(window.location.hostname);
+    if (cached) {
+      (window as unknown as { __SCHOOL_SLUG__?: string }).__SCHOOL_SLUG__ = cached;
+    }
+    if (path !== "/" && !isFamilySetupPath(path)) {
+      // First-ever visit on this device to a deep path: warm the cache
+      // in the background without holding the render.
+      if (!cached) void lookupHostSlug();
+      return;
+    }
+    if (cached) return; // known host - no need to block the render
     // Dev affordance: localhost owns no school, so ?org= lets the root
     // be exercised locally. Stripped from production builds.
     if (import.meta.env.DEV) {
@@ -44,6 +57,10 @@
         return;
       }
     }
+    await lookupHostSlug();
+  }
+
+  async function lookupHostSlug(): Promise<void> {
     const controller = new AbortController();
     // Never let a slow or unreachable lookup hold the app hostage.
     const timer = setTimeout(() => controller.abort(), 2000);
@@ -62,8 +79,10 @@
       if (org && typeof org.slug === "string" && /^[a-z0-9-]{2,60}$/.test(org.slug)) {
         // Stash it for the router rather than navigating: the address
         // bar stays on the school's own domain, with no second page
-        // load. Set BEFORE createRoot so the first render already knows.
+        // load. Set BEFORE createRoot so the first render already knows,
+        // and remember it so the NEXT load knows synchronously.
         (window as unknown as { __SCHOOL_SLUG__?: string }).__SCHOOL_SLUG__ = org.slug;
+        cacheSchoolSlug(host, org.slug);
       }
     } catch {
       // Offline, aborted, or no such domain — fall through to the app.

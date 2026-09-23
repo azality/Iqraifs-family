@@ -86,6 +86,30 @@ export function isFamilySetupPath(pathname: string): boolean {
   return FAMILY_SETUP_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
 }
 
+/** The host->slug answer, remembered per hostname. A cold NEW TAB of a
+ *  school deep link skips the bootstrap lookup (only "/" and the
+ *  family-setup paths pay for it), so the guards would run slug-less
+ *  and a mis-firing auth race could still offer family onboarding on a
+ *  school domain (23 Sep, "open in new tab"). The cache makes every
+ *  visit after the first know its host synchronously. */
+const SLUG_CACHE_PREFIX = "ifs_host_slug:";
+
+export function readCachedSchoolSlug(hostname: string): string | null {
+  try {
+    return localStorage.getItem(SLUG_CACHE_PREFIX + hostname.toLowerCase().split(":")[0]);
+  } catch {
+    return null;
+  }
+}
+
+export function cacheSchoolSlug(hostname: string, slug: string): void {
+  try {
+    localStorage.setItem(SLUG_CACHE_PREFIX + hostname.toLowerCase().split(":")[0], slug);
+  } catch {
+    /* storage unavailable - the async lookup still covers this load */
+  }
+}
+
 export function familySetupOnSchoolHost(
   schoolSlug: string | null | undefined,
   pathname: string,
