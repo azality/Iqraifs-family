@@ -6842,6 +6842,56 @@ await check("119. the dashboard's FEES PAID % is the fees page's own number", as
     `the hint should say the rupees so nobody re-derives it, got "${tile.hint}"`);
 });
 
+await check("120. a component exam stays off classes that do not sit it", async () => {
+  // Class II's homework page offered "ششماہی امتحان — Half-yearly
+  // (Hifz) — enter marks" (Ambreen, 23 Sep). Exams are org rows; with
+  // ?sectionId= the list keeps a COMPONENT exam (its own paper slip)
+  // only where a student holds a published syllabus or a component
+  // score. Ordinary exams stay for everyone.
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const { data: term } = await admin.from("academic_term").select("id")
+    .eq("org_id", ORG).eq("is_current", true).is("archived_at", null).maybeSingle();
+  const cleanup: Array<() => Promise<unknown>> = [];
+  try {
+    const { data: e, error } = await admin.from("exam").insert({
+      org_id: ORG, term_id: term!.id, name: "QA Component Exam", exam_type: "other",
+      weight: 1, exam_date: new Date().toISOString().slice(0, 10),
+    }).select("id").single();
+    if (error) throw new Error(`exam: ${error.message}`);
+    const eid = (e as any).id;
+    cleanup.push(() => admin.from("exam").delete().eq("id", eid));
+    const { error: cErr } = await admin.from("exam_component").insert({
+      org_id: ORG, exam_id: eid, name: "سوال اول", max_marks: 20, sort_order: 1,
+    });
+    if (cErr) throw new Error(`component: ${cErr.message}`);
+    cleanup.push(() => admin.from("exam_component").delete().eq("exam_id", eid));
+
+    const list = async () => (await (await api(admin2.token,
+      `/school/orgs/${ORG}/terms/${term!.id}/exams?sectionId=${sandboxSec.id}`)).json()).exams as any[];
+
+    // Nobody in the sandbox is in this exam - it must stay off the list.
+    assert(!(await list()).some((x) => x.id === eid),
+      "a component exam must not appear for a section with nobody in it");
+    // Unscoped, it is still an org exam.
+    const all = await (await api(admin2.token,
+      `/school/orgs/${ORG}/terms/${term!.id}/exams`)).json();
+    assert((all.exams as any[]).some((x) => x.id === eid),
+      "without a section scope the org list keeps it");
+
+    // Publish one child's syllabus for it - now the section sits it.
+    const { error: sylErr } = await admin.from("student_exam_syllabus").insert({
+      org_id: ORG, exam_id: eid, student_id: pStu1, track: "hifz",
+      portion: "Para 30", published_at: new Date().toISOString(),
+    });
+    if (sylErr) throw new Error(`syllabus: ${sylErr.message}`);
+    cleanup.push(() => admin.from("student_exam_syllabus").delete().eq("exam_id", eid));
+    assert((await list()).some((x) => x.id === eid),
+      "with a published syllabus the section sits the exam and sees it");
+  } finally {
+    for (const undo of cleanup.reverse()) await undo();
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

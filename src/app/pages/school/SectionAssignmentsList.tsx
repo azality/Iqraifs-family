@@ -116,7 +116,7 @@ export function SectionAssignmentsList() {
         const { terms } = await listTerms(orgId);
         const current = terms.find((t) => t.isCurrent) ?? null;
         if (!current) return;
-        const { exams } = await listExams(orgId, current.id);
+        const { exams } = await listExams(orgId, current.id, sectionId);
         if (!cancelled && exams.length > 0) {
           setTermExams({ termName: current.name, exams });
         }
@@ -125,7 +125,7 @@ export function SectionAssignmentsList() {
       }
     })();
     return () => { cancelled = true; };
-  }, [orgId]);
+  }, [orgId, sectionId]);
   // per-assignment grade summary cache: { graded, total, avgPct }
   const [summary, setSummary] = useState<Record<string, { graded: number; total: number; avgPct: number | null }>>({});
 
