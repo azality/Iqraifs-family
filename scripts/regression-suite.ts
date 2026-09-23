@@ -6872,11 +6872,19 @@ await check("120. a component exam stays off classes that do not sit it", async 
     // Nobody in the sandbox is in this exam - it must stay off the list.
     assert(!(await list()).some((x) => x.id === eid),
       "a component exam must not appear for a section with nobody in it");
-    // Unscoped, it is still an org exam.
+    // Unscoped, it is still an org exam - and its two names travel
+    // (v1.4.0: exam.name_en, so ششماہی امتحان reads Half-yearly in
+    // the English UI).
+    const ren = await api(admin2.token, `/school/orgs/${ORG}/exams/${eid}`, {
+      method: "PATCH", body: JSON.stringify({ nameEn: "QA Component Exam (EN)" }),
+    });
+    assert(ren.status === 200, `nameEn patch: ${ren.status}`);
     const all = await (await api(admin2.token,
       `/school/orgs/${ORG}/terms/${term!.id}/exams`)).json();
-    assert((all.exams as any[]).some((x) => x.id === eid),
-      "without a section scope the org list keeps it");
+    const mine = (all.exams as any[]).find((x) => x.id === eid);
+    assert(mine, "without a section scope the org list keeps it");
+    assert(mine.nameEn === "QA Component Exam (EN)",
+      `the list must carry nameEn, got ${JSON.stringify(mine.nameEn)}`);
 
     // Publish one child's syllabus for it - now the section sits it.
     const { error: sylErr } = await admin.from("student_exam_syllabus").insert({

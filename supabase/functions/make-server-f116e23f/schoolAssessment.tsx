@@ -93,7 +93,7 @@ function termToJson(r: any) {
 function examToJson(r: any) {
   return {
     id: r.id, orgId: r.org_id, termId: r.term_id,
-    name: r.name, examType: r.exam_type,
+    name: r.name, nameEn: r.name_en ?? null, examType: r.exam_type,
     weight: Number(r.weight),
     examDate: r.exam_date,
     archivedAt: r.archived_at,
@@ -297,7 +297,7 @@ export function installAssessment(school: Hono): void {
 
     const { data: exams } = await serviceRoleClient
       .from("exam")
-      .select("id, name, weight, exam_date")
+      .select("id, name, name_en, weight, exam_date")
       .eq("term_id", termId).is("archived_at", null)
       .order("exam_date");
     const examList = (exams ?? []) as any[];
@@ -484,7 +484,7 @@ export function installAssessment(school: Hono): void {
       term: { id: (term as any).id, name: (term as any).name },
       unchosenStreams,
       passMarkPct,
-      exams: examList.map((e) => ({ id: e.id, name: e.name, weight: Number(e.weight) || 1 })),
+      exams: examList.map((e) => ({ id: e.id, name: e.name, nameEn: e.name_en ?? null, weight: Number(e.weight) || 1 })),
       subjects: subjectCols,
       students: rows.map((r) => ({
         ...r,
@@ -953,6 +953,10 @@ export function installAssessment(school: Hono): void {
     const body = await c.req.json().catch(() => ({}));
     const patch: Record<string, unknown> = {};
     if ("name" in body) patch.name = String(body.name).trim();
+    if ("nameEn" in body) {
+      patch.name_en = body.nameEn === null || String(body.nameEn).trim() === ""
+        ? null : String(body.nameEn).trim();
+    }
     if ("examType" in body && ["midterm","final","test","quiz","other"].includes(body.examType)) {
       patch.exam_type = body.examType;
     }
@@ -1085,7 +1089,7 @@ export function installAssessment(school: Hono): void {
     const windowEdge = todayInOrgTz(tz, new Date(Date.now() + 3 * 86400000));
     const { data: exams } = await serviceRoleClient
       .from("exam")
-      .select("id, name, exam_date")
+      .select("id, name, name_en, exam_date")
       .eq("term_id", (term as any).id)
       .is("archived_at", null)
       .lte("exam_date", windowEdge)
@@ -1198,6 +1202,7 @@ export function installAssessment(school: Hono): void {
         columns.push({
           examId: e.id,
           examName: e.name,
+          examNameEn: e.name_en ?? null,
           examDate: e.exam_date,
           termId: (term as any).id,
           classSectionId: row.class_section_id,
@@ -1328,7 +1333,7 @@ export function installAssessment(school: Hono): void {
     // stores a per-paper total ("English oral 15, written 60"), and the
     // client uses it as each column's max.
     const { data: examRow } = await serviceRoleClient
-      .from("exam").select("id, name, exam_type, term_id").eq("id", examId).maybeSingle();
+      .from("exam").select("id, name, name_en, exam_type, term_id").eq("id", examId).maybeSingle();
     const sheetTermId = (examRow as any)?.term_id ?? null;
     const confirmations = sheetTermId
       ? await readConfirmations(sheetTermId, sectionId)
@@ -1336,7 +1341,7 @@ export function installAssessment(school: Hono): void {
 
     return c.json({
       exam: examRow
-        ? { id: (examRow as any).id, name: (examRow as any).name, examType: (examRow as any).exam_type, termId: sheetTermId }
+        ? { id: (examRow as any).id, name: (examRow as any).name, nameEn: (examRow as any).name_en ?? null, examType: (examRow as any).exam_type, termId: sheetTermId }
         : null,
       // The school's pass line, so a mark under it reads red AS IT IS
       // TYPED rather than only on the register afterwards (22 Sep).

@@ -761,6 +761,7 @@ export interface MyExamMarksTodo {
 export interface MyMarksColumn {
   examId: string;
   examName: string;
+  examNameEn?: string | null;
   examDate: string | null;
   termId: string;
   classSectionId: string;
@@ -5465,6 +5466,9 @@ export interface Exam {
   orgId: string;
   termId: string;
   name: string;
+  /** English name where the school's primary name is Urdu — readers
+   *  pick by language via examDisplayName (v1.4.0). */
+  nameEn?: string | null;
   examType: ExamType;
   weight: number;
   examDate: string | null;
@@ -5500,7 +5504,7 @@ export interface MarksConfirmation {
 export interface MarksSheetResponse {
   /** Which exam this sheet is for — its name says oral vs written
    *  (server >= v1.1.49); termId from v1.1.56 powers the sign-off. */
-  exam?: { id: string; name: string; examType: string; termId?: string | null } | null;
+  exam?: { id: string; name: string; nameEn?: string | null; examType: string; termId?: string | null } | null;
   /** The school's pass mark, so a mark under it reads red as it is
    *  typed. Whatever the school set — server >= v1.3.0. */
   passMarkPct?: number;
@@ -5578,7 +5582,7 @@ export interface TabulationRow {
 export interface TabulationResponse {
   section: { id: string; name: string; className: string };
   term: { id: string; name: string };
-  exams: Array<{ id: string; name: string; weight: number }>;
+  exams: Array<{ id: string; name: string; nameEn?: string | null; weight: number }>;
   subjects: Array<{ id: string; name: string; expectedMax: number | null }>;
   students: TabulationRow[];
   /** Per-subject sign-off state, keyed by classSubjectId (v1.1.56). */

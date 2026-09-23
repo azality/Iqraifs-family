@@ -12,6 +12,8 @@
 // the pickers and chrome disappear under @media print, the grid stays.
 
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { examDisplayName } from "../../../utils/examName";
 import { Link, useParams, useSearchParams } from "react-router";
 import { ArrowLeft, Printer, Table2 } from "lucide-react";
 import { Button } from "../../components/ui/button";
@@ -33,6 +35,7 @@ const fmt = (n: number): string =>
   Number.isInteger(n) ? String(n) : n.toFixed(1);
 
 export function TabulationSheet() {
+  const { i18n } = useTranslation();
   const { orgId = "" } = useParams<{ orgId: string }>();
   // ?sectionId= is the teacher-facing front door, same as the marks
   // sheet: admins pick sections; a class teacher arrives via deep link.
@@ -113,7 +116,10 @@ export function TabulationSheet() {
   // word for the paper: Oral, Written — or Midterm / Final elsewhere.
   const examLabel = useMemo(() => {
     const m = new Map<string, string>();
-    const exams = data?.exams ?? [];
+    // Per-language display names (the Hifz half-yearly is ششماہی امتحان
+    // in Urdu and Half-yearly (Hifz) in English); the prefix-stripping
+    // then works on whichever the reader sees.
+    const exams = (data?.exams ?? []).map((e) => ({ id: e.id, name: examDisplayName(e, i18n.language) }));
     let prefix = exams[0]?.name ?? "";
     for (const e of exams.slice(1)) {
       while (prefix && !e.name.startsWith(prefix)) prefix = prefix.slice(0, -1);
@@ -123,7 +129,7 @@ export function TabulationSheet() {
       m.set(e.id, stripped.replace(/^[\s—–\-·:]+/, "").trim() || e.name);
     }
     return m;
-  }, [data]);
+  }, [data, i18n.language]);
 
   if (meLoading) return null;
   if (!isOrgAdmin(me, orgId) && !presetSectionId) {
@@ -215,7 +221,7 @@ export function TabulationSheet() {
             <span className="font-medium text-slate-900">{data.section.className} — {data.section.name}</span>
             {" · "}{data.term.name}
             {" · combines "}
-            {data.exams.map((e) => e.name).join(" + ") || "no exams in this term"}
+            {data.exams.map((e) => examDisplayName(e, i18n.language)).join(" + ") || "no exams in this term"}
           </div>
 
           {/* Where the term stands: confirmed columns, then the
