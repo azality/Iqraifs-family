@@ -30,6 +30,7 @@ import {
 } from "../../../utils/schoolApi";
 import { CheckCircle2, Circle } from "lucide-react";
 import { NoAccessRedirect } from "../../components/school-ui";
+import { TermSchedulePanel } from "./components/TermSchedulePanel";
 
 const fmt = (n: number): string =>
   Number.isInteger(n) ? String(n) : n.toFixed(1);
@@ -292,6 +293,20 @@ export function TabulationSheet() {
                 );
               })()}
             </div>
+          )}
+
+          {/* The admin's clock on the term ("she gave all the teachers
+              until 2pm" — 23 Sep): marks deadline + results day +
+              per-teacher exceptions. Term-wide, shown to the office only. */}
+          {data.canFinalize && data.schedule && (
+            <TermSchedulePanel
+              orgId={orgId}
+              termId={data.term.id}
+              schedule={data.schedule}
+              onChanged={() => {
+                getTabulation(orgId, data.section.id, data.term.id).then(setData).catch(() => {});
+              }}
+            />
           )}
 
           {data.subjects.length === 0 ? (

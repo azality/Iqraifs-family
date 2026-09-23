@@ -6900,6 +6900,148 @@ await check("120. a component exam stays off classes that do not sit it", async 
   }
 });
 
+await check("121. the marks deadline locks a teacher, spares the office, bends to an exception - and results day publishes on time", async () => {
+  // "She gave all the teachers until 2pm... no way we can lock it"
+  // (23 Sep). The admin stamps a deadline on the term; past it a
+  // teacher's saves are refused, the office is never locked, and an
+  // exception is one teacher's own later moment. Results day: a
+  // FINALIZED card becomes parent-visible at the scheduled moment,
+  // stamped lazily on the next read - no cron.
+  //
+  // Everything lives in a QA term of its own: a deadline on the REAL
+  // term would lock real teachers mid-run, and a past results day
+  // would publish any real finalized-but-unpublished card. Never that.
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const t2 = await ensureUser("qa-teacher2@azality.com", "QA Teacher Two", "class_teacher");
+  const HOUR = 3_600_000;
+  // Self-heal debris from a killed run.
+  {
+    const { data: stale } = await admin.from("academic_term")
+      .select("id").eq("org_id", ORG).like("name", "QA Deadline%");
+    for (const t of (stale ?? []) as any[]) {
+      const { data: ex } = await admin.from("exam").select("id").eq("term_id", t.id);
+      for (const e of (ex ?? []) as any[]) {
+        await admin.from("exam_subject_score").delete().eq("exam_id", e.id);
+        await admin.from("exam").delete().eq("id", e.id);
+      }
+      await admin.from("term_report_card").delete().eq("term_id", t.id);
+      await admin.from("academic_term").delete().eq("id", t.id);
+    }
+    const { data: staleSubs } = await admin.from("class_subject")
+      .select("id").eq("class_id", sandboxClass.id).like("name", "QA Deadline%");
+    for (const s of (staleSubs ?? []) as any[]) {
+      await admin.from("section_subject").delete().eq("class_subject_id", s.id);
+      await admin.from("class_subject").delete().eq("id", s.id);
+    }
+  }
+  const cleanup: Array<() => Promise<unknown>> = [];
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const { data: qaTerm, error: tErr } = await admin.from("academic_term").insert({
+      org_id: ORG, name: "QA Deadline Term", start_date: today, end_date: today,
+      is_current: false,
+    }).select("id").single();
+    if (tErr) throw new Error(`term: ${tErr.message}`);
+    const termId = (qaTerm as any).id as string;
+    // The term goes last; the FK cascades take exceptions with it.
+    cleanup.push(() => admin.from("academic_term").delete().eq("id", termId));
+    const { data: e, error: eErr } = await admin.from("exam").insert({
+      org_id: ORG, term_id: termId, name: "QA Deadline - Written", exam_type: "other",
+      weight: 1, exam_date: today,
+    }).select("id").single();
+    if (eErr) throw new Error(`exam: ${eErr.message}`);
+    const examId = (e as any).id as string;
+    cleanup.push(() => admin.from("exam").delete().eq("id", examId));
+    cleanup.push(() => admin.from("exam_subject_score").delete().eq("exam_id", examId));
+    const { data: cs, error: csErr } = await admin.from("class_subject").insert({
+      org_id: ORG, class_id: sandboxClass.id, name: "QA Deadline Sub", sort_order: 978,
+      assessment_weights: [{ label: "Written", marks: 50, paper: "written" }],
+    }).select("id").single();
+    if (csErr) throw new Error(`subject: ${csErr.message}`);
+    cleanup.push(() => admin.from("class_subject").delete().eq("id", (cs as any).id));
+    const { data: ss, error: ssErr } = await admin.from("section_subject").insert({
+      org_id: ORG, class_section_id: sandboxSec.id, class_subject_id: (cs as any).id,
+      name: "QA Deadline Sub", teacher_user_id: t2.id, sort_order: 978,
+    }).select("id").single();
+    if (ssErr) throw new Error(`section subject: ${ssErr.message}`);
+    cleanup.push(() => admin.from("section_subject").delete().eq("id", (ss as any).id));
+
+    const save = (token: string, obtained: number) =>
+      api(token, `/school/orgs/${ORG}/exams/${examId}/marks-sheet`, {
+        method: "POST",
+        body: JSON.stringify({ sectionId: sandboxSec.id, rows: [
+          { studentId: pStu1, classSubjectId: (cs as any).id, maxMarks: 50, obtainedMarks: obtained, absent: false },
+        ] }),
+      });
+    const patchSchedule = (body: unknown) =>
+      api(admin2.token, `/school/orgs/${ORG}/terms/${termId}/schedule`, {
+        method: "PATCH", body: JSON.stringify(body),
+      });
+
+    // No deadline set: the teacher saves freely.
+    assert((await save(t2.token, 30)).status === 200, "with no deadline a teacher must save");
+
+    // The office stamps a deadline that has already passed.
+    const pastIso = new Date(Date.now() - HOUR).toISOString();
+    const set = await patchSchedule({ marksDeadlineAt: pastIso });
+    const setJ = await set.json();
+    assert(set.status === 200 && setJ.term?.marksDeadlineAt === pastIso,
+      `schedule PATCH must echo the deadline, got ${set.status}: ${JSON.stringify(setJ.term?.marksDeadlineAt)}`);
+
+    // The teacher's sheet SAYS it is closed, and their save is refused.
+    const sheet = await (await api(t2.token,
+      `/school/orgs/${ORG}/exams/${examId}/marks-sheet?sectionId=${sandboxSec.id}`)).json();
+    assert(sheet.marksDeadline?.locked === true,
+      `the sheet must carry the lock, got ${JSON.stringify(sheet.marksDeadline)}`);
+    const refused = await save(t2.token, 35);
+    const refusedJ = await refused.json();
+    assert(refused.status === 403 && refusedJ.code === "MARKS_DEADLINE_PASSED",
+      `a late teacher save must be refused 403/MARKS_DEADLINE_PASSED, got ${refused.status}: ${JSON.stringify(refusedJ)}`);
+
+    // The office itself is never locked.
+    assert((await save(admin2.token, 35)).status === 200, "the admin must save past the deadline");
+
+    // An exception is one teacher's own later moment...
+    const grant = await api(admin2.token, `/school/orgs/${ORG}/terms/${termId}/marks-exceptions`, {
+      method: "POST",
+      body: JSON.stringify({ userId: t2.id, untilAt: new Date(Date.now() + HOUR).toISOString(), note: "QA one-time access" }),
+    });
+    const grantJ = await grant.json();
+    assert(grant.status === 201 && grantJ.id, `grant: ${grant.status}`);
+    const listed = await (await api(admin2.token,
+      `/school/orgs/${ORG}/terms/${termId}/marks-exceptions`)).json();
+    assert((listed.exceptions ?? []).some((x: any) => x.userId === t2.id),
+      "the exception must be listed for the office");
+    assert((await save(t2.token, 40)).status === 200, "with an exception the teacher must save again");
+
+    // ...and revoking it closes the door again.
+    const rev = await api(admin2.token, `/school/orgs/${ORG}/marks-exceptions/${grantJ.id}`, { method: "DELETE" });
+    assert(rev.status === 200, `revoke: ${rev.status}`);
+    assert((await save(t2.token, 41)).status === 403, "a revoked exception must lock the teacher again");
+
+    // Results day: a finalized card + a scheduled moment in the past =
+    // published on the next read, stamped with the SCHEDULED time.
+    await admin.from("term_report_card").delete().eq("term_id", termId).eq("student_id", pStu1);
+    const { error: rcErr } = await admin.from("term_report_card").insert({
+      org_id: ORG, student_id: pStu1, term_id: termId,
+      finalized_at: new Date().toISOString(),
+    });
+    if (rcErr) throw new Error(`report card: ${rcErr.message}`);
+    cleanup.push(() => admin.from("term_report_card").delete().eq("term_id", termId));
+    const publishIso = new Date(Date.now() - 5 * 60_000).toISOString();
+    assert((await patchSchedule({ resultsPublishAt: publishIso })).status === 200, "results day PATCH");
+    // Any tabulation read applies due schedules org-wide.
+    await api(admin2.token, `/school/orgs/${ORG}/sections/${sandboxSec.id}/tabulation`);
+    const { data: card } = await admin.from("term_report_card")
+      .select("published_at").eq("term_id", termId).eq("student_id", pStu1).maybeSingle();
+    assert((card as any)?.published_at &&
+      new Date((card as any).published_at).getTime() === new Date(publishIso).getTime(),
+      `the card must be stamped with the scheduled moment, got ${JSON.stringify(card)}`);
+  } finally {
+    for (const undo of cleanup.reverse()) await undo();
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

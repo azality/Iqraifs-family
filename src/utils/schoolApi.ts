@@ -5460,7 +5460,50 @@ export interface AcademicTerm {
   endDate: string;
   isCurrent: boolean;
   archivedAt: string | null;
+  /** The admin's clock on the term (v1.5.0): teachers' marks entry
+   *  locks at the deadline; finalized cards reach parents at results
+   *  day. Null = not set. */
+  marksDeadlineAt?: string | null;
+  resultsPublishAt?: string | null;
 }
+export interface MarksDeadlineState {
+  deadlineAt: string | null;
+  exceptionUntil: string | null;
+  locked: boolean;
+  /** The moment THIS caller locks (their exception if later). */
+  effectiveAt: string | null;
+}
+export interface MarksException {
+  id: string;
+  userId: string;
+  userName: string | null;
+  untilAt: string;
+  note: string | null;
+  createdAt: string;
+}
+export const patchTermSchedule = (
+  orgId: string,
+  termId: string,
+  body: { marksDeadlineAt?: string | null; resultsPublishAt?: string | null },
+): Promise<{ term: AcademicTerm }> =>
+  apiCall(`/school/orgs/${orgId}/terms/${termId}/schedule`, {
+    method: "PATCH", body: JSON.stringify(body),
+  });
+export const listMarksExceptions = (
+  orgId: string, termId: string,
+): Promise<{ exceptions: MarksException[] }> =>
+  apiCall(`/school/orgs/${orgId}/terms/${termId}/marks-exceptions`);
+export const grantMarksException = (
+  orgId: string, termId: string,
+  body: { userId: string; untilAt: string; note?: string },
+): Promise<{ ok: true; id: string }> =>
+  apiCall(`/school/orgs/${orgId}/terms/${termId}/marks-exceptions`, {
+    method: "POST", body: JSON.stringify(body),
+  });
+export const revokeMarksException = (
+  orgId: string, exceptionId: string,
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/marks-exceptions/${exceptionId}`, { method: "DELETE" });
 export interface Exam {
   id: string;
   orgId: string;
@@ -5508,6 +5551,8 @@ export interface MarksSheetResponse {
   /** The school's pass mark, so a mark under it reads red as it is
    *  typed. Whatever the school set — server >= v1.3.0. */
   passMarkPct?: number;
+  /** The caller's own deadline state — countdown + lock (v1.5.0). */
+  marksDeadline?: MarksDeadlineState;
   section: { id: string; name: string; className: string };
   subjects: { id: string; name: string; assessmentWeights?: AssessmentWeight[] | null }[];
   /** null = caller may edit every column; otherwise the subject ids
@@ -5593,6 +5638,8 @@ export interface TabulationResponse {
   /** The school's pass line (settings.pass_mark_pct; IFS 40): 30 of 75
    *  and 40 of 100 are both 40%. Marks under it paint red. */
   passMarkPct?: number;
+  /** The admin's clock on this term (v1.5.0). */
+  schedule?: { marksDeadlineAt: string | null; resultsPublishAt: string | null };
   /** Streams: children yet to choose a subject of an elective group —
    *  they sit NONE of the group's subjects until the school decides.
    *  Server >= v1.3.6. */

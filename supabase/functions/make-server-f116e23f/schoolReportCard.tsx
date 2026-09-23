@@ -31,6 +31,7 @@
 //     (gateGettenPerStudent in schoolPortal)
 
 import type { Context, Hono } from "npm:hono";
+import { applyScheduledPublish } from "./schoolAssessment.tsx";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { hasAnyRoleInOrg as hasAnyOrgRole, hasAdminOrPrincipal as isAdminOrPrincipal } from "./schoolAuth.ts";
 import { verifyPinToken } from "./schoolPhaseA.tsx";
@@ -637,6 +638,13 @@ export function installReportCard(school: Hono): void {
     const studentId = c.req.param("studentId");
     const g = await pinGate(c, studentId);
     if (!g.ok) return g.resp;
+    // Results day may have arrived - stamp scheduled publishes first
+    // (no cron in this stack; the read is the trigger).
+    {
+      const { data: stu } = await serviceRoleClient
+        .from("student").select("org_id").eq("id", studentId).maybeSingle();
+      if ((stu as any)?.org_id) await applyScheduledPublish((stu as any).org_id);
+    }
     const { data: cards } = await serviceRoleClient
       .from("term_report_card")
       .select(
@@ -658,6 +666,14 @@ export function installReportCard(school: Hono): void {
   });
 
   school.get("/pin-me/students/:studentId/terms/:termId/report-card", async (c) => {
+    // Results day: see the list endpoint above - same stamp, so a
+    // direct link works the moment the scheduled time passes.
+    {
+      const sid = c.req.param("studentId");
+      const { data: stu } = await serviceRoleClient
+        .from("student").select("org_id").eq("id", sid).maybeSingle();
+      if ((stu as any)?.org_id) await applyScheduledPublish((stu as any).org_id);
+    }
     const studentId = c.req.param("studentId");
     const termId = c.req.param("termId");
     const g = await pinGate(c, studentId);

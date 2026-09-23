@@ -25,6 +25,7 @@
 // =============================================================================
 
 import type { Hono, Context } from "npm:hono";
+import { applyScheduledPublish } from "./schoolAssessment.tsx";
 import { serviceRoleClient } from "./middleware.tsx";
 import { computeMemorizedTotals } from "./schoolPhaseC.tsx";
 import { todayInOrgTz } from "./tz.ts";
@@ -2339,6 +2340,9 @@ export function installPortal(school: Hono): void {
     }
 
     // ── term_report_card (published only) ──
+    // Results day may have arrived - stamp scheduled publishes first
+    // (no cron in this stack; the read is the trigger).
+    await applyScheduledPublish(subject.orgId);
     const { data: cardRows } = await serviceRoleClient
       .from("term_report_card")
       .select("id, principal_comment, class_teacher_comment, subject_comments, published_at, finalized_by, published_by, term:term_id(name)")
