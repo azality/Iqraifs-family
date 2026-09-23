@@ -156,6 +156,18 @@ export function TabulationSheet() {
         </p>
       </div>
 
+      {/* Streams: a child with no Biology/Computer choice sits neither
+          subject, so their register would quietly total smaller — say WHO
+          is undecided until the school sets every choice. */}
+      {(data?.unchosenStreams ?? []).map((u) => (
+        <div key={u.group}
+          className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-[13px] text-amber-800 print:hidden">
+          <b>{u.students.length} student{u.students.length === 1 ? "" : "s"} without a {u.group} choice</b> — they
+          count in no {u.group} subject until one is set (class subjects page):{" "}
+          {u.students.slice(0, 6).join(", ")}{u.students.length > 6 ? ` and ${u.students.length - 6} more` : ""}
+        </div>
+      ))}
+
       <div className="flex flex-wrap items-end gap-3 print:hidden">
         <div>
           <Label className="text-xs text-slate-500">Section</Label>

@@ -658,6 +658,7 @@ export function installSubjects(school: Hono) {
         name: t.name,
         sortOrder: t.sort_order,
         assessmentWeights: t.assessment_weights ?? null,
+        electiveGroup: t.elective_group ?? null,
         createdAt: t.created_at,
         updatedAt: t.updated_at,
         sections: (assignments ?? [])
@@ -805,6 +806,19 @@ export function installSubjects(school: Hono) {
         return c.json({ error: "assessmentWeights must be null or an array of up to 10 items" }, 400);
       }
     }
+    // Streams (23 Sep): subjects sharing an elective-group name are
+    // alternatives - a child takes exactly one ("Stream": Biology |
+    // Computer, Class IX/X). Plain text the school types; null clears.
+    if ("electiveGroup" in body) {
+      const g = body.electiveGroup;
+      if (g === null || g === "") {
+        patch.elective_group = null;
+      } else if (typeof g === "string" && g.trim().length <= 60) {
+        patch.elective_group = g.trim();
+      } else {
+        return c.json({ error: "electiveGroup must be null or a short name" }, 400);
+      }
+    }
     if (Object.keys(patch).length === 0) {
       return c.json({ error: "nothing to update" }, 400);
     }
@@ -837,6 +851,151 @@ export function installSubjects(school: Hono) {
     }
 
     return c.json({ subject: updated });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Streams / electives (23 Sep): which subject of an elective group each
+  // child takes. Entering Class IX a child picks Biology or Computer and
+  // studies one; every marks surface counts only the chosen one.
+  //
+  //   GET /school/sections/:sectionId/subject-choices
+  //     -> { groups: [{ group, subjects:[{id,name}],
+  //                     students:[{id, fullName, grNumber, chosenSubjectId}] }] }
+  //   PUT /school/sections/:sectionId/subject-choices
+  //     body { choices: [{ studentId, classSubjectId }] }
+  //     Setting a choice replaces the child's other choice in the SAME
+  //     group; classSubjectId: null clears the group's choice.
+  // ---------------------------------------------------------------------------
+  school.get("/sections/:sectionId/subject-choices", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const sectionId = c.req.param("sectionId");
+    const { data: sec } = await serviceRoleClient
+      .from("class_section")
+      .select("id, class:class_id(id, org_id)")
+      .eq("id", sectionId).maybeSingle();
+    if (!sec) return c.json({ error: "section not found" }, 404);
+    const orgId = (sec as any).class.org_id;
+    if (!(await hasAnyOrgRole(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const { data: subs } = await serviceRoleClient
+      .from("class_subject")
+      .select("id, name, elective_group, sort_order")
+      .eq("class_id", (sec as any).class.id)
+      .is("archived_at", null)
+      .not("elective_group", "is", null)
+      .order("sort_order");
+    const grouped = new Map<string, any[]>();
+    for (const s of ((subs ?? []) as any[])) {
+      const g = (s.elective_group ?? "").trim();
+      if (!g) continue;
+      const arr = grouped.get(g) ?? [];
+      arr.push({ id: s.id, name: s.name });
+      grouped.set(g, arr);
+    }
+    const { data: students } = await serviceRoleClient
+      .from("student")
+      .select("id, full_name, gr_number")
+      .eq("class_section_id", sectionId).eq("status", "active")
+      .order("full_name");
+    const stuIds = ((students ?? []) as any[]).map((s) => s.id);
+    const { data: choices } = stuIds.length && (subs ?? []).length
+      ? await serviceRoleClient
+          .from("student_subject_choice")
+          .select("student_id, class_subject_id")
+          .in("student_id", stuIds)
+          .in("class_subject_id", ((subs ?? []) as any[]).map((s) => s.id))
+      : { data: [] as any[] };
+    const chosen = new Map<string, string>(); // `${student}:${group}` -> subjectId
+    const groupOf = new Map(((subs ?? []) as any[]).map((s) => [s.id, (s.elective_group ?? "").trim()]));
+    for (const ch of ((choices ?? []) as any[])) {
+      const g = groupOf.get(ch.class_subject_id);
+      if (g) chosen.set(`${ch.student_id}:${g}`, ch.class_subject_id);
+    }
+    return c.json({
+      groups: [...grouped.entries()].map(([group, subjects]) => ({
+        group,
+        subjects,
+        students: ((students ?? []) as any[]).map((s) => ({
+          id: s.id,
+          fullName: s.full_name,
+          grNumber: s.gr_number,
+          chosenSubjectId: chosen.get(`${s.id}:${group}`) ?? null,
+        })),
+      })),
+    });
+  });
+
+  school.put("/sections/:sectionId/subject-choices", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const sectionId = c.req.param("sectionId");
+    const { data: sec } = await serviceRoleClient
+      .from("class_section")
+      .select("id, class:class_id(id, org_id)")
+      .eq("id", sectionId).maybeSingle();
+    if (!sec) return c.json({ error: "section not found" }, 404);
+    const orgId = (sec as any).class.org_id;
+    // The same right that shapes subjects and their papers.
+    if (!(await userCanInOrg(userId, orgId, "define_curriculum"))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const body = await c.req.json().catch(() => ({}));
+    const list = Array.isArray(body.choices) ? body.choices : [];
+    if (!list.length) return c.json({ error: "choices required" }, 400);
+
+    const { data: subs } = await serviceRoleClient
+      .from("class_subject")
+      .select("id, elective_group")
+      .eq("class_id", (sec as any).class.id)
+      .is("archived_at", null);
+    const groupOf = new Map(
+      ((subs ?? []) as any[])
+        .filter((s) => (s.elective_group ?? "").trim() !== "")
+        .map((s) => [s.id, (s.elective_group ?? "").trim()]),
+    );
+    const { data: students } = await serviceRoleClient
+      .from("student").select("id")
+      .eq("class_section_id", sectionId).eq("status", "active");
+    const roster = new Set(((students ?? []) as any[]).map((s) => s.id));
+
+    let setCount = 0, cleared = 0;
+    for (const ch of list) {
+      const studentId = String(ch.studentId ?? "");
+      if (!roster.has(studentId)) {
+        return c.json({ error: `student ${studentId} is not in this section` }, 400);
+      }
+      const subjectId = ch.classSubjectId === null ? null : String(ch.classSubjectId ?? "");
+      if (subjectId !== null && !groupOf.has(subjectId)) {
+        return c.json({ error: "classSubjectId is not an elective subject of this class" }, 400);
+      }
+      // One choice per group: clear the child's rows for every subject
+      // of this group, then write the new one.
+      const group = subjectId === null
+        ? String(ch.group ?? "")
+        : groupOf.get(subjectId)!;
+      const groupSubjectIds = [...groupOf.entries()]
+        .filter(([, g]) => g === group).map(([id]) => id);
+      if (!groupSubjectIds.length) {
+        return c.json({ error: "group not found - pass classSubjectId, or group to clear" }, 400);
+      }
+      await serviceRoleClient
+        .from("student_subject_choice")
+        .delete()
+        .eq("student_id", studentId)
+        .in("class_subject_id", groupSubjectIds);
+      if (subjectId === null) { cleared++; continue; }
+      const { error } = await serviceRoleClient
+        .from("student_subject_choice")
+        .insert({
+          org_id: orgId, student_id: studentId,
+          class_subject_id: subjectId, chosen_by: userId,
+        });
+      if (error) return c.json({ error: error.message }, 500);
+      setCount++;
+    }
+    return c.json({ ok: true, set: setCount, cleared });
   });
 
   // ---------------------------------------------------------------------------

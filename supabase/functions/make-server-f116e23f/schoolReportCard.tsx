@@ -188,10 +188,24 @@ async function assembleReportCard(
   const { data: scores } = examIds.length
     ? await serviceRoleClient
         .from("exam_subject_score")
-        .select("*, class_subject:class_subject_id(id, name)")
+        .select("*, class_subject:class_subject_id(id, name, elective_group)")
         .eq("student_id", studentId)
         .in("exam_id", examIds)
     : { data: [] as any[] };
+
+  // Streams: the child sits ONE subject of an elective group. A stray
+  // score row for the other one - Class IX's Biology "absent" stamps on
+  // computer children - must not print on their report card (23 Sep).
+  const { data: myChoices } = await serviceRoleClient
+    .from("student_subject_choice")
+    .select("class_subject_id")
+    .eq("student_id", studentId);
+  const chosenSubjects = new Set(((myChoices ?? []) as any[]).map((r) => r.class_subject_id));
+  const sitsSubject = (sc: any): boolean => {
+    const g = (sc.class_subject?.elective_group ?? "").toString().trim();
+    if (!g) return true;
+    return chosenSubjects.has(sc.class_subject_id);
+  };
 
   // Aggregate per subject across exams, weighted by exam.weight.
   // For each subject: sum(weight * obtained) / sum(weight * max) → %.
@@ -207,6 +221,7 @@ async function assembleReportCard(
   };
   const bySubj = new Map<string, SubjAgg>();
   for (const sc of (scores ?? []) as any[]) {
+    if (!sitsSubject(sc)) continue;
     const examId = sc.exam_id;
     const exam = examById.get(examId);
     if (!exam) continue;

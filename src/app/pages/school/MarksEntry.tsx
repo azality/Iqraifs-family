@@ -508,14 +508,31 @@ export function MarksEntry() {
   // The school's own pass mark, from the sheet. Whatever they set.
   const passMarkPct = sheet?.passMarkPct ?? null;
 
+  // Streams: `enrolled: false` on a score cell means the child takes the
+  // OTHER subject of an elective group (Class IX: Biology | Computer).
+  // Not theirs to mark - the cell locks, and completeness ignores them,
+  // so Biology is complete at 5 of 5, never waiting on 20 computer
+  // students (23 Sep).
+  const isEnrolled = useMemo(() => {
+    const off = new Set<string>();
+    for (const stu of sheet?.students ?? []) {
+      for (const sc of stu.scores) {
+        if (sc.enrolled === false) off.add(`${stu.id}:${sc.classSubjectId}`);
+      }
+    }
+    return (studentId: string, subjectId: string) => !off.has(`${studentId}:${subjectId}`);
+  }, [sheet]);
+
   const review = useMemo(() => {
     if (!sheet) return [];
     return visibleSubjects
       .filter((s) => canEditCol(s.id) && isOnThisPaper(s))
       .map((s) => {
         const missing: string[] = [];
-        let marked = 0, absent = 0;
+        let marked = 0, absent = 0, total = 0;
         for (const stu of sheet.students) {
+          if (!isEnrolled(stu.id, s.id)) continue;
+          total++;
           const c = cells.get(`${stu.id}:${s.id}`);
           if (c?.absent) { absent++; marked++; continue; }
           if (c && c.obtained !== "") { marked++; continue; }
@@ -523,11 +540,11 @@ export function MarksEntry() {
         }
         return {
           id: s.id, name: s.name, marked, absent, missing,
-          total: sheet.students.length,
+          total,
           signed: !!confirmations[s.id],
         };
       });
-  }, [sheet, cells, visibleSubjects, confirmations, canEditCol, isOnThisPaper]);
+  }, [sheet, cells, visibleSubjects, confirmations, canEditCol, isOnThisPaper, isEnrolled]);
 
   if (meLoading) return null;
   // Admins browse any section; teachers arrive via the section deep
@@ -830,6 +847,17 @@ export function MarksEntry() {
                     </td>
                     {visibleSubjects.map((subj, colIdx) => {
                       const key = `${stu.id}:${subj.id}`;
+                      if (!isEnrolled(stu.id, subj.id)) {
+                        // The child takes the other subject of this
+                        // elective group - nothing to mark here.
+                        return (
+                          <td key={subj.id} className="px-1 py-1 align-top">
+                            <div className="flex h-7 items-center justify-center text-[10px] text-slate-300" title="Takes the other stream subject">
+                              other stream
+                            </div>
+                          </td>
+                        );
+                      }
                       const c = cells.get(key) ?? { obtained: "", maxOverride: "", absent: false };
                       // A signed-off column is locked — the server refuses
                       // its saves, so the cells go read-only too. So is a

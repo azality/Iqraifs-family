@@ -18,6 +18,7 @@ import {
   X,
   BookOpen,
   Percent,
+  GitBranch,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "../../../components/ui/button";
@@ -36,6 +37,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "../../../components/ui/dialog";
 import { SubjectCurriculumPanel } from "./SubjectCurriculumPanel";
+import { StreamChoicesPanel } from "./StreamChoicesPanel";
 
 interface Props {
   classId: string;
@@ -81,6 +83,27 @@ export function ClassSubjectsManager({ classId, orgId, teachers, structureEditab
   >([]);
   const [weightSaving, setWeightSaving] = useState(false);
   const [editName, setEditName] = useState("");
+  // Streams: subjects sharing a group name are alternatives — a child
+  // takes exactly one (Class IX/X: Biology | Computer).
+  const [streamFor, setStreamFor] = useState<ClassSubject | null>(null);
+  const [streamName, setStreamName] = useState("");
+  const [streamSaving, setStreamSaving] = useState(false);
+
+  const saveStream = async (clear: boolean) => {
+    if (!streamFor) return;
+    const name = clear ? null : (streamName.trim() || "Stream");
+    setStreamSaving(true);
+    try {
+      await updateClassSubject(streamFor.id, { electiveGroup: name });
+      toast.success(name ? `${streamFor.name} is now part of "${name}"` : "Removed from its stream group");
+      setStreamFor(null);
+      refresh();
+    } catch (e: any) {
+      toast.error(e?.message || "Could not save");
+    } finally {
+      setStreamSaving(false);
+    }
+  };
 
   const refresh = () => {
     setLoading(true);
@@ -335,6 +358,11 @@ export function ClassSubjectsManager({ classId, orgId, teachers, structureEditab
                     <>
                       <span className="text-sm font-medium text-slate-900">
                         {s.name}
+                        {s.electiveGroup && (
+                          <span className="ml-2 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700 ring-1 ring-indigo-200">
+                            {s.electiveGroup} — one of a choice
+                          </span>
+                        )}
                       </span>
                       {structureEditable && <div className="flex items-center gap-1">
                         <button
@@ -358,6 +386,17 @@ export function ClassSubjectsManager({ classId, orgId, teachers, structureEditab
                           title="Marks distribution (written / oral)"
                         >
                           <Percent className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setStreamFor(s); setStreamName(s.electiveGroup ?? "Stream"); }}
+                          className={
+                            "rounded-md p-1 hover:bg-indigo-50 hover:text-indigo-700 " +
+                            (s.electiveGroup ? "text-indigo-600" : "text-slate-400")
+                          }
+                          title={s.electiveGroup ? `Elective group: ${s.electiveGroup}` : "Make this a stream / elective choice"}
+                        >
+                          <GitBranch className="h-3.5 w-3.5" />
                         </button>
                         <button
                           type="button"
@@ -514,6 +553,50 @@ export function ClassSubjectsManager({ classId, orgId, teachers, structureEditab
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Streams: mark a subject as one of an elective choice. Subjects
+          sharing the same group name are alternatives — Class IX/X's
+          Biology | Computer. Who takes which is set in the panel below. */}
+      <Dialog open={streamFor !== null} onOpenChange={(o) => { if (!o) setStreamFor(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Stream / elective — {streamFor?.name}</DialogTitle>
+          </DialogHeader>
+          <p className="text-xs leading-relaxed text-slate-500">
+            Subjects given the SAME group name are alternatives: each child takes
+            exactly one of them, chosen per child below the subject list. Give
+            Biology and Computer the same name (e.g. “Stream”) and every marks
+            surface counts only the chosen one.
+          </p>
+          <Input
+            value={streamName}
+            onChange={(e) => setStreamName(e.target.value)}
+            placeholder="Group name, e.g. Stream"
+            maxLength={60}
+          />
+          <DialogFooter>
+            {streamFor?.electiveGroup && (
+              <Button variant="outline" onClick={() => void saveStream(true)} disabled={streamSaving}>
+                Remove from group
+              </Button>
+            )}
+            <Button onClick={() => void saveStream(false)} disabled={streamSaving}>
+              {streamSaving ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {subjects.some((s) => s.electiveGroup) && (
+        <StreamChoicesPanel
+          editable={structureEditable}
+          sections={(() => {
+            const seen = new Map<string, string | null>();
+            for (const s of subjects) for (const sec of s.sections) seen.set(sec.sectionId, sec.sectionName);
+            return [...seen.entries()].map(([id, name]) => ({ id, name }));
+          })()}
+        />
+      )}
     </div>
   );
 }
