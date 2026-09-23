@@ -6749,16 +6749,22 @@ await check("118. a hand-in reaches the teacher: list count, bell, review clears
     cleanup.push(() => admin.from("assignment_submission").delete().eq("assignment_id", aid));
     cleanup.push(() => admin.from("assignment").delete().eq("id", aid));
 
-    // The PARENT hands in for their child; a STUDENT hands in their own.
+    // The PARENT hands in for their child; a STUDENT hands in their
+    // own. Portal calls carry the PIN token in X-Pin-Token (the staff
+    // api() helper's Authorization header answered 401 here).
+    const portalPost = (token: string, path: string, body: unknown) =>
+      fetch(`${FUNC}/school${path}`, {
+        method: "POST",
+        headers: { apikey: ANON, "X-Pin-Token": token, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
     const pTok = (await (await pinLogin(PARENT_PHONE, "3456")).json()).token;
-    const p1 = await api(pTok, `/school/pin-me/students/${pStu1}/assignments/${aid}/submission`, {
-      method: "POST", body: JSON.stringify({ note: "QA hand-in via parent" }),
-    });
+    const p1 = await portalPost(pTok, `/pin-me/students/${pStu1}/assignments/${aid}/submission`,
+      { note: "QA hand-in via parent" });
     assert(p1.status === 201, `parent submission: ${p1.status}`);
     const sTok = (await (await pinLogin("QA-PORTAL-2", "2345")).json()).token;
-    const p2 = await api(sTok, `/school/pin-me/students/${pStu2}/assignments/${aid}/submission`, {
-      method: "POST", body: JSON.stringify({ note: "QA hand-in via student" }),
-    });
+    const p2 = await portalPost(sTok, `/pin-me/students/${pStu2}/assignments/${aid}/submission`,
+      { note: "QA hand-in via student" });
     assert(p2.status === 201, `student submission: ${p2.status}`);
 
     // The teacher's LIST says 2 sent, 2 new - without opening anything.
