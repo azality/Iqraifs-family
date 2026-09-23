@@ -3,6 +3,7 @@
   import { projectId, publicAnonKey } from "/utils/supabase/info.tsx";
   import "./i18n";
   import App from "./app/App.tsx";
+  import { isFamilySetupPath } from "./utils/productHost";
   import "./styles/index.css";
 
   // Every deploy renames the hashed JS chunks; a tab opened before the
@@ -27,7 +28,13 @@
   // bouncing to /iqra-ifs. Costs one lookup on the bare root ONLY; every
   // other URL renders immediately, untouched.
   async function resolveSchoolDomain(): Promise<void> {
-    if (window.location.pathname !== "/") return;
+    // The bare root — and the family-SETUP paths: "Set Up Your Family"
+    // rendered at iqraifs.com/onboarding because a deep load never
+    // resolved the host, so the router's school-host guard had no slug
+    // to read (23 Sep). Still nothing else: every other URL renders
+    // immediately, untouched.
+    const path = window.location.pathname;
+    if (path !== "/" && !isFamilySetupPath(path)) return;
     // Dev affordance: localhost owns no school, so ?org= lets the root
     // be exercised locally. Stripped from production builds.
     if (import.meta.env.DEV) {

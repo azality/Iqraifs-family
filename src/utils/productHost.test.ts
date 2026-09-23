@@ -5,6 +5,7 @@
 import { describe, it, expect } from "vitest";
 import {
   onFamilyHost, isSchoolPath, schoolPathOnFamilyHost, noFamilyDestination,
+  familySetupOnSchoolHost, isFamilySetupPath,
 } from "./productHost";
 
 const FAMILY = "family.theilmnetwork.com";
@@ -119,5 +120,50 @@ describe("schoolPathOnFamilyHost", () => {
     for (const p of ["/", "/rewards", "/kid/home", "/login", "/parent-login"]) {
       expect(schoolPathOnFamilyHost(FAMILY, p)).toBe(false);
     }
+  });
+});
+
+describe("familySetupOnSchoolHost", () => {
+  it("refuses family setup wherever a school slug resolved", () => {
+    // iqraifs.com/onboarding rendered "Set Up Your Family" (23 Sep).
+    expect(familySetupOnSchoolHost("iqra-ifs", "/onboarding")).toBe(true);
+    expect(familySetupOnSchoolHost("iqra-ifs", "/join-pending")).toBe(true);
+    expect(familySetupOnSchoolHost("iqra-ifs", "/onboarding/extra")).toBe(true);
+  });
+
+  it("gates nothing without a slug - the platform and family hosts keep their flows", () => {
+    expect(familySetupOnSchoolHost(undefined, "/onboarding")).toBe(false);
+    expect(familySetupOnSchoolHost(null, "/onboarding")).toBe(false);
+    expect(familySetupOnSchoolHost("", "/onboarding")).toBe(false);
+  });
+
+  it("leaves every other path alone on a school host", () => {
+    for (const p of ["/", "/school", "/school/orgs/abc", "/parent/connect", "/login"]) {
+      expect(familySetupOnSchoolHost("iqra-ifs", p)).toBe(false);
+    }
+  });
+
+  it("isFamilySetupPath answers by path alone, for the bootstrap", () => {
+    expect(isFamilySetupPath("/onboarding")).toBe(true);
+    expect(isFamilySetupPath("/join-pending")).toBe(true);
+    expect(isFamilySetupPath("/onboardingX")).toBe(false);
+    expect(isFamilySetupPath("/")).toBe(false);
+  });
+});
+
+describe("noFamilyDestination on a school-slug host", () => {
+  it("a family-less user on a school domain is sent to /school, never family onboarding", () => {
+    expect(noFamilyDestination({
+      hostname: "iqraifs.com", pathname: "/", hasSchoolAccess: false, schoolSlug: "iqra-ifs",
+    })).toBe("school");
+    expect(noFamilyDestination({
+      hostname: "iqraifs.com", pathname: "/onboarding", hasSchoolAccess: false, schoolSlug: "iqra-ifs",
+    })).toBe("school");
+  });
+
+  it("without a slug the old behaviour stands", () => {
+    expect(noFamilyDestination({
+      hostname: "theilmnetwork.com", pathname: "/", hasSchoolAccess: false,
+    })).toBe("onboarding");
   });
 });
