@@ -247,19 +247,32 @@ for (const [clsName, rows] of Object.entries(SHEETS)) {
             flags.push(`${clsName} GR ${r.gr}: September already has ${sep.amount_paid} recorded - payment NOT re-recorded`);
           } else {
             // Money over September's fee is an ADVANCE, not an
-            // overpayment parked on a settled month. The office set
-            // this rule for Abu Bakar's Rs 200 ("next month 5800"), so
-            // the excess opens October carrying it. Anything past a
-            // whole further month is left for the office to place.
+            // overpayment parked on a settled month. The office set the
+            // rule for Abu Bakar's Rs 200 ("next month 5800"); the
+            // Daniyal children then paid 17,400 against a 4,350 fee -
+            // exactly four months - so the excess now walks month by
+            // month: full months settle Oct, Nov, ..., and a final
+            // sub-month remainder lands as partial on the next. Capped
+            // at 6 months ahead; anything past that is flagged.
             const onSep = Math.min(toSep, r.fee);
-            const advance = Math.min(toSep - onSep, r.fee);
-            const spare = toSep - onSep - advance;
+            let excess = toSep - onSep;
+            const monthAfter = (period: string, n: number): string => {
+              const [y, m] = period.split("-").map(Number);
+              const d = new Date(y, m - 1 + n, 1);
+              return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+            };
+            const aheadPlan: Array<{ period: string; amount: number }> = [];
+            for (let n = 1; excess > 0 && n <= 6; n++) {
+              const amt = Math.min(excess, r.fee);
+              aheadPlan.push({ period: monthAfter(SEP_PERIOD, n), amount: amt });
+              excess -= amt;
+            }
             const status = onSep >= r.fee ? "paid" : "partial";
-            acts.push(`Sep paid ${onSep} (${status})${advance > 0 ? ` | ${advance} advance -> Oct` : ""}`);
+            acts.push(`Sep paid ${onSep} (${status})${aheadPlan.length ? ` | advance -> ${aheadPlan.map((a) => `${a.period.slice(5)}:${a.amount}`).join(",")}` : ""}`);
             stats.payments++;
             if (status === "paid") stats.settled++; else stats.partial++;
-            if (advance > 0) {
-              flags.push(`${clsName} GR ${r.gr} ${s.full_name}: paid ${toSep} against a ${r.fee} fee - ${advance} carried onto October as an advance${spare > 0 ? `, and ${spare} MORE is unplaced - tell me where it goes` : ""}`);
+            if (aheadPlan.length > 0) {
+              flags.push(`${clsName} GR ${r.gr} ${s.full_name}: paid ${toSep} against a ${r.fee} fee - advance carried onto ${aheadPlan.map((a) => a.period).join(", ")}${excess > 0 ? `, and ${excess} MORE past six months is unplaced - tell me where it goes` : ""}`);
             }
             if (APPLY) {
               await db.from("fee_payment").insert({
@@ -270,28 +283,29 @@ for (const [clsName, rows] of Object.entries(SHEETS)) {
                 amount_paid: onSep, status,
                 paid_date: status === "paid" ? SNAPSHOT : null,
               }).eq("id", sep.id);
-              if (advance > 0) {
-                let octId = feeByKey.get(`${s.id}:${NEXT_PERIOD}`)?.id;
-                if (!octId) {
+              for (const ahead of aheadPlan) {
+                let aheadId = feeByKey.get(`${s.id}:${ahead.period}`)?.id;
+                if (!aheadId) {
                   const { data: ins, error } = await db.from("fee_status").insert({
-                    org_id: ORG, student_id: s.id, period: NEXT_PERIOD,
+                    org_id: ORG, student_id: s.id, period: ahead.period,
                     amount_due: r.fee, amount_paid: 0, status: "unpaid",
-                    due_date: `${NEXT_PERIOD}-15`,
-                    notes: `Monthly Tuition: ${r.fee}; opened early to carry Rs ${advance} paid in advance on ${SNAPSHOT}.`,
+                    due_date: `${ahead.period}-15`,
+                    notes: `Monthly Tuition: ${r.fee}; opened early to carry Rs ${ahead.amount} paid in advance on ${SNAPSHOT}.`,
                   }).select("id").single();
-                  if (error) { console.error(`  October voucher failed ${r.gr}: ${error.message}`); fatal++; continue; }
-                  octId = ins.id;
+                  if (error) { console.error(`  ${ahead.period} voucher failed ${r.gr}: ${error.message}`); fatal++; continue; }
+                  aheadId = ins.id;
+                  feeByKey.set(`${s.id}:${ahead.period}`, ins);
                 }
                 await db.from("fee_payment").insert({
-                  org_id: ORG, fee_status_id: octId, student_id: s.id,
-                  amount: advance, paid_on: SNAPSHOT,
+                  org_id: ORG, fee_status_id: aheadId, student_id: s.id,
+                  amount: ahead.amount, paid_on: SNAPSHOT,
                   notes: `Advance - paid over September's fee on ${SNAPSHOT}.`,
                 });
-                const st2 = advance >= r.fee ? "paid" : "partial";
+                const st2 = ahead.amount >= r.fee ? "paid" : "partial";
                 await db.from("fee_status").update({
-                  amount_paid: advance, status: st2,
+                  amount_paid: ahead.amount, status: st2,
                   paid_date: st2 === "paid" ? SNAPSHOT : null,
-                }).eq("id", octId);
+                }).eq("id", aheadId);
                 stats.payments++;
               }
             }
