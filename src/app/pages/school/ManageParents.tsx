@@ -140,6 +140,17 @@ export function ManageParents() {
     setAllClearHidden(true);
     try { localStorage.setItem("ifs_dup_allclear_hidden", "1"); } catch { /* fine */ }
   };
+  // The duplicates panel collapses to ONE amber line (23 Sep: "this
+  // takes up a long list of the page - there should be a way to display
+  // if we have to"). Collapsed by default; the line still names the
+  // count, so pending work is never hidden - just not sprawled.
+  const [dupPanelOpen, setDupPanelOpen] = useState<boolean>(() => {
+    try { return localStorage.getItem("ifs_dup_panel_open") === "1"; } catch { return false; }
+  });
+  const setDupOpen = (open: boolean) => {
+    setDupPanelOpen(open);
+    try { localStorage.setItem("ifs_dup_panel_open", open ? "1" : "0"); } catch { /* fine */ }
+  };
   useEffect(() => {
     if (!orgId) return;
     getOrganization(orgId)
@@ -560,21 +571,45 @@ export function ManageParents() {
           </button>
         </div>
         )
+      ) : !dupPanelOpen && !showReviewLog ? (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-2.5 text-xs">
+          <span className="font-semibold text-amber-900">
+            {duplicatePairs.length} possible duplicate parent pair{duplicatePairs.length === 1 ? "" : "s"}
+          </span>
+          <span className="text-amber-800">
+            {dismissedPairs.size > 0 && `${dismissedPairs.size} reviewed as different`}
+            {dismissedPairs.size > 0 && aliasedParents.length > 0 && " · "}
+            {aliasedParents.length > 0 && `${aliasedParents.length} merged`}
+          </span>
+          <button type="button" onClick={() => setDupOpen(true)}
+            className="ml-auto font-medium text-indigo-700 hover:underline">
+            Review
+          </button>
+        </div>
       ) : (
         <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 space-y-3">
           <div className="flex items-center justify-between gap-2">
             <div className="text-sm font-semibold text-amber-900">
               Possible duplicate parents
             </div>
-            {duplicatePairs.length === 0 && (
+            <div className="flex items-center gap-3">
+              {dismissedPairs.size > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowReviewLog(!showReviewLog)}
+                  className="text-xs font-medium text-amber-800 hover:underline"
+                >
+                  {showReviewLog ? "Hide review log" : `Show review log (${dismissedPairs.size})`}
+                </button>
+              )}
               <button
                 type="button"
-                onClick={() => setShowReviewLog(false)}
+                onClick={() => { setDupOpen(false); setShowReviewLog(false); }}
                 className="text-xs font-medium text-amber-800 hover:underline"
               >
-                Hide review log
+                Collapse
               </button>
-            )}
+            </div>
           </div>
           {duplicatePairs.length === 0 && (
             <p className="text-xs text-amber-800">No unmerged duplicates detected.</p>
@@ -637,7 +672,7 @@ export function ManageParents() {
               </div>
             </div>
           ))}
-          {dismissedPairs.size > 0 && (
+          {showReviewLog && dismissedPairs.size > 0 && (
             <div className="space-y-1.5">
               <div className="text-xs font-medium text-amber-900">Marked as different people</div>
               {Array.from(dismissedPairs).map((key) => {
@@ -669,7 +704,7 @@ export function ManageParents() {
               })}
             </div>
           )}
-          {aliasedParents.length > 0 && (
+          {showReviewLog && aliasedParents.length > 0 && (
             <div className="space-y-1.5">
               <div className="text-xs font-medium text-amber-900">Already merged</div>
               {aliasedParents.map((p) => {
