@@ -27,6 +27,7 @@
 
 import { paperOfExam, subjectSitsExam, progressForSection } from "./markingProgress.ts";
 import { loadSitsResolver } from "./subjectStreamsLoad.ts";
+import { deadlineState, type DeadlineState } from "./marksDeadline.ts";
 import { loadExamScores, gradebookExams, resolveMarkingTerm } from "./schoolMarkingProgress.tsx";
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
@@ -88,7 +89,80 @@ function termToJson(r: any) {
     startDate: r.start_date, endDate: r.end_date,
     isCurrent: r.is_current,
     archivedAt: r.archived_at,
+    // Marks deadline + results day (23 Sep): the admin's clock on the
+    // term. Null = not set.
+    marksDeadlineAt: r.marks_deadline_at ?? null,
+    resultsPublishAt: r.results_publish_at ?? null,
   };
+}
+
+/** This caller's deadline state for a term - the one gate every marks
+ *  write asks. Admin/principal are never locked; a teacher may hold a
+ *  personal exception with its own later moment. */
+async function marksLockFor(
+  orgId: string,
+  termId: string | null | undefined,
+  userId: string,
+): Promise<DeadlineState> {
+  if (!termId) return deadlineState({ deadlineAt: null, exceptionUntil: null, isAdmin: false });
+  const [{ data: term }, admin] = await Promise.all([
+    serviceRoleClient.from("academic_term")
+      .select("marks_deadline_at").eq("id", termId).maybeSingle(),
+    isAdminOrPrincipal(userId, orgId),
+  ]);
+  let exceptionUntil: string | null = null;
+  if (!admin && (term as any)?.marks_deadline_at) {
+    const { data: ex } = await serviceRoleClient
+      .from("marks_deadline_exception")
+      .select("until_at").eq("term_id", termId).eq("user_id", userId)
+      .order("until_at", { ascending: false }).limit(1).maybeSingle();
+    exceptionUntil = (ex as any)?.until_at ?? null;
+  }
+  return deadlineState({
+    deadlineAt: (term as any)?.marks_deadline_at ?? null,
+    exceptionUntil,
+    isAdmin: admin,
+  });
+}
+
+/** Names for exception rows - same resolution as schoolSubjects'
+ *  hydrateTeacherNames (user_metadata.name, then full_name, then email). */
+async function hydrateTeacherNamesAssess(ids: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  await Promise.all(
+    Array.from(new Set(ids.filter(Boolean))).map(async (uid) => {
+      try {
+        const { data } = await serviceRoleClient.auth.admin.getUserById(uid);
+        const name =
+          ((data?.user as any)?.user_metadata?.name as string | undefined) ??
+          ((data?.user as any)?.user_metadata?.full_name as string | undefined) ??
+          ((data?.user as any)?.email as string | undefined) ?? "Teacher";
+        out.set(uid, name);
+      } catch (_) { /* swallow */ }
+    }),
+  );
+  return out;
+}
+
+/** Results day, without a cron: FINALIZED cards whose term's
+ *  results_publish_at has passed get their published_at stamped on the
+ *  next read. Every surface keeps its published_at semantics. Exported
+ *  for the portal, which reads cards without knowing the term. */
+export async function applyScheduledPublish(orgId: string): Promise<void> {
+  const { data: due } = await serviceRoleClient
+    .from("academic_term")
+    .select("id, results_publish_at")
+    .eq("org_id", orgId)
+    .not("results_publish_at", "is", null)
+    .lte("results_publish_at", new Date().toISOString());
+  for (const t of (due ?? []) as any[]) {
+    await serviceRoleClient
+      .from("term_report_card")
+      .update({ published_at: t.results_publish_at })
+      .eq("term_id", t.id)
+      .not("finalized_at", "is", null)
+      .is("published_at", null);
+  }
 }
 function examToJson(r: any) {
   return {
@@ -289,7 +363,7 @@ export function installAssessment(school: Hono): void {
     }
     const { data: term } = await serviceRoleClient
       .from("academic_term")
-      .select("id, name, org_id, start_date, end_date")
+      .select("id, name, org_id, start_date, end_date, marks_deadline_at, results_publish_at")
       .eq("id", termId).maybeSingle();
     if (!term || (term as any).org_id !== orgId) {
       return c.json({ error: "term not found" }, 404);
@@ -428,6 +502,10 @@ export function installAssessment(school: Hono): void {
       };
     });
 
+    // Results day may have arrived since the last read - stamp before
+    // the counts below so finalized/published tallies tell the truth.
+    await applyScheduledPublish(orgId);
+
     // The school's pass line — one reader for every surface (passMark.ts).
     const passMarkPct = await orgPassMarkPct(orgId);
 
@@ -482,6 +560,12 @@ export function installAssessment(school: Hono): void {
     return c.json({
       section: { id: (sec as any).id, name: (sec as any).name, className: (sec as any).class.name },
       term: { id: (term as any).id, name: (term as any).name },
+      // The admin's clock on this term (23 Sep): teachers' entry locks
+      // at the deadline; finalized cards reach parents at results day.
+      schedule: {
+        marksDeadlineAt: (term as any).marks_deadline_at ?? null,
+        resultsPublishAt: (term as any).results_publish_at ?? null,
+      },
       unchosenStreams,
       passMarkPct,
       exams: examList.map((e) => ({ id: e.id, name: e.name, nameEn: e.name_en ?? null, weight: Number(e.weight) || 1 })),
@@ -835,6 +919,99 @@ export function installAssessment(school: Hono): void {
     if (error) return c.json({ error: error.message }, 500);
     if (!data) return c.json({ error: "term not found" }, 404);
     return c.json({ ok: true, instructions: lines });
+  });
+
+  // ── Marks deadline + results day (23 Sep) ──────────────────────────
+  // PATCH /orgs/:orgId/terms/:termId/schedule
+  //   { marksDeadlineAt?: iso|null, resultsPublishAt?: iso|null }
+  // Setting a new marksDeadlineAt IS the extension. Admin only.
+  school.patch("/orgs/:orgId/terms/:termId/schedule", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const termId = c.req.param("termId");
+    if (!(await isAdminOrPrincipal(userId, orgId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    const { data: term } = await serviceRoleClient
+      .from("academic_term").select("org_id").eq("id", termId).maybeSingle();
+    if (!term || (term as any).org_id !== orgId) return c.json({ error: "term not found" }, 404);
+    const body = await c.req.json().catch(() => ({}));
+    const patch: Record<string, unknown> = {};
+    const iso = (v: unknown): string | null | undefined => {
+      if (v === null) return null;
+      if (typeof v !== "string") return undefined;
+      const d = new Date(v);
+      return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
+    };
+    if ("marksDeadlineAt" in body) {
+      const v = iso(body.marksDeadlineAt);
+      if (v === undefined && body.marksDeadlineAt !== null) return c.json({ error: "marksDeadlineAt invalid" }, 400);
+      patch.marks_deadline_at = v ?? null;
+    }
+    if ("resultsPublishAt" in body) {
+      const v = iso(body.resultsPublishAt);
+      if (v === undefined && body.resultsPublishAt !== null) return c.json({ error: "resultsPublishAt invalid" }, 400);
+      patch.results_publish_at = v ?? null;
+    }
+    if (Object.keys(patch).length === 0) return c.json({ error: "nothing to update" }, 400);
+    const { data, error } = await serviceRoleClient
+      .from("academic_term").update(patch).eq("id", termId).select("*").single();
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ term: termToJson(data) });
+  });
+
+  // Exceptions: one teacher, until one moment. Admin only.
+  school.get("/orgs/:orgId/terms/:termId/marks-exceptions", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await isAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    const { data } = await serviceRoleClient
+      .from("marks_deadline_exception")
+      .select("id, user_id, until_at, note, created_at")
+      .eq("org_id", orgId).eq("term_id", c.req.param("termId"))
+      .order("until_at", { ascending: false });
+    const names = await hydrateTeacherNamesAssess(((data ?? []) as any[]).map((r) => r.user_id));
+    return c.json({
+      exceptions: ((data ?? []) as any[]).map((r) => ({
+        id: r.id, userId: r.user_id,
+        userName: names.get(r.user_id) ?? null,
+        untilAt: r.until_at, note: r.note ?? null, createdAt: r.created_at,
+      })),
+    });
+  });
+
+  school.post("/orgs/:orgId/terms/:termId/marks-exceptions", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const termId = c.req.param("termId");
+    if (!(await isAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    const body = await c.req.json().catch(() => ({}));
+    const target = String(body.userId ?? "");
+    const until = new Date(String(body.untilAt ?? ""));
+    if (!target || Number.isNaN(until.getTime())) {
+      return c.json({ error: "userId and a valid untilAt are required" }, 400);
+    }
+    const { data, error } = await serviceRoleClient
+      .from("marks_deadline_exception")
+      .insert({
+        org_id: orgId, term_id: termId, user_id: target,
+        until_at: until.toISOString(),
+        note: body.note ? String(body.note).slice(0, 300) : null,
+        granted_by: userId,
+      }).select("id").single();
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ ok: true, id: (data as any).id }, 201);
+  });
+
+  school.delete("/orgs/:orgId/marks-exceptions/:exceptionId", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await isAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    const { error } = await serviceRoleClient
+      .from("marks_deadline_exception")
+      .delete().eq("id", c.req.param("exceptionId")).eq("org_id", orgId);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ ok: true });
   });
 
   school.get("/orgs/:orgId/terms/:termId/exams", async (c) => {
@@ -1343,6 +1520,9 @@ export function installAssessment(school: Hono): void {
       exam: examRow
         ? { id: (examRow as any).id, name: (examRow as any).name, nameEn: (examRow as any).name_en ?? null, examType: (examRow as any).exam_type, termId: sheetTermId }
         : null,
+      // This CALLER's deadline state - their exception makes their own
+      // countdown honest (23 Sep).
+      marksDeadline: await marksLockFor(orgId, sheetTermId, userId),
       // The school's pass line, so a mark under it reads red AS IT IS
       // TYPED rather than only on the register afterwards (22 Sep).
       passMarkPct: await orgPassMarkPct(orgId),
@@ -1444,6 +1624,18 @@ export function installAssessment(school: Hono): void {
             `Untick the sign-off on the marks sheet to make a correction, then sign it off again.`,
         }, 409);
       }
+    }
+
+    // The admin's clock (23 Sep): past the term's marks deadline a
+    // teacher's saves are refused - the admin extends the deadline or
+    // grants them their own later moment. Admin/principal never lock.
+    const lock = await marksLockFor(orgId, (exam as any).term_id, userId);
+    if (lock.locked) {
+      const when = new Date(lock.effectiveAt!).toLocaleString("en-GB", { timeZone: "Asia/Karachi", hour12: true });
+      return c.json({
+        error: `Marks entry closed at ${when} (Pakistan time). Ask the office to extend the deadline or grant you access.`,
+        code: "MARKS_DEADLINE_PASSED",
+      }, 403);
     }
 
     const defaultsMax = body.defaults?.maxMarks ? Number(body.defaults.maxMarks) : null;

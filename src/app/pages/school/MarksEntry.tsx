@@ -177,9 +177,20 @@ export function MarksEntry() {
     () => (sheet?.editableSubjectIds ? new Set(sheet.editableSubjectIds) : null),
     [sheet],
   );
+  // The admin's clock (23 Sep): past the deadline every cell locks for
+  // teachers - the server refuses saves too; this keeps the UI honest.
+  // A minute tick keeps the countdown and the lock moment current.
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNowTick(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, []);
+  const deadline = sheet?.marksDeadline ?? null;
+  const deadlineLocked = !!deadline?.effectiveAt && nowTick > new Date(deadline.effectiveAt).getTime();
   const canEditCol = useCallback(
-    (subjectId: string) => editableSet === null || editableSet.has(subjectId),
-    [editableSet],
+    (subjectId: string) =>
+      !deadlineLocked && (editableSet === null || editableSet.has(subjectId)),
+    [editableSet, deadlineLocked],
   );
   const canEditRef = useRef(canEditCol);
   canEditRef.current = canEditCol;
@@ -675,6 +686,28 @@ export function MarksEntry() {
         </CardContent></Card>
       ) : (
         <>
+        {deadline?.effectiveAt && (() => {
+          const at = new Date(deadline.effectiveAt);
+          const msLeft = at.getTime() - nowTick;
+          const fmt = at.toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit", hour12: true, day: "numeric", month: "short" });
+          if (deadlineLocked) {
+            return (
+              <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-800">
+                Marks entry closed {fmt}. Ask the office to extend the deadline or grant you access.
+              </div>
+            );
+          }
+          const h = Math.floor(msLeft / 3_600_000);
+          const m = Math.max(0, Math.floor((msLeft % 3_600_000) / 60_000));
+          const urgent = msLeft < 3 * 3_600_000;
+          return (
+            <div className={"rounded-md border px-3 py-2 text-xs font-semibold " +
+              (urgent ? "border-amber-300 bg-amber-50 text-amber-900" : "border-slate-200 bg-white text-slate-700")}>
+              Enter and submit all marks by {fmt}
+              {deadline.exceptionUntil ? " (your extended access)" : ""} — {h > 0 ? `${h} h ` : ""}{m} min left. After that, marks entry locks.
+            </div>
+          );
+        })()}
         {sheet.oversees ? (
           <div className="rounded-md border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs text-indigo-800">
             Viewing as incharge — every subject is shown so you can check what each
