@@ -289,7 +289,12 @@ export function HifzLogEntry({
     setSurahNumber(1);
     setAyahFrom(1);
     setAyahTo(1);
-    setKind("sabaq");
+    // A revising hafiz opens on DAWR (stored as manzil) - "sabaq" is
+    // not one of their kinds at all. Resetting to sabaq here left the
+    // dialog on a kind the selector didn't even offer, so the manzil
+    // fields - by para, full/half/quarter - never rendered for a
+    // Catch Up hafiz like Syed Taimoor (Muneeb, 23 Sep).
+    setKind(isDawrOnly(quranTrack) ? "manzil" : "sabaq");
     setQuality("");
     setNotes("");
     setRevJuz("");
@@ -620,7 +625,10 @@ export function HifzLogEntry({
       onSuccess?.();
       if (after === "kind") {
         const idx = KIND_SEQUENCE.indexOf(kind);
-        const next = idx >= 0 && idx < KIND_SEQUENCE.length - 1 ? KIND_SEQUENCE[idx + 1] : null;
+        // A dawr-only child has ONE kind - never advance them onto a
+        // sabaq/sabqi they don't do.
+        const rawNext = idx >= 0 && idx < KIND_SEQUENCE.length - 1 ? KIND_SEQUENCE[idx + 1] : null;
+        const next = rawNext && trackKinds.includes(rawNext as any) ? rawNext : null;
         toast.success(
           `${kind.charAt(0).toUpperCase() + kind.slice(1)} logged` +
             (next ? ` — now ${next}` : ""),
