@@ -14,6 +14,7 @@
 // This page does not disappear. One row per paper × class × subject,
 // with how far it has come, and a link straight into the sheet.
 
+import { useTranslation } from "react-i18next";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import { CheckCircle2, ClipboardList, Lock, RefreshCw } from "lucide-react";
@@ -43,6 +44,7 @@ const STATUS: Record<Status, { label: string; cls: string }> = {
 };
 
 export function MyMarks() {
+  const { i18n } = useTranslation();
   const { orgId = "" } = useParams<{ orgId: string }>();
   const [me, setMe] = useState<SchoolMeResponse | null>(null);
   const [columns, setColumns] = useState<MyMarksColumn[] | null>(null);
@@ -74,10 +76,10 @@ export function MyMarks() {
 
   // One group per paper, newest first — the server already sorted.
   const groups = useMemo(() => {
-    const out: Array<{ examId: string; examName: string; rows: MyMarksColumn[] }> = [];
+    const out: Array<{ examId: string; examName: string; examNameEn?: string | null; rows: MyMarksColumn[] }> = [];
     for (const c of columns ?? []) {
       let g = out.find((x) => x.examId === c.examId);
-      if (!g) { g = { examId: c.examId, examName: c.examName, rows: [] }; out.push(g); }
+      if (!g) { g = { examId: c.examId, examName: c.examName, examNameEn: c.examNameEn ?? null, rows: [] }; out.push(g); }
       g.rows.push(c);
     }
     return out;
@@ -131,7 +133,7 @@ export function MyMarks() {
         <div key={g.examId} className="rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-100 px-4 py-2.5 text-sm font-semibold text-slate-800">
             {shortExam(g.examName)}
-            <span className="ml-2 text-xs font-normal text-slate-500">{g.examName}</span>
+            <span className="ml-2 text-xs font-normal text-slate-500">{g.examNameEn && !i18n.language.startsWith("ur") ? g.examNameEn : g.examName}</span>
           </div>
           <div className="divide-y divide-slate-100">
             {g.rows.map((c) => {

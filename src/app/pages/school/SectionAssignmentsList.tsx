@@ -3,6 +3,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
+import { useTranslation } from "react-i18next";
+import { examDisplayName } from "../../../utils/examName";
 import { toast } from "sonner";
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
@@ -75,6 +77,7 @@ export function KindChip({ kind }: { kind: AssignmentKind }) {
 
 export function SectionAssignmentsList() {
   const { orgId = "", sectionId = "" } = useParams();
+  const { i18n } = useTranslation();
   const [me, setMe] = useState<SchoolMeResponse | null>(null);
   const [meLoading, setMeLoading] = useState(true);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -382,7 +385,7 @@ export function SectionAssignmentsList() {
                   to={`/school/orgs/${orgId}/admin/assessment/exams/${ex.id}/marks?sectionId=${sectionId}`}
                 >
                   <Button size="sm" variant="outline" className="border-violet-300 bg-white text-violet-900 hover:bg-violet-100">
-                    {ex.name} — enter marks
+                    {examDisplayName(ex, i18n.language)} — enter marks
                   </Button>
                 </Link>
               ))}
