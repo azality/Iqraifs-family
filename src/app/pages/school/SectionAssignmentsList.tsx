@@ -246,6 +246,30 @@ export function SectionAssignmentsList() {
       ),
     },
     { key: "kind", header: "Kind", cell: (a) => <KindChip kind={a.kind} /> },
+    {
+      // Digital hand-ins: how many families sent work, and how many the
+      // teacher hasn't opened. This column is HOW the teacher knows
+      // something arrived without opening every assignment (23 Sep) -
+      // the bell nags about the unreviewed ones too.
+      key: "handins",
+      header: "Hand-ins",
+      cell: (a) => {
+        const s = a.submissions;
+        if (!s || s.total === 0) return <span className="text-xs text-slate-300">—</span>;
+        return (
+          <Link to={withFocus(`/school/orgs/${orgId}/assignments/${a.id}`)} title="Open the hand-ins">
+            <span className={
+              "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 " +
+              (s.unreviewed > 0
+                ? "bg-amber-50 text-amber-800 ring-amber-200"
+                : "bg-emerald-50 text-emerald-700 ring-emerald-200")
+            }>
+              {s.total} sent{s.unreviewed > 0 ? ` · ${s.unreviewed} new` : ""}
+            </span>
+          </Link>
+        );
+      },
+    },
     { key: "assigned_date", header: "Assigned", cell: (a) => <span className="text-xs text-slate-500">{a.assigned_date}</span> },
     { key: "due_date", header: "Due", cell: (a) => <span className="text-xs text-slate-500">{a.due_date || "—"}</span> },
     { key: "max_score", header: "Max", align: "right", cell: (a) => <span className="tabular-nums">{a.max_score}</span> },

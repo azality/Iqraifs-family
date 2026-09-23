@@ -1838,6 +1838,14 @@ export interface AdminParent {
     class_section_id: string | null;
     isPrimary: boolean;
   }>;
+  /** Portal uptake (server >= v1.3.7): whether a PIN was ever issued,
+   *  whether the family ever set their own (mustChange false), and the
+   *  last time anyone signed in with it. Canonical-aware. */
+  portal?: {
+    hasCredential: boolean;
+    mustChange: boolean;
+    lastLoginAt: string | null;
+  };
 }
 
 export interface StudentSibling {
@@ -4505,6 +4513,9 @@ export type AssignmentKind =
   | "other";
 
 export interface Assignment {
+  /** Digital hand-ins on this assignment (server >= v1.3.7): how many
+   *  families sent work, and how many the teacher hasn't opened yet. */
+  submissions?: { total: number; unreviewed: number };
   id: string;
   org_id: string;
   class_section_id: string;

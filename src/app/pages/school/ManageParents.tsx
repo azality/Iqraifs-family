@@ -87,7 +87,7 @@ export function ManageParents() {
   const [selectedStudents, setSelectedStudents] = useState<AdminStudent[]>([]);
   // Filter scope — search applies only against the selected facet.
   // "all" = parent name + student name + class. Default.
-  type SearchScope = "all" | "parent" | "student" | "class" | "unlinked";
+  type SearchScope = "all" | "parent" | "student" | "class" | "unlinked" | "neverlogged";
   const [searchScope, setSearchScope] = useState<SearchScope>("all");
   // class_section_id → "Grade 5-A" label, so the Children column can show
   // each child's class instead of a raw uuid.
@@ -222,7 +222,7 @@ export function ManageParents() {
     const q = search.trim().toLowerCase();
     // "Unlinked" is a state filter, not a text filter — it must apply
     // even with an empty search box (the early return below would skip it).
-    if (!q && searchScope !== "unlinked") return families;
+    if (!q && searchScope !== "unlinked" && searchScope !== "neverlogged") return families;
 
     const matchParent = (p: AdminParent) =>
       p.full_name.toLowerCase().includes(q) ||
@@ -241,6 +241,10 @@ export function ManageParents() {
         case "unlinked":
           // No-children families; optional text still narrows by parent.
           return f.children.length === 0 && (!q || f.parents.some(matchParent));
+        case "neverlogged":
+          // The uptake chase list: no parent of the family has EVER
+          // signed in to the portal. Optional text narrows by parent.
+          return !f.parents.some((p) => p.portal?.lastLoginAt) && (!q || f.parents.some(matchParent));
         case "parent":
           return f.parents.some(matchParent);
         case "student":
@@ -646,6 +650,27 @@ export function ManageParents() {
         </div>
       ))}
 
+      {/* Portal uptake at a glance: the principal's question is "who has
+          not accepted" - families whose parents never signed in (23 Sep). */}
+      {families.length > 0 && (() => {
+        const loggedIn = families.filter((f) => f.parents.some((p) => p.portal?.lastLoginAt)).length;
+        const issuedOnly = families.filter((f) =>
+          !f.parents.some((p) => p.portal?.lastLoginAt) && f.parents.some((p) => p.portal?.hasCredential)).length;
+        const noPin = families.length - loggedIn - issuedOnly;
+        return (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+            <span className="font-semibold text-slate-800">Portal uptake:</span>
+            <span className="rounded-full bg-emerald-50 px-2 py-0.5 font-semibold text-emerald-700 ring-1 ring-emerald-200">{loggedIn} logged in</span>
+            <button type="button" onClick={() => setSearchScope("neverlogged")}
+              className="rounded-full bg-amber-50 px-2 py-0.5 font-semibold text-amber-800 ring-1 ring-amber-200 hover:bg-amber-100">
+              {issuedOnly} PIN issued, never used
+            </button>
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-600">{noPin} no PIN yet</span>
+            <span className="text-slate-400">of {families.length} families - the amber ones have their slip but never signed in; send them the PIN slip again from the key button.</span>
+          </div>
+        );
+      })()}
+
       {/* Filter scope chips + search input. Chips narrow which facet
           (parent / student / class) the search matches against. */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
@@ -656,6 +681,7 @@ export function ManageParents() {
             { value: "student" as const, label: "Student name" },
             { value: "class" as const,   label: "Class" },
             { value: "unlinked" as const, label: "Unlinked" },
+            { value: "neverlogged" as const, label: "Never logged in" },
           ]).map((chip) => {
             const active = chip.value === searchScope;
             return (
@@ -739,6 +765,23 @@ export function ManageParents() {
                           )}
                           {p.email && (
                             <span className="inline-flex items-center gap-1 truncate"><Mail className="h-3 w-3 flex-shrink-0" /> <span className="truncate">{p.email}</span></span>
+                          )}
+                          {/* Portal uptake: has this family actually signed
+                              in? The office's chase list starts here (23 Sep). */}
+                          {p.portal && (
+                            p.portal.lastLoginAt ? (
+                              <span className="inline-flex w-fit items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-200">
+                                Portal · last login {new Date(p.portal.lastLoginAt).toLocaleDateString(undefined, { day: "numeric", month: "short" })}
+                              </span>
+                            ) : p.portal.hasCredential ? (
+                              <span className="inline-flex w-fit items-center gap-1 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 ring-1 ring-amber-200">
+                                PIN issued · never logged in
+                              </span>
+                            ) : (
+                              <span className="inline-flex w-fit items-center gap-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
+                                No portal PIN yet
+                              </span>
+                            )
                           )}
                         </div>
                       </div>

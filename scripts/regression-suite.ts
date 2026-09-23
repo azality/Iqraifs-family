@@ -6616,8 +6616,13 @@ await check("117. a stream child is counted ONLY in the subject they take", asyn
   const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
   const { data: term } = await admin.from("academic_term").select("id")
     .eq("org_id", ORG).eq("is_current", true).is("archived_at", null).maybeSingle();
+  // The Sandbox holds two standing portal students; this check needs a
+  // third (chooser / other chooser / undecided), so it keeps one of its
+  // own - QA-namespaced GR per the #698 rule, idempotent via ensure.
+  const pStu3 = await ensurePortalStudent("QA-PORTAL-3", "QA Portal Third");
   const { data: sbStudents } = await admin.from("student").select("id, full_name")
-    .eq("class_section_id", sandboxSec.id).eq("status", "active").limit(3);
+    .eq("class_section_id", sandboxSec.id).eq("status", "active")
+    .in("id", [pStu1, pStu2, pStu3]);
   assert((sbStudents ?? []).length >= 3, "need >=3 sandbox students");
   const [bioKid, compKid, freshKid] = sbStudents!;
   const cleanup: Array<() => Promise<unknown>> = [];
@@ -6714,6 +6719,81 @@ await check("117. a stream child is counted ONLY in the subject they take", asyn
       ] }),
     });
     assert(bad.status === 400, `an absent stamp on the other stream must be refused, got ${bad.status}`);
+  } finally {
+    for (const undo of cleanup.reverse()) await undo();
+  }
+});
+
+await check("118. a hand-in reaches the teacher: list count, bell, review clears - and the office sees who logged in", async () => {
+  // "We ask parents to use their login to submit homework... how will
+  // the teacher know if it was submitted" (23 Sep). Parent AND student
+  // logins both hand in; the assignments list carries sent/new counts;
+  // the teacher's bell names the assignment; reviewing clears it. And
+  // the parents page tells the office who has actually signed in.
+  const cleanup: Array<() => Promise<unknown>> = [];
+  try {
+    // Teacher posts an assignment in their own sandbox section.
+    const mk = await api(teacher.token, `/school/orgs/${ORG}/sections/${sandboxSec.id}/assignments`, {
+      method: "POST",
+      body: JSON.stringify({ title: "QA Hand-in HW", kind: "homework", maxScore: 10, assignedDate: new Date().toISOString().slice(0, 10) }),
+    });
+    const aj = await mk.json();
+    assert(mk.status === 201, `create assignment: ${mk.status}`);
+    const aid = aj.assignment?.id ?? aj.id;
+    cleanup.push(() => admin.from("assignment_submission").delete().eq("assignment_id", aid));
+    cleanup.push(() => admin.from("assignment").delete().eq("id", aid));
+
+    // The PARENT hands in for their child; a STUDENT hands in their own.
+    const pTok = (await (await pinLogin(PARENT_PHONE, "3456")).json()).token;
+    const p1 = await api(pTok, `/school/pin-me/students/${pStu1}/assignments/${aid}/submission`, {
+      method: "POST", body: JSON.stringify({ note: "QA hand-in via parent" }),
+    });
+    assert(p1.status === 201, `parent submission: ${p1.status}`);
+    const sTok = (await (await pinLogin("QA-PORTAL-2", "2345")).json()).token;
+    const p2 = await api(sTok, `/school/pin-me/students/${pStu2}/assignments/${aid}/submission`, {
+      method: "POST", body: JSON.stringify({ note: "QA hand-in via student" }),
+    });
+    assert(p2.status === 201, `student submission: ${p2.status}`);
+
+    // The teacher's LIST says 2 sent, 2 new - without opening anything.
+    const list = await (await api(teacher.token,
+      `/school/orgs/${ORG}/sections/${sandboxSec.id}/assignments`)).json();
+    const row = (list.assignments ?? []).find((a: any) => a.id === aid);
+    assert(row?.submissions?.total === 2 && row?.submissions?.unreviewed === 2,
+      `list must carry the counts, got ${JSON.stringify(row?.submissions)}`);
+
+    // The bell names the assignment.
+    const bell = await (await api(teacher.token, `/school/orgs/${ORG}/me/notifications`)).json();
+    const alert = (bell.alerts ?? bell.notifications ?? []).find((a: any) =>
+      a.kind === "assignment_submissions" && String(a.key).includes(aid));
+    assert(alert && String(alert.title).includes("2 hand-ins"),
+      `the teacher's bell must say 2 hand-ins, got ${JSON.stringify(alert?.title ?? null)}`);
+
+    // The detail names who submitted, and who has NOT.
+    const subs = await (await api(teacher.token,
+      `/school/orgs/${ORG}/assignments/${aid}/submissions`)).json();
+    assert(subs.submissions.length === 2 && subs.notSubmitted.length === subs.studentsTotal - 2,
+      `submissions view: ${subs.submissions.length} in, ${subs.notSubmitted.length} missing of ${subs.studentsTotal}`);
+    const viaParent = subs.submissions.find((s: any) => s.studentId === pStu1);
+    assert(viaParent?.submittedVia === "parent",
+      `the sheet must say WHO submitted - expected via parent, got ${viaParent?.submittedVia}`);
+
+    // Reviewing one clears it from the new-count.
+    const rev = await api(teacher.token, `/school/orgs/${ORG}/submissions/${subs.submissions[0].id}/review`, {
+      method: "POST", body: JSON.stringify({ reviewed: true }),
+    });
+    assert(rev.status === 200, `review: ${rev.status}`);
+    const list2 = await (await api(teacher.token,
+      `/school/orgs/${ORG}/sections/${sandboxSec.id}/assignments`)).json();
+    const row2 = (list2.assignments ?? []).find((a: any) => a.id === aid);
+    assert(row2?.submissions?.unreviewed === 1,
+      `after one review the list must say 1 new, got ${JSON.stringify(row2?.submissions)}`);
+
+    // And the office's parents page shows the login that just happened.
+    const parents = await (await api(office.token, `/school/orgs/${ORG}/parents`)).json();
+    const qaParent = (parents.parents ?? []).find((p: any) => p.phone === PARENT_PHONE);
+    assert(qaParent?.portal?.hasCredential === true && qaParent?.portal?.lastLoginAt,
+      `the parents page must show the family's last login, got ${JSON.stringify(qaParent?.portal ?? null)}`);
   } finally {
     for (const undo of cleanup.reverse()) await undo();
   }
