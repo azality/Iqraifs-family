@@ -48,6 +48,7 @@ const ORG = "63cd5732-5db4-40e1-8fb9-60782bcfd059"; // iqra-ifs
 const SNAPSHOT = "2026-09-07";
 const ARREARS_PERIOD = "2026-08";
 const SEP_PERIOD = "2026-09";
+const NEXT_PERIOD = "2026-10";
 const SOURCE_NOTE = "from the school's fee register (balance as of 7 Sep 2026)";
 const APPLY = Deno.args.includes("--apply");
 
@@ -102,8 +103,46 @@ for (const [clsName, rows] of Object.entries(SHEETS)) {
   const unseen = new Set(byGr.keys());
 
   for (const r of rows) {
-    const s = byGr.get(r.gr);
-    if (!s) { console.error(`  !! GR ${r.gr} ${r.name}: not on ${clsName}'s active roll - REFUSING`); fatal++; continue; }
+    let s = byGr.get(r.gr);
+    let movedFrom: string | null = null;
+    if (!s) {
+      // The sheets were written on 7 Sep and children have moved class
+      // since (Hifz I -> Hifz IV, Catch Up -> Hifz I, 23 Sep). A fee
+      // belongs to the CHILD, not to the sheet it was written on, so
+      // resolve them org-wide and bill them where they sit now. Only a
+      // GR that exists nowhere is fatal.
+      const { data: elsewhere } = await db
+        .from("student")
+        .select("id,gr_number,full_name,class_section:class_section_id(class_id,class:class_id(name))")
+        .eq("org_id", ORG).eq("gr_number", r.gr).eq("status", "active").maybeSingle();
+      if (!elsewhere) {
+        console.error(`  !! GR ${r.gr} ${r.name}: not on any active roll - REFUSING`);
+        fatal++;
+        continue;
+      }
+      s = elsewhere as any;
+      movedFrom = (elsewhere as any).class_section?.class?.name ?? "?";
+      flags.push(`${clsName} GR ${r.gr} ${s!.full_name}: on ${clsName}'s sheet but now in ${movedFrom} - billed where they sit now`);
+      // Their vouchers and override live under the new class, so they
+      // are not in this class's maps - load them for this one child.
+      const { data: theirFees } = await db.from("fee_status")
+        .select("id,student_id,period,amount_due,amount_paid,status").eq("student_id", s!.id);
+      for (const f of theirFees ?? []) feeByKey.set(`${f.student_id}:${f.period}`, f);
+      // A child who has moved keeps the override of the class they
+      // left, so they have TWO - read the one on the class they are
+      // billed under now (the same rule the fees page follows since
+      // v1.3.5), never whichever row comes back first.
+      const nowClassId = (elsewhere as any).class_section?.class_id ?? null;
+      const { data: theirOvrs } = await db.from("student_fee_override")
+        .select("id,student_id,override_amount,waived,plan:class_fee_plan_id(class_id)")
+        .eq("student_id", s!.id);
+      const mine = (theirOvrs ?? []).find((o: any) => o.plan?.class_id === nowClassId);
+      if (mine) ovrByStu.set(s!.id, mine);
+      const strays = (theirOvrs ?? []).length - (mine ? 1 : 0);
+      if (strays > 0) {
+        flags.push(`${clsName} GR ${r.gr} ${s!.full_name}: also carries ${strays} fee override${strays === 1 ? "" : "s"} from the class they left - dormant, left in place`);
+      }
+    }
     unseen.delete(r.gr);
     if (r.fee === 0 && r.arrears === 0) { console.log(`  ${r.gr} ${s.full_name}: free seat, skipped`); continue; }
 
@@ -118,7 +157,13 @@ for (const [clsName, rows] of Object.entries(SHEETS)) {
       flags.push(`${clsName} GR ${r.gr} ${s.full_name}: payment column says UNPAID but balance ${balance} implies ${derived} arrived - recorded NOTHING, ask the office which is right`);
     } else if (r.payment > derived) {
       paid = r.payment; // overpayment - money received is money received
-      if (r.payment !== derived) flags.push(`${clsName} GR ${r.gr} ${s.full_name}: paid ${r.payment} against ${totalDue} due (balance 0) - recorded the full ${r.payment}`);
+      if (r.payment !== derived) {
+        flags.push(
+          `${clsName} GR ${r.gr} ${s.full_name}: Payment column says ${r.payment}, ` +
+          `Balance column says ${balance} against ${totalDue} due (which implies ${derived} arrived) - ` +
+          `recorded the ${r.payment} written as received; ask the office to confirm`,
+        );
+      }
     } else if (r.payment < derived && derived - r.payment <= 100) {
       paid = derived; // balance column is the school's word that it's settled
       flags.push(`${clsName} GR ${r.gr} ${s.full_name}: payment written ${r.payment}, balance says settled at ${derived} - recorded ${derived}`);
@@ -144,6 +189,10 @@ for (const [clsName, rows] of Object.entries(SHEETS)) {
       if (APPLY) {
         if (o) {
           await db.from("student_fee_override").update({ override_amount: r.fee, waived: false }).eq("id", o.id);
+        } else if (movedFrom) {
+          // `plan` belongs to the sheet's class, which is not theirs any
+          // more - never pin a fee to a class the child has left.
+          flags.push(`${clsName} GR ${r.gr} ${s!.full_name}: moved to ${movedFrom} and has no fee override there - set their monthly fee (${r.fee}) on ${movedFrom}'s plan by hand`);
         } else if (plan) {
           await db.from("student_fee_override").insert({
             org_id: ORG, student_id: s.id, class_fee_plan_id: plan.id,
@@ -197,19 +246,54 @@ for (const [clsName, rows] of Object.entries(SHEETS)) {
           if (Number(sep.amount_paid ?? 0) > 0) {
             flags.push(`${clsName} GR ${r.gr}: September already has ${sep.amount_paid} recorded - payment NOT re-recorded`);
           } else {
-            const status = toSep >= r.fee ? "paid" : "partial";
-            acts.push(`Sep paid ${toSep} (${status})`);
+            // Money over September's fee is an ADVANCE, not an
+            // overpayment parked on a settled month. The office set
+            // this rule for Abu Bakar's Rs 200 ("next month 5800"), so
+            // the excess opens October carrying it. Anything past a
+            // whole further month is left for the office to place.
+            const onSep = Math.min(toSep, r.fee);
+            const advance = Math.min(toSep - onSep, r.fee);
+            const spare = toSep - onSep - advance;
+            const status = onSep >= r.fee ? "paid" : "partial";
+            acts.push(`Sep paid ${onSep} (${status})${advance > 0 ? ` | ${advance} advance -> Oct` : ""}`);
             stats.payments++;
             if (status === "paid") stats.settled++; else stats.partial++;
+            if (advance > 0) {
+              flags.push(`${clsName} GR ${r.gr} ${s.full_name}: paid ${toSep} against a ${r.fee} fee - ${advance} carried onto October as an advance${spare > 0 ? `, and ${spare} MORE is unplaced - tell me where it goes` : ""}`);
+            }
             if (APPLY) {
               await db.from("fee_payment").insert({
                 org_id: ORG, fee_status_id: sep.id, student_id: s.id,
-                amount: toSep, paid_on: SNAPSHOT, notes: SOURCE_NOTE,
+                amount: onSep, paid_on: SNAPSHOT, notes: SOURCE_NOTE,
               });
               await db.from("fee_status").update({
-                amount_paid: toSep, status,
+                amount_paid: onSep, status,
                 paid_date: status === "paid" ? SNAPSHOT : null,
               }).eq("id", sep.id);
+              if (advance > 0) {
+                let octId = feeByKey.get(`${s.id}:${NEXT_PERIOD}`)?.id;
+                if (!octId) {
+                  const { data: ins, error } = await db.from("fee_status").insert({
+                    org_id: ORG, student_id: s.id, period: NEXT_PERIOD,
+                    amount_due: r.fee, amount_paid: 0, status: "unpaid",
+                    due_date: `${NEXT_PERIOD}-15`,
+                    notes: `Monthly Tuition: ${r.fee}; opened early to carry Rs ${advance} paid in advance on ${SNAPSHOT}.`,
+                  }).select("id").single();
+                  if (error) { console.error(`  October voucher failed ${r.gr}: ${error.message}`); fatal++; continue; }
+                  octId = ins.id;
+                }
+                await db.from("fee_payment").insert({
+                  org_id: ORG, fee_status_id: octId, student_id: s.id,
+                  amount: advance, paid_on: SNAPSHOT,
+                  notes: `Advance - paid over September's fee on ${SNAPSHOT}.`,
+                });
+                const st2 = advance >= r.fee ? "paid" : "partial";
+                await db.from("fee_status").update({
+                  amount_paid: advance, status: st2,
+                  paid_date: st2 === "paid" ? SNAPSHOT : null,
+                }).eq("id", octId);
+                stats.payments++;
+              }
             }
           }
         } else stats.unpaidRows++;
