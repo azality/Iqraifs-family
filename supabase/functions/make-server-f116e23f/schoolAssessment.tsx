@@ -27,7 +27,7 @@
 
 import { paperOfExam, subjectSitsExam, progressForSection } from "./markingProgress.ts";
 import { loadSitsResolver } from "./subjectStreamsLoad.ts";
-import { deadlineState, type DeadlineState } from "./marksDeadline.ts";
+import { deadlineState, effectiveSchedule, type DeadlineState } from "./marksDeadline.ts";
 import { loadExamScores, gradebookExams, resolveMarkingTerm } from "./schoolMarkingProgress.tsx";
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
@@ -103,15 +103,33 @@ async function marksLockFor(
   orgId: string,
   termId: string | null | undefined,
   userId: string,
+  classId?: string | null,
 ): Promise<DeadlineState> {
   if (!termId) return deadlineState({ deadlineAt: null, exceptionUntil: null, isAdmin: false });
   const [{ data: term }, admin] = await Promise.all([
     serviceRoleClient.from("academic_term")
-      .select("marks_deadline_at").eq("id", termId).maybeSingle(),
+      .select("marks_deadline_at, results_publish_at").eq("id", termId).maybeSingle(),
     isAdminOrPrincipal(userId, orgId),
   ]);
+  // The class may hold its own moment - or an exemption (24 Sep: the
+  // school-wide deadline, "if they want to omit they should be able").
+  let deadlineAt: string | null = (term as any)?.marks_deadline_at ?? null;
+  if (classId) {
+    const { data: ov } = await serviceRoleClient
+      .from("term_class_schedule")
+      .select("marks_deadline_at, marks_deadline_off, results_publish_at")
+      .eq("term_id", termId).eq("class_id", classId).maybeSingle();
+    if (ov) {
+      deadlineAt = effectiveSchedule(
+        { marksDeadlineAt: deadlineAt, resultsPublishAt: null },
+        { marksDeadlineAt: (ov as any).marks_deadline_at ?? null,
+          marksDeadlineOff: !!(ov as any).marks_deadline_off,
+          resultsPublishAt: null },
+      ).marksDeadlineAt;
+    }
+  }
   let exceptionUntil: string | null = null;
-  if (!admin && (term as any)?.marks_deadline_at) {
+  if (!admin && deadlineAt) {
     const { data: ex } = await serviceRoleClient
       .from("marks_deadline_exception")
       .select("until_at").eq("term_id", termId).eq("user_id", userId)
@@ -119,7 +137,7 @@ async function marksLockFor(
     exceptionUntil = (ex as any)?.until_at ?? null;
   }
   return deadlineState({
-    deadlineAt: (term as any)?.marks_deadline_at ?? null,
+    deadlineAt,
     exceptionUntil,
     isAdmin: admin,
   });
@@ -149,19 +167,66 @@ async function hydrateTeacherNamesAssess(ids: string[]): Promise<Map<string, str
  *  next read. Every surface keeps its published_at semantics. Exported
  *  for the portal, which reads cards without knowing the term. */
 export async function applyScheduledPublish(orgId: string): Promise<void> {
+  const nowIso = new Date().toISOString();
+
+  // A class's OWN results day (primary one day, secondary another,
+  // Hifz its own - 24 Sep): stamp that class's finalized cards at its
+  // own moment.
+  const { data: dueOv } = await serviceRoleClient
+    .from("term_class_schedule")
+    .select("term_id, class_id, results_publish_at")
+    .eq("org_id", orgId)
+    .not("results_publish_at", "is", null)
+    .lte("results_publish_at", nowIso);
+  const studentsOfClass = async (classId: string): Promise<string[]> => {
+    const { data: secs } = await serviceRoleClient
+      .from("class_section").select("id").eq("class_id", classId);
+    const secIds = ((secs ?? []) as any[]).map((s) => s.id);
+    if (!secIds.length) return [];
+    const { data: stus } = await serviceRoleClient
+      .from("student").select("id").in("class_section_id", secIds);
+    return ((stus ?? []) as any[]).map((s) => s.id);
+  };
+  for (const ov of (dueOv ?? []) as any[]) {
+    const ids = await studentsOfClass(ov.class_id);
+    if (!ids.length) continue;
+    await serviceRoleClient
+      .from("term_report_card")
+      .update({ published_at: ov.results_publish_at })
+      .eq("term_id", ov.term_id)
+      .in("student_id", ids)
+      .not("finalized_at", "is", null)
+      .is("published_at", null);
+  }
+
+  // The whole school's day - skipping any class that has its OWN day
+  // (due or not: its cards wait for its own moment).
   const { data: due } = await serviceRoleClient
     .from("academic_term")
     .select("id, results_publish_at")
     .eq("org_id", orgId)
     .not("results_publish_at", "is", null)
-    .lte("results_publish_at", new Date().toISOString());
+    .lte("results_publish_at", nowIso);
   for (const t of (due ?? []) as any[]) {
-    await serviceRoleClient
+    const { data: ownDay } = await serviceRoleClient
+      .from("term_class_schedule")
+      .select("class_id")
+      .eq("term_id", t.id)
+      .not("results_publish_at", "is", null);
+    let excluded: string[] = [];
+    for (const o of (ownDay ?? []) as any[]) {
+      excluded = excluded.concat(await studentsOfClass(o.class_id));
+    }
+    let q = serviceRoleClient
       .from("term_report_card")
       .update({ published_at: t.results_publish_at })
       .eq("term_id", t.id)
       .not("finalized_at", "is", null)
       .is("published_at", null);
+    if (excluded.length) {
+      q = q.not("student_id", "in", `(${excluded.join(",")})`);
+    }
+    await q;
   }
 }
 function examToJson(r: any) {
@@ -562,10 +627,32 @@ export function installAssessment(school: Hono): void {
       term: { id: (term as any).id, name: (term as any).name },
       // The admin's clock on this term (23 Sep): teachers' entry locks
       // at the deadline; finalized cards reach parents at results day.
-      schedule: {
-        marksDeadlineAt: (term as any).marks_deadline_at ?? null,
-        resultsPublishAt: (term as any).results_publish_at ?? null,
-      },
+      // Whole-school values + per-class overrides (24 Sep: primary and
+      // secondary publish on different days, Hifz on its own; a class
+      // can be exempt from the deadline) + what THIS class ends up with.
+      schedule: await (async () => {
+        const school = {
+          marksDeadlineAt: (term as any).marks_deadline_at ?? null,
+          resultsPublishAt: (term as any).results_publish_at ?? null,
+        };
+        const { data: ovRows } = await serviceRoleClient
+          .from("term_class_schedule")
+          .select("class_id, marks_deadline_at, marks_deadline_off, results_publish_at, class:class_id(name)")
+          .eq("term_id", termId).eq("org_id", orgId);
+        const overrides = ((ovRows ?? []) as any[]).map((o) => ({
+          classId: o.class_id,
+          className: o.class?.name ?? "",
+          marksDeadlineAt: o.marks_deadline_at ?? null,
+          marksDeadlineOff: !!o.marks_deadline_off,
+          resultsPublishAt: o.results_publish_at ?? null,
+        }));
+        const mine = overrides.find((o) => o.classId === (sec as any).class?.id) ?? null;
+        return {
+          ...school,
+          overrides,
+          effective: effectiveSchedule(school, mine),
+        };
+      })(),
       unchosenStreams,
       passMarkPct,
       exams: examList.map((e) => ({ id: e.id, name: e.name, nameEn: e.name_en ?? null, weight: Number(e.weight) || 1 })),
@@ -958,6 +1045,56 @@ export function installAssessment(school: Hono): void {
       .from("academic_term").update(patch).eq("id", termId).select("*").single();
     if (error) return c.json({ error: error.message }, 500);
     return c.json({ term: termToJson(data) });
+  });
+
+  // PUT /orgs/:orgId/terms/:termId/class-schedule/:classId
+  //   { marksDeadlineAt?: iso|null, marksDeadlineOff?: bool, resultsPublishAt?: iso|null }
+  // One class's own clock: its own deadline, an exemption, or its own
+  // results day (24 Sep). Upserts; all-null/off rows are removed via
+  // DELETE. Admin only.
+  school.put("/orgs/:orgId/terms/:termId/class-schedule/:classId", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const termId = c.req.param("termId");
+    const classId = c.req.param("classId");
+    if (!(await isAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    const [{ data: term }, { data: klass }] = await Promise.all([
+      serviceRoleClient.from("academic_term").select("org_id").eq("id", termId).maybeSingle(),
+      serviceRoleClient.from("class").select("org_id").eq("id", classId).maybeSingle(),
+    ]);
+    if (!term || (term as any).org_id !== orgId) return c.json({ error: "term not found" }, 404);
+    if (!klass || (klass as any).org_id !== orgId) return c.json({ error: "class not found" }, 404);
+    const body = await c.req.json().catch(() => ({}));
+    const iso = (v: unknown): string | null | undefined => {
+      if (v === null || v === undefined) return null;
+      if (typeof v !== "string") return undefined;
+      const d = new Date(v);
+      return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
+    };
+    const dl = iso(body.marksDeadlineAt);
+    const rp = iso(body.resultsPublishAt);
+    if (dl === undefined || rp === undefined) return c.json({ error: "invalid datetime" }, 400);
+    const { error } = await serviceRoleClient
+      .from("term_class_schedule")
+      .upsert({
+        org_id: orgId, term_id: termId, class_id: classId,
+        marks_deadline_at: dl, marks_deadline_off: body.marksDeadlineOff === true,
+        results_publish_at: rp,
+      }, { onConflict: "term_id,class_id" });
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ ok: true });
+  });
+
+  school.delete("/orgs/:orgId/terms/:termId/class-schedule/:classId", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await isAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    const { error } = await serviceRoleClient
+      .from("term_class_schedule")
+      .delete().eq("term_id", c.req.param("termId"))
+      .eq("class_id", c.req.param("classId")).eq("org_id", orgId);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ ok: true });
   });
 
   // Exceptions: one teacher, until one moment. Admin only.
@@ -1522,7 +1659,7 @@ export function installAssessment(school: Hono): void {
         : null,
       // This CALLER's deadline state - their exception makes their own
       // countdown honest (23 Sep).
-      marksDeadline: await marksLockFor(orgId, sheetTermId, userId),
+      marksDeadline: await marksLockFor(orgId, sheetTermId, userId, classId),
       // The school's pass line, so a mark under it reads red AS IT IS
       // TYPED rather than only on the register afterwards (22 Sep).
       passMarkPct: await orgPassMarkPct(orgId),
@@ -1626,10 +1763,15 @@ export function installAssessment(school: Hono): void {
       }
     }
 
-    // The admin's clock (23 Sep): past the term's marks deadline a
-    // teacher's saves are refused - the admin extends the deadline or
-    // grants them their own later moment. Admin/principal never lock.
-    const lock = await marksLockFor(orgId, (exam as any).term_id, userId);
+    // The admin's clock (23 Sep): past the marks deadline a teacher's
+    // saves are refused - the admin extends the deadline or grants them
+    // their own later moment. Admin/principal never lock. The section's
+    // CLASS may hold its own deadline or an exemption (24 Sep), so the
+    // class is resolved first (and reused by the stream gate below).
+    const { data: secForWrite } = await serviceRoleClient
+      .from("class_section").select("class_id").eq("id", sectionId).maybeSingle();
+    const lock = await marksLockFor(
+      orgId, (exam as any).term_id, userId, (secForWrite as any)?.class_id ?? null);
     if (lock.locked) {
       const when = new Date(lock.effectiveAt!).toLocaleString("en-GB", { timeZone: "Asia/Karachi", hour12: true });
       return c.json({
@@ -1645,8 +1787,6 @@ export function installAssessment(school: Hono): void {
     // Streams: a mark - or an absent stamp - may only land on a child
     // who TAKES the subject. The Biology teacher stamping her computer
     // students "absent" is exactly what this refuses (23 Sep).
-    const { data: secForWrite } = await serviceRoleClient
-      .from("class_section").select("class_id").eq("id", sectionId).maybeSingle();
     const { data: subsForWrite } = await serviceRoleClient
       .from("class_subject").select("id, name, elective_group")
       .eq("class_id", (secForWrite as any)?.class_id ?? "");

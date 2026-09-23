@@ -1,5 +1,5 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { deadlineState } from "./marksDeadline.ts";
+import { deadlineState, effectiveSchedule } from "./marksDeadline.ts";
 
 const TWO_PM = "2026-09-24T09:00:00.000Z"; // 2pm PKT
 const ONE_PM = new Date("2026-09-24T08:00:00.000Z");
@@ -38,4 +38,32 @@ Deno.test("an exception EARLIER than the deadline never shortens anyone's time",
   const s = deadlineState({ deadlineAt: TWO_PM, exceptionUntil: NOON, isAdmin: false, now: ONE_PM });
   assertEquals(s.locked, false);
   assertEquals(s.effectiveAt, TWO_PM);
+});
+
+// ── effectiveSchedule: whole school vs one class's override ────────────
+
+const SCHOOL = { marksDeadlineAt: TWO_PM, resultsPublishAt: "2026-09-30T05:00:00.000Z" };
+
+Deno.test("no override - a class follows the whole school", () => {
+  assertEquals(effectiveSchedule(SCHOOL, null), SCHOOL);
+});
+
+Deno.test("deadline OFF exempts the class even when the school has one", () => {
+  const s = effectiveSchedule(SCHOOL, { marksDeadlineAt: null, marksDeadlineOff: true, resultsPublishAt: null });
+  assertEquals(s.marksDeadlineAt, null);
+  assertEquals(s.resultsPublishAt, SCHOOL.resultsPublishAt); // results still inherit
+});
+
+Deno.test("a class's own moments beat the school's; a null field inherits", () => {
+  const OWN_DL = "2026-09-25T09:00:00.000Z";
+  const OWN_RES = "2026-10-02T05:00:00.000Z";
+  const both = effectiveSchedule(SCHOOL, { marksDeadlineAt: OWN_DL, marksDeadlineOff: false, resultsPublishAt: OWN_RES });
+  assertEquals(both, { marksDeadlineAt: OWN_DL, resultsPublishAt: OWN_RES });
+  const onlyResults = effectiveSchedule(SCHOOL, { marksDeadlineAt: null, marksDeadlineOff: false, resultsPublishAt: OWN_RES });
+  assertEquals(onlyResults, { marksDeadlineAt: TWO_PM, resultsPublishAt: OWN_RES });
+});
+
+Deno.test("deadline OFF wins even when an own deadline is also stored", () => {
+  const s = effectiveSchedule(SCHOOL, { marksDeadlineAt: "2026-09-25T09:00:00.000Z", marksDeadlineOff: true, resultsPublishAt: null });
+  assertEquals(s.marksDeadlineAt, null);
 });

@@ -303,6 +303,9 @@ export function TabulationSheet() {
               orgId={orgId}
               termId={data.term.id}
               schedule={data.schedule}
+              classes={classes}
+              currentClassId={classes.find((c) =>
+                (c.sections ?? []).some((s) => s.id === data.section.id))?.id ?? null}
               onChanged={() => {
                 getTabulation(orgId, data.section.id, data.term.id).then(setData).catch(() => {});
               }}

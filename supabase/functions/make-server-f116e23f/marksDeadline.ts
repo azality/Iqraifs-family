@@ -27,6 +27,30 @@ export interface DeadlineState {
   effectiveAt: string | null;
 }
 
+/** A class's optional override row (term_class_schedule). */
+export interface ClassScheduleOverride {
+  marksDeadlineAt: string | null;
+  marksDeadlineOff: boolean;
+  resultsPublishAt: string | null;
+}
+
+/** The moments that actually apply to ONE class: the school-wide term
+ *  values unless the class holds an override. `deadlineOff` exempts the
+ *  class from any deadline; a null override field means "follow the
+ *  school". Resolution, not policy - deadlineState stays the one gate. */
+export function effectiveSchedule(
+  term: { marksDeadlineAt: string | null; resultsPublishAt: string | null },
+  override: ClassScheduleOverride | null | undefined,
+): { marksDeadlineAt: string | null; resultsPublishAt: string | null } {
+  if (!override) return { marksDeadlineAt: term.marksDeadlineAt, resultsPublishAt: term.resultsPublishAt };
+  return {
+    marksDeadlineAt: override.marksDeadlineOff
+      ? null
+      : (override.marksDeadlineAt ?? term.marksDeadlineAt),
+    resultsPublishAt: override.resultsPublishAt ?? term.resultsPublishAt,
+  };
+}
+
 export function deadlineState(i: DeadlineInputs): DeadlineState {
   const now = i.now ?? new Date();
   if (!i.deadlineAt || i.isAdmin) {
