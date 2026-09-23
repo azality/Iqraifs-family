@@ -6811,6 +6811,37 @@ await check("118. a hand-in reaches the teacher: list count, bell, review clears
   }
 });
 
+await check("119. the dashboard's FEES PAID % is the fees page's own number", async () => {
+  // The tile said 78% while the fees page said 80% and the office asked
+  // which one lied (23 Sep): the tile counted fully-paid CHILDREN, the
+  // page counts RUPEES. One question, one number - money collected over
+  // money billed for the current month, waived out, sandbox out.
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const period = new Date().toISOString().slice(0, 7);
+  const { data } = await admin.from("fee_status")
+    .select("status, amount_due, amount_paid, student:student_id(class_section:class_section_id(schedule_key))")
+    .eq("org_id", ORG).eq("period", period);
+  const rows = ((data ?? []) as any[]).filter(
+    (r) => r.status !== "waived" && r.student?.class_section?.schedule_key !== "sandbox",
+  );
+  const due = rows.reduce((a, r) => a + (Number(r.amount_due) || 0), 0);
+  const got = rows.reduce((a, r) => a + (Number(r.amount_paid) || 0), 0);
+  const expected = due > 0 ? Math.round((got / due) * 100) : null;
+
+  const dash = await (await api(admin2.token, `/school/orgs/${ORG}/dashboard`)).json();
+  const tile = dash.tiles?.feesPaidPct;
+  assert(tile, "the dashboard must carry the fees tile");
+  if (expected === null) {
+    assert(tile.value === null, `no billing this month must read null, got ${tile.value}`);
+    return;
+  }
+  assert(tile.value === expected,
+    `tile ${tile.value}% must equal the fees page's money ratio ${expected}% ` +
+    `(Rs ${got} of Rs ${due})`);
+  assert(String(tile.hint).includes("Rs "),
+    `the hint should say the rupees so nobody re-derives it, got "${tile.hint}"`);
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

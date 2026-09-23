@@ -1134,22 +1134,37 @@ export function installDashboard(school: Hono): void {
       }
     }
 
-    // FEES PAID tile — % of fee_status rows for the current period that are
-    // marked paid. "Current period" here means the month-string matching
-    // today (e.g. "2026-06"). Honest fallback when no rows exist.
+    // FEES PAID tile — the MONEY collected this month as a share of the
+    // money billed, the same number the fees page headlines. It used to
+    // count fully-paid CHILDREN instead, so the dashboard said 78% while
+    // the fees page said 80% and the office asked which one lied
+    // (23 Sep). Same rules as that page: waived rows out, QA Sandbox
+    // out (every rollup's rule). Honest fallback when no rows exist.
     const currentFeePeriod = `${end.getUTCFullYear()}-${String(end.getUTCMonth() + 1).padStart(2, "0")}`;
     const feesTile: { value: number | null; hint: string } = (await (async () => {
       const { data } = await serviceRoleClient
         .from("fee_status")
-        .select("status")
+        .select("status, amount_due, amount_paid, student:student_id(class_section:class_section_id(schedule_key))")
         .eq("org_id", orgId)
         .eq("period", currentFeePeriod);
-      if (!data || data.length === 0) {
+      const rows = ((data ?? []) as any[]).filter(
+        (r) => r.status !== "waived" && r.student?.class_section?.schedule_key !== "sandbox",
+      );
+      if (rows.length === 0) {
         return { value: null, hint: "No fee records this month" };
       }
-      const paid = data.filter((r: any) => r.status === "paid").length;
-      const pct = Math.round((paid / data.length) * 100);
-      return { value: pct, hint: `${paid} of ${data.length} paid this month` };
+      let due = 0, got = 0, fullyPaid = 0;
+      for (const r of rows) {
+        due += Number(r.amount_due) || 0;
+        got += Number(r.amount_paid) || 0;
+        if (r.status === "paid") fullyPaid++;
+      }
+      if (due <= 0) return { value: null, hint: "No fee records this month" };
+      const pct = Math.round((got / due) * 100);
+      return {
+        value: pct,
+        hint: `Rs ${Math.round(got).toLocaleString()} of Rs ${Math.round(due).toLocaleString()} this month · ${fullyPaid} of ${rows.length} families fully paid`,
+      };
     })());
 
     // FORMS AWAITING tile — count of published forms whose deadline hasn't
