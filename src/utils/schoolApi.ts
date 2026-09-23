@@ -5481,6 +5481,22 @@ export interface MarksException {
   note: string | null;
   createdAt: string;
 }
+/** One class's own clock (v1.6.0): its own deadline, an exemption from
+ *  the school's, or its own results day. Null fields inherit. */
+export interface ClassScheduleOverride {
+  classId: string;
+  className: string;
+  marksDeadlineAt: string | null;
+  marksDeadlineOff: boolean;
+  resultsPublishAt: string | null;
+}
+export interface TermSchedule {
+  marksDeadlineAt: string | null;
+  resultsPublishAt: string | null;
+  overrides?: ClassScheduleOverride[];
+  /** What THIS sheet's class ends up with after overrides. */
+  effective?: { marksDeadlineAt: string | null; resultsPublishAt: string | null };
+}
 export const patchTermSchedule = (
   orgId: string,
   termId: string,
@@ -5504,6 +5520,17 @@ export const revokeMarksException = (
   orgId: string, exceptionId: string,
 ): Promise<{ ok: true }> =>
   apiCall(`/school/orgs/${orgId}/marks-exceptions/${exceptionId}`, { method: "DELETE" });
+export const putClassSchedule = (
+  orgId: string, termId: string, classId: string,
+  body: { marksDeadlineAt?: string | null; marksDeadlineOff?: boolean; resultsPublishAt?: string | null },
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/terms/${termId}/class-schedule/${classId}`, {
+    method: "PUT", body: JSON.stringify(body),
+  });
+export const deleteClassSchedule = (
+  orgId: string, termId: string, classId: string,
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/terms/${termId}/class-schedule/${classId}`, { method: "DELETE" });
 export interface Exam {
   id: string;
   orgId: string;
@@ -5639,7 +5666,7 @@ export interface TabulationResponse {
    *  and 40 of 100 are both 40%. Marks under it paint red. */
   passMarkPct?: number;
   /** The admin's clock on this term (v1.5.0). */
-  schedule?: { marksDeadlineAt: string | null; resultsPublishAt: string | null };
+  schedule?: TermSchedule;
   /** Streams: children yet to choose a subject of an elective group —
    *  they sit NONE of the group's subjects until the school decides.
    *  Server >= v1.3.6. */

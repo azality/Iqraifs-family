@@ -6985,7 +6985,9 @@ await check("121. the marks deadline locks a teacher, spares the office, bends t
     const pastIso = new Date(Date.now() - HOUR).toISOString();
     const set = await patchSchedule({ marksDeadlineAt: pastIso });
     const setJ = await set.json();
-    assert(set.status === 200 && setJ.term?.marksDeadlineAt === pastIso,
+    // Compare INSTANTS - Postgres echoes +00:00 where we sent Z.
+    assert(set.status === 200 &&
+      new Date(setJ.term?.marksDeadlineAt ?? 0).getTime() === new Date(pastIso).getTime(),
       `schedule PATCH must echo the deadline, got ${set.status}: ${JSON.stringify(setJ.term?.marksDeadlineAt)}`);
 
     // The teacher's sheet SAYS it is closed, and their save is refused.
@@ -7019,8 +7021,30 @@ await check("121. the marks deadline locks a teacher, spares the office, bends t
     assert(rev.status === 200, `revoke: ${rev.status}`);
     assert((await save(t2.token, 41)).status === 403, "a revoked exception must lock the teacher again");
 
+    // Class differences (24 Sep): the deadline is the WHOLE SCHOOL's,
+    // but a class can be exempted - or given its own moment.
+    const classSched = (body: unknown) => api(admin2.token,
+      `/school/orgs/${ORG}/terms/${termId}/class-schedule/${sandboxClass.id}`,
+      { method: "PUT", body: JSON.stringify(body) });
+    assert((await classSched({ marksDeadlineOff: true })).status === 200, "exempt PUT");
+    assert((await save(t2.token, 42)).status === 200,
+      "an EXEMPT class saves even after the school's deadline");
+    assert((await classSched({ marksDeadlineAt: pastIso, marksDeadlineOff: false })).status === 200,
+      "own-deadline PUT");
+    assert((await save(t2.token, 43)).status === 403,
+      "a class's OWN past deadline locks its teacher");
+    // The sheet the office reads names both layers.
+    const tabSched = (await (await api(admin2.token,
+      `/school/orgs/${ORG}/sections/${sandboxSec.id}/tabulation?termId=${termId}`)).json()).schedule;
+    assert((tabSched?.overrides ?? []).some((o: any) => o.classId === sandboxClass.id),
+      "the tabulation must list the class override");
+    assert(tabSched?.effective?.marksDeadlineAt,
+      "the tabulation must say what THIS class ends up with");
+
     // Results day: a finalized card + a scheduled moment in the past =
     // published on the next read, stamped with the SCHEDULED time.
+    // A class with its OWN results day waits for its own moment even
+    // when the school's day has arrived (primary/secondary/Hifz).
     await admin.from("term_report_card").delete().eq("term_id", termId).eq("student_id", pStu1);
     const { error: rcErr } = await admin.from("term_report_card").insert({
       org_id: ORG, student_id: pStu1, term_id: termId,
@@ -7030,13 +7054,29 @@ await check("121. the marks deadline locks a teacher, spares the office, bends t
     cleanup.push(() => admin.from("term_report_card").delete().eq("term_id", termId));
     const publishIso = new Date(Date.now() - 5 * 60_000).toISOString();
     assert((await patchSchedule({ resultsPublishAt: publishIso })).status === 200, "results day PATCH");
+    const futureIso = new Date(Date.now() + 3_600_000).toISOString();
+    assert((await classSched({ marksDeadlineAt: pastIso, resultsPublishAt: futureIso })).status === 200,
+      "own results day PUT");
     // Any tabulation read applies due schedules org-wide.
-    await api(admin2.token, `/school/orgs/${ORG}/sections/${sandboxSec.id}/tabulation`);
-    const { data: card } = await admin.from("term_report_card")
-      .select("published_at").eq("term_id", termId).eq("student_id", pStu1).maybeSingle();
-    assert((card as any)?.published_at &&
-      new Date((card as any).published_at).getTime() === new Date(publishIso).getTime(),
-      `the card must be stamped with the scheduled moment, got ${JSON.stringify(card)}`);
+    const readTab = () => api(admin2.token, `/school/orgs/${ORG}/sections/${sandboxSec.id}/tabulation`);
+    await readTab();
+    const cardAt = async () => (await admin.from("term_report_card")
+      .select("published_at").eq("term_id", termId).eq("student_id", pStu1).maybeSingle()).data as any;
+    assert(!(await cardAt())?.published_at,
+      "a class with its OWN future results day must NOT publish on the school's day");
+    const ovPast = new Date(Date.now() - 10 * 60_000).toISOString();
+    assert((await classSched({ marksDeadlineAt: pastIso, resultsPublishAt: ovPast })).status === 200,
+      "own past results day PUT");
+    await readTab();
+    const stamped = await cardAt();
+    assert(stamped?.published_at &&
+      new Date(stamped.published_at).getTime() === new Date(ovPast).getTime(),
+      `the card must be stamped with the CLASS's own moment, got ${JSON.stringify(stamped)}`);
+    // The override dies with the QA term (FK cascade), but delete it
+    // explicitly so a partial cleanup never leaves the real sandbox
+    // class carrying QA times.
+    cleanup.push(() => api(admin2.token,
+      `/school/orgs/${ORG}/terms/${termId}/class-schedule/${sandboxClass.id}`, { method: "DELETE" }));
   } finally {
     for (const undo of cleanup.reverse()) await undo();
   }
