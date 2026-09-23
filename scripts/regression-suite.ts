@@ -6735,7 +6735,13 @@ await check("118. a hand-in reaches the teacher: list count, bell, review clears
     // Teacher posts an assignment in their own sandbox section.
     const mk = await api(teacher.token, `/school/orgs/${ORG}/sections/${sandboxSec.id}/assignments`, {
       method: "POST",
-      body: JSON.stringify({ title: "QA Hand-in HW", kind: "homework", maxScore: 10, assignedDate: new Date().toISOString().slice(0, 10) }),
+      body: JSON.stringify({
+        title: "QA Hand-in HW", kind: "homework", maxScore: 10,
+        assignedDate: new Date().toISOString().slice(0, 10),
+        // A subject is required wherever the section has live subjects
+        // (SUBJECT_REQUIRED, 10 Sep) - the sandbox has QA Subject.
+        sectionSubjectId: qaSs.id,
+      }),
     });
     const aj = await mk.json();
     assert(mk.status === 201, `create assignment: ${mk.status}`);
