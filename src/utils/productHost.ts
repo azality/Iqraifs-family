@@ -78,10 +78,18 @@ export function noFamilyDestination(opts: {
 // brand-new parent holding a real invite.
 const FAMILY_SETUP_PREFIXES = ["/onboarding", "/join-pending"];
 
+/** Is this one of the family-setup paths, on any host? Exported on its
+ *  own because main.tsx must know BEFORE the router exists: the
+ *  host->slug lookup normally runs on the bare root only, and a deep
+ *  /onboarding load needs it too or the guard has no slug to read. */
+export function isFamilySetupPath(pathname: string): boolean {
+  return FAMILY_SETUP_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
+}
+
 export function familySetupOnSchoolHost(
   schoolSlug: string | null | undefined,
   pathname: string,
 ): boolean {
   if (!schoolSlug) return false;
-  return FAMILY_SETUP_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
+  return isFamilySetupPath(pathname);
 }
