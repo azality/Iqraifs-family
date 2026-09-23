@@ -1829,8 +1829,39 @@ export function installPhaseA(school: Hono) {
     const { data, error } = await q.order("full_name").limit(500);
     if (error) return c.json({ error: error.message }, 500);
 
+    // Portal uptake (23 Sep): "is there a way to see if the parents
+    // have logged in - last login or never - so we know who hasn't
+    // accepted". The pin-login path stamps last_login_at on the
+    // credential; surface it per family. Canonical-aware: a login at
+    // any aliased row counts as the ROOT parent, so read the credential
+    // by canonical_id ?? id.
+    const credByParent = new Map<string, { lastLoginAt: string | null; mustChange: boolean }>();
+    {
+      const effIds = [...new Set((data ?? []).map((p: any) => p.canonical_id ?? p.id))];
+      for (let i = 0; i < effIds.length; i += 200) {
+        const { data: creds } = await serviceRoleClient
+          .from("pin_credential")
+          .select("subject_id, last_login_at, must_change")
+          .eq("subject_type", "parent")
+          .in("subject_id", effIds.slice(i, i + 200));
+        for (const cr of ((creds ?? []) as any[])) {
+          const prev = credByParent.get(cr.subject_id);
+          // A parent can hold more than one credential row across
+          // campuses - keep the most recent login.
+          if (!prev || (cr.last_login_at ?? "") > (prev.lastLoginAt ?? "")) {
+            credByParent.set(cr.subject_id, {
+              lastLoginAt: cr.last_login_at ?? null,
+              mustChange: !!cr.must_change,
+            });
+          }
+        }
+      }
+    }
+
     // Flatten the nested shape into a `children` array on each parent.
-    const parents = (data ?? []).map((p: any) => ({
+    const parents = (data ?? []).map((p: any) => {
+      const cred = credByParent.get(p.canonical_id ?? p.id) ?? null;
+      return {
       ...p,
       children: (p.student_parent ?? [])
         .map((sp: any) => sp.student ? {
@@ -1842,7 +1873,16 @@ export function installPhaseA(school: Hono) {
         } : null)
         .filter(Boolean),
       student_parent: undefined, // drop the raw embed
-    }));
+      // hasCredential false = no PIN was ever issued; mustChange true =
+      // a slip was issued but the family never set their own PIN;
+      // lastLoginAt null = never signed in.
+      portal: {
+        hasCredential: cred !== null,
+        mustChange: cred?.mustChange ?? false,
+        lastLoginAt: cred?.lastLoginAt ?? null,
+      },
+      };
+    });
     return c.json({ parents });
   });
 

@@ -76,6 +76,12 @@ export const ALERT_KINDS: AlertKindDef[] = [
       "A parent has been waiting longer than the school's own reply window (counted in school days).",
   },
   {
+    kind: "assignment_submissions",
+    tier: "policy",
+    label: "Homework handed in",
+    describe: "Families sent work for one of your assignments that you haven't reviewed yet.",
+  },
+  {
     kind: "syllabus_untagged",
     tier: "policy",
     label: "Subject with no syllabus",
@@ -276,6 +282,47 @@ export function installNotifications(school: Hono): void {
             href: `/school/orgs/${orgId}/sections/${kid.class_section_id}/attendance`,
           });
         }
+      }
+    }
+
+    // ── Homework handed in, waiting on the teacher (23 Sep) ────────────
+    // "How will the teacher know if it was submitted" - families send
+    // photos from the portal, and nothing told the teacher. One alert
+    // per assignment with UNREVIEWED hand-ins, keyed by the count so a
+    // new arrival re-surfaces a read alert. Reviewing (or the review
+    // toggle on the assignment page) clears it naturally.
+    if (mySections.length > 0) {
+      const { data: newSubs } = await serviceRoleClient
+        .from("assignment_submission")
+        .select("assignment_id, submitted_at, assignment:assignment_id(id, title, class_section_id, section:class_section_id(name, class:class_id(name)))")
+        .eq("org_id", orgId)
+        .is("reviewed_at", null)
+        .gte("submitted_at", SINCE)
+        .order("submitted_at", { ascending: false })
+        .limit(300);
+      const byAssignment = new Map<string, { title: string; label: string; n: number; latest: string }>();
+      for (const r of ((newSubs ?? []) as any[])) {
+        const a = r.assignment;
+        if (!a || !mySections.includes(a.class_section_id)) continue;
+        const cur = byAssignment.get(a.id) ?? {
+          title: a.title ?? "Assignment",
+          label: `${a.section?.class?.name ?? ""} ${a.section?.name ?? ""}`.trim(),
+          n: 0,
+          latest: r.submitted_at,
+        };
+        cur.n += 1;
+        if (r.submitted_at > cur.latest) cur.latest = r.submitted_at;
+        byAssignment.set(a.id, cur);
+      }
+      for (const [aid, agg] of byAssignment) {
+        push({
+          key: `assignment_submissions:${aid}:${agg.n}`,
+          kind: "assignment_submissions",
+          title: `${agg.n} hand-in${agg.n === 1 ? "" : "s"} to review — ${agg.title}`,
+          body: `${agg.label}: families sent work you haven't opened yet.`,
+          href: `/school/orgs/${orgId}/assignments/${aid}`,
+          at: agg.latest,
+        });
       }
     }
 

@@ -345,6 +345,24 @@ export function installPhaseC2(school: Hono): void {
       }
     }
 
+    // Hand-in counts per assignment (23 Sep): "how will the teacher
+    // know if it was submitted" - the list is where they look, so each
+    // row says how many families sent work and how many are new
+    // (unreviewed). One batched query, not one per row.
+    const subCounts = new Map<string, { total: number; unreviewed: number }>();
+    if (listIds.length > 0) {
+      const { data: subRows } = await serviceRoleClient
+        .from("assignment_submission")
+        .select("assignment_id, reviewed_at")
+        .in("assignment_id", listIds);
+      for (const row of (subRows ?? []) as any[]) {
+        const cur = subCounts.get(row.assignment_id) ?? { total: 0, unreviewed: 0 };
+        cur.total += 1;
+        if (!row.reviewed_at) cur.unreviewed += 1;
+        subCounts.set(row.assignment_id, cur);
+      }
+    }
+
     const hydrated = ((data ?? []) as any[]).map((r) => ({
       ...r,
       subject_name: r.section_subject?.class_subject?.name ?? null,
@@ -354,7 +372,10 @@ export function installPhaseC2(school: Hono): void {
 
     return c.json({
       sectionId,
-      assignments: hydrated.map(assignmentToJson),
+      assignments: hydrated.map((r) => ({
+        ...assignmentToJson(r),
+        submissions: subCounts.get(r.id) ?? { total: 0, unreviewed: 0 },
+      })),
     });
   });
 
