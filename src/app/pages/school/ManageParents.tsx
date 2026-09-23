@@ -87,7 +87,7 @@ export function ManageParents() {
   const [selectedStudents, setSelectedStudents] = useState<AdminStudent[]>([]);
   // Filter scope — search applies only against the selected facet.
   // "all" = parent name + student name + class. Default.
-  type SearchScope = "all" | "parent" | "student" | "class" | "unlinked" | "neverlogged";
+  type SearchScope = "all" | "parent" | "student" | "class" | "unlinked" | "neverlogged" | "loggedin" | "nopin";
   const [searchScope, setSearchScope] = useState<SearchScope>("all");
   // class_section_id → "Grade 5-A" label, so the Children column can show
   // each child's class instead of a raw uuid.
@@ -123,6 +123,16 @@ export function ManageParents() {
   // Pairs an admin reviewed and marked "different people" — persisted in
   // org settings so the duplicates panel stops flagging them for everyone.
   const [dismissedPairs, setDismissedPairs] = useState<Set<string>>(new Set());
+  // The all-clear duplicates line can be put away (23 Sep) - it is
+  // information, not work. It comes back by itself the moment real
+  // duplicate work appears, so nothing actionable can hide behind it.
+  const [allClearHidden, setAllClearHidden] = useState<boolean>(() => {
+    try { return localStorage.getItem("ifs_dup_allclear_hidden") === "1"; } catch { return false; }
+  });
+  const hideAllClear = () => {
+    setAllClearHidden(true);
+    try { localStorage.setItem("ifs_dup_allclear_hidden", "1"); } catch { /* fine */ }
+  };
   useEffect(() => {
     if (!orgId) return;
     getOrganization(orgId)
@@ -222,7 +232,8 @@ export function ManageParents() {
     const q = search.trim().toLowerCase();
     // "Unlinked" is a state filter, not a text filter — it must apply
     // even with an empty search box (the early return below would skip it).
-    if (!q && searchScope !== "unlinked" && searchScope !== "neverlogged") return families;
+    const stateScopes = ["unlinked", "neverlogged", "loggedin", "nopin"];
+    if (!q && !stateScopes.includes(searchScope)) return families;
 
     const matchParent = (p: AdminParent) =>
       p.full_name.toLowerCase().includes(q) ||
@@ -245,6 +256,12 @@ export function ManageParents() {
           // The uptake chase list: no parent of the family has EVER
           // signed in to the portal. Optional text narrows by parent.
           return !f.parents.some((p) => p.portal?.lastLoginAt) && (!q || f.parents.some(matchParent));
+        case "loggedin":
+          // Who has actually accepted - the green pill's list (23 Sep).
+          return f.parents.some((p) => p.portal?.lastLoginAt) && (!q || f.parents.some(matchParent));
+        case "nopin":
+          // Families never issued a PIN at all - the slip queue.
+          return !f.parents.some((p) => p.portal?.hasCredential) && (!q || f.parents.some(matchParent));
         case "parent":
           return f.parents.some(matchParent);
         case "student":
@@ -503,6 +520,7 @@ export function ManageParents() {
           state is one quiet line with the decision log on request. */}
       {(duplicatePairs.length > 0 || aliasedParents.length > 0 || dismissedPairs.size > 0) &&
         (duplicatePairs.length === 0 && !showReviewLog ? (
+        allClearHidden ? null : (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs">
           <span className="font-medium text-emerald-700">✓ No duplicate parents pending</span>
           <span className="text-slate-500">
@@ -517,7 +535,16 @@ export function ManageParents() {
           >
             Show review log
           </button>
+          <button
+            type="button"
+            onClick={hideAllClear}
+            title="Hide this line - it returns if duplicate work appears"
+            className="rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
         </div>
+        )
       ) : (
         <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 space-y-3">
           <div className="flex items-center justify-between gap-2">
@@ -657,16 +684,29 @@ export function ManageParents() {
         const issuedOnly = families.filter((f) =>
           !f.parents.some((p) => p.portal?.lastLoginAt) && f.parents.some((p) => p.portal?.hasCredential)).length;
         const noPin = families.length - loggedIn - issuedOnly;
+        // Each pill IS its filter: click to see exactly those families,
+        // click again to clear (23 Sep: "I should be able to click on
+        // '26 logged in' to see which parents logged in").
+        const pill = (scope: SearchScope, label: string, tone: string, activeTone: string) => (
+          <button type="button"
+            onClick={() => setSearchScope(searchScope === scope ? "all" : scope)}
+            className={`rounded-full px-2 py-0.5 font-semibold ring-1 transition-shadow ${tone} ${searchScope === scope ? activeTone : ""}`}>
+            {label}
+          </button>
+        );
         return (
           <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
             <span className="font-semibold text-slate-800">Portal uptake:</span>
-            <span className="rounded-full bg-emerald-50 px-2 py-0.5 font-semibold text-emerald-700 ring-1 ring-emerald-200">{loggedIn} logged in</span>
-            <button type="button" onClick={() => setSearchScope("neverlogged")}
-              className="rounded-full bg-amber-50 px-2 py-0.5 font-semibold text-amber-800 ring-1 ring-amber-200 hover:bg-amber-100">
-              {issuedOnly} PIN issued, never used
-            </button>
-            <span className="rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-600">{noPin} no PIN yet</span>
-            <span className="text-slate-400">of {families.length} families - the amber ones have their slip but never signed in; send them the PIN slip again from the key button.</span>
+            {pill("loggedin", `${loggedIn} logged in`,
+              "bg-emerald-50 text-emerald-700 ring-emerald-200 hover:bg-emerald-100",
+              "ring-2 ring-emerald-500")}
+            {pill("neverlogged", `${issuedOnly} PIN issued, never used`,
+              "bg-amber-50 text-amber-800 ring-amber-200 hover:bg-amber-100",
+              "ring-2 ring-amber-500")}
+            {pill("nopin", `${noPin} no PIN yet`,
+              "bg-slate-100 text-slate-600 ring-slate-200 hover:bg-slate-200",
+              "ring-2 ring-slate-500")}
+            <span className="text-slate-400">of {families.length} families - click a pill to list exactly those families, click again to clear.</span>
           </div>
         );
       })()}
