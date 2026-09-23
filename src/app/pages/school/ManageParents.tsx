@@ -8,6 +8,9 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "../../components/ui/select";
+import {
   Dialog,
   DialogContent,
   DialogFooter,
@@ -89,6 +92,10 @@ export function ManageParents() {
   // "all" = parent name + student name + class. Default.
   type SearchScope = "all" | "parent" | "student" | "class" | "unlinked" | "neverlogged" | "loggedin" | "nopin";
   const [searchScope, setSearchScope] = useState<SearchScope>("all");
+  // How many children a family has (23 Sep: "show parents with 1, 2,
+  // more than 2") - orthogonal to the text scopes, so it is its own
+  // control and combines with any of them.
+  const [childrenFilter, setChildrenFilter] = useState<"any" | "1" | "2" | "3plus">("any");
   // class_section_id → "Grade 5-A" label, so the Children column can show
   // each child's class instead of a raw uuid.
   const [classes, setClasses] = useState<AdminClass[]>([]);
@@ -232,8 +239,16 @@ export function ManageParents() {
     const q = search.trim().toLowerCase();
     // "Unlinked" is a state filter, not a text filter — it must apply
     // even with an empty search box (the early return below would skip it).
+    const byCount = (f: { children: unknown[] }) => {
+      switch (childrenFilter) {
+        case "1": return f.children.length === 1;
+        case "2": return f.children.length === 2;
+        case "3plus": return f.children.length >= 3;
+        default: return true;
+      }
+    };
     const stateScopes = ["unlinked", "neverlogged", "loggedin", "nopin"];
-    if (!q && !stateScopes.includes(searchScope)) return families;
+    if (!q && !stateScopes.includes(searchScope)) return families.filter(byCount);
 
     const matchParent = (p: AdminParent) =>
       p.full_name.toLowerCase().includes(q) ||
@@ -247,7 +262,7 @@ export function ManageParents() {
       return !!label && label.toLowerCase().includes(q);
     };
 
-    return families.filter((f) => {
+    return families.filter(byCount).filter((f) => {
       switch (searchScope) {
         case "unlinked":
           // No-children families; optional text still narrows by parent.
@@ -277,7 +292,7 @@ export function ManageParents() {
           );
       }
     });
-  }, [families, search, searchScope, sectionLabel]);
+  }, [families, search, searchScope, childrenFilter, sectionLabel]);
 
   // ─── Likely-duplicate detection (settings/admin pass) ────────────────
   // Two UNLINKED parents are a merge candidate when their normalized
@@ -741,6 +756,15 @@ export function ManageParents() {
             );
           })}
         </div>
+        <Select value={childrenFilter} onValueChange={(v) => setChildrenFilter(v as typeof childrenFilter)}>
+          <SelectTrigger className="h-9 w-36 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="any">Any children</SelectItem>
+            <SelectItem value="1">1 child</SelectItem>
+            <SelectItem value="2">2 children</SelectItem>
+            <SelectItem value="3plus">3+ children</SelectItem>
+          </SelectContent>
+        </Select>
         <div className="relative flex-1">
           <Search className="absolute left-2 top-2.5 h-4 w-4 text-slate-400" />
           <Input
@@ -759,7 +783,7 @@ export function ManageParents() {
 
       {/* Result count — shown only when a search is active so the user
           knows they're seeing a filtered view, not "no parents". */}
-      {search.trim() && (
+      {(search.trim() || childrenFilter !== "any") && (
         <p className="text-xs text-slate-500">
           {visibleFamilies.length} of {families.length} famil{families.length === 1 ? "y" : "ies"} match
         </p>
