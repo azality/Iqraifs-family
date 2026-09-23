@@ -853,7 +853,51 @@ export function installAssessment(school: Hono): void {
       .order("exam_date", { ascending: true, nullsFirst: false })
       .order("created_at", { ascending: true });
     if (error) return c.json({ error: error.message }, 500);
-    return c.json({ exams: (data ?? []).map(examToJson) });
+
+    // ?sectionId= scopes the list to exams this SECTION actually sits.
+    // Exams are org-wide rows, and Class II's homework page offered
+    // "ششماہی امتحان — Half-yearly (Hifz) — enter marks" (Ambreen,
+    // 23 Sep). A COMPONENT exam (it has exam_component rows - its own
+    // paper slip, like the Hifz half-yearly) belongs to a section when:
+    //   - the section's CLASS KIND is "hifz" - the audience these slips
+    //     are built for, and a school-settable attribute; or
+    //   - any of its students is actually in it (a per-child syllabus
+    //     row or a component score) - which is how another school's
+    //     component exam for an academic class gets its tile.
+    // Ordinary oral/written exams stay for everyone.
+    const sectionId = c.req.query("sectionId");
+    let exams = (data ?? []) as any[];
+    if (sectionId && exams.length) {
+      const examIds = exams.map((e) => e.id);
+      const { data: comps } = await serviceRoleClient
+        .from("exam_component").select("exam_id").in("exam_id", examIds);
+      const componentExamIds = [...new Set(((comps ?? []) as any[]).map((r) => r.exam_id))];
+      if (componentExamIds.length) {
+        const { data: secRow } = await serviceRoleClient
+          .from("class_section").select("class:class_id(kind)")
+          .eq("id", sectionId).maybeSingle();
+        const isHifzKind = (secRow as any)?.class?.kind === "hifz";
+        if (!isHifzKind) {
+          const { data: students } = await serviceRoleClient
+            .from("student").select("id")
+            .eq("class_section_id", sectionId).eq("status", "active");
+          const stuIds = ((students ?? []) as any[]).map((s) => s.id);
+          const inIt = new Set<string>();
+          if (stuIds.length) {
+            const [{ data: syl }, { data: sc }] = await Promise.all([
+              serviceRoleClient.from("student_exam_syllabus")
+                .select("exam_id").in("exam_id", componentExamIds).in("student_id", stuIds),
+              serviceRoleClient.from("exam_component_score")
+                .select("exam_id").in("exam_id", componentExamIds).in("student_id", stuIds),
+            ]);
+            for (const r of ((syl ?? []) as any[])) inIt.add(r.exam_id);
+            for (const r of ((sc ?? []) as any[])) inIt.add(r.exam_id);
+          }
+          exams = exams.filter((e) => !componentExamIds.includes(e.id) || inIt.has(e.id));
+        }
+      }
+    }
+    return c.json({ exams: exams.map(examToJson) });
   });
 
   school.post("/orgs/:orgId/terms/:termId/exams", async (c) => {

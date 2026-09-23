@@ -5632,8 +5632,14 @@ export const getSectionExamMarksProgress = (
 ): Promise<SectionExamMarksProgress> =>
   apiCall(`/school/orgs/${orgId}/sections/${sectionId}/exam-marks-progress`);
 
-export const listExams = (orgId: string, termId: string): Promise<{ exams: Exam[] }> =>
-  apiCall(`/school/orgs/${orgId}/terms/${termId}/exams`);
+export const listExams = (
+  orgId: string,
+  termId: string,
+  /** Scope to exams this section actually sits — a component exam like
+   *  the Hifz half-yearly stays off other classes' pages (v1.3.9). */
+  sectionId?: string,
+): Promise<{ exams: Exam[] }> =>
+  apiCall(`/school/orgs/${orgId}/terms/${termId}/exams${sectionId ? `?sectionId=${sectionId}` : ""}`);
 export const createExam = (
   orgId: string,
   termId: string,
