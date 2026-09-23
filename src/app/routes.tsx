@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { createBrowserRouter, Navigate, useLocation, useRouteError } from "react-router";
-import { schoolPathOnFamilyHost, onFamilyHost, noFamilyDestination } from "../utils/productHost";
+import { schoolPathOnFamilyHost, onFamilyHost, noFamilyDestination, familySetupOnSchoolHost } from "../utils/productHost";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { RequireParentRole } from "./components/RequireParentRole";
 import { Welcome } from "./pages/Welcome";
@@ -353,6 +353,7 @@ function RequireFamily({ children }: { children: JSX.Element }) {
       hostname: window.location.hostname,
       pathname: location.pathname,
       hasSchoolAccess: !!workspaceCtx?.hasSchoolAccess,
+      schoolSlug: (window as unknown as { __SCHOOL_SLUG__?: string }).__SCHOOL_SLUG__ ?? null,
     })) {
       case "render": return children;
       case "school": return <Navigate to="/school" replace />;
@@ -386,6 +387,20 @@ function RefuseSchoolOnFamilyHost({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
   if (schoolPathOnFamilyHost(window.location.hostname, pathname)) {
     return <Navigate to="/" replace />;
+  }
+  return <>{children}</>;
+}
+
+/** A school's own domain has no family product. "Set Up Your Family"
+ *  rendering on iqraifs.com — reached via a broken staff link — is the
+ *  separation failing in the other direction (23 Sep). The slug is
+ *  stashed at bootstrap for custom school domains, so its presence IS
+ *  the school-host test. */
+function RefuseFamilySetupOnSchoolHost({ children }: { children: ReactNode }) {
+  const { pathname } = useLocation();
+  const slug = (window as unknown as { __SCHOOL_SLUG__?: string }).__SCHOOL_SLUG__;
+  if (familySetupOnSchoolHost(slug, pathname)) {
+    return <Navigate to="/school" replace />;
   }
   return <>{children}</>;
 }
@@ -528,11 +543,11 @@ export const router = createBrowserRouter([
       },
       {
         path: "/onboarding",
-        element: <ProtectedRoute><Onboarding /></ProtectedRoute>,
+        element: <RefuseFamilySetupOnSchoolHost><ProtectedRoute><Onboarding /></ProtectedRoute></RefuseFamilySetupOnSchoolHost>,
       },
       {
         path: "/join-pending",
-        element: <ProtectedRoute><JoinPending /></ProtectedRoute>,
+        element: <RefuseFamilySetupOnSchoolHost><ProtectedRoute><JoinPending /></ProtectedRoute></RefuseFamilySetupOnSchoolHost>,
       },
       // Parent invite redemption — requires auth (we need to know who's
       // claiming) but NOT family (brand-new parents land here from the

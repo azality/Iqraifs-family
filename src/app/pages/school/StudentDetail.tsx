@@ -585,9 +585,9 @@ export function StudentDetail() {
                   </p>
                 </div>
                 <div className="flex gap-2">
-                  <Link to={`/school/orgs/${orgId}/students/${studentId}/attendance`}>
-                    <Button size="sm" variant="outline">Full history →</Button>
-                  </Link>
+                  {/* The staff-side history IS the section register - the
+                      old per-child link pointed at a portal-only route and
+                      404'd (23 Sep). */}
                   {student.class_section_id && (
                     <Link to={`/school/orgs/${orgId}/sections/${student.class_section_id}/attendance`}>
                       <Button size="sm" variant="outline">Class roll call →</Button>
