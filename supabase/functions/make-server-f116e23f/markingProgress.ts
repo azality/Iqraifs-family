@@ -78,6 +78,12 @@ export function progressForSection(
   exams: ProgressExam[],
   studentIds: string[],
   scores: ProgressScore[],
+  /** Streams: who takes which subject. Omitted = everyone takes all
+   *  (every class without elective groups). A subject's roster - and
+   *  so its "done" line and marks owed - is only the children who
+   *  actually take it: Class IX Biology is complete at 5 of 5, not
+   *  waiting on 20 computer students (23 Sep). */
+  sits?: (studentId: string, subjectId: string) => boolean,
 ): ExamCell[] {
   const roster = new Set(studentIds);
   // exam -> subject -> students marked
@@ -96,13 +102,22 @@ export function progressForSection(
 
   return exams.map((e) => {
     const sitting = subjects.filter((sub) => subjectSitsExam(sub.weights, e.name));
+    let expected = 0;
     const cells: SubjectCell[] = sitting.map((sub) => {
-      const n = marked.get(e.id)?.get(sub.id)?.size ?? 0;
+      const subRoster = sits ? studentIds.filter((id) => sits(id, sub.id)) : studentIds;
+      expected += subRoster.length;
+      const markedSet = marked.get(e.id)?.get(sub.id);
+      // Count only children on this SUBJECT's roster - a stray row for
+      // a child in the other stream must not make a column look fuller
+      // than it is.
+      const n = sits
+        ? subRoster.filter((id) => markedSet?.has(id)).length
+        : (markedSet?.size ?? 0);
       return {
         subjectId: sub.id,
         subjectName: sub.name,
         marked: n,
-        done: studentIds.length > 0 && n >= studentIds.length,
+        done: subRoster.length > 0 && n >= subRoster.length,
       };
     });
     return {
@@ -110,7 +125,7 @@ export function progressForSection(
       subjectsDone: cells.filter((c) => c.done).length,
       subjectCount: cells.length,
       marksEntered: cells.reduce((s, c) => s + c.marked, 0),
-      marksExpected: cells.length * studentIds.length,
+      marksExpected: expected,
       subjects: cells,
     };
   });

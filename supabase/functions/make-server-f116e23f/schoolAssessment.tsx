@@ -26,6 +26,7 @@
 // marks entry). Reads accept any org role.
 
 import { paperOfExam, subjectSitsExam, progressForSection } from "./markingProgress.ts";
+import { loadSitsResolver } from "./subjectStreamsLoad.ts";
 import { loadExamScores, gradebookExams, resolveMarkingTerm } from "./schoolMarkingProgress.tsx";
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
@@ -314,9 +315,15 @@ export function installAssessment(school: Hono): void {
 
     const { data: subs } = await serviceRoleClient
       .from("class_subject")
-      .select("id, name, sort_order, assessment_weights")
+      .select("id, name, sort_order, assessment_weights, elective_group")
       .eq("class_id", (sec as any).class.id).is("archived_at", null)
       .order("sort_order").order("name");
+
+    // Streams: a child sits ONE subject of an elective group (Class IX:
+    // Biology or Computer). Score rows for the other one - including
+    // the 21 "absent" stamps the Biology teacher gave her computer
+    // students - are never counted (23 Sep).
+    const sitsRes = await loadSitsResolver((subs ?? []) as any[], stuIds);
 
     // PAGED: an unpaged select stops silently at 1000 rows (#620 class).
     // Class I already holds 778 for one term; one more paper crosses it,
@@ -357,6 +364,7 @@ export function installAssessment(school: Hono): void {
     const byStudent = new Map<string, Map<string, Cell>>();
     const heldSubjects = new Set<string>();
     for (const r of (scores ?? []) as any[]) {
+      if (!sitsRes.sits(r.student_id, r.class_subject_id)) continue;
       const w = weightByExam.get(r.exam_id) ?? 1;
       const m = byStudent.get(r.student_id) ?? new Map<string, Cell>();
       const cell = m.get(r.class_subject_id) ?? { obtained: 0, max: 0, perExam: {} };
@@ -462,9 +470,19 @@ export function installAssessment(school: Hono): void {
     }
 
 
+    // A child with no stream choice sits neither subject of the group -
+    // named here so the register says WHO is undecided instead of
+    // quietly totalling them smaller.
+    const nameOf = new Map(stuList.map((s) => [s.id, s.full_name]));
+    const unchosenStreams = sitsRes.unchosen(stuIds).map((u) => ({
+      group: u.group,
+      students: u.studentIds.map((id) => nameOf.get(id) ?? id),
+    }));
+
     return c.json({
       section: { id: (sec as any).id, name: (sec as any).name, className: (sec as any).class.name },
       term: { id: (term as any).id, name: (term as any).name },
+      unchosenStreams,
       passMarkPct,
       exams: examList.map((e) => ({ id: e.id, name: e.name, weight: Number(e.weight) || 1 })),
       subjects: subjectCols,
@@ -963,12 +981,13 @@ export function installAssessment(school: Hono): void {
       .eq("id", sectionId).maybeSingle();
     const { data: subjects } = await serviceRoleClient
       .from("class_subject")
-      .select("id, name, assessment_weights")
+      .select("id, name, assessment_weights, elective_group")
       .eq("class_id", (secRow as any)?.class_id ?? "")
       .is("archived_at", null);
     const subjectList = ((subjects ?? []) as any[]).map((s) => ({
       id: s.id, name: s.name, weights: s.assessment_weights,
     }));
+    const progSits = await loadSitsResolver((subjects ?? []) as any[], studentIds);
 
     let scores: Awaited<ReturnType<typeof loadExamScores>> = [];
     try {
@@ -976,7 +995,7 @@ export function installAssessment(school: Hono): void {
     } catch (e) {
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
     }
-    const cells = progressForSection(subjectList, exams, studentIds, scores);
+    const cells = progressForSection(subjectList, exams, studentIds, scores, progSits.sits);
 
     // Kept for the existing link text: how many children have ANY mark.
     const markedByExam = new Map<string, Set<string>>();
@@ -1059,10 +1078,16 @@ export function installAssessment(school: Hono): void {
     );
     const { data: subjWeights } = await serviceRoleClient
       .from("class_subject")
-      .select("id, assessment_weights")
+      .select("id, assessment_weights, elective_group")
       .in("id", [...new Set(mine.map((r) => r.class_subject_id))]);
     const weightsById = new Map<string, any>(
       ((subjWeights ?? []) as any[]).map((r) => [r.id, r.assessment_weights]),
+    );
+    // Streams: a Biology column belongs to the biology children only -
+    // the teacher's count reads 5 of 5, never 5 of 25 (23 Sep).
+    const todoSits = await loadSitsResolver(
+      (subjWeights ?? []) as any[],
+      ((students ?? []) as any[]).map((s) => s.id),
     );
     const bySection = new Map<string, string[]>();
     for (const s of ((students ?? []) as any[])) {
@@ -1109,7 +1134,8 @@ export function installAssessment(school: Hono): void {
       confBySection.set(sid, await readConfirmations((term as any).id, sid));
     }
     for (const row of mine) {
-      const stuIds = bySection.get(row.class_section_id) ?? [];
+      const stuIds = (bySection.get(row.class_section_id) ?? [])
+        .filter((id) => todoSits.sits(id, row.class_subject_id));
       if (stuIds.length === 0) continue;
       const w = weightsById.get(row.class_subject_id);
       if (Array.isArray(w) && w.length === 0) continue; // not examined
@@ -1201,7 +1227,7 @@ export function installAssessment(school: Hono): void {
     // with an error, which we then silently coerce to [] downstream.
     const { data: subjects } = await serviceRoleClient
       .from("class_subject")
-      .select("id, name, sort_order, assessment_weights")
+      .select("id, name, sort_order, assessment_weights, elective_group")
       .eq("class_id", classId)
       .order("sort_order", { ascending: true });
 
@@ -1234,6 +1260,12 @@ export function installAssessment(school: Hono): void {
 
     const studentIds = ((students ?? []) as any[]).map((s) => s.id);
     const subjectIds = visibleSubjects.map((s) => s.id);
+
+    // Streams: a Biology column holds only the children who TAKE
+    // Biology. The sheet still lists the whole section, but a cell in
+    // the other stream's column is not theirs to mark - stamping those
+    // children "absent" is what unranked all of Class IX (23 Sep).
+    const sheetSits = await loadSitsResolver((subjects ?? []) as any[], studentIds);
 
     const { data: scores } = studentIds.length && subjectIds.length
       ? await serviceRoleClient
@@ -1286,10 +1318,15 @@ export function installAssessment(school: Hono): void {
         scores: ((subjects ?? []) as any[]).map((subj) => {
           const k = `${s.id}:${subj.id}`;
           const sc = scoreMap.get(k);
-          return sc ? scoreToJson(sc) : {
+          const enrolled = sheetSits.sits(s.id, subj.id);
+          const base = sc ? scoreToJson(sc) : {
             id: null, examId, studentId: s.id, classSubjectId: subj.id,
             maxMarks: null, obtainedMarks: null, absent: false, notes: null,
           };
+          // enrolled: false = the child takes the OTHER subject of this
+          // elective group - the cell renders as not-theirs and stays
+          // out of every completeness count.
+          return { ...base, enrolled };
         }),
       })),
     });
@@ -1363,6 +1400,32 @@ export function installAssessment(school: Hono): void {
     const defaultsMax = body.defaults?.maxMarks ? Number(body.defaults.maxMarks) : null;
     const rows = Array.isArray(body.rows) ? body.rows : [];
     if (rows.length === 0) return c.json({ ok: true, written: 0 });
+
+    // Streams: a mark - or an absent stamp - may only land on a child
+    // who TAKES the subject. The Biology teacher stamping her computer
+    // students "absent" is exactly what this refuses (23 Sep).
+    const { data: secForWrite } = await serviceRoleClient
+      .from("class_section").select("class_id").eq("id", sectionId).maybeSingle();
+    const { data: subsForWrite } = await serviceRoleClient
+      .from("class_subject").select("id, name, elective_group")
+      .eq("class_id", (secForWrite as any)?.class_id ?? "");
+    const writeSits = await loadSitsResolver(
+      (subsForWrite ?? []) as any[],
+      [...new Set(rows.map((r: any) => String(r.studentId ?? "")).filter(Boolean))],
+    );
+    for (const r of rows) {
+      const stuId = String(r.studentId ?? "");
+      const subId = String(r.classSubjectId ?? "");
+      if (!stuId || !subId) continue;
+      const holdsSomething = r.absent === true || (r.obtainedMarks !== null && r.obtainedMarks !== undefined && r.obtainedMarks !== "");
+      if (holdsSomething && !writeSits.sits(stuId, subId)) {
+        const subjName = ((subsForWrite ?? []) as any[]).find((s) => s.id === subId)?.name ?? "this subject";
+        return c.json({
+          error: `That student does not take ${subjName} - they are in the other stream. ` +
+            `If the choice is wrong, change it under the class's subjects first.`,
+        }, 400);
+      }
+    }
 
     // Build inserts. Skip rows with no obtained_marks AND not-absent AND
     // no maxMarks/notes — they're empty cells, no point creating a row.

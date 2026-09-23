@@ -6606,6 +6606,119 @@ await check("116. a concession is read from the class the child is in NOW", asyn
   }
 });
 
+await check("117. a stream child is counted ONLY in the subject they take", async () => {
+  // Class IX picks Biology or Computer and studies one. The Biology
+  // teacher stamped her 20 computer students "absent", every stamp
+  // added a 75-mark paper to a child who does not take the subject,
+  // and the whole class lost its ranking (23 Sep). Subjects sharing an
+  // elective_group are alternatives; score rows for the other one are
+  // never counted, a child with no choice sits neither and is named.
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const { data: term } = await admin.from("academic_term").select("id")
+    .eq("org_id", ORG).eq("is_current", true).is("archived_at", null).maybeSingle();
+  const { data: sbStudents } = await admin.from("student").select("id, full_name")
+    .eq("class_section_id", sandboxSec.id).eq("status", "active").limit(3);
+  assert((sbStudents ?? []).length >= 3, "need >=3 sandbox students");
+  const [bioKid, compKid, freshKid] = sbStudents!;
+  const cleanup: Array<() => Promise<unknown>> = [];
+  // Self-heal debris from a killed run, then build.
+  {
+    const { data: stale } = await admin.from("exam").select("id").like("name", "QA Stream%");
+    for (const e of (stale ?? []) as any[]) {
+      await admin.from("exam_subject_score").delete().eq("exam_id", e.id);
+      await admin.from("exam").delete().eq("id", e.id);
+    }
+    const { data: staleSubs } = await admin.from("class_subject")
+      .select("id").eq("class_id", sandboxClass.id).like("name", "QA Stream%");
+    for (const s of (staleSubs ?? []) as any[]) {
+      await admin.from("student_subject_choice").delete().eq("class_subject_id", s.id);
+      await admin.from("section_subject").delete().eq("class_subject_id", s.id);
+      await admin.from("class_subject").delete().eq("id", s.id);
+    }
+  }
+  try {
+    const mkSub = async (nm: string) => {
+      const { data, error } = await admin.from("class_subject").insert({
+        org_id: ORG, class_id: sandboxClass.id, name: nm, sort_order: 970,
+        elective_group: "QA Stream Group",
+        assessment_weights: [{ label: "Written", marks: 75, paper: "written" }],
+      }).select("id").single();
+      if (error) throw new Error(`subject: ${error.message}`);
+      cleanup.push(() => admin.from("class_subject").delete().eq("id", (data as any).id));
+      return (data as any).id as string;
+    };
+    const bioId = await mkSub("QA Stream Bio");
+    const compId = await mkSub("QA Stream Comp");
+    const { data: e, error: eErr } = await admin.from("exam").insert({
+      org_id: ORG, term_id: term!.id, name: "QA Stream - Written", exam_type: "other",
+      weight: 1, exam_date: new Date().toISOString().slice(0, 10),
+    }).select("id").single();
+    if (eErr) throw new Error(`exam: ${eErr.message}`);
+    cleanup.push(() => admin.from("exam").delete().eq("id", (e as any).id));
+    cleanup.push(() => admin.from("exam_subject_score").delete().eq("exam_id", (e as any).id));
+    cleanup.push(() => admin.from("student_subject_choice").delete().in("class_subject_id", [bioId, compId]));
+
+    // Choices through the REAL endpoint: bioKid takes Bio, compKid Comp,
+    // freshKid left undecided.
+    const put = await api(admin2.token, `/school/sections/${sandboxSec.id}/subject-choices`, {
+      method: "PUT",
+      body: JSON.stringify({ choices: [
+        { studentId: bioKid.id, classSubjectId: bioId },
+        { studentId: compKid.id, classSubjectId: compId },
+      ] }),
+    });
+    assert(put.status === 200, `choices PUT: ${put.status}`);
+
+    // The old wound, exactly: compKid marked in Comp AND stamped absent
+    // in Bio; bioKid marked in Bio.
+    const mark = (stu: string, sub: string, obtained: number | null, absent: boolean) =>
+      admin.from("exam_subject_score").insert({
+        org_id: ORG, exam_id: (e as any).id, student_id: stu, class_subject_id: sub,
+        max_marks: 75, obtained_marks: obtained, absent,
+      });
+    await mark(bioKid.id, bioId, 60, false);
+    await mark(compKid.id, compId, 70, false);
+    await mark(compKid.id, bioId, null, true);   // the stray absent stamp
+    await mark(freshKid.id, compId, 50, false);  // marks for an undecided child
+
+    const tab = await (await api(admin2.token,
+      `/school/orgs/${ORG}/sections/${sandboxSec.id}/tabulation?termId=${term!.id}`)).json();
+    const row = (sid: string) => (tab.students ?? []).find((r: any) => r.studentId === sid);
+    const compRow = row(compKid.id);
+    assert(compRow, "computer child must be on the register");
+    assert(!(compRow.subjects ?? {})[bioId],
+      `the Biology absent stamp must not touch a computer child, got ${JSON.stringify(compRow.subjects?.[bioId])}`);
+    assert(compRow.absentPapers === 0 && compRow.percentage !== null,
+      `the stray stamp must not unrank them: absentPapers ${compRow.absentPapers}, pct ${compRow.percentage}`);
+    assert((row(bioKid.id)?.subjects ?? {})[bioId]?.obtained === 60,
+      "the biology child's own marks still count");
+    const freshRow = row(freshKid.id);
+    assert(!(freshRow?.subjects ?? {})[compId],
+      "an undecided child sits neither subject - even with marks entered");
+    const unchosen = (tab.unchosenStreams ?? []).find((u: any) => u.group === "QA Stream Group");
+    assert(unchosen && unchosen.students.includes(freshKid.full_name),
+      `the undecided child must be NAMED, got ${JSON.stringify(tab.unchosenStreams)}`);
+
+    // The marks sheet: the Bio column is not the computer child's to
+    // mark - the cell says so, and a save that tries is refused.
+    const sheet = await (await api(admin2.token,
+      `/school/orgs/${ORG}/exams/${(e as any).id}/marks-sheet?sectionId=${sandboxSec.id}`)).json();
+    const sheetRow = (sheet.students ?? []).find((s: any) => s.id === compKid.id);
+    const bioCell = (sheetRow?.scores ?? []).find((sc: any) => sc.classSubjectId === bioId);
+    assert(bioCell && bioCell.enrolled === false,
+      `the sheet must say the cell is not theirs, got ${JSON.stringify(bioCell?.enrolled)}`);
+    const bad = await api(admin2.token, `/school/orgs/${ORG}/exams/${(e as any).id}/marks-sheet`, {
+      method: "POST",
+      body: JSON.stringify({ sectionId: sandboxSec.id, rows: [
+        { studentId: compKid.id, classSubjectId: bioId, maxMarks: 75, obtainedMarks: null, absent: true },
+      ] }),
+    });
+    assert(bad.status === 400, `an absent stamp on the other stream must be refused, got ${bad.status}`);
+  } finally {
+    for (const undo of cleanup.reverse()) await undo();
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

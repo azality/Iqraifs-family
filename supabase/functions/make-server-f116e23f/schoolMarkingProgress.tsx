@@ -18,6 +18,7 @@
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { hasAdminOrPrincipal, inchargeClassIds } from "./schoolAuth.ts";
+import { buildSitsResolver } from "./subjectStreams.ts";
 import {
   progressForSection, subjectIsExamined, paperOfExam, classOrder, termBeingMarked,
   type ProgressScore,
@@ -172,14 +173,33 @@ export function installMarkingProgress(school: Hono): void {
     }
 
     const { data: subRows } = await serviceRoleClient
-      .from("class_subject").select("id, name, class_id, assessment_weights, sort_order")
+      .from("class_subject").select("id, name, class_id, assessment_weights, sort_order, elective_group")
       .in("class_id", classIds).is("archived_at", null)
       .order("sort_order");
     const subjectsByClass = new Map<string, any[]>();
     for (const r of ((subRows ?? []) as any[])) {
       const arr = subjectsByClass.get(r.class_id) ?? [];
-      arr.push({ id: r.id, name: r.name, weights: r.assessment_weights });
+      arr.push({ id: r.id, name: r.name, weights: r.assessment_weights, elective_group: r.elective_group });
       subjectsByClass.set(r.class_id, arr);
+    }
+
+    // Streams: one choices query for the handful of elective subjects
+    // (Class IX/X's Biology|Computer), resolvers built per class below.
+    // Classes without elective groups pay nothing here.
+    const electiveSubjectIds = ((subRows ?? []) as any[])
+      .filter((r) => (r.elective_group ?? "").toString().trim() !== "")
+      .map((r) => r.id);
+    const allChoices: Array<{ student_id: string; class_subject_id: string }> = [];
+    if (electiveSubjectIds.length) {
+      for (let from = 0; ; from += 1000) {
+        const { data: page } = await serviceRoleClient
+          .from("student_subject_choice")
+          .select("student_id, class_subject_id")
+          .in("class_subject_id", electiveSubjectIds)
+          .order("id").range(from, from + 999);
+        allChoices.push(...((page ?? []) as any[]));
+        if (!page || page.length < 1000) break;
+      }
     }
 
     let scores: ProgressScore[] = [];
@@ -212,7 +232,8 @@ export function installMarkingProgress(school: Hono): void {
       const students = studentsBySec.get(s.id) ?? [];
       const subjects = subjectsByClass.get(s.class.id) ?? [];
       const secScores = students.flatMap((id) => scoresByStudent.get(id) ?? []);
-      const cells = progressForSection(subjects, exams, students, secScores);
+      const secSits = buildSitsResolver(subjects as any[], allChoices);
+      const cells = progressForSection(subjects, exams, students, secScores, secSits.sits);
       // A sign-off only counts for a subject that is actually examined —
       // a stale key for a subject since set to "no paper" is not progress.
       const examined = subjects.filter((x) => subjectIsExamined(x.weights));

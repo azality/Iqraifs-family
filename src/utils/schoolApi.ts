@@ -471,6 +471,9 @@ export interface ClassSubject {
    *  NO paper at all (e.g. Senior's Material Activity) — the marks
    *  sheet drops its column on every paper. */
   assessmentWeights?: AssessmentWeight[] | null;
+  /** Subjects sharing a group name are alternatives — a child takes
+   *  exactly one ("Stream": Biology | Computer, Class IX/X). */
+  electiveGroup?: string | null;
   createdAt: string;
   updatedAt: string;
   sections: Array<{
@@ -510,7 +513,7 @@ export const createClassSubject = (
 
 export const updateClassSubject = (
   classSubjectId: string,
-  body: { name?: string; sortOrder?: number; assessmentWeights?: AssessmentWeight[] | null },
+  body: { name?: string; sortOrder?: number; assessmentWeights?: AssessmentWeight[] | null; electiveGroup?: string | null },
 ): Promise<{ subject: ClassSubject }> =>
   apiCall(`/school/class-subjects/${classSubjectId}`, {
     method: "PATCH",
@@ -521,6 +524,26 @@ export const deleteClassSubject = (
   classSubjectId: string,
 ): Promise<{ ok: true }> =>
   apiCall(`/school/class-subjects/${classSubjectId}`, { method: "DELETE" });
+
+// --- Streams / electives: who takes which subject of a group ---------------
+export interface SubjectChoiceGroup {
+  group: string;
+  subjects: Array<{ id: string; name: string }>;
+  students: Array<{ id: string; fullName: string; grNumber: string | null; chosenSubjectId: string | null }>;
+}
+export const getSectionSubjectChoices = (
+  sectionId: string,
+): Promise<{ groups: SubjectChoiceGroup[] }> =>
+  apiCall(`/school/sections/${sectionId}/subject-choices`);
+
+export const putSectionSubjectChoices = (
+  sectionId: string,
+  choices: Array<{ studentId: string; classSubjectId: string | null; group?: string }>,
+): Promise<{ ok: true; set: number; cleared: number }> =>
+  apiCall(`/school/sections/${sectionId}/subject-choices`, {
+    method: "PUT",
+    body: JSON.stringify({ choices }),
+  });
 
 // --- Curriculum per (class_subject, academic_year) — Phase 1D ---------------
 
@@ -5445,6 +5468,10 @@ export interface ExamSubjectScore {
   obtainedMarks: number | null;
   absent: boolean;
   notes: string | null;
+  /** false = the child takes the OTHER subject of this elective group
+   *  (Class IX: Biology | Computer) — not theirs to mark, and out of
+   *  every completeness count. Server >= v1.3.6. */
+  enrolled?: boolean;
 }
 export interface MarksSheetStudent {
   id: string;
@@ -5551,6 +5578,10 @@ export interface TabulationResponse {
   /** The school's pass line (settings.pass_mark_pct; IFS 40): 30 of 75
    *  and 40 of 100 are both 40%. Marks under it paint red. */
   passMarkPct?: number;
+  /** Streams: children yet to choose a subject of an elective group —
+   *  they sit NONE of the group's subjects until the school decides.
+   *  Server >= v1.3.6. */
+  unchosenStreams?: Array<{ group: string; students: string[] }>;
 }
 export const getTabulation = (
   orgId: string,
