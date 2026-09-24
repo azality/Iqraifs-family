@@ -31,6 +31,8 @@ import {
   type AnnouncementAudienceKind,
   type AnnouncementInput,
   type AnnouncementProgram,
+  createAnnouncementRecurrence,
+  type RecurrenceFreq,
   type ClassSubject,
   type SchoolMeResponse,
 } from "../../../utils/schoolApi";
@@ -45,6 +47,7 @@ const AUDIENCE_LABEL: Record<AnnouncementAudienceKind, string> = {
   parents_only: "Parents",
   students_only: "Students",
   class: "Whole class (all sections)",
+  class_parents: "Parents of a class",
   class_section: "One section",
   subject: "By subject",
   program: "Hifz / Conventional",
@@ -57,6 +60,7 @@ const AUDIENCE_HINT: Record<AnnouncementAudienceKind, string> = {
   parents_only: "Every parent.",
   students_only: "Every student.",
   class: "All students + parents + teachers of one grade.",
+  class_parents: "One class's parents only — students and staff don't see it.",
   class_section: "One section's students + parents + teachers.",
   subject: "Students enrolled in one subject + their parents + the subject teacher.",
   program: "Students of one program + their parents + their teachers.",
@@ -72,11 +76,14 @@ const AUDIENCE_KINDS: AnnouncementAudienceKind[] = [
   "parents_only",
   "students_only",
   "class",
+  "class_parents",
   "class_section",
   "subject",
   "program",
   "specific_students",
 ];
+
+const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 interface FormState {
   title: string;
@@ -90,6 +97,11 @@ interface FormState {
   expiresAt: string;
   attachments: Array<{ label: string; url: string }>;
   publishPublicly: boolean;
+  /** "" = post once. Otherwise a standing rule (24 Sep: "last friday
+   *  of the month") that posts itself, leadDays before each date. */
+  repeatFreq: RecurrenceFreq | "";
+  repeatWeekday: number;
+  repeatLeadDays: number;
 }
 
 const EMPTY_FORM: FormState = {
@@ -104,6 +116,9 @@ const EMPTY_FORM: FormState = {
   expiresAt: "",
   attachments: [],
   publishPublicly: false,
+  repeatFreq: "",
+  repeatWeekday: 5, // Friday - the school's activity day
+  repeatLeadDays: 1,
 };
 
 export function AnnouncementComposer() {
@@ -230,7 +245,7 @@ export function AnnouncementComposer() {
       }
       payload.audienceStudentIds = form.audienceStudentIds;
     }
-    if (form.audienceKind === "class") {
+    if (form.audienceKind === "class" || form.audienceKind === "class_parents") {
       if (!form.audienceClassId) {
         toast.error("Please pick a class");
         return;
@@ -258,6 +273,37 @@ export function AnnouncementComposer() {
       );
     }
     (payload as any).publishPublicly = form.publishPublicly;
+    // A repeating announcement is a standing RULE, not a post: it will
+    // publish itself before each occurrence. Expiry/attachments/public
+    // don't apply - each instance expires at the end of its own day.
+    if (form.repeatFreq) {
+      if (form.audienceKind === "specific_students") {
+        toast.error("Repeating announcements can't target individual students");
+        return;
+      }
+      setSubmitting(true);
+      try {
+        const r = await createAnnouncementRecurrence(orgId, {
+          title: payload.title,
+          body: payload.body,
+          audienceKind: payload.audienceKind,
+          audienceSectionId: payload.audienceSectionId ?? null,
+          audienceClassId: payload.audienceClassId ?? null,
+          audienceSubjectId: payload.audienceSubjectId ?? null,
+          audienceProgram: payload.audienceProgram ?? null,
+          freq: form.repeatFreq,
+          weekday: form.repeatWeekday,
+          leadDays: form.repeatLeadDays,
+        });
+        toast.success(`Repeating announcement saved — first post ${new Date(r.recurrence.nextPostAt).toLocaleDateString()} for ${r.recurrence.nextOccurrence}`);
+        navigate(`/school/orgs/${orgId}/admin/announcements`);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : String(err));
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
     setSubmitting(true);
     try {
       await postAnnouncement(orgId, payload);
@@ -449,7 +495,7 @@ export function AnnouncementComposer() {
           </div>
           {(narrowOpen || !["whole_school", "staff", "parents_only", "students_only"].includes(form.audienceKind)) && (
             <div className="flex flex-wrap gap-1.5 rounded-lg border border-slate-100 bg-slate-50/60 p-2">
-              {(["teachers", "class", "class_section", "subject", "program", "specific_students"] as AnnouncementAudienceKind[]).map((k) => (
+              {(["teachers", "class", "class_parents", "class_section", "subject", "program", "specific_students"] as AnnouncementAudienceKind[]).map((k) => (
                 <button
                   key={k}
                   type="button"
@@ -489,7 +535,7 @@ export function AnnouncementComposer() {
           </div>
         )}
 
-        {form.audienceKind === "class" && (
+        {(form.audienceKind === "class" || form.audienceKind === "class_parents") && (
           <div className="space-y-1.5">
             <Label htmlFor="cls">Class *</Label>
             <select
@@ -607,6 +653,65 @@ export function AnnouncementComposer() {
             </p>
           </div>
         )}
+
+        {/* Repeat: "every last Friday of the month" - the rule posts
+            itself leadDays before each date, expiring end of that day. */}
+        <div className="space-y-1.5">
+          <Label>Repeat (optional)</Label>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {([
+              { v: "", label: "Post once" },
+              { v: "weekly", label: "Every week" },
+              { v: "monthly_first", label: "First … of the month" },
+              { v: "monthly_last", label: "Last … of the month" },
+            ] as Array<{ v: RecurrenceFreq | ""; label: string }>).map((o) => (
+              <button
+                key={o.v || "once"}
+                type="button"
+                onClick={() => setForm({ ...form, repeatFreq: o.v })}
+                className={
+                  "min-h-[32px] rounded-full px-3 py-1 text-xs font-semibold " +
+                  (form.repeatFreq === o.v
+                    ? "border border-indigo-200 bg-indigo-50 text-indigo-800"
+                    : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50")
+                }
+              >
+                {o.label}
+              </button>
+            ))}
+            {form.repeatFreq && (
+              <>
+                <select
+                  value={form.repeatWeekday}
+                  onChange={(e) => setForm({ ...form, repeatWeekday: Number(e.target.value) })}
+                  className="h-9 rounded-md border border-slate-200 px-2 text-sm"
+                >
+                  {WEEKDAY_NAMES.map((n, i) => (
+                    <option key={n} value={i}>{n}</option>
+                  ))}
+                </select>
+                <label className="flex items-center gap-1 text-xs text-slate-600">
+                  post
+                  <Input
+                    type="number"
+                    min={0}
+                    max={14}
+                    value={form.repeatLeadDays}
+                    onChange={(e) => setForm({ ...form, repeatLeadDays: Math.max(0, Math.min(14, Number(e.target.value) || 0)) })}
+                    className="h-9 w-16"
+                  />
+                  day(s) before
+                </label>
+              </>
+            )}
+          </div>
+          {form.repeatFreq && (
+            <p className="text-xs text-slate-500">
+              Parents see it {form.repeatLeadDays === 0 ? "on the day itself" : `${form.repeatLeadDays} day${form.repeatLeadDays === 1 ? "" : "s"} before`} at 7:00 AM,
+              and it disappears at the end of that day. Manage or stop it from the Announcements page.
+            </p>
+          )}
+        </div>
 
         <div className="space-y-1.5">
           <Label htmlFor="expiresAt">Expires (optional)</Label>
