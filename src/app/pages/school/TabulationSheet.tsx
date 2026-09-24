@@ -24,13 +24,12 @@ import {
 } from "../../components/ui/select";
 import {
   getSchoolMe, isOrgAdmin, listClasses, listTerms, getTabulation,
-  bulkTermReportCards,
+  bulkTermReportCards, patchTermSchedule,
   type AdminClass, type AcademicTerm, type SchoolMeResponse,
   type TabulationResponse,
 } from "../../../utils/schoolApi";
 import { CheckCircle2, Circle } from "lucide-react";
 import { NoAccessRedirect } from "../../components/school-ui";
-import { TermSchedulePanel } from "./components/TermSchedulePanel";
 
 const fmt = (n: number): string =>
   Number.isInteger(n) ? String(n) : n.toFixed(1);
@@ -295,21 +294,56 @@ export function TabulationSheet() {
             </div>
           )}
 
-          {/* The admin's clock on the term ("she gave all the teachers
-              until 2pm" — 23 Sep): marks deadline + results day +
-              per-teacher exceptions. Term-wide, shown to the office only. */}
+          {/* The term's clock in ONE line — configuration moved to its
+              own school-wide page (24 Sep: setting it from a section's
+              sheet "feels like going to each individual class"). The
+              +1 h stays for the 2pm crunch; everything else is a click
+              away. Shows THIS class's effective moments. */}
           {data.canFinalize && data.schedule && (
-            <TermSchedulePanel
-              orgId={orgId}
-              termId={data.term.id}
-              schedule={data.schedule}
-              classes={classes}
-              currentClassId={classes.find((c) =>
-                (c.sections ?? []).some((s) => s.id === data.section.id))?.id ?? null}
-              onChanged={() => {
-                getTabulation(orgId, data.section.id, data.term.id).then(setData).catch(() => {});
-              }}
-            />
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 print:hidden">
+              <span>
+                Marks deadline{" "}
+                <span className="font-medium text-slate-900">
+                  {data.schedule.effective?.marksDeadlineAt
+                    ? new Date(data.schedule.effective.marksDeadlineAt).toLocaleString([], { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })
+                    : "not set"}
+                </span>
+                {" · results day "}
+                <span className="font-medium text-slate-900">
+                  {data.schedule.effective?.resultsPublishAt
+                    ? new Date(data.schedule.effective.resultsPublishAt).toLocaleString([], { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })
+                    : "not scheduled"}
+                </span>
+                {(data.schedule.overrides ?? []).length > 0 && (
+                  <span className="text-slate-400"> · {data.schedule.overrides!.length} class difference{data.schedule.overrides!.length === 1 ? "" : "s"}</span>
+                )}
+              </span>
+              <span className="ml-auto inline-flex items-center gap-2">
+                {data.schedule.marksDeadlineAt && (
+                  <button
+                    type="button"
+                    className="text-indigo-600 hover:underline"
+                    onClick={async () => {
+                      const base = new Date(data.schedule!.marksDeadlineAt!);
+                      const next = new Date(Math.max(base.getTime(), Date.now()) + 3_600_000);
+                      try {
+                        await patchTermSchedule(orgId, data.term.id, { marksDeadlineAt: next.toISOString() });
+                        const fresh = await getTabulation(orgId, data.section.id, data.term.id);
+                        setData(fresh);
+                      } catch { /* the schedule page has the full controls */ }
+                    }}
+                  >
+                    +1 h
+                  </button>
+                )}
+                <Link
+                  className="text-indigo-600 hover:underline"
+                  to={`/school/orgs/${orgId}/admin/assessment/schedule`}
+                >
+                  Manage deadlines &amp; results day →
+                </Link>
+              </span>
+            </div>
           )}
 
           {data.subjects.length === 0 ? (

@@ -5551,6 +5551,10 @@ export interface TermSchedule {
   /** What THIS sheet's class ends up with after overrides. */
   effective?: { marksDeadlineAt: string | null; resultsPublishAt: string | null };
 }
+export const getTermSchedule = (
+  orgId: string, termId: string,
+): Promise<{ schedule: TermSchedule }> =>
+  apiCall(`/school/orgs/${orgId}/terms/${termId}/schedule`);
 export const patchTermSchedule = (
   orgId: string,
   termId: string,

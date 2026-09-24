@@ -84,6 +84,7 @@ import { ManageFeePlans } from "./pages/school/ManageFeePlans";
 import { ManageAssessment } from "./pages/school/ManageAssessment";
 import { MarksEntry } from "./pages/school/MarksEntry";
 import { TabulationSheet } from "./pages/school/TabulationSheet";
+import { TermSchedulePage } from "./pages/school/TermSchedulePage";
 import { PinSlips } from "./pages/school/PinSlips";
 import { ManageGradeScales } from "./pages/school/ManageGradeScales";
 import { ParentInbox } from "./pages/school/ParentInbox";
@@ -682,6 +683,7 @@ export const router = createBrowserRouter([
               { path: "admin/assessment", element: <ManageAssessment /> },
               { path: "admin/assessment/exams/:examId/marks", element: <MarksEntry /> },
               { path: "admin/assessment/tabulation", element: <TabulationSheet /> },
+              { path: "admin/assessment/schedule", element: <TermSchedulePage /> },
               { path: "admin/assessment/exam-syllabus", element: <ExamSyllabus /> },
               { path: "admin/assessment/exam-marks", element: <ExamMarks /> },
               { path: "admin/assessment/marking-progress", element: <MarkingProgress /> },
