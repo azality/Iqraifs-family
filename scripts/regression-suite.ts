@@ -151,6 +151,21 @@ const { data: sandboxClass } = await admin.from("class").select("id").eq("org_id
 if (!sandboxClass) { console.error("Sandbox class missing — run scripts/seed-sandbox-teacher.ts first."); Deno.exit(1); }
 const { data: sandboxSec } = await admin.from("class_section").select("id").eq("class_id", sandboxClass.id).eq("name", "A").maybeSingle();
 
+// The Sandbox class is EXEMPT from the school's marks deadline on every
+// real term - the office set a live 2pm deadline (24 Sep) and every QA
+// teacher save started answering 403. The exemption is a standing QA
+// fixture (per-class override, v1.6.0); check 121 still exercises the
+// deadline in a QA term of its own.
+{
+  const { data: liveTerms } = await admin.from("academic_term")
+    .select("id").eq("org_id", ORG).is("archived_at", null).not("name", "like", "QA %");
+  for (const t of (liveTerms ?? []) as any[]) {
+    await admin.from("term_class_schedule").upsert({
+      org_id: ORG, term_id: t.id, class_id: sandboxClass.id, marks_deadline_off: true,
+    }, { onConflict: "term_id,class_id" });
+  }
+}
+
 const teacher = await ensureUser("qa-teacher@azality.com", "QA Teacher", "class_teacher");
 const office = await ensureUser("qa-office@azality.com", "QA Office", "office_staff");
 // Org-view account for principal-cockpit checks (determineScope only
