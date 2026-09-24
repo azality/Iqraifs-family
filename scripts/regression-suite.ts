@@ -7055,6 +7055,14 @@ await check("121. the marks deadline locks a teacher, spares the office, bends t
       "the tabulation must list the class override");
     assert(tabSched?.effective?.marksDeadlineAt,
       "the tabulation must say what THIS class ends up with");
+    // And the standalone schedule page reads the same clock without a
+    // section (v1.7.1: "Deadlines & results day" moved to its own page).
+    const pageSched = await api(admin2.token, `/school/orgs/${ORG}/terms/${termId}/schedule`);
+    const pageJ = await pageSched.json();
+    assert(pageSched.status === 200 &&
+      (pageJ.schedule?.overrides ?? []).some((o: any) => o.classId === sandboxClass.id) &&
+      new Date(pageJ.schedule?.marksDeadlineAt ?? 0).getTime() === new Date(pastIso).getTime(),
+      `GET /schedule must carry the term clock + overrides, got ${pageSched.status}: ${JSON.stringify(pageJ.schedule ?? pageJ).slice(0, 150)}`);
 
     // Results day: a finalized card + a scheduled moment in the past =
     // published on the next read, stamped with the SCHEDULED time.

@@ -150,6 +150,12 @@ export function ManageAssessment() {
         <Link to={`/school/orgs/${orgId}/admin/assessment/tabulation`}>
           <Button variant="outline" size="sm">Tabulation sheet →</Button>
         </Link>
+        {/* The term's clock: whole-school marks deadline + results day
+            + class differences. School-wide, so it lives on its own
+            page rather than inside a section's tabulation (24 Sep). */}
+        <Link to={`/school/orgs/${orgId}/admin/assessment/schedule`}>
+          <Button variant="outline" size="sm">Deadlines &amp; results day →</Button>
+        </Link>
         <Link to={`/school/orgs/${orgId}/admin/assessment/grade-scales`}>
           <Button variant="outline" size="sm">Grade scales →</Button>
         </Link>

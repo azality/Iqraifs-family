@@ -1009,6 +1009,40 @@ export function installAssessment(school: Hono): void {
   });
 
   // ── Marks deadline + results day (23 Sep) ──────────────────────────
+  // GET /orgs/:orgId/terms/:termId/schedule
+  // The standalone "Deadlines & results day" page (24 Sep: "should it
+  // be part of the settings page") reads one term's whole clock here -
+  // school-wide moments + every class difference - without needing a
+  // section's tabulation.
+  school.get("/orgs/:orgId/terms/:termId/schedule", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    const termId = c.req.param("termId");
+    if (!(await isAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    const { data: term } = await serviceRoleClient
+      .from("academic_term")
+      .select("org_id, marks_deadline_at, results_publish_at")
+      .eq("id", termId).maybeSingle();
+    if (!term || (term as any).org_id !== orgId) return c.json({ error: "term not found" }, 404);
+    const { data: ovRows } = await serviceRoleClient
+      .from("term_class_schedule")
+      .select("class_id, marks_deadline_at, marks_deadline_off, results_publish_at, class:class_id(name)")
+      .eq("term_id", termId).eq("org_id", orgId);
+    return c.json({
+      schedule: {
+        marksDeadlineAt: (term as any).marks_deadline_at ?? null,
+        resultsPublishAt: (term as any).results_publish_at ?? null,
+        overrides: ((ovRows ?? []) as any[]).map((o) => ({
+          classId: o.class_id,
+          className: o.class?.name ?? "",
+          marksDeadlineAt: o.marks_deadline_at ?? null,
+          marksDeadlineOff: !!o.marks_deadline_off,
+          resultsPublishAt: o.results_publish_at ?? null,
+        })),
+      },
+    });
+  });
+
   // PATCH /orgs/:orgId/terms/:termId/schedule
   //   { marksDeadlineAt?: iso|null, resultsPublishAt?: iso|null }
   // Setting a new marksDeadlineAt IS the extension. Admin only.
