@@ -5359,6 +5359,7 @@ export type AnnouncementAudienceKind =
   | "staff"
   | "teachers"
   | "class"
+  | "class_parents"
   | "program"
   | "subject";
 
@@ -5432,6 +5433,59 @@ export const deleteAnnouncement = (
   announcementId: string,
 ): Promise<{ ok: true }> =>
   apiCall(`/school/orgs/${orgId}/announcements/${announcementId}`, {
+    method: "DELETE",
+  });
+
+/** A standing announcement that posts itself ("last Friday of every
+ *  month"). The instance appears leadDays before the occurrence and
+ *  expires at the end of the occurrence day. */
+export type RecurrenceFreq = "weekly" | "monthly_first" | "monthly_last";
+export interface AnnouncementRecurrence {
+  id: string;
+  title: string;
+  body: string;
+  audienceKind: AnnouncementAudienceKind;
+  audienceSectionId: string | null;
+  audienceClassId: string | null;
+  audienceSubjectId: string | null;
+  audienceProgram: string | null;
+  freq: RecurrenceFreq;
+  weekday: number; // 0 = Sunday
+  leadDays: number;
+  nextOccurrence: string; // YYYY-MM-DD (Pakistan calendar)
+  nextPostAt: string;
+  active: boolean;
+  createdAt: string;
+}
+export const createAnnouncementRecurrence = (
+  orgId: string,
+  body: {
+    title: string; body: string;
+    audienceKind: AnnouncementAudienceKind;
+    audienceSectionId?: string | null;
+    audienceClassId?: string | null;
+    audienceSubjectId?: string | null;
+    audienceProgram?: string | null;
+    freq: RecurrenceFreq; weekday: number; leadDays?: number;
+  },
+): Promise<{ recurrence: AnnouncementRecurrence }> =>
+  apiCall(`/school/orgs/${orgId}/announcement-recurrences`, {
+    method: "POST", body: JSON.stringify(body),
+  });
+export const listAnnouncementRecurrences = (
+  orgId: string,
+): Promise<{ recurrences: AnnouncementRecurrence[] }> =>
+  apiCall(`/school/orgs/${orgId}/announcement-recurrences`);
+export const patchAnnouncementRecurrence = (
+  orgId: string, recurrenceId: string, active: boolean,
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/announcement-recurrences/${recurrenceId}`, {
+    method: "PATCH", body: JSON.stringify({ active }),
+  });
+export const deleteAnnouncementRecurrence = (
+  orgId: string, recurrenceId: string,
+): Promise<{ ok: true }> =>
+  apiCall(`/school/orgs/${orgId}/announcement-recurrences/${recurrenceId}`, {
     method: "DELETE",
   });
 

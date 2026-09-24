@@ -25,6 +25,7 @@ import { paymentsByFeeId, renderFeeReceiptHtml, bankAccountFromSettings } from "
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { userHasRoleRow, hasAdminOrPrincipal, hasAnyRoleInOrg, teachesSubjectInSection } from "./schoolAuth.ts";
 import { verifyPinToken } from "./schoolPhaseA.tsx";
+import { nextSchedule, type RecurrenceFreq } from "./announceRecurrence.ts";
 import type { PinTokenPayload } from "./schoolPhaseA.tsx";
 
 // Returns set of section ids this teacher "owns":
@@ -136,6 +137,7 @@ const AUDIENCE_KINDS = new Set([
   "staff",
   "teachers",
   "class",
+  "class_parents",
   "program",
   "subject",
 ]);
@@ -265,7 +267,7 @@ export function installAnnounce(school: Hono): void {
       return c.json({ error: "audienceStudentIds required for specific_students" }, 400);
     }
     // Discriminator presence checks per new kind.
-    if (audienceKind === "class" && !audienceClassId) {
+    if ((audienceKind === "class" || audienceKind === "class_parents") && !audienceClassId) {
       return c.json({ error: "audienceClassId required for class kind" }, 400);
     }
     if (audienceKind === "subject" && !audienceSubjectId) {
@@ -294,6 +296,7 @@ export function installAnnounce(school: Hono): void {
         audienceKind === "staff" ||
         audienceKind === "teachers" ||
         audienceKind === "class" ||
+        audienceKind === "class_parents" ||
         audienceKind === "program" ||
         audienceKind === "subject"
       ) {
@@ -335,7 +338,7 @@ export function installAnnounce(school: Hono): void {
       }
     }
     // Verify audience class belongs to this org.
-    if (audienceKind === "class" && audienceClassId) {
+    if ((audienceKind === "class" || audienceKind === "class_parents") && audienceClassId) {
       const { data: cls } = await serviceRoleClient
         .from("class")
         .select("id, org_id")
@@ -363,7 +366,7 @@ export function installAnnounce(school: Hono): void {
       audience_kind: audienceKind,
       audience_section_id: audienceSectionId,
       audience_student_ids: audienceKind === "specific_students" ? audienceStudentIds : null,
-      audience_class_id: audienceKind === "class" ? audienceClassId : null,
+      audience_class_id: audienceKind === "class" || audienceKind === "class_parents" ? audienceClassId : null,
       audience_subject_id: audienceKind === "subject" ? audienceSubjectId : null,
       audience_program: audienceKind === "program" ? audienceProgram : null,
       title,
@@ -383,6 +386,169 @@ export function installAnnounce(school: Hono): void {
     return c.json({ announcement: announcementToJson(ins) }, 201);
   });
 
+
+  // ===========================================================================
+  // Recurring announcements (24 Sep: "last friday of the month")
+  // ===========================================================================
+  // No cron: due rules materialize an announcement instance on the next
+  // feed read (same lazy pattern as results-day publishing). The
+  // instance expires at the end of its occurrence day, and the rule
+  // advances to the next occurrence.
+  function recurrenceToJson(r: any) {
+    return {
+      id: r.id,
+      title: r.title,
+      body: r.body,
+      audienceKind: r.audience_kind,
+      audienceSectionId: r.audience_section_id ?? null,
+      audienceClassId: r.audience_class_id ?? null,
+      audienceSubjectId: r.audience_subject_id ?? null,
+      audienceProgram: r.audience_program ?? null,
+      freq: r.freq,
+      weekday: Number(r.weekday),
+      leadDays: Number(r.lead_days),
+      nextOccurrence: r.next_occurrence,
+      nextPostAt: r.next_post_at,
+      active: !!r.active,
+      createdAt: r.created_at,
+    };
+  }
+
+  async function applyRecurringAnnouncements(orgId: string): Promise<void> {
+    const { data: due } = await serviceRoleClient
+      .from("announcement_recurrence")
+      .select("*")
+      .eq("org_id", orgId)
+      .eq("active", true)
+      .lte("next_post_at", new Date().toISOString());
+    for (const r of (due ?? []) as any[]) {
+      const occ = r.next_occurrence as string;
+      await serviceRoleClient.from("announcement").insert({
+        org_id: orgId,
+        author_user_id: r.author_user_id,
+        audience_kind: r.audience_kind,
+        audience_section_id: r.audience_section_id,
+        audience_class_id: r.audience_class_id,
+        audience_subject_id: r.audience_subject_id,
+        audience_program: r.audience_program,
+        title: r.title,
+        body: r.body,
+        attachments: [],
+        expires_at: new Date(occ + "T18:59:00Z").toISOString(), // 23:59 PKT
+        publish_publicly: false,
+      });
+      const next = nextSchedule(
+        r.freq as RecurrenceFreq, Number(r.weekday), Number(r.lead_days), new Date());
+      await serviceRoleClient.from("announcement_recurrence")
+        .update({ next_occurrence: next.occurrence, next_post_at: next.postAt })
+        .eq("id", r.id);
+    }
+  }
+
+  const RECUR_KINDS = new Set([
+    "whole_school", "parents_only", "students_only", "staff", "teachers",
+    "class", "class_parents", "class_section", "program", "subject",
+  ]);
+
+  // POST /orgs/:orgId/announcement-recurrences  (admin/principal)
+  school.post("/orgs/:orgId/announcement-recurrences", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    if (!(await hasAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    const body = await c.req.json().catch(() => null);
+    if (!body) return c.json({ error: "invalid json" }, 400);
+    const title = typeof body.title === "string" ? body.title.trim() : "";
+    const bodyText = typeof body.body === "string" ? body.body : "";
+    if (!title || !bodyText) return c.json({ error: "title and body required" }, 400);
+    if (!RECUR_KINDS.has(body.audienceKind)) return c.json({ error: "invalid audienceKind" }, 400);
+    if ((body.audienceKind === "class" || body.audienceKind === "class_parents") && !body.audienceClassId) {
+      return c.json({ error: "audienceClassId required" }, 400);
+    }
+    if (body.audienceKind === "class_section" && !body.audienceSectionId) {
+      return c.json({ error: "audienceSectionId required" }, 400);
+    }
+    const freq = body.freq as RecurrenceFreq;
+    if (!["weekly", "monthly_first", "monthly_last"].includes(freq)) {
+      return c.json({ error: "freq must be weekly, monthly_first or monthly_last" }, 400);
+    }
+    const weekday = Number(body.weekday);
+    if (!Number.isInteger(weekday) || weekday < 0 || weekday > 6) {
+      return c.json({ error: "weekday must be 0 (Sunday) to 6 (Saturday)" }, 400);
+    }
+    const leadDays = Number.isInteger(Number(body.leadDays)) ? Number(body.leadDays) : 1;
+    if (leadDays < 0 || leadDays > 14) return c.json({ error: "leadDays must be 0-14" }, 400);
+    const sched = nextSchedule(freq, weekday, leadDays, new Date());
+    const { data: ins, error } = await serviceRoleClient
+      .from("announcement_recurrence")
+      .insert({
+        org_id: orgId, author_user_id: userId,
+        title, body: bodyText,
+        audience_kind: body.audienceKind,
+        audience_section_id: body.audienceSectionId ?? null,
+        audience_class_id: body.audienceClassId ?? null,
+        audience_subject_id: body.audienceSubjectId ?? null,
+        audience_program: body.audienceProgram ?? null,
+        freq, weekday, lead_days: leadDays,
+        next_occurrence: sched.occurrence, next_post_at: sched.postAt,
+      }).select("*").single();
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ recurrence: recurrenceToJson(ins) }, 201);
+  });
+
+  // GET /orgs/:orgId/announcement-recurrences  (admin/principal)
+  school.get("/orgs/:orgId/announcement-recurrences", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    if (!(await hasAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    const { data } = await serviceRoleClient
+      .from("announcement_recurrence")
+      .select("*").eq("org_id", orgId)
+      .order("created_at", { ascending: false });
+    return c.json({ recurrences: ((data ?? []) as any[]).map(recurrenceToJson) });
+  });
+
+  // PATCH (pause/resume) + DELETE
+  school.patch("/orgs/:orgId/announcement-recurrences/:recurrenceId", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    if (!(await hasAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    const body = await c.req.json().catch(() => ({}));
+    if (typeof body.active !== "boolean") return c.json({ error: "active (boolean) required" }, 400);
+    // Resuming re-anchors the clock to NOW, so a rule paused across its
+    // moment never back-posts a stale instance.
+    const patch: any = { active: body.active };
+    if (body.active) {
+      const { data: row } = await serviceRoleClient
+        .from("announcement_recurrence").select("freq, weekday, lead_days")
+        .eq("id", c.req.param("recurrenceId")).eq("org_id", orgId).maybeSingle();
+      if (!row) return c.json({ error: "not found" }, 404);
+      const sched = nextSchedule(
+        (row as any).freq, Number((row as any).weekday), Number((row as any).lead_days), new Date());
+      patch.next_occurrence = sched.occurrence;
+      patch.next_post_at = sched.postAt;
+    }
+    const { error } = await serviceRoleClient
+      .from("announcement_recurrence").update(patch)
+      .eq("id", c.req.param("recurrenceId")).eq("org_id", orgId);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ ok: true });
+  });
+
+  school.delete("/orgs/:orgId/announcement-recurrences/:recurrenceId", async (c) => {
+    const userId = getAuthUserId(c);
+    if (!userId) return c.json({ error: "unauthenticated" }, 401);
+    const orgId = c.req.param("orgId");
+    if (!(await hasAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    const { error } = await serviceRoleClient
+      .from("announcement_recurrence").delete()
+      .eq("id", c.req.param("recurrenceId")).eq("org_id", orgId);
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ ok: true });
+  });
+
   // ---------------------------------------------------------------------------
   // GET /school/orgs/:orgId/announcements
   // ---------------------------------------------------------------------------
@@ -397,6 +563,9 @@ export function installAnnounce(school: Hono): void {
 
     const creatorOnly = c.req.query("creatorOnly") === "true";
     const isAdmin = await hasAdminOrPrincipal(userId, orgId);
+    // A due "every last Friday" rule becomes a real announcement on
+    // whichever feed reads first.
+    await applyRecurringAnnouncements(orgId);
 
     // Non-admin staff feed: in addition to their own authored
     // announcements, they should see anything addressed to their
@@ -554,6 +723,10 @@ export function installAnnounce(school: Hono): void {
       );
     }
 
+    // A due recurring rule posts itself before the feed is read, so a
+    // parent opening the portal is enough to surface "last Friday".
+    await applyRecurringAnnouncements(subject.orgId);
+
     // Pull recent announcements for this org and filter in-memory (small set).
     const { data, error } = await serviceRoleClient
       .from("announcement")
@@ -601,6 +774,12 @@ export function installAnnounce(school: Hono): void {
       }
       if (kind === "class") {
         return r.audience_class_id && classIds.includes(r.audience_class_id);
+      }
+      // Parents of one class - the office's "Montessori parents" ask
+      // (24 Sep). Students of the class deliberately do NOT see it.
+      if (kind === "class_parents") {
+        return subject.subjectType === "parent" &&
+          r.audience_class_id && classIds.includes(r.audience_class_id);
       }
       if (kind === "program") {
         return r.audience_program && programs.includes(r.audience_program);

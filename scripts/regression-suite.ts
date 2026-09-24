@@ -7082,6 +7082,93 @@ await check("121. the marks deadline locks a teacher, spares the office, bends t
   }
 });
 
+await check("122. parents-of-a-class announcements reach ONLY parents - and a standing rule posts itself", async () => {
+  // 24 Sep: "when I click on parents it doesn't ask which class" - the
+  // Parents chip is org-wide. The new class_parents kind reaches one
+  // class's parents and nobody else. And "last friday of the month"
+  // is a standing rule that posts its own instance, lazily, on read.
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  // Self-heal debris from a killed run.
+  await admin.from("announcement").delete().eq("org_id", ORG).like("title", "QA ClassParents%");
+  await admin.from("announcement").delete().eq("org_id", ORG).like("title", "QA Repeat%");
+  await admin.from("announcement_recurrence").delete().eq("org_id", ORG).like("title", "QA Repeat%");
+  const cleanup: Array<() => Promise<unknown>> = [];
+  try {
+    // One class's parents only.
+    const post = await api(admin2.token, `/school/orgs/${ORG}/announcements`, {
+      method: "POST",
+      body: JSON.stringify({
+        title: "QA ClassParents Note", body: "Bring a toy on Friday.",
+        audienceKind: "class_parents", audienceClassId: sandboxClass.id,
+      }),
+    });
+    assert(post.status === 201, `class_parents post: ${post.status}`);
+    cleanup.push(() => admin.from("announcement").delete().eq("org_id", ORG).eq("title", "QA ClassParents Note"));
+
+    const portalFeed = async (token: string) => {
+      const r = await fetch(`${FUNC}/school/pin-me/announcements`, {
+        headers: { apikey: ANON, "X-Pin-Token": token },
+      });
+      const j = await r.json();
+      assert(r.status === 200, `portal feed ${r.status}`);
+      return (j.announcements ?? []) as any[];
+    };
+    const pTok = (await (await pinLogin(PARENT_PHONE, "3456")).json()).token;
+    const sTok = (await (await pinLogin("QA-PORTAL-2", "2345")).json()).token;
+    assert((await portalFeed(pTok)).some((a) => a.title === "QA ClassParents Note"),
+      "the class's PARENT must see it");
+    assert(!(await portalFeed(sTok)).some((a) => a.title === "QA ClassParents Note"),
+      "the class's STUDENT must NOT see it");
+
+    // The standing rule: created through the endpoint, scheduled ahead.
+    const mk = await api(admin2.token, `/school/orgs/${ORG}/announcement-recurrences`, {
+      method: "POST",
+      body: JSON.stringify({
+        title: "QA Repeat Activity Day", body: "Every last Friday.",
+        audienceKind: "class_parents", audienceClassId: sandboxClass.id,
+        freq: "monthly_last", weekday: 5, leadDays: 1,
+      }),
+    });
+    const mkJ = await mk.json();
+    assert(mk.status === 201, `recurrence post: ${mk.status} ${JSON.stringify(mkJ).slice(0, 150)}`);
+    const rec = mkJ.recurrence;
+    cleanup.push(() => admin.from("announcement_recurrence").delete().eq("id", rec.id));
+    cleanup.push(() => admin.from("announcement").delete().eq("org_id", ORG).eq("title", "QA Repeat Activity Day"));
+    assert(new Date(rec.nextPostAt).getTime() > Date.now(), "the first post moment must be ahead");
+    assert(new Date(`${rec.nextOccurrence}T12:00:00Z`).getUTCDay() === 5,
+      `the occurrence must be a Friday, got ${rec.nextOccurrence}`);
+
+    // Force it due; any staff feed read materializes the instance and
+    // advances the rule - no cron anywhere.
+    await admin.from("announcement_recurrence")
+      .update({ next_post_at: new Date(Date.now() - 60_000).toISOString() })
+      .eq("id", rec.id);
+    const feed = await api(admin2.token, `/school/orgs/${ORG}/announcements`);
+    assert(feed.status === 200, `staff feed ${feed.status}`);
+    const { data: inst } = await admin.from("announcement")
+      .select("id, expires_at, audience_kind, audience_class_id")
+      .eq("org_id", ORG).eq("title", "QA Repeat Activity Day");
+    assert((inst ?? []).length === 1, `exactly one instance must exist, got ${(inst ?? []).length}`);
+    const row = (inst as any[])[0];
+    assert(row.audience_kind === "class_parents" && row.audience_class_id === sandboxClass.id,
+      "the instance carries the rule's audience");
+    assert(new Date(row.expires_at).getTime() ===
+      new Date(`${rec.nextOccurrence}T18:59:00Z`).getTime(),
+      `the instance must expire at the end of its occurrence day, got ${row.expires_at}`);
+    const { data: after } = await admin.from("announcement_recurrence")
+      .select("next_post_at, next_occurrence").eq("id", rec.id).maybeSingle();
+    assert(new Date((after as any).next_post_at).getTime() > Date.now(),
+      "the rule must advance to a future moment after posting");
+    // A second read must NOT double-post.
+    await api(admin2.token, `/school/orgs/${ORG}/announcements`);
+    const { data: still } = await admin.from("announcement")
+      .select("id").eq("org_id", ORG).eq("title", "QA Repeat Activity Day");
+    assert((still ?? []).length === 1, "a second read must not duplicate the instance");
+  } finally {
+    for (const undo of cleanup.reverse()) await undo();
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
