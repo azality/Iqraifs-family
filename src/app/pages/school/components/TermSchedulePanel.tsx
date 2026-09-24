@@ -132,6 +132,29 @@ export function TermSchedulePanel({ orgId, termId, schedule, classes, currentCla
       toast.error(e instanceof Error ? e.message : "Could not remove");
     }
   };
+  // Bulk exemption (24 Sep: "for the entire school except reception,
+  // junior, hifz and catch up") - tick the classes, one click. Each
+  // ticked class gets a deadline-off row; existing rows are preserved
+  // as-is elsewhere and skipped here.
+  const [exemptPick, setExemptPick] = useState<Set<string>>(new Set());
+  const toggleExempt = (id: string) => setExemptPick((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const exemptSelected = async () => {
+    if (exemptPick.size === 0) { toast.error("Tick the classes to exempt."); return; }
+    try {
+      for (const id of exemptPick) {
+        await putClassSchedule(orgId, termId, id, { marksDeadlineOff: true });
+      }
+      toast.success(`${exemptPick.size} class${exemptPick.size === 1 ? "" : "es"} exempted from the deadline`);
+      setExemptPick(new Set());
+      onChanged();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not exempt");
+    }
+  };
   /** Prefill the form from an existing override so edit = re-save. */
   const editOverride = (o: NonNullable<TermSchedule["overrides"]>[number]) => {
     setOvClass(o.classId);
@@ -249,6 +272,24 @@ export function TermSchedulePanel({ orgId, termId, schedule, classes, currentCla
             ))}
           </div>
         )}
+        {/* Bulk exemption: "whole school except Reception, Junior, the
+            four Hifz and Catch Up" is seven ticks and ONE click, not
+            seven separate rows. Only classes without a row show here. */}
+        <div className="mb-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1">
+          <span className="text-[11px] text-slate-500">Exempt from the deadline:</span>
+          {classes
+            .filter((c) => !overrides.some((o) => o.classId === c.id))
+            .map((c) => (
+              <label key={c.id} className="flex items-center gap-1 text-[11px] text-slate-600">
+                <input type="checkbox" checked={exemptPick.has(c.id)} onChange={() => toggleExempt(c.id)} />
+                {c.name}
+              </label>
+            ))}
+          <Button size="sm" variant="outline" className="h-7 text-xs"
+            disabled={exemptPick.size === 0} onClick={() => void exemptSelected()}>
+            Exempt selected{exemptPick.size > 0 ? ` (${exemptPick.size})` : ""}
+          </Button>
+        </div>
         <div className="flex flex-wrap items-center gap-1.5">
           <Select value={ovClass || "__none__"} onValueChange={(v) => setOvClass(v === "__none__" ? "" : v)}>
             <SelectTrigger className="h-8 w-36 text-xs"><SelectValue placeholder="Class" /></SelectTrigger>
