@@ -18,6 +18,7 @@ const AUDIENCE_LABEL_KEY: Record<AnnouncementAudienceKind, string> = {
   students_only: "portal.ann.audStudents",
   specific_students: "portal.ann.audPersonal",
   class: "portal.ann.audClass",
+  class_parents: "portal.ann.audClassParents",
   teachers: "portal.ann.audTeachers",
   staff: "portal.ann.audStaff",
   program: "portal.ann.audProgram",
