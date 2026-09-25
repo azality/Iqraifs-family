@@ -27,11 +27,13 @@ import {
 import {
   getSchoolMe, isOrgAdmin,
   listTerms, getTermReportCard,
-  saveReportCardComments, setReportCardWorkflow,
+  saveReportCardComments, setReportCardWorkflow, suggestRemarks,
   type SchoolMeResponse, type AcademicTerm,
   type TermReportCardResponse,
 } from "../../../utils/schoolApi";
 import { ReportFindingsPanel } from "./components/ReportFindingsPanel";
+import { Sparkles } from "lucide-react";
+import { toast } from "sonner";
 
 function fmtPct(n: number | null): string {
   return n === null ? "—" : `${n.toFixed(1)}%`;
@@ -58,6 +60,10 @@ export function StudentReportCard() {
   const [principalComment, setPrincipalComment] = useState("");
   const [subjectComments, setSubjectComments] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  // AI suggestion: written from the computed findings, dropped into the
+  // boxes for a human to edit. Never saved on its own (26 Sep).
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestedUr, setSuggestedUr] = useState<{ ct: string; pr: string } | null>(null);
 
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
@@ -94,6 +100,27 @@ export function StudentReportCard() {
   useEffect(refresh, [orgId, studentId, termId]);
 
   const isAdmin = useMemo(() => isOrgAdmin(me, orgId), [me, orgId]);
+
+  const handleSuggest = async () => {
+    if (!card) return;
+    setSuggesting(true);
+    try {
+      const r = await suggestRemarks(orgId, studentId, termId);
+      setClassTeacherComment(r.suggestion.classTeacher);
+      if (isAdmin) setPrincipalComment(r.suggestion.principal);
+      setSuggestedUr({ ct: r.suggestion.classTeacherUr, pr: r.suggestion.principalUr });
+      toast.success(
+        r.urduOk
+          ? "Suggested from this child's own numbers — edit anything, then Save."
+          : "Suggested — but the Urdu came back oddly, please check it before saving.",
+      );
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSuggesting(false);
+    }
+  };
   if (meLoading) return null;
   if (!isAdmin && !me) return <Navigate to={`/school/orgs/${orgId}`} replace />;
 
@@ -498,9 +525,29 @@ export function StudentReportCard() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 no-print">
+                {suggestedUr && (
+                  <div className="rounded-md border border-indigo-100 bg-indigo-50/60 px-3 py-2 text-xs no-print">
+                    <div className="mb-1 font-semibold text-indigo-900">
+                      Urdu suggestion — copy into the chart, or keep for reference
+                    </div>
+                    <p dir="rtl" lang="ur" className="text-slate-800">{suggestedUr.ct}</p>
+                    {isAdmin && <p dir="rtl" lang="ur" className="mt-1 text-slate-800">{suggestedUr.pr}</p>}
+                    <p className="mt-1 text-[10px] text-slate-500">
+                      Saved remarks keep the language they were typed in; the Urdu band chart
+                      covers parents reading in Urdu.
+                    </p>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap items-center gap-2 no-print">
                   <Button size="sm" onClick={handleSaveComments} disabled={saving}>
                     <Pencil className="h-3.5 w-3.5 mr-1" /> {saving ? "Saving…" : "Save comments"}
+                  </Button>
+                  {/* Writes from the findings above, in the school's voice.
+                      It fills the boxes - saving is still a human act. */}
+                  <Button size="sm" variant="outline" onClick={handleSuggest} disabled={suggesting || saving}>
+                    <Sparkles className="h-3.5 w-3.5 mr-1" />
+                    {suggesting ? "Writing…" : "Suggest with AI"}
                   </Button>
                   {card.workflow.publishedAt && (
                     <span className="text-[11px] text-amber-700 inline-flex items-center gap-1">
