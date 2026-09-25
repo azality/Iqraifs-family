@@ -7239,49 +7239,37 @@ await check("124. the marking board says whether report cards are FINALIZED, not
   // carries finalized/published per section, and names how many cards
   // would go out BLANK (a child with no marks - new admissions and
   // mid-term movers carry exactly this risk).
+  // The board EXCLUDES the sandbox (deliberately, like hifz), so this
+  // check reads REAL sections and cross-checks their counts against the
+  // database directly - no card is ever written or deleted.
   const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
   const term = await markedTerm();
   assert(term, "no term with papers");
-  const { data: sbStudents } = await admin.from("student").select("id")
-    .eq("class_section_id", sandboxSec.id).eq("status", "active");
-  const ids = (sbStudents ?? []).map((s: any) => s.id);
-  assert(ids.length >= 1, "need a sandbox student");
 
-  const board = async () => {
-    const r = await api(admin2.token, `/school/orgs/${ORG}/marking-progress?termId=${term!.id}`);
-    const j = await r.json();
-    assert(r.status === 200, `board ${r.status}`);
-    return (j.sections ?? []).find((s: any) => s.sectionId === sandboxSec.id);
-  };
-
-  const cleanup: Array<() => Promise<unknown>> = [];
-  cleanup.push(() => admin.from("term_report_card").delete()
-    .eq("term_id", term!.id).in("student_id", ids));
-  try {
-    await admin.from("term_report_card").delete()
-      .eq("term_id", term!.id).in("student_id", ids);
-    const before = await board();
-    assert(before, "the sandbox section must be on the board");
-    assert(before.finalized === 0,
-      `nothing finalized yet, got ${JSON.stringify(before.finalized)}`);
-    assert(typeof before.unmarked === "number",
-      "the board must report how many children have no marks at all");
-
-    // Finalize ONE child: the count moves, and it is not "all".
-    const { error } = await admin.from("term_report_card").insert({
-      org_id: ORG, student_id: ids[0], term_id: term!.id,
-      finalized_at: new Date().toISOString(),
-    });
-    if (error) throw new Error(`card: ${error.message}`);
-    const after = await board();
-    assert(after.finalized === 1,
-      `one finalized card must count one, got ${after.finalized}`);
-    assert(after.finalized < after.studentCount || after.studentCount === 1,
-      "a part-finalized section must not read as complete");
-    assert(after.published === 0, "finalized is not published");
-  } finally {
-    for (const undo of cleanup.reverse()) await undo();
+  const r = await api(admin2.token, `/school/orgs/${ORG}/marking-progress?termId=${term!.id}`);
+  const j = await r.json();
+  assert(r.status === 200, `board ${r.status}`);
+  const rows = (j.sections ?? []) as any[];
+  assert(rows.length > 0, "the board must list sections");
+  for (const row of rows) {
+    assert(typeof row.finalized === "number" && typeof row.published === "number" &&
+      typeof row.unmarked === "number",
+      `every row must carry finalized/published/unmarked, got ${JSON.stringify({ f: row.finalized, p: row.published, u: row.unmarked })} on ${row.label}`);
+    assert(row.finalized <= row.studentCount && row.published <= row.finalized,
+      `counts must nest (published <= finalized <= students) on ${row.label}: ${row.published}/${row.finalized}/${row.studentCount}`);
   }
+
+  // Cross-check the fullest section's number against the database - the
+  // board must agree with the cards themselves, not approximate them.
+  const busiest = [...rows].sort((a, b) => b.finalized - a.finalized)[0];
+  const { data: stus } = await admin.from("student").select("id")
+    .eq("class_section_id", busiest.sectionId).eq("status", "active");
+  const ids = (stus ?? []).map((s: any) => s.id);
+  const { data: cards } = await admin.from("term_report_card")
+    .select("student_id, finalized_at").eq("term_id", term!.id).in("student_id", ids);
+  const dbFinalized = ((cards ?? []) as any[]).filter((c) => c.finalized_at).length;
+  assert(busiest.finalized === dbFinalized,
+    `${busiest.label}: board says ${busiest.finalized} finalized, the cards say ${dbFinalized}`);
 });
 
 // ── Summary ─────────────────────────────────────────────────────────────
