@@ -7336,6 +7336,55 @@ await check("125. a merged parent's portal lists children from EVERY row of the 
   }
 });
 
+await check("126. the class teacher's uploaded signature flows onto the report card", async () => {
+  // 25 Sep: "there should be a place on the teachers profile where they
+  // can upload their signature so the report card can pull it". It
+  // lives in user_metadata.signature_url (set from TeacherDetail); the
+  // shared card builder puts it on the Class-teacher line for staff
+  // print AND the parent portal alike.
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const term = await markedTerm();
+  assert(term, "no term with papers");
+  const { data: sec } = await admin.from("class_section")
+    .select("class_teacher_user_id").eq("id", sandboxSec.id).single();
+  const ctId = (sec as any).class_teacher_user_id;
+  assert(ctId, "the sandbox section must have a class teacher");
+
+  const SIG = "https://example.com/qa-signature.png";
+  const { data: before } = await admin.auth.admin.getUserById(ctId);
+  const beforeMeta = { ...((before as any)?.user?.user_metadata ?? {}) };
+  try {
+    // Set through the REAL profile endpoint, so the write path is the
+    // one the admin's Upload button uses.
+    const r = await api(admin2.token, `/school/orgs/${ORG}/teachers/${ctId}/profile`, {
+      method: "PATCH", body: JSON.stringify({ signatureUrl: SIG }),
+    });
+    assert(r.status === 200, `profile PATCH: ${r.status}`);
+
+    const detail = await (await api(admin2.token, `/school/orgs/${ORG}/teachers/${ctId}`)).json();
+    assert(detail.signatureUrl === SIG,
+      `the teacher detail must return the signature, got ${JSON.stringify(detail.signatureUrl)}`);
+
+    const card = await (await api(admin2.token,
+      `/school/orgs/${ORG}/students/${pStu1}/terms/${term!.id}/report-card`)).json();
+    assert(card.placement?.classTeacherSignatureUrl === SIG,
+      `the card must carry the class teacher's signature, got ${JSON.stringify(card.placement?.classTeacherSignatureUrl ?? null)}`);
+
+    // Clearing puts the line back to hand-signing.
+    const clear = await api(admin2.token, `/school/orgs/${ORG}/teachers/${ctId}/profile`, {
+      method: "PATCH", body: JSON.stringify({ signatureUrl: null }),
+    });
+    assert(clear.status === 200, `clear PATCH: ${clear.status}`);
+    const card2 = await (await api(admin2.token,
+      `/school/orgs/${ORG}/students/${pStu1}/terms/${term!.id}/report-card`)).json();
+    assert(!card2.placement?.classTeacherSignatureUrl,
+      "a cleared signature must leave the line blank");
+  } finally {
+    // Restore the teacher's metadata exactly as it was.
+    await admin.auth.admin.updateUserById(ctId, { user_metadata: beforeMeta });
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

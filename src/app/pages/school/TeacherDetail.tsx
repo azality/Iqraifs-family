@@ -12,7 +12,7 @@
 // ramp") instead of painting red −pp deltas under a banner that says to
 // ignore them.
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Link, Navigate, useParams, useSearchParams } from "react-router";
 import {
   ArrowLeft,
@@ -48,6 +48,7 @@ import {
   getSchoolMe,
   isOrgAdmin,
   updateTeacherProfile,
+  uploadSchoolPhoto,
   resetTeacherPassword,
   getTeacherPerformance,
   listTeacherEntries,
@@ -123,6 +124,7 @@ export function TeacherDetail() {
   // next login (mirrors the parent-PIN model).
   const [profileForm, setProfileForm] = useState({ fullName: "", email: "", phone: "" });
   const [profileBusy, setProfileBusy] = useState(false);
+  const sigFileRef = useRef<HTMLInputElement | null>(null);
   const [tempPassword, setTempPassword] = useState<string | null>(null);
   // Teacher Track Record Phase 1 — aggregated performance for this
   // staff member, per term. See the scope artifact for definitions.
@@ -916,6 +918,70 @@ export function TeacherDetail() {
               Staff can update their own name &amp; password anytime from the
               workspace menu → My account.
             </p>
+
+            {/* The teacher's signature (25 Sep): uploaded once here, it
+                prints on the Class-teacher line of every report card of
+                their section — exactly like the principal's from
+                Settings → Organization. A photo of their signature on
+                white paper works; transparent PNG looks best. */}
+            <div className="mt-4 border-t border-slate-100 pt-3">
+              <Label className="text-xs">Signature (report cards)</Label>
+              <div className="mt-1.5 flex flex-wrap items-center gap-3">
+                {detail.signatureUrl ? (
+                  <img src={detail.signatureUrl} alt="Signature" className="h-10 max-w-[180px] rounded border border-slate-200 bg-white object-contain px-2" />
+                ) : (
+                  <span className="text-xs italic text-slate-400">None — the line stays blank for hand-signing.</span>
+                )}
+                <input
+                  ref={sigFileRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (!file) return;
+                    setProfileBusy(true);
+                    try {
+                      const { url } = await uploadSchoolPhoto(orgId, file);
+                      await updateTeacherProfile(orgId, userId, { signatureUrl: url });
+                      setDetail(await getTeacherDetail(orgId, userId));
+                      setNotice("Signature saved — it prints on their section's report cards.");
+                      setError(null);
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : String(err));
+                    } finally {
+                      setProfileBusy(false);
+                    }
+                  }}
+                />
+                <Button variant="outline" size="sm" disabled={profileBusy}
+                  onClick={() => sigFileRef.current?.click()}>
+                  {detail.signatureUrl ? "Replace" : "Upload"}
+                </Button>
+                {detail.signatureUrl && (
+                  <Button variant="ghost" size="sm" className="text-rose-600" disabled={profileBusy}
+                    onClick={async () => {
+                      setProfileBusy(true);
+                      try {
+                        await updateTeacherProfile(orgId, userId, { signatureUrl: null });
+                        setDetail(await getTeacherDetail(orgId, userId));
+                        setNotice("Signature removed.");
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : String(err));
+                      } finally {
+                        setProfileBusy(false);
+                      }
+                    }}>
+                    Remove
+                  </Button>
+                )}
+              </div>
+              <p className="mt-1.5 text-[11px] text-slate-500">
+                Printed on the Class teacher line of report cards for sections where this
+                person is the class teacher. PNG with a transparent background looks best.
+              </p>
+            </div>
           </section>
 
           <section className={`${cardBase} ${cardElev} p-5`}>
