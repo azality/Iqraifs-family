@@ -7369,6 +7369,19 @@ await check("126. the class teacher's uploaded signature flows onto the report c
       `/school/orgs/${ORG}/students/${pStu1}/terms/${term!.id}/report-card`)).json();
     assert(card.placement?.classTeacherSignatureUrl === SIG,
       `the card must carry the class teacher's signature, got ${JSON.stringify(card.placement?.classTeacherSignatureUrl ?? null)}`);
+    // Auto remarks (v1.12.0): an empty remark pre-populates from the
+    // band chart when the child HAS an overall percentage; a markless
+    // child gets none - never praise a blank card.
+    assert(card.comments && typeof card.comments.auto === "object",
+      "the card must say which remarks are auto");
+    if (card.academic?.overall?.percentage !== null && card.comments.auto.classTeacher) {
+      assert(typeof card.comments.classTeacher === "string" && card.comments.classTeacher.length > 0,
+        "an auto class-teacher remark must carry the band text");
+    }
+    if (card.academic?.overall?.percentage === null) {
+      assert(!card.comments.auto.classTeacher,
+        "a child with no percentage must get NO auto remark");
+    }
 
     // Clearing puts the line back to hand-signing.
     const clear = await api(admin2.token, `/school/orgs/${ORG}/teachers/${ctId}/profile`, {

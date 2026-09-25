@@ -79,8 +79,11 @@ export function StudentReportCard() {
     getTermReportCard(orgId, studentId, termId)
       .then((r) => {
         setCard(r);
-        setClassTeacherComment(r.comments.classTeacher ?? "");
-        setPrincipalComment(r.comments.principal ?? "");
+        // Auto (band-chart) text stays OUT of the editor: saving it
+        // verbatim would freeze it, and the chart should keep applying
+        // until someone actually writes. The card display still shows it.
+        setClassTeacherComment(r.comments.auto?.classTeacher ? "" : (r.comments.classTeacher ?? ""));
+        setPrincipalComment(r.comments.auto?.principal ? "" : (r.comments.principal ?? ""));
         setSubjectComments(r.comments.subjects ?? {});
         setError(null);
       })
@@ -451,12 +454,17 @@ export function StudentReportCard() {
                     <Textarea
                       value={classTeacherComment}
                       onChange={(e) => setClassTeacherComment(e.target.value)}
-                      placeholder="—"
+                      placeholder={card.comments.auto?.classTeacher ? (card.comments.classTeacher ?? "—") : "—"}
                       className="text-xs h-20 no-print"
                       maxLength={2000}
                     />
+                    {card.comments.auto?.classTeacher && !classTeacherComment && (
+                      <p className="mt-1 text-[10px] text-slate-400 no-print">
+                        Auto from the remarks chart — type to replace, leave empty to keep it following the chart.
+                      </p>
+                    )}
                     <div className="hidden print:block text-xs text-slate-700">
-                      {classTeacherComment || "—"}
+                      {classTeacherComment || card.comments.classTeacher || "—"}
                     </div>
                   </div>
                   <div>
@@ -466,13 +474,18 @@ export function StudentReportCard() {
                     <Textarea
                       value={principalComment}
                       onChange={(e) => setPrincipalComment(e.target.value)}
-                      placeholder="—"
+                      placeholder={card.comments.auto?.principal ? (card.comments.principal ?? "—") : "—"}
                       className="text-xs h-20 no-print"
                       maxLength={2000}
                       disabled={!isAdmin}
                     />
+                    {card.comments.auto?.principal && !principalComment && (
+                      <p className="mt-1 text-[10px] text-slate-400 no-print">
+                        Auto from the remarks chart — type to replace.
+                      </p>
+                    )}
                     <div className="hidden print:block text-xs text-slate-700">
-                      {principalComment || "—"}
+                      {principalComment || card.comments.principal || "—"}
                     </div>
                   </div>
                 </div>

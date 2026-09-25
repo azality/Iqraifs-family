@@ -32,6 +32,7 @@
 
 import type { Context, Hono } from "npm:hono";
 import { applyScheduledPublish } from "./schoolAssessment.tsx";
+import { DEFAULT_REMARK_BANDS, normalizeRemarkBands, pickRemarkBand } from "./remarkBands.ts";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { hasAnyRoleInOrg as hasAnyOrgRole, hasAdminOrPrincipal as isAdminOrPrincipal } from "./schoolAuth.ts";
 import { verifyPinToken } from "./schoolPhaseA.tsx";
@@ -446,11 +447,24 @@ async function assembleReportCard(
         show: isMemorizer,
         ayahsMemorized, surahsCompleted, totalEntries, missedCount, qualityCounts,
       },
-      comments: {
-        classTeacher: card?.class_teacher_comment ?? null,
-        principal: card?.principal_comment ?? null,
-        subjects: subjectComments,
-      },
+      // Remarks: a SAVED comment always wins; an empty one pre-populates
+      // from the school's band chart by overall percentage (25 Sep:
+      // "95-100 should be this comment... 5% increments... fail
+      // comments below 40"). No auto remark for a markless child.
+      comments: (() => {
+        const chart = normalizeRemarkBands((orgSettings as any).report_remark_bands)
+          ?? DEFAULT_REMARK_BANDS;
+        const band = pickRemarkBand(chart, overallPct);
+        const savedCt = (card?.class_teacher_comment ?? "").trim() || null;
+        const savedPr = (card?.principal_comment ?? "").trim() || null;
+        return {
+          classTeacher: savedCt ?? (band?.classTeacher || null),
+          principal: savedPr ?? (band?.principal || null),
+          subjects: subjectComments,
+          // So the staff editor can say "auto - edit to customize".
+          auto: { classTeacher: !savedCt && !!band?.classTeacher, principal: !savedPr && !!band?.principal },
+        };
+      })(),
       workflow: {
         recordId: card?.id ?? null,
         finalizedAt: card?.finalized_at ?? null,
@@ -475,6 +489,20 @@ async function ensureCardRow(orgId: string, studentId: string, termId: string): 
 }
 
 export function installReportCard(school: Hono): void {
+  // GET /orgs/:orgId/remark-bands - the effective auto-remarks chart
+  // (25 Sep: "feed the system... 5% increments"). The office edits it
+  // via the org-settings key report_remark_bands (one-key PATCH);
+  // isCustom tells the editor whether Reset-to-defaults means anything.
+  school.get("/orgs/:orgId/remark-bands", async (c) => {
+    const userId = getAuthUserId(c);
+    const orgId = c.req.param("orgId");
+    if (!(await isAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
+    const { data: org } = await serviceRoleClient
+      .from("organizations").select("settings").eq("id", orgId).maybeSingle();
+    const custom = normalizeRemarkBands(((org as any)?.settings ?? {}).report_remark_bands);
+    return c.json({ bands: custom ?? DEFAULT_REMARK_BANDS, isCustom: custom !== null });
+  });
+
   // ─── Admin: assembled card (live aggregate) ────────────────────────
   school.get(
     "/orgs/:orgId/students/:studentId/terms/:termId/report-card",

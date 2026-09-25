@@ -293,6 +293,8 @@ export const updateOrganization = (
     student_points_league: boolean;
     /** Hifz: full-para revision break when a sabaq finishes a para (default on). */
     sabaq_para_break: boolean;
+    /** Auto-remarks chart (v1.12.0): null resets to the defaults. */
+    report_remark_bands: RemarkBandRow[] | null;
     /** Teacher Track Record: pass threshold %, default 40. */
     pass_mark_pct: number;
     /** Lessons (takhti) in the school's Noorani Qaida edition. */
@@ -5870,9 +5872,28 @@ export interface TermReportCardResponse {
     show?: boolean;
     ayahsMemorized: number; surahsCompleted: number; totalEntries: number; missedCount: number; qualityCounts: { excellent: number; good: number; needs_practice: number; weak: number };
   };
-  comments: { classTeacher: string | null; principal: string | null; subjects: Record<string, string> };
+  comments: {
+    classTeacher: string | null; principal: string | null; subjects: Record<string, string>;
+    /** True where the text came from the school's band chart, not a
+     *  saved remark (v1.12.0) - the editor starts empty there so the
+     *  auto text keeps following the chart until someone writes. */
+    auto?: { classTeacher: boolean; principal: boolean };
+  };
   workflow: { recordId: string | null; finalizedAt: string | null; publishedAt: string | null };
 }
+
+export interface RemarkBandRow {
+  minPct: number;
+  maxPct: number;
+  classTeacher: string;
+  principal: string;
+}
+/** The effective auto-remarks chart - the school's own rows when set,
+ *  the built-in defaults otherwise. */
+export const getRemarkBands = (
+  orgId: string,
+): Promise<{ bands: RemarkBandRow[]; isCustom: boolean }> =>
+  apiCall(`/school/orgs/${orgId}/remark-bands`);
 
 export const getTermReportCard = (
   orgId: string,
