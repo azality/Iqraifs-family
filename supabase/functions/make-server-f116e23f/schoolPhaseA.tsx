@@ -2341,6 +2341,14 @@ export function installPhaseA(school: Hono) {
       meta.phone = body.phone.trim() || null;
       authPatch.user_metadata = meta;
     }
+    // Teacher's own signature (25 Sep): uploaded once on their profile,
+    // printed on the Class-teacher line of every report card of their
+    // section. null clears it (back to signing by hand).
+    if (typeof body.signatureUrl === "string" || body.signatureUrl === null) {
+      meta.signature_url = typeof body.signatureUrl === "string"
+        ? (body.signatureUrl.trim() || null) : null;
+      authPatch.user_metadata = meta;
+    }
     if (typeof body.email === "string" && body.email.trim()) {
       authPatch.email = body.email.trim().toLowerCase();
       authPatch.email_confirm = true;
@@ -2449,11 +2457,13 @@ export function installPhaseA(school: Hono) {
 
     // Hydrate target user + each granted_by user.
     let email = "", fullName = "";
+    let signatureUrl: string | null = null;
     try {
       const { data: lookup } = await serviceRoleClient.auth.admin.getUserById(targetUserId);
       const u: any = lookup?.user;
       email = u?.email ?? "";
       fullName = u?.user_metadata?.name || email.split("@")[0] || "Unknown";
+      signatureUrl = u?.user_metadata?.signature_url ?? null;
     } catch { /* leave blank */ }
     const granterIds = Array.from(new Set(assignments.map((a) => a.grantedBy).filter(Boolean)));
     const granterNames = new Map<string, string>();
@@ -2473,6 +2483,7 @@ export function installPhaseA(school: Hono) {
       userId: targetUserId,
       email,
       fullName,
+      signatureUrl,
       // Primary role for badges — pick the first non-org-scoped if any,
       // else the org one. UI re-derives if it wants something different.
       primaryRole: hydrated[0].roleType,

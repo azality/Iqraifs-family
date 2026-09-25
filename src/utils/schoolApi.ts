@@ -2310,7 +2310,7 @@ export const getTeacherPerformance = (
 export const updateTeacherProfile = (
   orgId: string,
   userId: string,
-  body: { fullName?: string; email?: string; phone?: string },
+  body: { fullName?: string; email?: string; phone?: string; signatureUrl?: string | null },
 ): Promise<{ ok: boolean }> =>
   apiCall(`/school/orgs/${orgId}/teachers/${userId}/profile`, {
     method: "PATCH",
@@ -2400,6 +2400,9 @@ export interface TeacherDetail {
   userId: string;
   email: string;
   fullName: string;
+  /** Their signature image (v1.11.0) - printed on the Class-teacher
+   *  line of every report card of their section. */
+  signatureUrl?: string | null;
   primaryRole: RoleTemplate | "teacher";
   assignments: TeacherAssignment[];
 }
@@ -5850,7 +5853,7 @@ export interface TermReportCardSubject {
 export interface TermReportCardResponse {
   school: { name: string; slug: string | null; logoUrl: string | null; motto: string | null; themeColor: string | null; address: string | null; principalSignatureUrl?: string | null; stampUrl?: string | null };
   student: { id: string; fullName: string; grNumber: string; dateOfBirth: string | null; gender: string | null; photoUrl: string | null; program: string | null; religion: string | null; nationality: string | null };
-  placement: { className: string | null; sectionName: string | null; classTeacherName: string | null; hifzTeacherName: string | null };
+  placement: { className: string | null; sectionName: string | null; classTeacherName: string | null; classTeacherSignatureUrl?: string | null; hifzTeacherName: string | null };
   term: { id: string; name: string; startDate: string; endDate: string };
   exams: Array<{ id: string; name: string; examType: string; weight: number; examDate: string | null }>;
   academic: {

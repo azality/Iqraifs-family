@@ -289,7 +289,11 @@ export function StudentTermReportCard() {
           <section className="pt-4 mt-2 border-t border-slate-200">
             <div className="grid grid-cols-4 gap-4 text-[11px] text-slate-600">
               <div className="text-center">
-                <div className="h-10 border-b border-slate-300"></div>
+                <div className="h-10 border-b border-slate-300 flex items-end justify-center">
+                  {card.placement.classTeacherSignatureUrl && (
+                    <img src={card.placement.classTeacherSignatureUrl} alt="" className="max-h-9 max-w-full object-contain" />
+                  )}
+                </div>
                 <div className="mt-1">{t("portal.rc.signClassTeacher")}</div>
                 <div className="text-[10px] text-slate-500">{card.placement.classTeacherName ?? ""}</div>
               </div>

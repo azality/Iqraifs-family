@@ -497,7 +497,14 @@ export function StudentReportCard() {
               <section className="pt-4 mt-4 border-t border-slate-200 print-keep print-signature">
                 <div className="grid grid-cols-4 gap-6 text-[11px] text-slate-600">
                   <div className="text-center">
-                    <div className="h-10 border-b border-slate-300"></div>
+                    {/* The teacher's uploaded signature (their profile
+                        page) sits on the line like ink - same treatment
+                        as the principal's from Settings (25 Sep). */}
+                    <div className="h-10 border-b border-slate-300 flex items-end justify-center">
+                      {card.placement.classTeacherSignatureUrl && (
+                        <img src={card.placement.classTeacherSignatureUrl} alt="" className="max-h-9 max-w-full object-contain" />
+                      )}
+                    </div>
                     <div className="mt-1">Class teacher</div>
                     <div className="text-[10px] text-slate-500">{card.placement.classTeacherName ?? ""}</div>
                   </div>

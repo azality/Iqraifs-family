@@ -170,11 +170,17 @@ async function assembleReportCard(
   const hifzTeacherUid = section?.hifz_teacher_user_id ?? null;
   const teacherIds = [classTeacherUid, hifzTeacherUid].filter((x): x is string => !!x);
   const teacherNameById = new Map<string, string>();
+  // The teacher's own signature (25 Sep): uploaded once on their
+  // profile, it prints on the Class-teacher line the same way the
+  // principal's does from Settings.
+  const teacherSignatureById = new Map<string, string>();
   for (const tid of teacherIds) {
     try {
       const { data: u } = await (serviceRoleClient as any).auth.admin.getUserById(tid);
       const name = u?.user?.user_metadata?.name || u?.user?.email || "";
       if (name) teacherNameById.set(tid, name);
+      const sig = u?.user?.user_metadata?.signature_url;
+      if (typeof sig === "string" && sig) teacherSignatureById.set(tid, sig);
     } catch { /* ignore */ }
   }
 
@@ -395,6 +401,7 @@ async function assembleReportCard(
         className: section?.class?.name ?? null,
         sectionName: section?.name ?? null,
         classTeacherName: classTeacherUid ? teacherNameById.get(classTeacherUid) ?? null : null,
+        classTeacherSignatureUrl: classTeacherUid ? teacherSignatureById.get(classTeacherUid) ?? null : null,
         hifzTeacherName: hifzTeacherUid ? teacherNameById.get(hifzTeacherUid) ?? null : null,
       },
       term: {
