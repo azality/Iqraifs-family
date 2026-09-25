@@ -297,6 +297,10 @@
       "save": "PIN محفوظ کریں"
     },
     "rc": {
+      "signClassTeacher": "کلاس ٹیچر",
+      "signPrincipal": "پرنسپل",
+      "signParent": "والد کے دستخط",
+      "stampBox": "اسکول کی مہر",
       "title": "رپورٹ کارڈز",
       "subtitle": "ہر ٹرم کے شائع شدہ",
       "empty": "ابھی کوئی رپورٹ کارڈ شائع نہیں ہوا۔ ہر ٹرم کے آخر میں یہاں نظر آئیں گے۔",
@@ -397,6 +401,8 @@
       "late": "تاخیر",
       "absent": "غیر حاضر",
       "excused": "رخصت",
+      "reportCardOut": "رپورٹ کارڈ جاری ہو گیا — {{term}}",
+      "viewReportCard": "کارڈ دیکھیں",
       "quiet": "آج آپ سے کچھ درکار نہیں — ہوم ورک جمع، فیس ادا۔",
       "subjectHomeworkDue": "{{subject}} کا ہوم ورک {{when}} تک",
       "homeworkDue": "{{count}} ہوم ورک {{when}} تک",

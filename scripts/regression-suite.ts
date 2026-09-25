@@ -7095,6 +7095,14 @@ await check("121. the marks deadline locks a teacher, spares the office, bends t
     assert(stamped?.published_at &&
       new Date(stamped.published_at).getTime() === new Date(ovPast).getTime(),
       `the card must be stamped with the CLASS's own moment, got ${JSON.stringify(stamped)}`);
+    // And the parent's Today snapshot SAYS so - "there was no
+    // notification for me to view it" (25 Sep). The landing card's
+    // line reads publishedReportCard from here.
+    const pTok121 = (await (await pinLogin(PARENT_PHONE, "3456")).json()).token;
+    const snap = await (await portalGet(pTok121, `/pin-me/students/${pStu1}/today-snapshot`)).json();
+    assert(snap.publishedReportCard?.termId === termId &&
+      snap.publishedReportCard?.publishedAt,
+      `the Today snapshot must carry the published card, got ${JSON.stringify(snap.publishedReportCard ?? null)}`);
     // The override dies with the QA term (FK cascade), but delete it
     // explicitly so a partial cleanup never leaves the real sandbox
     // class carrying QA times.

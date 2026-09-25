@@ -1961,6 +1961,11 @@ export function installPortal(school: Hono): void {
     const g = await gatePerStudent(c);
     if (!g.ok) return g.resp;
     const { studentId, subject } = g;
+    // Results day: parents land HERE first, so the scheduled publish
+    // must stamp on this read too - otherwise the "report card
+    // published" line stays absent until some other surface is opened
+    // (25 Sep: "there was no notification for me to view it").
+    await applyScheduledPublish(subject.orgId);
     const stuCtx = await loadStudentWithContext(studentId, subject.orgId);
     if (!stuCtx) return c.json({ error: "student not found" }, 404);
 
@@ -2149,19 +2154,29 @@ export function installPortal(school: Hono): void {
       }
     }
 
-    // ── Latest published report card term name (just for the chip) ──
+    // ── Latest published report card (chip + the landing card's line) ──
     let publishedReportCardTermName: string | null = null;
+    let publishedReportCard:
+      | { termId: string; termName: string; publishedAt: string }
+      | null = null;
     {
       const { data: card } = await serviceRoleClient
         .from("term_report_card")
-        .select("term:term_id(name, end_date, archived_at)")
+        .select("term_id, published_at, term:term_id(name, end_date, archived_at)")
         .eq("student_id", studentId)
         .not("published_at", "is", null)
         .order("published_at", { ascending: false })
         .limit(1)
         .maybeSingle();
       const term = (card as any)?.term;
-      if (term && !term.archived_at) publishedReportCardTermName = term.name;
+      if (term && !term.archived_at) {
+        publishedReportCardTermName = term.name;
+        publishedReportCard = {
+          termId: (card as any).term_id,
+          termName: term.name,
+          publishedAt: (card as any).published_at,
+        };
+      }
     }
 
     return c.json({
@@ -2181,6 +2196,7 @@ export function installPortal(school: Hono): void {
       latestHifz,
       latestTeacherNote,
       publishedReportCardTermName,
+      publishedReportCard,
     });
   });
 

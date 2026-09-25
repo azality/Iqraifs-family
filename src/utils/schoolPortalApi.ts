@@ -735,6 +735,9 @@ export interface TodaySnapshot {
   } | null;
   latestTeacherNote: { kind: "positive" | "concern"; summary: string; observedAt: string } | null;
   publishedReportCardTermName: string | null;
+  /** Linkable version (v1.10.0): the landing card's "report card
+   *  published" line needs the term id and recency, not just a name. */
+  publishedReportCard?: { termId: string; termName: string; publishedAt: string } | null;
 }
 
 // ─── Exam datesheet (written assessment timetable) ────────────────────
