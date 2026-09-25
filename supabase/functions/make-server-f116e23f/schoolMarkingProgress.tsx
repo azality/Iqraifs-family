@@ -273,6 +273,12 @@ export function installMarkingProgress(school: Hono): void {
         finalized: students.filter((id) => finalizedIds.has(id)).length,
         published: students.filter((id) => publishedIds.has(id)).length,
         unmarked: students.filter((id) => (scoresByStudent.get(id) ?? []).length === 0).length,
+        // The blank-card WARNING is the intersection: a child with no
+        // marks whose own card is finalized. Un-finalizing the child
+        // clears the warning even while the rest of the section stays
+        // finalized (the office did exactly this for 2081/2488/2484).
+        blankFinalized: students.filter((id) =>
+          finalizedIds.has(id) && (scoresByStudent.get(id) ?? []).length === 0).length,
       };
     }).sort((a, b) =>
       (a.classSort - b.classSort) || a.label.localeCompare(b.label));

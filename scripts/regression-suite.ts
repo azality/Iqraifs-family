@@ -7257,6 +7257,12 @@ await check("124. the marking board says whether report cards are FINALIZED, not
       `every row must carry finalized/published/unmarked, got ${JSON.stringify({ f: row.finalized, p: row.published, u: row.unmarked })} on ${row.label}`);
     assert(row.finalized <= row.studentCount && row.published <= row.finalized,
       `counts must nest (published <= finalized <= students) on ${row.label}: ${row.published}/${row.finalized}/${row.studentCount}`);
+    // The blank-card warning is the INTERSECTION (unmarked AND
+    // finalized) - un-finalizing a markless child must clear it even
+    // while the rest of the section stays finalized (v1.9.1).
+    assert(typeof row.blankFinalized === "number" &&
+      row.blankFinalized <= Math.min(row.unmarked, row.finalized),
+      `blankFinalized must nest inside unmarked and finalized on ${row.label}: ${row.blankFinalized}/${row.unmarked}/${row.finalized}`);
   }
 
   // Cross-check the fullest section's number against the database - the
