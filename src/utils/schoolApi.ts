@@ -4305,6 +4305,9 @@ export interface MarkingSectionRow {
   /** Children with no marks whose own card IS finalized - the ones who
    *  would truly carry a blank card on results day. */
   blankFinalized?: number;
+  /** WHO has no marks at all (capped at 8), so the board answers "kin
+   *  bachon ke nahi hui" by name, not just count. */
+  unmarkedStudents?: Array<{ name: string; grNumber: string; finalized: boolean }>;
 }
 export interface MarkingProgressResponse {
   term: { id: string; name: string } | null;
