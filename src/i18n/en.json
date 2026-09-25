@@ -323,6 +323,7 @@
       "late": "Late",
       "absent": "Absent",
       "attendanceWord": "attendance",
+      "failedSubjects": "— Failed ({{subjects}} below {{pct}}%)",
       "failedBelow": "— Failed (below {{pct}}%)",
       "ofDays": "{{present}} of {{total}} days",
       "carried": "Includes {{count}} days counted in the school register up to {{date}}.",

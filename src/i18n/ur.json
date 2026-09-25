@@ -323,6 +323,7 @@
       "late": "تاخیر",
       "absent": "غیر حاضر",
       "attendanceWord": "حاضری",
+      "failedSubjects": "— ناکام ({{subjects}} میں {{pct}}% سے کم)",
       "failedBelow": "— ناکام ({{pct}}% سے کم)",
       "ofDays": "{{total}} میں سے {{present}} دن",
       "carried": "اس میں اسکول کے رجسٹر کے {{date}} تک کے {{count}} دن شامل ہیں۔",
