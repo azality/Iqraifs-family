@@ -162,6 +162,19 @@ export function StudentReportCard() {
         @media print {
           .no-print, .no-print * { display: none !important; }
           body { background: white !important; }
+          /* Print the CARD, nothing else. Measured on the office's own
+             card (25 Sep): the card is ~899px at A4 width - inside the
+             ~1063px page - but the workspace SHELL printed with it
+             (header 107px, footer 49px, a search block 40px), pushing
+             the total to ~1119px. The signature strip cannot break, so
+             it jumped whole to a second page. Taking the card out of
+             flow leaves the shell behind without reserving its height. */
+          body * { visibility: hidden; }
+          .print-card, .print-card * { visibility: visible; }
+          .print-card {
+            position: absolute !important; left: 0 !important; top: 0 !important;
+            width: 100% !important;
+          }
           .print-card { box-shadow: none !important; border: none !important; }
           /* Keep each major section together when paginating */
           .print-keep { break-inside: avoid; page-break-inside: avoid; }
