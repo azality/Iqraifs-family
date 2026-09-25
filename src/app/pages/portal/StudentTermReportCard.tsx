@@ -166,7 +166,12 @@ export function StudentTermReportCard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {card.academic.subjects.map((s) => (
+                    {card.academic.subjects.map((s) => {
+                    // Below the pass line reads red for the parent too -
+                    // the same rule the office sees.
+                    const subjFailed = s.percentage !== null &&
+                      s.percentage < card.academic.overall.passMarkPct;
+                    return (
                       <tr key={s.classSubjectId} className="border-t border-slate-100">
                         <td className="px-2 py-1.5 font-medium">{s.name}</td>
                         {card.exams.map((e) => {
@@ -180,11 +185,12 @@ export function StudentTermReportCard() {
                           );
                         })}
                         <td className="px-2 py-1.5 text-right">{s.totalMax > 0 ? `${s.totalObtained}/${s.totalMax}` : "—"}</td>
-                        <td className="px-2 py-1.5 text-right font-medium">{fmtPct(s.percentage)}</td>
-                        <td className="px-2 py-1.5 text-center font-bold">{s.letter}</td>
-                        <td className="px-2 py-1.5 text-slate-600">{s.teacherComment || s.remark}</td>
+                        <td className={"px-2 py-1.5 text-right font-medium " + (subjFailed ? "text-rose-700" : "")}>{fmtPct(s.percentage)}</td>
+                        <td className={"px-2 py-1.5 text-center font-bold " + (subjFailed ? "text-rose-700" : "")}>{s.letter}</td>
+                        <td className={"px-2 py-1.5 " + (subjFailed ? "text-rose-700" : "text-slate-600")}>{s.teacherComment || s.remark}</td>
                       </tr>
-                    ))}
+                    );
+                    })}
                     <tr className="border-t-2 border-slate-300 bg-slate-50/60 font-semibold">
                       <td className="px-2 py-1.5">{t("portal.rc.overall")}</td>
                       <td colSpan={card.exams.length}></td>
