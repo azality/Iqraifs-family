@@ -4302,6 +4302,9 @@ export interface MarkingSectionRow {
   finalized?: number;
   published?: number;
   unmarked?: number;
+  /** Children with no marks whose own card IS finalized - the ones who
+   *  would truly carry a blank card on results day. */
+  blankFinalized?: number;
 }
 export interface MarkingProgressResponse {
   term: { id: string; name: string } | null;

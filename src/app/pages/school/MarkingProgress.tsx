@@ -118,7 +118,7 @@ export function MarkingProgress() {
     return {
       ready: rows.filter((r) => (r.finalized ?? 0) === r.studentCount && r.studentCount > 0).length,
       sections: rows.length,
-      blank: rows.reduce((n, r) => n + ((r.finalized ?? 0) > 0 ? (r.unmarked ?? 0) : 0), 0),
+      blank: rows.reduce((n, r) => n + (r.blankFinalized ?? 0), 0),
     };
   }, [data]);
 
@@ -345,9 +345,9 @@ export function MarkingProgress() {
                             {(r.published ?? 0) > 0 && (
                               <span className="text-[11px] text-emerald-700">{r.published} published</span>
                             )}
-                            {(r.unmarked ?? 0) > 0 && (r.finalized ?? 0) > 0 && (
+                            {(r.blankFinalized ?? 0) > 0 && (
                               <span className="text-[11px] text-rose-600">
-                                {r.unmarked} would be blank
+                                {r.blankFinalized} would be blank
                               </span>
                             )}
                           </div>
