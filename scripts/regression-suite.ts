@@ -7232,6 +7232,58 @@ await check("123. every parent sign-in is COUNTED, so the office can rank who ac
     `the list must carry loginCount, got ${JSON.stringify(row.portal)}`);
 });
 
+await check("124. the marking board says whether report cards are FINALIZED, not just marked", async () => {
+  // "Can I see if they are on the right track and that everyone has
+  // finalized" (24 Sep) - the board showed marks only, so the office
+  // was opening one tabulation sheet per section to find out. It now
+  // carries finalized/published per section, and names how many cards
+  // would go out BLANK (a child with no marks - new admissions and
+  // mid-term movers carry exactly this risk).
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const term = await markedTerm();
+  assert(term, "no term with papers");
+  const { data: sbStudents } = await admin.from("student").select("id")
+    .eq("class_section_id", sandboxSec.id).eq("status", "active");
+  const ids = (sbStudents ?? []).map((s: any) => s.id);
+  assert(ids.length >= 1, "need a sandbox student");
+
+  const board = async () => {
+    const r = await api(admin2.token, `/school/orgs/${ORG}/marking-progress?termId=${term!.id}`);
+    const j = await r.json();
+    assert(r.status === 200, `board ${r.status}`);
+    return (j.sections ?? []).find((s: any) => s.sectionId === sandboxSec.id);
+  };
+
+  const cleanup: Array<() => Promise<unknown>> = [];
+  cleanup.push(() => admin.from("term_report_card").delete()
+    .eq("term_id", term!.id).in("student_id", ids));
+  try {
+    await admin.from("term_report_card").delete()
+      .eq("term_id", term!.id).in("student_id", ids);
+    const before = await board();
+    assert(before, "the sandbox section must be on the board");
+    assert(before.finalized === 0,
+      `nothing finalized yet, got ${JSON.stringify(before.finalized)}`);
+    assert(typeof before.unmarked === "number",
+      "the board must report how many children have no marks at all");
+
+    // Finalize ONE child: the count moves, and it is not "all".
+    const { error } = await admin.from("term_report_card").insert({
+      org_id: ORG, student_id: ids[0], term_id: term!.id,
+      finalized_at: new Date().toISOString(),
+    });
+    if (error) throw new Error(`card: ${error.message}`);
+    const after = await board();
+    assert(after.finalized === 1,
+      `one finalized card must count one, got ${after.finalized}`);
+    assert(after.finalized < after.studentCount || after.studentCount === 1,
+      "a part-finalized section must not read as complete");
+    assert(after.published === 0, "finalized is not published");
+  } finally {
+    for (const undo of cleanup.reverse()) await undo();
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
