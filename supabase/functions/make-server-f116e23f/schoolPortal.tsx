@@ -28,6 +28,7 @@ import type { Hono, Context } from "npm:hono";
 import { applyScheduledPublish } from "./schoolAssessment.tsx";
 import { serviceRoleClient } from "./middleware.tsx";
 import { computeMemorizedTotals } from "./schoolPhaseC.tsx";
+import { aliasClusterParentIds } from "./schoolPhaseA.tsx";
 import { todayInOrgTz } from "./tz.ts";
 import { currentHomework, groupByDay, schoolDateOf, type HifzRow } from "./portalHifz.ts";
 import * as kv from "./kv_store.tsx";
@@ -426,18 +427,26 @@ export function installPortal(school: Hono): void {
           }
         : null;
 
+    // The WHOLE alias cluster, not just the credential's own row - a
+    // merged family keeps each child on the row it arrived on, and
+    // reading one row hid children from their parents (Rabia Mariyam
+    // saw Ali but not Moosa, 25 Sep). gatePerStudent already walked
+    // the cluster; the LISTING now matches it.
+    const clusterIds = await aliasClusterParentIds(subject.subjectId);
     const { data: links } = await serviceRoleClient
       .from("student_parent")
       .select("is_primary, student_id")
-      .eq("parent_id", subject.subjectId);
+      .in("parent_id", clusterIds);
 
-    const linkedIds = (links ?? []).map((l: any) => l.student_id);
+    const linkedIds = [...new Set((links ?? []).map((l: any) => l.student_id))];
     const students: Array<any> = [];
     for (const sid of linkedIds) {
       const ctx = await loadStudentWithContext(sid, subject.orgId);
       if (ctx) {
-        const link = (links ?? []).find((l: any) => l.student_id === sid);
-        students.push({ ...ctx, isPrimary: !!link?.is_primary });
+        // A child can be linked on more than one row of the cluster -
+        // primary on ANY of them counts.
+        const isPrimary = (links ?? []).some((l: any) => l.student_id === sid && l.is_primary);
+        students.push({ ...ctx, isPrimary });
       }
     }
 

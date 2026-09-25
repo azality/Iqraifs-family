@@ -7278,6 +7278,56 @@ await check("124. the marking board says whether report cards are FINALIZED, not
     `${busiest.label}: board says ${busiest.finalized} finalized, the cards say ${dbFinalized}`);
 });
 
+await check("125. a merged parent's portal lists children from EVERY row of the family", async () => {
+  // Rabia Mariyam's card showed both sons, her portal showed one
+  // (25 Sep) - merged families keep each child on the row they arrived
+  // on, and the /pin-me listing read only the credential's own row.
+  // 51 parents were missing 66 children. The listing now walks the
+  // alias cluster, exactly like gatePerStudent always did.
+  const pStu3 = await ensurePortalStudent("QA-PORTAL-3", "QA Portal Third");
+  const { data: rootParent } = await admin.from("parent")
+    .select("id").eq("org_id", ORG)
+    .eq("phone", PARENT_PHONE).is("canonical_id", null).maybeSingle();
+  assert(rootParent, "the QA portal parent row must exist");
+  const cleanup: Array<() => Promise<unknown>> = [];
+  // Self-heal debris from a killed run.
+  {
+    const { data: stale } = await admin.from("parent").select("id")
+      .eq("org_id", ORG).eq("full_name", "QA Alias Father");
+    for (const p of (stale ?? []) as any[]) {
+      await admin.from("student_parent").delete().eq("parent_id", p.id);
+      await admin.from("parent").delete().eq("id", p.id);
+    }
+  }
+  try {
+    // A second row of the SAME person (an alias), holding a child the
+    // root row does not.
+    const { data: alias, error: aErr } = await admin.from("parent").insert({
+      org_id: ORG, full_name: "QA Alias Father", relationship: "father",
+      canonical_id: (rootParent as any).id,
+    }).select("id").single();
+    if (aErr) throw new Error(`alias: ${aErr.message}`);
+    cleanup.push(() => admin.from("parent").delete().eq("id", (alias as any).id));
+    const { error: lErr } = await admin.from("student_parent").insert({
+      student_id: pStu3, parent_id: (alias as any).id, is_primary: true,
+    });
+    if (lErr) throw new Error(`link: ${lErr.message}`);
+    cleanup.push(() => admin.from("student_parent").delete().eq("parent_id", (alias as any).id));
+
+    const pTok = (await (await pinLogin(PARENT_PHONE, "3456")).json()).token;
+    const me = await (await portalGet(pTok, "/pin-me")).json();
+    const listed = new Set(((me.students ?? []) as any[]).map((s) => s.id));
+    assert(listed.has(pStu1), "the credential row's own child must be listed");
+    assert(listed.has(pStu3),
+      `the ALIAS row's child must be listed too, got ${JSON.stringify((me.students ?? []).map((s: any) => s.fullName ?? s.id))}`);
+    // The alias child carries their primary flag from the alias row.
+    const third = ((me.students ?? []) as any[]).find((s) => s.id === pStu3);
+    assert(third?.isPrimary === true, "primary on ANY row of the cluster counts");
+  } finally {
+    for (const undo of cleanup.reverse()) await undo();
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

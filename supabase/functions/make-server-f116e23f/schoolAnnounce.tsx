@@ -24,7 +24,7 @@ import type { Hono, Context } from "npm:hono";
 import { paymentsByFeeId, renderFeeReceiptHtml, bankAccountFromSettings } from "./schoolFeePayments.tsx";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { userHasRoleRow, hasAdminOrPrincipal, hasAnyRoleInOrg, teachesSubjectInSection } from "./schoolAuth.ts";
-import { verifyPinToken } from "./schoolPhaseA.tsx";
+import { verifyPinToken, aliasClusterParentIds } from "./schoolPhaseA.tsx";
 import { nextSchedule, type RecurrenceFreq } from "./announceRecurrence.ts";
 import type { PinTokenPayload } from "./schoolPhaseA.tsx";
 
@@ -109,15 +109,19 @@ async function requirePin(
 
 async function resolveAccessibleStudents(subject: PinTokenPayload): Promise<string[]> {
   if (subject.subjectType === "student") return [subject.subjectId];
+  // The whole alias cluster - a merged family's children live on the
+  // rows they arrived on (25 Sep: the announcements feed must see the
+  // same children the portal does).
+  const clusterIds = await aliasClusterParentIds(subject.subjectId);
   const { data, error } = await serviceRoleClient
     .from("student_parent")
     .select("student_id")
-    .eq("parent_id", subject.subjectId);
+    .in("parent_id", clusterIds);
   if (error) {
     console.error("[schoolAnnounce.resolveAccessibleStudents]", error);
     return [];
   }
-  return (data ?? []).map((r: any) => r.student_id);
+  return [...new Set((data ?? []).map((r: any) => r.student_id))];
 }
 
 // -----------------------------------------------------------------------------
