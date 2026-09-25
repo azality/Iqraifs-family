@@ -33,7 +33,7 @@ import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { hasAnyRoleInOrg as hasAnyOrgRole, hasAdminOrPrincipal as isAdminOrPrincipal, isInchargeOfClass } from "./schoolAuth.ts";
 import { orgTimezone, todayInOrgTz } from "./tz.ts";
-import { orgPassMarkPct, isFailing } from "./passMark.ts";
+import { orgPassMarkPct, isFailing, failedTerm } from "./passMark.ts";
 import * as kv from "./kv_store.tsx";
 
 // Per-subject "my column is complete" sign-off, one small map per
@@ -581,11 +581,22 @@ export function installAssessment(school: Hono): void {
     // breath as the absentees ("agar koi fail ho raha hai... to phir
     // bhi position count kar raha hai") and only the absent half was
     // built; the school then saw a failing child still holding a
-    // position (22 Sep). Failing here means the grand total is under
-    // the pass mark - a child who dropped one subject but passed
-    // overall keeps their rank (Muneeb's call).
-    const failed = (r: { percentage: number | null }) =>
-      isFailing(r.percentage, passMarkPct);
+    // position (22 Sep).
+    //
+    // 26 Sep REVERSES the rule that stood here: a fail in ANY subject
+    // now fails the child, "irrespective agar woh baqi sarey subjects
+    // main A+ hi keyo na aaya ho" - so a single dropped subject costs
+    // the rank too. The report card reads the same function, so the
+    // register and the card can never disagree about who failed.
+    const failed = (r: { percentage: number | null; subjects: Record<string, any> }) =>
+      failedTerm(
+        r.percentage,
+        subjectCols.map((c: any) => {
+          const cell = r.subjects?.[c.id];
+          return { name: c.name, percentage: cell ? cell.percentage ?? null : null };
+        }),
+        passMarkPct,
+      );
     const ranked = rows
       .filter((r) => r.percentage !== null && !failed(r))
       .sort((a, b) => (b.percentage! - a.percentage!));

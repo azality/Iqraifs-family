@@ -406,7 +406,13 @@ export function StudentReportCard() {
                             {card.academic.overall.remark}
                             {card.academic.overall.failed && (
                               <span className="ml-1.5 font-bold text-rose-700">
-                                — Failed (below {card.academic.overall.passMarkPct}%)
+                                {/* A fail in ANY subject fails the term, so the
+                                    card must say which - otherwise a card with a
+                                    healthy total just reads "Failed" (26 Sep). */}
+                                — Failed
+                                {(card.academic.overall.failedSubjects ?? []).length > 0
+                                  ? ` (${card.academic.overall.failedSubjects!.join(", ")} below ${card.academic.overall.passMarkPct}%)`
+                                  : ` (below ${card.academic.overall.passMarkPct}%)`}
                               </span>
                             )}
                           </td>

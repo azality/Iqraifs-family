@@ -206,7 +206,12 @@ export function StudentTermReportCard() {
                         {card.academic.overall.remark}
                         {card.academic.overall.failed && (
                           <span className="ml-1.5 font-bold text-rose-700">
-                            {t("portal.rc.failedBelow", { pct: card.academic.overall.passMarkPct })}
+                            {(card.academic.overall.failedSubjects ?? []).length > 0
+                              ? t("portal.rc.failedSubjects", {
+                                  subjects: card.academic.overall.failedSubjects!.join(", "),
+                                  pct: card.academic.overall.passMarkPct,
+                                })
+                              : t("portal.rc.failedBelow", { pct: card.academic.overall.passMarkPct })}
                           </span>
                         )}
                       </td>

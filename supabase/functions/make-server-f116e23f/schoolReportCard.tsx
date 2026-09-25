@@ -41,7 +41,7 @@ import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { hasAnyRoleInOrg as hasAnyOrgRole, hasAdminOrPrincipal as isAdminOrPrincipal } from "./schoolAuth.ts";
 import { verifyPinToken } from "./schoolPhaseA.tsx";
 import { attendanceTotals } from "./attendanceOpening.ts";
-import { orgPassMarkPct, isFailing } from "./passMark.ts";
+import { orgPassMarkPct, isFailing, failedSubjectNames, failedTerm } from "./passMark.ts";
 
 async function isClassTeacherOfStudent(userId: string, studentId: string): Promise<boolean> {
   const { data: stu } = await serviceRoleClient
@@ -458,7 +458,12 @@ async function assembleReportCard(
           // from their grading chart, but whether it is a pass is this
           // setting, and the two can be set independently (22 Sep).
           passMarkPct,
-          failed: isFailing(overallPct, passMarkPct),
+          // A fail in ANY subject fails the term (26 Sep), however
+          // strong the rest of the card. failedSubjects names them so
+          // the card can say WHY a child with a good total still failed.
+          failed: failedTerm(overallPct, subjects, passMarkPct),
+          failedByTotal: isFailing(overallPct, passMarkPct),
+          failedSubjects: failedSubjectNames(subjects, passMarkPct),
         },
       },
       attendance: {
@@ -484,14 +489,28 @@ async function assembleReportCard(
         const band = pickRemarkBand(chart, overallPct);
         const savedCt = (card?.class_teacher_comment ?? "").trim() || null;
         const savedPr = (card?.principal_comment ?? "").trim() || null;
+        // A child can now fail on ONE subject while the total reads well
+        // (Abdul Rehman: 87% overall, Computer 13%). The band remark is
+        // chosen by that healthy total, so on its own it would cheer a
+        // card stamped FAILED. Name the subject instead of contradicting
+        // the verdict. Only for AUTO text - a remark a teacher wrote is
+        // theirs and is never appended to.
+        const failedSubs = failedSubjectNames(subjects, passMarkPct);
+        const needsClearing = failedSubs.length > 0 && !isFailing(overallPct, passMarkPct);
+        const addEn = needsClearing
+          ? ` ${failedSubs.join(", ")} ${failedSubs.length === 1 ? "is" : "are"} below the pass mark and must be cleared.`
+          : "";
+        const addUr = needsClearing
+          ? ` ${failedSubs.join("، ")} میں کامیابی کے نمبر نہیں آئے — اسے پاس کرنا ضروری ہے۔`
+          : "";
         return {
-          classTeacher: savedCt ?? (band?.classTeacher || null),
+          classTeacher: savedCt ?? (band?.classTeacher ? band.classTeacher + addEn : null),
           principal: savedPr ?? (band?.principal || null),
           // Urdu counterparts travel WITH the card, so switching the
           // portal to Urdu needs no round-trip - and a remark a human
           // typed has only the language they typed it in (null), where
           // the reader falls back to that text (26 Sep).
-          classTeacherUr: savedCt ? null : (band?.classTeacherUr || null),
+          classTeacherUr: savedCt ? null : (band?.classTeacherUr ? band.classTeacherUr + addUr : null),
           principalUr: savedPr ? null : (band?.principalUr || null),
           subjects: subjectComments,
           // So the staff editor can say "auto - edit to customize".

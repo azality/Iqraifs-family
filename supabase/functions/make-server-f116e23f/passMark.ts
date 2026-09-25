@@ -29,8 +29,10 @@ export async function orgPassMarkPct(orgId: string): Promise<number> {
   return Number.isFinite(raw) && raw > 0 && raw <= 100 ? raw : DEFAULT_PASS_MARK_PCT;
 }
 
-/** Is this percentage a fail? Null (nothing marked yet) is never a
- *  fail — a pending paper must not brand a child. */
-export function isFailing(pct: number | null | undefined, passMarkPct: number): boolean {
-  return pct !== null && pct !== undefined && pct < passMarkPct;
-}
+// The rules live in a pure module so they can be unit-tested; re-exported
+// here so every existing import keeps working.
+export {
+  isFailing,
+  failedSubjectNames,
+  failedTerm,
+} from "./passMarkRules.ts";

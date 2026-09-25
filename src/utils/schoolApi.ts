@@ -5867,7 +5867,11 @@ export interface TermReportCardResponse {
     subjects: TermReportCardSubject[];
     overall: { obtained: number; max: number; percentage: number | null; letter: string; remark: string;
       /** The school's own threshold and its verdict — server >= v1.3.0. */
-      passMarkPct?: number; failed?: boolean };
+      passMarkPct?: number; failed?: boolean;
+      /** Why the child failed (v1.16.0): the grand total, and/or the
+       *  subjects below the pass mark - a fail in ANY subject fails the
+       *  term however good the total. */
+      failedByTotal?: boolean; failedSubjects?: string[] };
   };
   attendance: { present: number; late: number; absent: number; excused: number; total: number; attendancePct: number | null; daysPresent?: number; workingDays?: number; carriedDays?: number; carriedAsOf?: string | null };
   behavior: { positive: number; concern: number; netPoints: number };
