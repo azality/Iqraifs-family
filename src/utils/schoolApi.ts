@@ -1846,6 +1846,9 @@ export interface AdminParent {
     hasCredential: boolean;
     mustChange: boolean;
     lastLoginAt: string | null;
+    /** Sign-ins counted since 24 Sep 2026. Zero WITH a lastLoginAt
+     *  means the sign-ins predate counting. */
+    loginCount?: number;
   };
 }
 
