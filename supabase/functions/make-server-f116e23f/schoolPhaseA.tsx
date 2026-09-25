@@ -293,6 +293,23 @@ async function makePinToken(p: PinTokenPayload): Promise<string> {
   return `pin.${body}.${sig}`;
 }
 
+/** Every parent row that IS this person: the canonical root plus each
+ *  alias folded into it. Merged families keep children linked on the
+ *  original rows, so any child-listing for a parent credential must
+ *  read the whole cluster - reading one row is the bug that hid
+ *  Moosa Nabeel from his mother's portal (25 Sep). */
+export async function aliasClusterParentIds(parentId: string): Promise<string[]> {
+  const { data: meRow } = await serviceRoleClient
+    .from("parent").select("id, canonical_id").eq("id", parentId).maybeSingle();
+  const rootId = (meRow as any)?.canonical_id ?? (meRow as any)?.id ?? parentId;
+  const { data: aliasRows } = await serviceRoleClient
+    .from("parent").select("id")
+    .or(`id.eq.${rootId},canonical_id.eq.${rootId}`);
+  const ids = new Set<string>((aliasRows ?? []).map((r: any) => r.id));
+  ids.add(parentId);
+  return [...ids];
+}
+
 export async function verifyPinToken(token: string): Promise<PinTokenPayload | null> {
   if (!token.startsWith("pin.")) return null;
   const parts = token.split(".");
