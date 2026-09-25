@@ -158,7 +158,7 @@ export function StudentReportCard() {
            summary boxes fell onto a second page after a half-empty
            first (Ambreen's print). Portrait holds the whole card — the
            biggest class table included — on one page. */
-        @page { size: A4 portrait; margin: 10mm 12mm; }
+        @page { size: A4 portrait; margin: 8mm 10mm; }
         @media print {
           .no-print, .no-print * { display: none !important; }
           body { background: white !important; }
@@ -178,6 +178,19 @@ export function StudentReportCard() {
           .print-card .print-keep .rounded-md { padding: 8px !important; }
           /* Signature block stays at the bottom of the card */
           .print-signature { break-before: auto; }
+          /* A blank SECOND page (Ambreen's print, 25 Sep): the card
+             itself ended on page one and only trailing space spilled
+             over. Nothing after the last section may carry margin,
+             padding or height, or the page box grows past A4. */
+          .print-card { padding-bottom: 0 !important; margin-bottom: 0 !important; }
+          .print-card > *:last-child,
+          .print-signature { margin-bottom: 0 !important; padding-bottom: 0 !important; }
+          .print-card .space-y-5 > * + * { margin-top: 10px !important; }
+          .print-card .space-y-4 > * + * { margin-top: 8px !important; }
+          .print-card .space-y-3 > * + * { margin-top: 6px !important; }
+          html, body { height: auto !important; min-height: 0 !important; }
+          .print-signature .h-14 { height: 44px !important; }
+          .print-signature .h-10 { height: 30px !important; }
           .print-only { display: block !important; }
         }
         @media screen {

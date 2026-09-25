@@ -7451,11 +7451,19 @@ await check("127. AI remark suggestions are gated, refuse a blank card, and neve
       `a markless child must be refused with NO_MARKS, got ${blank.status}: ${JSON.stringify(blankJ).slice(0, 120)}`);
   }
 
-  // The real path: either the key is unset (a clear, actionable 503) or
-  // it answers with a complete four-field suggestion.
+  // The real path needs a child who actually HAS marks - the QA portal
+  // students carry none, and the endpoint rightly refuses those. Borrow
+  // a real marked student (read-only; nothing is written to their card).
+  const { data: markedStu } = await admin
+    .from("exam_subject_score")
+    .select("student_id, exam:exam_id!inner(term_id)")
+    .eq("exam.term_id", term!.id)
+    .limit(1)
+    .maybeSingle();
+  const subjectStudent = (markedStu as any)?.student_id ?? pStu1;
   const before = await (await api(admin2.token,
-    `/school/orgs/${ORG}/students/${pStu1}/terms/${term!.id}/report-card`)).json();
-  const r = await api(admin2.token, url(pStu1), { method: "POST" });
+    `/school/orgs/${ORG}/students/${subjectStudent}/terms/${term!.id}/report-card`)).json();
+  const r = await api(admin2.token, url(subjectStudent), { method: "POST" });
   const j = await r.json();
   if (r.status === 503) {
     assert(j.code === "AI_NOT_CONFIGURED",
@@ -7470,7 +7478,7 @@ await check("127. AI remark suggestions are gated, refuse a blank card, and neve
   }
   // Either way, the card itself is untouched - suggesting is not saving.
   const after = await (await api(admin2.token,
-    `/school/orgs/${ORG}/students/${pStu1}/terms/${term!.id}/report-card`)).json();
+    `/school/orgs/${ORG}/students/${subjectStudent}/terms/${term!.id}/report-card`)).json();
   assert(
     (before.comments?.classTeacher ?? null) === (after.comments?.classTeacher ?? null) &&
     (before.comments?.principal ?? null) === (after.comments?.principal ?? null),
