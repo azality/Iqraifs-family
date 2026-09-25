@@ -301,42 +301,62 @@ export function StudentTermReportCard() {
               identical to the office's printed card. An uploaded
               principal signature / stamp (Settings -> Organization)
               sits on the line; blank lines otherwise. */}
+          {(() => {
+            // The school chooses which lines appear; all default on.
+            const sig = card.school.signatureLines
+              ?? { classTeacher: true, principal: true, parent: true, stamp: true };
+            const n = [sig.classTeacher, sig.principal, sig.parent, sig.stamp].filter(Boolean).length;
+            if (n === 0) return null;
+            return (
           <section className="pt-4 mt-2 border-t border-slate-200">
-            <div className="grid grid-cols-4 gap-4 text-[11px] text-slate-600">
-              <div className="text-center">
-                <div className="h-10 border-b border-slate-300 flex items-end justify-center">
-                  {card.placement.classTeacherSignatureUrl && (
-                    <img src={card.placement.classTeacherSignatureUrl} alt="" className="max-h-9 max-w-full object-contain" />
+            <div
+              className="grid gap-4 text-[11px] text-slate-600"
+              style={{ gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))` }}
+            >
+              {sig.classTeacher && (
+                <div className="text-center">
+                  <div className="h-10 border-b border-slate-300 flex items-end justify-center">
+                    {card.placement.classTeacherSignatureUrl && (
+                      <img src={card.placement.classTeacherSignatureUrl} alt="" className="max-h-9 max-w-full object-contain" />
+                    )}
+                  </div>
+                  <div className="mt-1">{t("portal.rc.signClassTeacher")}</div>
+                  <div className="text-[10px] text-slate-500">{card.placement.classTeacherName ?? ""}</div>
+                </div>
+              )}
+              {sig.principal && (
+                <div className="text-center">
+                  <div className="h-10 border-b border-slate-300 flex items-end justify-center">
+                    {card.school.principalSignatureUrl && (
+                      <img src={card.school.principalSignatureUrl} alt="" className="max-h-9 max-w-full object-contain" />
+                    )}
+                  </div>
+                  <div className="mt-1">{t("portal.rc.signPrincipal")}</div>
+                </div>
+              )}
+              {sig.parent && (
+                <div className="text-center">
+                  <div className="h-10 border-b border-slate-300"></div>
+                  <div className="mt-1">{t("portal.rc.signParent")}</div>
+                </div>
+              )}
+              {sig.stamp && (
+                <div className="text-center">
+                  {card.school.stampUrl ? (
+                    <div className="h-14 flex items-center justify-center">
+                      <img src={card.school.stampUrl} alt="" className="max-h-14 max-w-full object-contain" />
+                    </div>
+                  ) : (
+                    <div className="h-14 rounded border border-dashed border-slate-300 flex items-center justify-center text-[10px] text-slate-400">
+                      {t("portal.rc.stampBox")}
+                    </div>
                   )}
                 </div>
-                <div className="mt-1">{t("portal.rc.signClassTeacher")}</div>
-                <div className="text-[10px] text-slate-500">{card.placement.classTeacherName ?? ""}</div>
-              </div>
-              <div className="text-center">
-                <div className="h-10 border-b border-slate-300 flex items-end justify-center">
-                  {card.school.principalSignatureUrl && (
-                    <img src={card.school.principalSignatureUrl} alt="" className="max-h-9 max-w-full object-contain" />
-                  )}
-                </div>
-                <div className="mt-1">{t("portal.rc.signPrincipal")}</div>
-              </div>
-              <div className="text-center">
-                <div className="h-10 border-b border-slate-300"></div>
-                <div className="mt-1">{t("portal.rc.signParent")}</div>
-              </div>
-              <div className="text-center">
-                {card.school.stampUrl ? (
-                  <div className="h-14 flex items-center justify-center">
-                    <img src={card.school.stampUrl} alt="" className="max-h-14 max-w-full object-contain" />
-                  </div>
-                ) : (
-                  <div className="h-14 rounded border border-dashed border-slate-300 flex items-center justify-center text-[10px] text-slate-400">
-                    {t("portal.rc.stampBox")}
-                  </div>
-                )}
-              </div>
+              )}
             </div>
           </section>
+            );
+          })()}
         </div>
       )}
     </div>

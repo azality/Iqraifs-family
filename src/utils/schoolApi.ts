@@ -295,6 +295,8 @@ export const updateOrganization = (
     sabaq_para_break: boolean;
     /** Auto-remarks chart (v1.12.0): null resets to the defaults. */
     report_remark_bands: RemarkBandRow[] | null;
+    /** Report-card signature strip: which lines to print (v1.15.0). */
+    report_card_signature_lines: { classTeacher: boolean; principal: boolean; parent: boolean; stamp: boolean };
     /** Teacher Track Record: pass threshold %, default 40. */
     pass_mark_pct: number;
     /** Lessons (takhti) in the school's Noorani Qaida edition. */
@@ -5853,7 +5855,10 @@ export interface TermReportCardSubject {
   perExam: Array<{ examId: string; examName: string; obtained: number | null; max: number; absent: boolean }>;
 }
 export interface TermReportCardResponse {
-  school: { name: string; slug: string | null; logoUrl: string | null; motto: string | null; themeColor: string | null; address: string | null; principalSignatureUrl?: string | null; stampUrl?: string | null };
+  school: { name: string; slug: string | null; logoUrl: string | null; motto: string | null; themeColor: string | null; address: string | null; principalSignatureUrl?: string | null; stampUrl?: string | null;
+    /** Which lines the school wants on the signature strip (v1.15.0).
+     *  All default true. */
+    signatureLines?: { classTeacher: boolean; principal: boolean; parent: boolean; stamp: boolean } };
   student: { id: string; fullName: string; grNumber: string; dateOfBirth: string | null; gender: string | null; photoUrl: string | null; program: string | null; religion: string | null; nationality: string | null };
   placement: { className: string | null; sectionName: string | null; classTeacherName: string | null; classTeacherSignatureUrl?: string | null; hifzTeacherName: string | null };
   term: { id: string; name: string; startDate: string; endDate: string };

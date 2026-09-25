@@ -60,6 +60,10 @@ interface OrgFormState {
   student_points_league: boolean;
   /** Hifz method: full-para consolidation revision when a sabaq finishes a para. */
   sabaq_para_break: boolean;
+  sig_class_teacher: boolean;
+  sig_principal: boolean;
+  sig_parent: boolean;
+  sig_stamp: boolean;
   logo_url: string;
   theme_color: string;
   school_motto: string;
@@ -102,6 +106,10 @@ export function OrgSettings() {
     parent_reply_sla_days: "",
     student_points_league: true,
     sabaq_para_break: true,
+    sig_class_teacher: true,
+    sig_principal: true,
+    sig_parent: true,
+    sig_stamp: true,
     logo_url: "",
     theme_color: "",
     school_motto: "",
@@ -206,6 +214,14 @@ export function OrgSettings() {
             (o.organization.settings as any)?.student_points_league !== false,
           sabaq_para_break:
             (o.organization.settings as any)?.sabaq_para_break !== false,
+          sig_class_teacher:
+            ((o.organization.settings as any)?.report_card_signature_lines?.classTeacher) !== false,
+          sig_principal:
+            ((o.organization.settings as any)?.report_card_signature_lines?.principal) !== false,
+          sig_parent:
+            ((o.organization.settings as any)?.report_card_signature_lines?.parent) !== false,
+          sig_stamp:
+            ((o.organization.settings as any)?.report_card_signature_lines?.stamp) !== false,
           student_sees_concerns: (o.organization.settings?.student_sees_concerns as boolean | undefined) === true,
           pass_mark_pct: String((o.organization.settings?.pass_mark_pct as number | undefined) ?? 40),
           qaida_lesson_count: String((o.organization.settings?.qaida_lesson_count as number | undefined) ?? 17),
@@ -265,6 +281,12 @@ export function OrgSettings() {
           : {}),
         student_points_league: orgForm.student_points_league,
         sabaq_para_break: orgForm.sabaq_para_break,
+        report_card_signature_lines: {
+          classTeacher: orgForm.sig_class_teacher,
+          principal: orgForm.sig_principal,
+          parent: orgForm.sig_parent,
+          stamp: orgForm.sig_stamp,
+        },
         logo_url: orgForm.logo_url,
         theme_color: orgForm.theme_color,
         school_motto: orgForm.school_motto,
@@ -744,6 +766,37 @@ export function OrgSettings() {
               <p className="text-xs text-slate-500">{hint}</p>
             </div>
           ))}
+
+          {/* Which lines the report card prints. Teachers were uneasy
+              about handing over a signature image (26 Sep), so a school
+              can drop that line entirely - the class teacher's NAME
+              still heads every card either way. */}
+          <div className="grid gap-1.5">
+            <Label>Report card signature lines</Label>
+            <div className="flex flex-wrap gap-x-5 gap-y-2 rounded-md border border-slate-200 bg-white px-3 py-2.5">
+              {([
+                ["sig_class_teacher", "Class teacher"],
+                ["sig_principal", "Principal"],
+                ["sig_parent", "Parent signature"],
+                ["sig_stamp", "School stamp"],
+              ] as const).map(([key, label]) => (
+                <label key={key} className="inline-flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={orgForm[key]}
+                    onChange={(e) => setOrgForm((st) => ({ ...st, [key]: e.target.checked }))}
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+            <p className="text-xs text-slate-500">
+              Untick a line to leave it off the printed card and the parent portal.
+              The class teacher&apos;s name is printed at the top of every card regardless,
+              so unticking their line does not hide who taught the child.
+            </p>
+          </div>
+
           <div className="grid gap-1.5">
             <Label htmlFor="org-color">Theme color</Label>
             <div className="flex items-center gap-2">

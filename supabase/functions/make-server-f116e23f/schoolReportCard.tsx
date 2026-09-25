@@ -398,6 +398,21 @@ async function assembleReportCard(
         address: (orgSettings as any).address ?? null,
         principalSignatureUrl: (orgSettings as any).principal_signature_url ?? null,
         stampUrl: (orgSettings as any).school_stamp_url ?? null,
+        // Which lines the school wants on the signature strip (26 Sep:
+        // "teachers are uneasy to provide their signature"). Every line
+        // defaults ON, so a school that never touches this keeps the
+        // card it has. Turning the class-teacher line off does not hide
+        // WHO taught the child - their name still heads the card.
+        signatureLines: (() => {
+          const raw = ((orgSettings as any).report_card_signature_lines ?? {}) as Record<string, unknown>;
+          const on = (k: string) => raw[k] === undefined ? true : raw[k] !== false;
+          return {
+            classTeacher: on("classTeacher"),
+            principal: on("principal"),
+            parent: on("parent"),
+            stamp: on("stamp"),
+          };
+        })(),
       },
       student: {
         id: stu.id,
