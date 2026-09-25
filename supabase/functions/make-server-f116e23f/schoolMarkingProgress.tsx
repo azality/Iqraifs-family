@@ -228,6 +228,25 @@ export function installMarkingProgress(school: Hono): void {
       confirmedBySec.set(sid, new Set(Object.keys(r.value ?? {})));
     }
 
+    // Report cards for this term (24 Sep: "can I see that everyone has
+    // finalized"). Marks entered is NOT the same question as cards
+    // finalized, and the office was opening one tabulation sheet per
+    // section to find out. Paged - a whole school's cards pass 1000.
+    const finalizedIds = new Set<string>();
+    const publishedIds = new Set<string>();
+    for (let from = 0; ; from += 1000) {
+      const { data: page } = await serviceRoleClient
+        .from("term_report_card")
+        .select("student_id, finalized_at, published_at")
+        .eq("term_id", termId)
+        .order("student_id").range(from, from + 999);
+      for (const r of ((page ?? []) as any[])) {
+        if (r.finalized_at) finalizedIds.add(r.student_id);
+        if (r.published_at) publishedIds.add(r.student_id);
+      }
+      if (!page || page.length < 1000) break;
+    }
+
     const out = sections.map((s) => {
       const students = studentsBySec.get(s.id) ?? [];
       const subjects = subjectsByClass.get(s.class.id) ?? [];
@@ -247,6 +266,13 @@ export function installMarkingProgress(school: Hono): void {
         exams: cells,
         signedOff: examined.filter((x) => confirmed.has(x.id)).length,
         signOffNeeded: examined.length,
+        // Report-card state for the section: finalized is what makes a
+        // card publishable on results day; unmarked names the children
+        // who would carry a BLANK card if it went out as-is (new
+        // admissions and mid-term movers - Yousuf 2081, Safia 2488).
+        finalized: students.filter((id) => finalizedIds.has(id)).length,
+        published: students.filter((id) => publishedIds.has(id)).length,
+        unmarked: students.filter((id) => (scoresByStudent.get(id) ?? []).length === 0).length,
       };
     }).sort((a, b) =>
       (a.classSort - b.classSort) || a.label.localeCompare(b.label));

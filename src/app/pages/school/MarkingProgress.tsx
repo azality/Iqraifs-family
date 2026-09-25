@@ -109,6 +109,19 @@ export function MarkingProgress() {
     };
   }, [data]);
 
+  // Results-day readiness (24 Sep): sections whose every child is
+  // finalized, and children who would carry a BLANK card if results
+  // went out as they stand. Only sections that sit a paper count -
+  // Reception/Junior have no written assessment, Hifz its own paper.
+  const readiness = useMemo(() => {
+    const rows = (data?.sections ?? []).filter((r) => r.signOffNeeded > 0);
+    return {
+      ready: rows.filter((r) => (r.finalized ?? 0) === r.studentCount && r.studentCount > 0).length,
+      sections: rows.length,
+      blank: rows.reduce((n, r) => n + ((r.finalized ?? 0) > 0 ? (r.unmarked ?? 0) : 0), 0),
+    };
+  }, [data]);
+
   // "Needs attention" = the most unmarked work first. School order keeps
   // the classes youngest-first, the way the server sends them.
   const rows = useMemo(() => {
@@ -187,6 +200,18 @@ export function MarkingProgress() {
             </div>
             <div className="text-[11px] text-slate-500">subject columns</div>
           </div>
+          <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Report cards ready</div>
+            <div className="mt-0.5 text-xl font-bold tabular-nums text-slate-900">
+              {readiness.ready}<span className="text-sm font-medium text-slate-400"> / {readiness.sections}</span>
+            </div>
+            <div className="text-[11px] text-slate-500">
+              sections fully finalized
+              {readiness.blank > 0 && (
+                <span className="text-rose-600"> · {readiness.blank} card{readiness.blank === 1 ? "" : "s"} would be blank</span>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
@@ -234,6 +259,7 @@ export function MarkingProgress() {
                   <th key={e.id} className="px-2 py-2 font-semibold text-slate-700">{shortExam(e.name)}</th>
                 ))}
                 <th className="px-3 py-2 font-semibold text-slate-700">Signed off</th>
+                <th className="px-3 py-2 font-semibold text-slate-700">Report cards</th>
               </tr>
             </thead>
             <tbody>
@@ -296,10 +322,41 @@ export function MarkingProgress() {
                           </span>
                         )}
                       </td>
+                      {/* "Can I see that everyone has finalized" (24 Sep).
+                          Finalized is the gate for results day; a blank
+                          card (a child with no marks) is called out
+                          because publishing one helps nobody. */}
+                      <td className="px-3 py-2 align-top">
+                        {r.finalized === undefined ? (
+                          <span className="text-xs text-slate-300">—</span>
+                        ) : (
+                          <div className="flex flex-col gap-0.5">
+                            <span className={
+                              "inline-flex items-center gap-1 text-xs font-medium tabular-nums " +
+                              (r.finalized === r.studentCount && r.studentCount > 0
+                                ? "text-emerald-700"
+                                : r.finalized === 0 ? "text-slate-500" : "text-amber-700")
+                            }>
+                              {r.finalized === r.studentCount && r.studentCount > 0
+                                ? <CheckCircle2 className="h-3.5 w-3.5" />
+                                : <CircleDot className="h-3.5 w-3.5" />}
+                              {r.finalized}/{r.studentCount} finalized
+                            </span>
+                            {(r.published ?? 0) > 0 && (
+                              <span className="text-[11px] text-emerald-700">{r.published} published</span>
+                            )}
+                            {(r.unmarked ?? 0) > 0 && (r.finalized ?? 0) > 0 && (
+                              <span className="text-[11px] text-rose-600">
+                                {r.unmarked} would be blank
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </td>
                     </tr>
                     {openCell && (
                       <tr className="border-b border-slate-100 bg-slate-50/60">
-                        <td colSpan={exams.length + 2} className="px-3 py-2.5">
+                        <td colSpan={exams.length + 3} className="px-3 py-2.5">
                           <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                             {r.label} · {shortExam(exams[openExamIdx].name)}
                           </div>

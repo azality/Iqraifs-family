@@ -4296,6 +4296,12 @@ export interface MarkingSectionRow {
   exams: MarkingExamCell[];
   signedOff: number;
   signOffNeeded: number;
+  /** Report-card state for the term (v1.9.0): finalized is what makes a
+   *  card publishable on results day; `unmarked` counts children who
+   *  would carry a BLANK card - new admissions and mid-term movers. */
+  finalized?: number;
+  published?: number;
+  unmarked?: number;
 }
 export interface MarkingProgressResponse {
   term: { id: string; name: string } | null;
