@@ -7382,6 +7382,28 @@ await check("126. the class teacher's uploaded signature flows onto the report c
       assert(!card.comments.auto.classTeacher,
         "a child with no percentage must get NO auto remark");
     }
+    // Bilingual (v1.13.0): an AUTO remark must carry its Urdu so an
+    // Urdu-reading parent is not handed English on an Urdu-first portal.
+    if (card.comments.auto.classTeacher) {
+      assert(typeof card.comments.classTeacherUr === "string" && card.comments.classTeacherUr.length > 0,
+        `an auto remark must carry Urdu, got ${JSON.stringify(card.comments.classTeacherUr ?? null)}`);
+    }
+    // Findings: computed, worst-first, every line in both languages.
+    assert(card.findings && Array.isArray(card.findings.items),
+      "the card must carry computed findings");
+    for (const item of card.findings.items) {
+      assert(typeof item.en === "string" && item.en.length > 0 &&
+        typeof item.ur === "string" && item.ur.length > 0,
+        `every finding needs both languages, got ${JSON.stringify(item)}`);
+      assert(["strength", "watch", "concern"].includes(item.severity),
+        `bad severity ${item.severity}`);
+    }
+    const sev = (card.findings.items as any[]).map((x) => x.severity);
+    const rank = { concern: 0, watch: 1, strength: 2 } as Record<string, number>;
+    for (let i = 1; i < sev.length; i++) {
+      assert(rank[sev[i - 1]] <= rank[sev[i]],
+        `findings must be worst-first, got ${sev.join(",")}`);
+    }
 
     // Clearing puts the line back to hand-signing.
     const clear = await api(admin2.token, `/school/orgs/${ORG}/teachers/${ctId}/profile`, {

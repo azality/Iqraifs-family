@@ -33,6 +33,7 @@
 import type { Context, Hono } from "npm:hono";
 import { applyScheduledPublish } from "./schoolAssessment.tsx";
 import { DEFAULT_REMARK_BANDS, normalizeRemarkBands, pickRemarkBand } from "./remarkBands.ts";
+import { computeFindings, isNotable } from "./reportFindings.ts";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { hasAnyRoleInOrg as hasAnyOrgRole, hasAdminOrPrincipal as isAdminOrPrincipal } from "./schoolAuth.ts";
 import { verifyPinToken } from "./schoolPhaseA.tsx";
@@ -340,6 +341,10 @@ async function assembleReportCard(
     .lte("recorded_at", endD + "T23:59:59.999Z");
   let ayahsMemorized = 0, surahsCompleted = 0, totalEntries = 0, missedCount = 0;
   const qualityCounts = { excellent: 0, good: 0, needs_practice: 0, weak: 0 };
+  // Per KIND as well: "weak in manzil" (retention slipping) means
+  // something completely different to a parent than "weak in sabaq"
+  // (new lesson), so the findings engine needs them apart.
+  const qualityByKind: Record<string, Record<string, number>> = {};
   const completedSurahs = new Set<number>();
   // Memorization kinds only. A reader's nazra/qaida hearings (or the
   // intake days before a child moved to hifz) are reading, not hifz —
@@ -351,6 +356,10 @@ async function assembleReportCard(
     if (h.missed) { missedCount++; continue; }
     if (h.kind === "sabaq" && h.ayah_from !== null && h.ayah_to !== null) {
       ayahsMemorized += Math.max(0, Number(h.ayah_to) - Number(h.ayah_from) + 1);
+    }
+    if (h.quality && ["sabaq", "sabqi", "manzil"].includes(h.kind)) {
+      const bucket = qualityByKind[h.kind] ?? (qualityByKind[h.kind] = {});
+      bucket[h.quality] = (bucket[h.quality] ?? 0) + 1;
     }
     if (h.kind === "sabaq" && typeof h.surah_number === "number") {
       // crude: treat a sabaq entry that hits the surah's last ayah as
@@ -460,10 +469,46 @@ async function assembleReportCard(
         return {
           classTeacher: savedCt ?? (band?.classTeacher || null),
           principal: savedPr ?? (band?.principal || null),
+          // Urdu counterparts travel WITH the card, so switching the
+          // portal to Urdu needs no round-trip - and a remark a human
+          // typed has only the language they typed it in (null), where
+          // the reader falls back to that text (26 Sep).
+          classTeacherUr: savedCt ? null : (band?.classTeacherUr || null),
+          principalUr: savedPr ? null : (band?.principalUr || null),
           subjects: subjectComments,
           // So the staff editor can say "auto - edit to customize".
           auto: { classTeacher: !savedCt && !!band?.classTeacher, principal: !savedPr && !!band?.principal },
         };
+      })(),
+      // What the numbers SAY - computed, never written (26 Sep). Powers
+      // the teacher's "what do I tell this parent" panel, and is the
+      // input an AI writer would work from rather than doing its own
+      // arithmetic. `notable` marks the children where a tailored
+      // remark earns its keep over the band text.
+      findings: (() => {
+        const list = computeFindings({
+          subjects: subjects.map((s) => ({
+            name: s.name,
+            percentage: s.percentage,
+            papers: s.perExam.map((e: any) => ({
+              // The exam name carries the paper ("1st Assessment - Oral");
+              // the tail after the dash is what a parent recognises.
+              label: String(e.examName).split(/[-—–]/).pop()?.trim() || e.examName,
+              obtained: e.obtained, max: e.max, absent: e.absent,
+            })),
+          })),
+          overallPct,
+          passMarkPct,
+          attendance: totalAtt > 0 ? { present, absent, late, total: totalAtt } : null,
+          hifz: isMemorizer ? qualityByKind : null,
+          // Trend needs the previous term's overall on the SAME weighted
+          // basis; wiring it needs the aggregation extracted, and the
+          // 1st Assessment is IFS's first marked term anyway. Left for
+          // the 2nd Assessment rather than shipping a number computed a
+          // different way from the one on the card.
+          priorOverallPct: null,
+        });
+        return { items: list, notable: isNotable(list) };
       })(),
       workflow: {
         recordId: card?.id ?? null,

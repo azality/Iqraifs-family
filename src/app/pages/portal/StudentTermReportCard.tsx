@@ -19,7 +19,12 @@ function fmtPct(n: number | null): string {
 }
 
 export function StudentTermReportCard() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  // An Urdu reader gets the Urdu remark when the school has written one;
+  // a remark a teacher typed exists only in their language, so it shows
+  // as-is rather than not at all (26 Sep).
+  const inReaderLanguage = (en: string | null | undefined, ur: string | null | undefined) =>
+    (i18n.language?.startsWith("ur") ? (ur || en) : en) || null;
   const { studentId = "" } = useParams<{ studentId: string }>();
   const [search, setSearch] = useSearchParams();
   const termId = search.get("term") || "";
@@ -265,22 +270,26 @@ export function StudentTermReportCard() {
             )}
           </section>
 
-          {(card.comments.classTeacher || card.comments.principal) && (
+          {(() => {
+            const ctRemark = inReaderLanguage(card.comments.classTeacher, card.comments.classTeacherUr);
+            const prRemark = inReaderLanguage(card.comments.principal, card.comments.principalUr);
+            return (ctRemark || prRemark) && (
             <section className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-              {card.comments.classTeacher && (
+              {ctRemark && (
                 <div>
                   <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">{t("portal.rc.ctRemark")}</div>
-                  <div className="text-slate-800 whitespace-pre-wrap">{card.comments.classTeacher}</div>
+                  <div className="text-slate-800 whitespace-pre-wrap">{ctRemark}</div>
                 </div>
               )}
-              {card.comments.principal && (
+              {prRemark && (
                 <div>
                   <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">{t("portal.rc.principalRemark")}</div>
-                  <div className="text-slate-800 whitespace-pre-wrap">{card.comments.principal}</div>
+                  <div className="text-slate-800 whitespace-pre-wrap">{prRemark}</div>
                 </div>
               )}
             </section>
-          )}
+            );
+          })()}
 
           {/* The paper ritual (25 Sep): signatures + the school stamp,
               identical to the office's printed card. An uploaded

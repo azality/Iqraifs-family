@@ -57,7 +57,7 @@ export function AutoRemarksCard({ orgId }: { orgId: string }) {
       setBusy(false);
     }
   };
-  const edit = (i: number, field: "classTeacher" | "principal", v: string) =>
+  const edit = (i: number, field: "classTeacher" | "principal" | "classTeacherUr" | "principalUr", v: string) =>
     setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, [field]: v } : r)));
 
   return (
@@ -81,6 +81,10 @@ export function AutoRemarksCard({ orgId }: { orgId: string }) {
             fills it in automatically — on the printed card and the parent portal. A remark
             someone writes on the card always replaces the automatic one.
           </p>
+          <p className="mb-3 text-xs text-slate-500">
+            Write both languages: a parent reading the portal in Urdu sees the Urdu text.
+            Leave an Urdu box empty and that parent sees the English instead.
+          </p>
           <div className="space-y-3">
             {rows.map((r, i) => (
               <div key={`${r.minPct}-${r.maxPct}`} className="rounded-md border border-slate-100 p-2.5">
@@ -88,15 +92,19 @@ export function AutoRemarksCard({ orgId }: { orgId: string }) {
                   {r.minPct}–{r.maxPct}%{r.maxPct <= 40 ? " (below pass mark)" : ""}
                 </div>
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <div>
+                  <div className="space-y-1.5">
                     <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Class teacher's remark</div>
                     <Textarea value={r.classTeacher} onChange={(e) => edit(i, "classTeacher", e.target.value)}
-                      className="h-16 text-xs" maxLength={600} />
+                      className="h-16 text-xs" maxLength={600} placeholder="English" />
+                    <Textarea value={r.classTeacherUr ?? ""} onChange={(e) => edit(i, "classTeacherUr", e.target.value)}
+                      dir="rtl" lang="ur" className="h-16 text-xs" maxLength={600} placeholder="اردو" />
                   </div>
-                  <div>
+                  <div className="space-y-1.5">
                     <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Principal's remark</div>
                     <Textarea value={r.principal} onChange={(e) => edit(i, "principal", e.target.value)}
-                      className="h-16 text-xs" maxLength={600} />
+                      className="h-16 text-xs" maxLength={600} placeholder="English" />
+                    <Textarea value={r.principalUr ?? ""} onChange={(e) => edit(i, "principalUr", e.target.value)}
+                      dir="rtl" lang="ur" className="h-16 text-xs" maxLength={600} placeholder="اردو" />
                   </div>
                 </div>
               </div>

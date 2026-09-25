@@ -5874,11 +5874,18 @@ export interface TermReportCardResponse {
   };
   comments: {
     classTeacher: string | null; principal: string | null; subjects: Record<string, string>;
+    /** Urdu counterparts of the band text (v1.13.0). Null on a remark a
+     *  human typed - it exists only in the language they wrote it in,
+     *  and the reader falls back to that. */
+    classTeacherUr?: string | null; principalUr?: string | null;
     /** True where the text came from the school's band chart, not a
      *  saved remark (v1.12.0) - the editor starts empty there so the
      *  auto text keeps following the chart until someone writes. */
     auto?: { classTeacher: boolean; principal: boolean };
   };
+  /** What the numbers say, computed (v1.13.0) - the teacher's "what do
+   *  I tell this parent" panel, worst finding first. */
+  findings?: { items: ReportFinding[]; notable: boolean };
   workflow: { recordId: string | null; finalizedAt: string | null; publishedAt: string | null };
 }
 
@@ -5887,6 +5894,19 @@ export interface RemarkBandRow {
   maxPct: number;
   classTeacher: string;
   principal: string;
+  /** Urdu counterparts (v1.13.0) - empty means "not written yet" and
+   *  an Urdu reader falls back to the English. */
+  classTeacherUr?: string;
+  principalUr?: string;
+}
+export type FindingSeverity = "strength" | "watch" | "concern";
+export interface ReportFinding {
+  kind: string;
+  severity: FindingSeverity;
+  subject?: string;
+  en: string;
+  ur: string;
+  data: Record<string, number | string>;
 }
 /** The effective auto-remarks chart - the school's own rows when set,
  *  the built-in defaults otherwise. */
