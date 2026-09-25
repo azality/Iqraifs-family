@@ -34,6 +34,9 @@ import type { Context, Hono } from "npm:hono";
 import { applyScheduledPublish } from "./schoolAssessment.tsx";
 import { DEFAULT_REMARK_BANDS, normalizeRemarkBands, pickRemarkBand } from "./remarkBands.ts";
 import { computeFindings, isNotable } from "./reportFindings.ts";
+import {
+  REMARK_MODEL, SYSTEM_PROMPT, buildUserPrompt, parseSuggestion, looksLikeUrdu,
+} from "./aiRemarks.ts";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { hasAnyRoleInOrg as hasAnyOrgRole, hasAdminOrPrincipal as isAdminOrPrincipal } from "./schoolAuth.ts";
 import { verifyPinToken } from "./schoolPhaseA.tsx";
@@ -562,6 +565,107 @@ export function installReportCard(school: Hono): void {
       const r = await assembleReportCard(orgId, studentId, termId);
       if (!r.ok) return c.json({ error: r.error }, r.status);
       return c.json(r.payload);
+    },
+  );
+
+  // ─── Suggest remarks with Claude (26 Sep) ──────────────────────────
+  // Writes FROM the computed findings - the model never sees raw marks
+  // and never does arithmetic, so it cannot put a wrong number on a
+  // card. Nothing is saved: the teacher reads, edits, and saves.
+  school.post(
+    "/orgs/:orgId/students/:studentId/terms/:termId/suggest-remarks",
+    async (c) => {
+      const userId = getAuthUserId(c);
+      const orgId = c.req.param("orgId");
+      const studentId = c.req.param("studentId");
+      const termId = c.req.param("termId");
+      const adminOK = await isAdminOrPrincipal(userId, orgId);
+      const teacherOK = !adminOK && (await isClassTeacherOfStudent(userId, studentId));
+      if (!adminOK && !teacherOK) return c.json({ error: "forbidden" }, 403);
+
+      const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
+      if (!apiKey) {
+        return c.json({
+          error: "AI remarks are not switched on for this server. Ask your administrator to set the ANTHROPIC_API_KEY secret.",
+          code: "AI_NOT_CONFIGURED",
+        }, 503);
+      }
+
+      const r = await assembleReportCard(orgId, studentId, termId);
+      if (!r.ok) return c.json({ error: r.error }, r.status);
+      const card = r.payload as any;
+
+      // A child with no marks has nothing to say anything about - the
+      // same rule the band chart follows (never praise a blank card).
+      if (card.academic?.overall?.percentage === null) {
+        return c.json({
+          error: "This child has no marks for the term, so there is nothing to write about yet.",
+          code: "NO_MARKS",
+        }, 400);
+      }
+
+      const findings = (card.findings?.items ?? []) as any[];
+      const fullName = String(card.student?.fullName ?? "");
+      const prompt = buildUserPrompt({
+        schoolName: card.school?.name ?? "",
+        studentFirstName: fullName.split(/\s+/)[0] ?? "",
+        className: card.placement?.className ?? null,
+        termName: card.term?.name ?? "",
+        overallPct: card.academic?.overall?.percentage ?? null,
+        passMarkPct: card.academic?.overall?.passMarkPct ?? 40,
+        isMemorizer: !!card.hifz?.show,
+      }, findings);
+
+      let text = "";
+      try {
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "x-api-key": apiKey,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            model: REMARK_MODEL,
+            max_tokens: 1200,
+            // Short, bounded writing from facts already established -
+            // low effort keeps it fast and cheap without costing quality.
+            output_config: { effort: "low" },
+            system: SYSTEM_PROMPT,
+            messages: [{ role: "user", content: prompt }],
+          }),
+        });
+        if (!res.ok) {
+          const detail = await res.text();
+          console.error("[suggest-remarks] upstream", res.status, detail.slice(0, 300));
+          return c.json({
+            error: res.status === 401
+              ? "The AI key was rejected. Please check the ANTHROPIC_API_KEY secret."
+              : `The writing service answered ${res.status}. Please try again in a moment.`,
+            code: "AI_UPSTREAM",
+          }, 502);
+        }
+        const json = await res.json();
+        text = ((json?.content ?? []) as any[])
+          .filter((b) => b?.type === "text")
+          .map((b) => b.text)
+          .join("\n");
+      } catch (e) {
+        console.error("[suggest-remarks] fetch", e);
+        return c.json({ error: "Could not reach the writing service.", code: "AI_UNREACHABLE" }, 502);
+      }
+
+      const parsed = parseSuggestion(text);
+      if (!parsed) {
+        return c.json({
+          error: "The suggestion came back in an unexpected shape - please try again.",
+          code: "AI_BAD_SHAPE",
+        }, 502);
+      }
+      // If the Urdu came back in English, say so rather than quietly
+      // filling the Urdu box with English nobody checks.
+      const urduOk = looksLikeUrdu(parsed.classTeacherUr) && looksLikeUrdu(parsed.principalUr);
+      return c.json({ suggestion: parsed, urduOk, usedFindings: findings.length });
     },
   );
 

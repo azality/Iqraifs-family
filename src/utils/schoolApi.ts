@@ -5915,6 +5915,21 @@ export const getRemarkBands = (
 ): Promise<{ bands: RemarkBandRow[]; isCustom: boolean }> =>
   apiCall(`/school/orgs/${orgId}/remark-bands`);
 
+/** A tailored remark written by Claude FROM the computed findings
+ *  (v1.14.0). Suggestion only - nothing is saved until a human saves it. */
+export interface SuggestedRemarks {
+  classTeacher: string;
+  classTeacherUr: string;
+  principal: string;
+  principalUr: string;
+}
+export const suggestRemarks = (
+  orgId: string, studentId: string, termId: string,
+): Promise<{ suggestion: SuggestedRemarks; urduOk: boolean; usedFindings: number }> =>
+  apiCall(`/school/orgs/${orgId}/students/${studentId}/terms/${termId}/suggest-remarks`, {
+    method: "POST",
+  });
+
 export const getTermReportCard = (
   orgId: string,
   studentId: string,

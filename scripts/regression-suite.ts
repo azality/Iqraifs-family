@@ -7420,6 +7420,64 @@ await check("126. the class teacher's uploaded signature flows onto the report c
   }
 });
 
+await check("127. AI remark suggestions are gated, refuse a blank card, and never save on their own", async () => {
+  // 26 Sep: Claude writes FROM the computed findings. The suggestion is
+  // a suggestion - a teacher edits and saves it. Whether the key is set
+  // or not, the SHAPE of the contract must hold: staff-only, no marks
+  // means no remark, and nothing is written to the card.
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const term = await markedTerm();
+  assert(term, "no term with papers");
+  const url = (sid: string) =>
+    `/school/orgs/${ORG}/students/${sid}/terms/${term!.id}/suggest-remarks`;
+
+  // A parent PIN must never reach it (staff endpoint, JWT-gated).
+  const pTok = (await (await pinLogin(PARENT_PHONE, "3456")).json()).token;
+  const asParent = await fetch(`${FUNC}${url(pStu1)}`, {
+    method: "POST", headers: { apikey: ANON, "X-Pin-Token": pTok },
+  });
+  assert(asParent.status === 401 || asParent.status === 403,
+    `a parent PIN must not reach the suggester, got ${asParent.status}`);
+
+  // A child with NO marks is refused before any model call - the same
+  // rule the band chart follows (never write about a blank card).
+  const pStu3 = await ensurePortalStudent("QA-PORTAL-3", "QA Portal Third");
+  const { data: had } = await admin.from("exam_subject_score")
+    .select("id").eq("student_id", pStu3).limit(1);
+  if ((had ?? []).length === 0) {
+    const blank = await api(admin2.token, url(pStu3), { method: "POST" });
+    const blankJ = await blank.json();
+    assert(blank.status === 400 && blankJ.code === "NO_MARKS",
+      `a markless child must be refused with NO_MARKS, got ${blank.status}: ${JSON.stringify(blankJ).slice(0, 120)}`);
+  }
+
+  // The real path: either the key is unset (a clear, actionable 503) or
+  // it answers with a complete four-field suggestion.
+  const before = await (await api(admin2.token,
+    `/school/orgs/${ORG}/students/${pStu1}/terms/${term!.id}/report-card`)).json();
+  const r = await api(admin2.token, url(pStu1), { method: "POST" });
+  const j = await r.json();
+  if (r.status === 503) {
+    assert(j.code === "AI_NOT_CONFIGURED",
+      `an unset key must say so plainly, got ${JSON.stringify(j).slice(0, 120)}`);
+  } else {
+    assert(r.status === 200, `suggest: ${r.status} ${JSON.stringify(j).slice(0, 200)}`);
+    for (const k of ["classTeacher", "classTeacherUr", "principal", "principalUr"]) {
+      assert(typeof j.suggestion?.[k] === "string" && j.suggestion[k].length > 0,
+        `the suggestion must carry ${k}`);
+    }
+    assert(typeof j.urduOk === "boolean", "the reply must say whether the Urdu is really Urdu");
+  }
+  // Either way, the card itself is untouched - suggesting is not saving.
+  const after = await (await api(admin2.token,
+    `/school/orgs/${ORG}/students/${pStu1}/terms/${term!.id}/report-card`)).json();
+  assert(
+    (before.comments?.classTeacher ?? null) === (after.comments?.classTeacher ?? null) &&
+    (before.comments?.principal ?? null) === (after.comments?.principal ?? null),
+    "a suggestion must not write anything to the card",
+  );
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
