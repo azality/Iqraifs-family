@@ -31,6 +31,7 @@ import {
   type SchoolMeResponse, type AcademicTerm,
   type TermReportCardResponse,
 } from "../../../utils/schoolApi";
+import { ReportFindingsPanel } from "./components/ReportFindingsPanel";
 
 function fmtPct(n: number | null): string {
   return n === null ? "—" : `${n.toFixed(1)}%`;
@@ -444,6 +445,13 @@ export function StudentReportCard() {
                   </div>
                 </div>
               </section>
+
+              {card.findings && (
+                <ReportFindingsPanel
+                  findings={card.findings.items}
+                  notable={card.findings.notable}
+                />
+              )}
 
               <section className="space-y-3 print-keep">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
