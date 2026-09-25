@@ -7192,6 +7192,46 @@ await check("122. parents-of-a-class announcements reach ONLY parents - and a st
   }
 });
 
+await check("123. every parent sign-in is COUNTED, so the office can rank who actually uses the app", async () => {
+  // "I want to see which parent uses the app the most" (24 Sep) - we
+  // only kept last_login_at, overwritten each time, so a daily user and
+  // a one-time user looked identical. Each sign-in now increments
+  // login_count atomically, and the parents list carries it.
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const { data: before } = await admin.from("pin_credential")
+    .select("id, login_count").eq("org_id", ORG)
+    .eq("subject_type", "parent").eq("login_identifier", PARENT_PHONE).maybeSingle();
+  assert(before, "the QA portal parent must hold a credential");
+  const start = Number((before as any).login_count ?? 0);
+
+  // Two sign-ins - the count must move by exactly two.
+  for (let i = 0; i < 2; i++) {
+    const r = await pinLogin(PARENT_PHONE, "3456");
+    assert(r.status === 200, `pin login ${i + 1}: ${r.status}`);
+  }
+  const { data: after } = await admin.from("pin_credential")
+    .select("login_count, last_login_at").eq("id", (before as any).id).maybeSingle();
+  assert(Number((after as any).login_count) === start + 2,
+    `two sign-ins must count two, went ${start} -> ${(after as any).login_count}`);
+  assert((after as any).last_login_at, "the stamp must still be written");
+
+  // A FAILED sign-in never counts.
+  const bad = await pinLogin(PARENT_PHONE, "0000");
+  assert(bad.status === 401, `a wrong PIN must be refused, got ${bad.status}`);
+  const { data: afterBad } = await admin.from("pin_credential")
+    .select("login_count").eq("id", (before as any).id).maybeSingle();
+  assert(Number((afterBad as any).login_count) === start + 2,
+    "a failed sign-in must not count");
+
+  // The office's parents list carries the count.
+  const list = await (await api(admin2.token, `/school/orgs/${ORG}/parents`)).json();
+  const row = (list.parents ?? []).find((p: any) =>
+    (p.phone ?? "").replace(/\D/g, "").endsWith("0000000901"));
+  assert(row, "the QA portal parent must be listed");
+  assert(Number(row.portal?.loginCount) >= start + 2,
+    `the list must carry loginCount, got ${JSON.stringify(row.portal)}`);
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

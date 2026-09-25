@@ -1835,13 +1835,13 @@ export function installPhaseA(school: Hono) {
     // credential; surface it per family. Canonical-aware: a login at
     // any aliased row counts as the ROOT parent, so read the credential
     // by canonical_id ?? id.
-    const credByParent = new Map<string, { lastLoginAt: string | null; mustChange: boolean }>();
+    const credByParent = new Map<string, { lastLoginAt: string | null; mustChange: boolean; loginCount: number }>();
     {
       const effIds = [...new Set((data ?? []).map((p: any) => p.canonical_id ?? p.id))];
       for (let i = 0; i < effIds.length; i += 200) {
         const { data: creds } = await serviceRoleClient
           .from("pin_credential")
-          .select("subject_id, last_login_at, must_change")
+          .select("subject_id, last_login_at, must_change, login_count")
           .eq("subject_type", "parent")
           .in("subject_id", effIds.slice(i, i + 200));
         for (const cr of ((creds ?? []) as any[])) {
@@ -1852,7 +1852,12 @@ export function installPhaseA(school: Hono) {
             credByParent.set(cr.subject_id, {
               lastLoginAt: cr.last_login_at ?? null,
               mustChange: !!cr.must_change,
+              // Sign-ins across every credential row, not just the
+              // newest one - the count is the whole person's usage.
+              loginCount: (prev?.loginCount ?? 0) + Number(cr.login_count ?? 0),
             });
+          } else if (prev) {
+            prev.loginCount += Number(cr.login_count ?? 0);
           }
         }
       }
@@ -1880,6 +1885,10 @@ export function installPhaseA(school: Hono) {
         hasCredential: cred !== null,
         mustChange: cred?.mustChange ?? false,
         lastLoginAt: cred?.lastLoginAt ?? null,
+        // Sign-ins counted since 24 Sep 2026. Zero WITH a lastLoginAt
+        // means their sign-ins predate counting, not that they never
+        // came back - the UI says so rather than showing a bare 0.
+        loginCount: cred?.loginCount ?? 0,
       },
       };
     });
@@ -3621,10 +3630,10 @@ export function installPhaseA(school: Hono) {
       return c.json({ error: "invalid credentials" }, 401);
     }
 
-    await serviceRoleClient
-      .from("pin_credential")
-      .update({ failed_attempts: 0, locked_until: null, last_login_at: new Date().toISOString() })
-      .eq("id", cred.id);
+    // Counts the sign-in, stamps it, and clears the lock in ONE atomic
+    // statement - "which parent uses the app the most" needs a count,
+    // and a read-modify-write here would drop concurrent sign-ins.
+    await serviceRoleClient.rpc("bump_pin_login", { cred_id: cred.id });
 
     const exp = Math.floor(Date.now() / 1000) + PIN_TOKEN_TTL_SECONDS;
     const token = await makePinToken({
@@ -3761,6 +3770,8 @@ export function installPhaseA(school: Hono) {
           failed_attempts: 0,
           locked_until: null,
           last_login_at: new Date().toISOString(),
+          // Claiming a PIN signs them in - that is sign-in number one.
+          login_count: 1,
         },
         { onConflict: "org_id,subject_type,subject_id" },
       );

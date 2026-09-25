@@ -243,6 +243,20 @@ export function ManageParents() {
     });
   }, [parents]);
 
+  // "I want to see which parent uses the app the most" (24 Sep). Sign-in
+  // counting began 24 Sep 2026, so this ranks real usage from that date;
+  // families who signed in earlier show their last-login date only.
+  const [sortBy, setSortBy] = useState<"name" | "active">("name");
+  const familyUse = (f: { parents: AdminParent[] }) => {
+    let signIns = 0;
+    let last = "";
+    for (const p of f.parents) {
+      signIns += p.portal?.loginCount ?? 0;
+      if ((p.portal?.lastLoginAt ?? "") > last) last = p.portal?.lastLoginAt ?? "";
+    }
+    return { signIns, last };
+  };
+
   // Apply the search filter to families. Scope determines which fields
   // are matched: "all" matches across everything, the others narrow it.
   // Case-insensitive substring match throughout.
@@ -304,6 +318,17 @@ export function ManageParents() {
       }
     });
   }, [families, search, searchScope, childrenFilter, sectionLabel]);
+
+  // Sorting is separate from filtering so every pill and search keeps
+  // working while "Most active" is on.
+  const sortedFamilies = useMemo(() => {
+    if (sortBy !== "active") return visibleFamilies;
+    return [...visibleFamilies].sort((a, b) => {
+      const ua = familyUse(a), ub = familyUse(b);
+      if (ub.signIns !== ua.signIns) return ub.signIns - ua.signIns;
+      return ub.last.localeCompare(ua.last); // then most recent
+    });
+  }, [visibleFamilies, sortBy]);
 
   // ─── Likely-duplicate detection (settings/admin pass) ────────────────
   // Two UNLINKED parents are a merge candidate when their normalized
@@ -791,6 +816,13 @@ export function ManageParents() {
             );
           })}
         </div>
+        <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
+          <SelectTrigger className="h-9 w-36 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="name">Sort: A–Z</SelectItem>
+            <SelectItem value="active">Sort: Most active</SelectItem>
+          </SelectContent>
+        </Select>
         <Select value={childrenFilter} onValueChange={(v) => setChildrenFilter(v as typeof childrenFilter)}>
           <SelectTrigger className="h-9 w-36 text-xs"><SelectValue /></SelectTrigger>
           <SelectContent>
@@ -836,7 +868,7 @@ export function ManageParents() {
         </div>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {visibleFamilies.map((family) => {
+          {sortedFamilies.map((family) => {
             const isMultiParent = family.parents.length > 1;
             return (
               <div
@@ -871,6 +903,9 @@ export function ManageParents() {
                             p.portal.lastLoginAt ? (
                               <span className="inline-flex w-fit items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-200">
                                 Portal · last login {new Date(p.portal.lastLoginAt).toLocaleDateString(undefined, { day: "numeric", month: "short" })}
+                                {/* Counting started 24 Sep - a zero here
+                                    means earlier sign-ins, not none. */}
+                                {(p.portal.loginCount ?? 0) > 0 && ` · ${p.portal.loginCount} sign-in${p.portal.loginCount === 1 ? "" : "s"}`}
                               </span>
                             ) : p.portal.hasCredential ? (
                               <span className="inline-flex w-fit items-center gap-1 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 ring-1 ring-amber-200">
