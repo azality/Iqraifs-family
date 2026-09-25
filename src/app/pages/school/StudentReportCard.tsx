@@ -435,24 +435,46 @@ export function StudentReportCard() {
                     <div>
                       Present:{" "}
                       <span className="font-medium">
-                        {card.attendance.daysPresent ?? card.attendance.present} of{" "}
-                        {card.attendance.workingDays ?? card.attendance.total} days
+                        {card.attendance.daysPresent ?? card.attendance.present} days
+                        {card.attendance.joinedMidTerm
+                          ? " since joining"
+                          : ` of ${card.attendance.workingDays ?? card.attendance.total} days`}
                       </span>
                     </div>
-                    {!!card.attendance.carriedDays && (
+                    {/* A child admitted mid-term was handed their class's
+                        register denominator, which made a new arrival read
+                        as a truant. Print the joining date instead of a
+                        percentage we cannot stand behind (25 Sep). */}
+                    {card.attendance.joinedMidTerm ? (
+                      <div className="text-[10px] leading-tight text-slate-500">
+                        Joined{" "}
+                        {new Date(
+                          (card.attendance.startsOn ?? card.attendance.admissionDate) as string,
+                        ).toLocaleDateString()}
+                        , part-way through the term.
+                      </div>
+                    ) : !!card.attendance.carriedDays && (
                       <div className="text-[10px] leading-tight text-slate-500">
                         Includes {card.attendance.carriedDays} days from the school
                         {card.attendance.carriedAsOf ? ` register up to ${card.attendance.carriedAsOf}` : " register"}.
                       </div>
                     )}
                     <div className="pt-1">
-                      {card.attendance.carriedDays ? "Since then — " : ""}
+                      {card.attendance.carriedDays && !card.attendance.joinedMidTerm ? "Since then — " : ""}
                       Late: <span className="font-medium">{card.attendance.late}</span>
                       {" · "}Absent: <span className="font-medium">{card.attendance.absent}</span>
                       {" · "}Excused: <span className="font-medium">{card.attendance.excused}</span>
                     </div>
                     <div className="pt-1 border-t border-slate-100 mt-1">
-                      <span className="font-semibold">{fmtPct(card.attendance.attendancePct)}</span> attendance
+                      {card.attendance.joinedMidTerm ? (
+                        <span className="text-slate-500">
+                          Attendance percentage not shown for a part-term.
+                        </span>
+                      ) : (
+                        <>
+                          <span className="font-semibold">{fmtPct(card.attendance.attendancePct)}</span> attendance
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>

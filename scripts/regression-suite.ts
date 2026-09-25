@@ -7486,6 +7486,69 @@ await check("127. AI remark suggestions are gated, refuse a blank card, and neve
   );
 });
 
+await check("128. a child admitted mid-term is not divided by their class's whole register", async () => {
+  // 25 Sep: admission_date was NULL school-wide, so a child admitted in
+  // September carried their class's denominator - Muhammad Yousuf Arsalan
+  // joined on the 9th and his card read "3 of 60 days", 5%. There is no
+  // working-day calendar for the paper months to rebuild the right
+  // denominator from, so the card must withhold the percentage and print
+  // the joining date rather than print a figure we know to be wrong.
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const { data: term } = await admin.from("academic_term").select("id, start_date")
+    .eq("org_id", ORG).eq("is_current", true).is("archived_at", null).maybeSingle();
+  assert(term, "a current term is needed");
+  const asOf = (term as any).start_date;
+  // Admitted the day the sheet was written: at most one day was possible,
+  // so a 40-day class denominator cannot be this child's.
+  const cardUrl = `/school/orgs/${ORG}/students/${pStu1}/terms/${(term as any).id}/report-card`;
+
+  try {
+    await admin.from("student_attendance_opening").delete().eq("student_id", pStu1);
+    await admin.from("student_attendance_opening").insert({
+      org_id: ORG, student_id: pStu1, days_present: 3, working_days: 40,
+      as_of_date: asOf, source: "qa",
+    });
+
+    // With no admission date the card behaves exactly as it always did.
+    await admin.from("student").update({ admission_date: null }).eq("id", pStu1);
+    const plain = (await (await api(admin2.token, cardUrl)).json()).attendance;
+    assert(!plain.joinedMidTerm, "a child with no admission date must never be flagged");
+    assert(typeof plain.attendancePct === "number",
+      `the percentage must still print, got ${plain.attendancePct}`);
+
+    // Admitted on the sheet's own date: 40 working days is impossible.
+    await admin.from("student").update({ admission_date: asOf }).eq("id", pStu1);
+    const late = (await (await api(admin2.token, cardUrl)).json()).attendance;
+    assert(late.joinedMidTerm === true, "a mid-term joiner must be flagged");
+    assert(late.attendancePct === null,
+      `no percentage may be printed for a part-term, got ${late.attendancePct}`);
+    assert(late.daysPresent === 3, `the days present are real and must stay, got ${late.daysPresent}`);
+    assert(typeof late.startsOn === "string" && late.startsOn > asOf,
+      `the first school day must follow the admission date, got ${late.startsOn}`);
+
+    // A pupil already on roll call BEFORE that date was re-admitted, not
+    // newly joined - Areeba's own pro-rated register figure must survive.
+    const before = new Date(`${asOf}T12:00:00Z`);
+    before.setUTCDate(before.getUTCDate() - 1);
+    const beforeDate = before.toISOString().slice(0, 10);
+    await admin.from("school_attendance").delete().eq("student_id", pStu1).eq("attendance_date", beforeDate);
+    await admin.from("school_attendance").insert({
+      org_id: ORG, student_id: pStu1, class_section_id: sandboxSec.id,
+      attendance_date: beforeDate, status: "present",
+    });
+    const readm = (await (await api(admin2.token, cardUrl)).json()).attendance;
+    assert(!readm.joinedMidTerm,
+      "a pupil marked present before the date on file was re-admitted, not newly joined");
+    assert(typeof readm.attendancePct === "number",
+      `a returning pupil keeps their percentage, got ${readm.attendancePct}`);
+  } finally {
+    await admin.from("student").update({ admission_date: null }).eq("id", pStu1);
+    await admin.from("student_attendance_opening").delete().eq("student_id", pStu1);
+    await admin.from("school_attendance").delete()
+      .eq("student_id", pStu1).lte("attendance_date", asOf);
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

@@ -234,13 +234,26 @@ export function StudentTermReportCard() {
                 <div>
                   {t("portal.rc.present")}:{" "}
                   <span className="font-medium">
-                    {t("portal.rc.ofDays", {
-                      present: card.attendance.daysPresent ?? card.attendance.present,
-                      total: card.attendance.workingDays ?? card.attendance.total,
-                    })}
+                    {card.attendance.joinedMidTerm
+                      ? t("portal.rc.daysSinceJoining", {
+                          present: card.attendance.daysPresent ?? card.attendance.present,
+                        })
+                      : t("portal.rc.ofDays", {
+                          present: card.attendance.daysPresent ?? card.attendance.present,
+                          total: card.attendance.workingDays ?? card.attendance.total,
+                        })}
                   </span>
                 </div>
-                {!!card.attendance.carriedDays && (
+                {/* A mid-term arrival was being divided by their class's
+                    whole register, so a new child's card read 5%. The
+                    joining date is printed instead (25 Sep). */}
+                {card.attendance.joinedMidTerm ? (
+                  <div className="text-[10px] leading-tight text-slate-500">
+                    {t("portal.rc.joinedOn", {
+                      date: card.attendance.startsOn ?? card.attendance.admissionDate ?? "",
+                    })}
+                  </div>
+                ) : !!card.attendance.carriedDays && (
                   <div className="text-[10px] leading-tight text-slate-500">
                     {t("portal.rc.carried", {
                       count: card.attendance.carriedDays,
@@ -251,7 +264,14 @@ export function StudentTermReportCard() {
                 <div>{t("portal.rc.late")}: <span className="font-medium">{card.attendance.late}</span></div>
                 <div>{t("portal.rc.absent")}: <span className="font-medium">{card.attendance.absent}</span></div>
                 <div className="pt-1 border-t border-slate-100 mt-1">
-                  <span className="font-semibold">{fmtPct(card.attendance.attendancePct)}</span> {t("portal.rc.attendanceWord")}
+                  {card.attendance.joinedMidTerm ? (
+                    <span className="text-slate-500">{t("portal.rc.partTermNoPct")}</span>
+                  ) : (
+                    <>
+                      <span className="font-semibold">{fmtPct(card.attendance.attendancePct)}</span>{" "}
+                      {t("portal.rc.attendanceWord")}
+                    </>
+                  )}
                 </div>
               </div>
             </div>

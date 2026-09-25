@@ -41,6 +41,7 @@ import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { hasAnyRoleInOrg as hasAnyOrgRole, hasAdminOrPrincipal as isAdminOrPrincipal } from "./schoolAuth.ts";
 import { verifyPinToken } from "./schoolPhaseA.tsx";
 import { attendanceTotals } from "./attendanceOpening.ts";
+import { checkOpeningAgainstAdmission } from "./admissionStart.ts";
 import { orgPassMarkPct, isFailing, failedSubjectNames, failedTerm } from "./passMark.ts";
 
 async function isClassTeacherOfStudent(userId: string, studentId: string): Promise<boolean> {
@@ -151,7 +152,7 @@ async function assembleReportCard(
     .from("student")
     .select(
       "id, full_name, gr_number, date_of_birth, gender, photo_url, program, religion, nationality, " +
-      "quran_track, hafiz_since, " +
+      "quran_track, hafiz_since, admission_date, " +
       "class_section:class_section_id(name, class_teacher_user_id, hifz_teacher_user_id, class:class_id(name, kind)), " +
       "org_id",
     )
@@ -316,7 +317,29 @@ async function assembleReportCard(
   );
   const { present, late, absent, excused } = attTotals;
   const totalAtt = attTotals.workingDays;
-  const attendancePct = attTotals.percentage;
+  // A child admitted mid-term was given their whole class's register
+  // denominator, so their card read 5% or 23% (25 Sep). We cannot work out
+  // the denominator they should have had - there is no working-day calendar
+  // for the paper months - so when the carried figure is arithmetically
+  // impossible for their admission date we print the days present and the
+  // joining date, and no percentage. See admissionStart.ts.
+  // The child's very first roll-call day, across all time rather than this
+  // term's window: a pupil marked present BEFORE their admission date was
+  // already here, so that date is a re-admission and their register figure
+  // stands (Areeba, Abdullah Bilal — 25 Sep).
+  const { data: firstMarkRow } = await serviceRoleClient
+    .from("school_attendance")
+    .select("attendance_date")
+    .eq("student_id", studentId)
+    .order("attendance_date", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  const admissionCheck = checkOpeningAgainstAdmission(
+    opening,
+    (stu as any).admission_date ?? null,
+    (firstMarkRow as any)?.attendance_date ?? null,
+  );
+  const attendancePct = admissionCheck.impossible ? null : attTotals.percentage;
 
   // ── Behavior in term window ──
   const { data: beh } = await serviceRoleClient
@@ -472,6 +495,12 @@ async function assembleReportCard(
         workingDays: attTotals.workingDays,
         carriedDays: attTotals.carriedDays,
         carriedAsOf: opening?.asOf ?? null,
+        /** Set when the child joined after the register period began, so
+         *  the percentage is withheld rather than guessed. The card shows
+         *  "Joined <date>" and the days present instead. */
+        joinedMidTerm: admissionCheck.impossible,
+        startsOn: admissionCheck.startsOn,
+        admissionDate: (stu as any).admission_date ?? null,
       },
       behavior: { positive, concern, netPoints },
       hifz: {
@@ -536,7 +565,12 @@ async function assembleReportCard(
           })),
           overallPct,
           passMarkPct,
-          attendance: totalAtt > 0 ? { present, absent, late, total: totalAtt } : null,
+          // Withheld for a mid-term joiner: the denominator is their whole
+          // class's, so a findings line would call a new child a poor
+          // attender on arithmetic we know to be wrong.
+          attendance: totalAtt > 0 && !admissionCheck.impossible
+            ? { present, absent, late, total: totalAtt }
+            : null,
           hifz: isMemorizer ? qualityByKind : null,
           // Trend needs the previous term's overall on the SAME weighted
           // basis; wiring it needs the aggregation extracted, and the

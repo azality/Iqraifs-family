@@ -3750,6 +3750,13 @@ export interface ReportCardResponse {
     carriedDays?: number;
     /** Last day that register count covers. */
     carriedAsOf?: string | null;
+    /** The child joined after the register period began, so the carried
+     *  denominator is their class's, not theirs — the card shows the days
+     *  present and the joining date in place of a percentage. */
+    joinedMidTerm?: boolean;
+    /** First day in class: the next open day after admission. */
+    startsOn?: string | null;
+    admissionDate?: string | null;
   };
   behavior: {
     positive: number;
@@ -5873,7 +5880,7 @@ export interface TermReportCardResponse {
        *  term however good the total. */
       failedByTotal?: boolean; failedSubjects?: string[] };
   };
-  attendance: { present: number; late: number; absent: number; excused: number; total: number; attendancePct: number | null; daysPresent?: number; workingDays?: number; carriedDays?: number; carriedAsOf?: string | null };
+  attendance: { present: number; late: number; absent: number; excused: number; total: number; attendancePct: number | null; daysPresent?: number; workingDays?: number; carriedDays?: number; carriedAsOf?: string | null; joinedMidTerm?: boolean; startsOn?: string | null; admissionDate?: string | null };
   behavior: { positive: number; concern: number; netPoints: number };
   hifz: {
     /** False when the child is not memorizing (nazra/qaida or no Quran
