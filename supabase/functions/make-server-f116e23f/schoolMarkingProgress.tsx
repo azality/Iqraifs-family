@@ -163,8 +163,12 @@ export function installMarkingProgress(school: Hono): void {
 
     // Active students only: a withdrawn child must not hold a column open.
     const { data: stuRows } = await serviceRoleClient
-      .from("student").select("id, class_section_id")
+      .from("student").select("id, class_section_id, full_name, gr_number")
       .in("class_section_id", secIds).eq("status", "active");
+    const stuName = new Map<string, { name: string; gr: string }>();
+    for (const r of ((stuRows ?? []) as any[])) {
+      stuName.set(r.id, { name: r.full_name, gr: r.gr_number });
+    }
     const studentsBySec = new Map<string, string[]>();
     for (const r of ((stuRows ?? []) as any[])) {
       const arr = studentsBySec.get(r.class_section_id) ?? [];
@@ -279,6 +283,17 @@ export function installMarkingProgress(school: Hono): void {
         // finalized (the office did exactly this for 2081/2488/2484).
         blankFinalized: students.filter((id) =>
           finalizedIds.has(id) && (scoresByStudent.get(id) ?? []).length === 0).length,
+        // WHO is missing, not just how many ("kin bachon ke nahi hui" -
+        // Ambreen, 24 Sep). Capped: a section where nobody sat the
+        // paper (Catch Up) needs the count, not a wall of names.
+        unmarkedStudents: students
+          .filter((id) => (scoresByStudent.get(id) ?? []).length === 0)
+          .slice(0, 8)
+          .map((id) => ({
+            name: stuName.get(id)?.name ?? "?",
+            grNumber: stuName.get(id)?.gr ?? "",
+            finalized: finalizedIds.has(id),
+          })),
       };
     }).sort((a, b) =>
       (a.classSort - b.classSort) || a.label.localeCompare(b.label));

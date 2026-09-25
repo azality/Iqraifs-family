@@ -350,6 +350,18 @@ export function MarkingProgress() {
                                 {r.blankFinalized} would be blank
                               </span>
                             )}
+                            {/* WHO is missing ("kin bachon ke nahi hui").
+                                A handful get names; a whole unassessed
+                                section (Catch Up) keeps just the count. */}
+                            {(r.unmarkedStudents ?? []).length > 0 &&
+                              (r.unmarkedStudents!.length < r.studentCount || r.studentCount <= 3) && (
+                              <span className="text-[10px] leading-tight text-slate-500">
+                                no marks: {r.unmarkedStudents!.map((u) =>
+                                  `${u.name} (${u.grNumber})`).join(", ")}
+                                {(r.unmarked ?? 0) > r.unmarkedStudents!.length &&
+                                  ` +${(r.unmarked ?? 0) - r.unmarkedStudents!.length} more`}
+                              </span>
+                            )}
                           </div>
                         )}
                       </td>
