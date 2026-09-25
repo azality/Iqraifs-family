@@ -101,6 +101,13 @@ export function StudentReportCard() {
 
   const isAdmin = useMemo(() => isOrgAdmin(me, orgId), [me, orgId]);
 
+  // Which signature lines this school prints. Everything defaults ON,
+  // so a school that never opens the setting keeps the card it has.
+  const sigLines = card?.school.signatureLines
+    ?? { classTeacher: true, principal: true, parent: true, stamp: true };
+  const sigCount = [sigLines.classTeacher, sigLines.principal, sigLines.parent, sigLines.stamp]
+    .filter(Boolean).length;
+
   const handleSuggest = async () => {
     if (!card) return;
     setSuggesting(true);
@@ -597,49 +604,62 @@ export function StudentReportCard() {
                   the office a defined area for the rubber stamp so it
                   doesn't smudge over the text. */}
               <section className="pt-4 mt-4 border-t border-slate-200 print-keep print-signature">
-                <div className="grid grid-cols-4 gap-6 text-[11px] text-slate-600">
-                  <div className="text-center">
-                    {/* The teacher's uploaded signature (their profile
-                        page) sits on the line like ink - same treatment
-                        as the principal's from Settings (25 Sep). */}
-                    <div className="h-10 border-b border-slate-300 flex items-end justify-center">
-                      {card.placement.classTeacherSignatureUrl && (
-                        <img src={card.placement.classTeacherSignatureUrl} alt="" className="max-h-9 max-w-full object-contain" />
+                {/* Which lines print is the school's call (26 Sep: teachers
+                    were uneasy about handing over a signature image). The
+                    row rebalances to however many are switched on, and the
+                    class teacher's NAME still heads the card either way. */}
+                <div
+                  className="grid gap-6 text-[11px] text-slate-600"
+                  style={{ gridTemplateColumns: `repeat(${sigCount || 1}, minmax(0, 1fr))` }}
+                >
+                  {sigLines.classTeacher && (
+                    <div className="text-center">
+                      {/* An uploaded signature (the teacher's own profile
+                          page) sits on the line like ink; otherwise the
+                          line stays blank to be signed by hand. */}
+                      <div className="h-10 border-b border-slate-300 flex items-end justify-center">
+                        {card.placement.classTeacherSignatureUrl && (
+                          <img src={card.placement.classTeacherSignatureUrl} alt="" className="max-h-9 max-w-full object-contain" />
+                        )}
+                      </div>
+                      <div className="mt-1">Class teacher</div>
+                      <div className="text-[10px] text-slate-500">{card.placement.classTeacherName ?? ""}</div>
+                    </div>
+                  )}
+                  {sigLines.principal && (
+                    <div className="text-center">
+                      {/* Set in Settings → Organization. Blank when unset. */}
+                      <div className="h-10 border-b border-slate-300 flex items-end justify-center">
+                        {card.school.principalSignatureUrl && (
+                          <img
+                            src={card.school.principalSignatureUrl}
+                            alt=""
+                            className="max-h-9 max-w-full object-contain"
+                          />
+                        )}
+                      </div>
+                      <div className="mt-1">Principal</div>
+                    </div>
+                  )}
+                  {sigLines.parent && (
+                    <div className="text-center">
+                      <div className="h-10 border-b border-slate-300"></div>
+                      <div className="mt-1">Parent signature</div>
+                    </div>
+                  )}
+                  {sigLines.stamp && (
+                    <div className="text-center">
+                      {card.school.stampUrl ? (
+                        <div className="h-14 flex items-center justify-center">
+                          <img src={card.school.stampUrl} alt="School stamp" className="max-h-14 max-w-full object-contain" />
+                        </div>
+                      ) : (
+                        <div className="h-14 rounded border border-dashed border-slate-300 flex items-center justify-center text-[10px] text-slate-400">
+                          School stamp
+                        </div>
                       )}
                     </div>
-                    <div className="mt-1">Class teacher</div>
-                    <div className="text-[10px] text-slate-500">{card.placement.classTeacherName ?? ""}</div>
-                  </div>
-                  <div className="text-center">
-                    {/* An uploaded signature sits ON the line, like ink
-                        would — set in Settings → Organization. Blank line
-                        when unset (sign by hand). */}
-                    <div className="h-10 border-b border-slate-300 flex items-end justify-center">
-                      {card.school.principalSignatureUrl && (
-                        <img
-                          src={card.school.principalSignatureUrl}
-                          alt=""
-                          className="max-h-9 max-w-full object-contain"
-                        />
-                      )}
-                    </div>
-                    <div className="mt-1">Principal</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="h-10 border-b border-slate-300"></div>
-                    <div className="mt-1">Parent signature</div>
-                  </div>
-                  <div className="text-center">
-                    {card.school.stampUrl ? (
-                      <div className="h-14 flex items-center justify-center">
-                        <img src={card.school.stampUrl} alt="School stamp" className="max-h-14 max-w-full object-contain" />
-                      </div>
-                    ) : (
-                      <div className="h-14 rounded border border-dashed border-slate-300 flex items-center justify-center text-[10px] text-slate-400">
-                        School stamp
-                      </div>
-                    )}
-                  </div>
+                  )}
                 </div>
                 <div className="mt-3 text-[10px] text-slate-400 text-center">
                   Issued {new Date().toLocaleDateString()} · {card.school.name}
