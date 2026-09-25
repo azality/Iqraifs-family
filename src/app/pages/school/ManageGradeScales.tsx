@@ -27,6 +27,7 @@ import {
   type GradeBand, type GradeScale, type SchoolMeResponse,
 } from "../../../utils/schoolApi";
 import { sectionTitleClasses } from "../../components/school-ui";
+import { AutoRemarksCard } from "./components/AutoRemarksCard";
 
 const STARTER_BANDS: GradeBand[] = [
   { letter: "A+", minPct: 90, maxPct: 100, remark: "Excellent" },
@@ -198,6 +199,13 @@ export function ManageGradeScales() {
           drives every report card's letters + remarks. Bands must cover 0–100
           with no gaps or overlaps.
         </p>
+      </div>
+
+      {/* The comment chart (25 Sep): teacher/principal remarks that
+          pre-populate by overall percentage - 5% steps, fail below 40. */}
+      <AutoRemarksCard orgId={orgId} />
+
+      <div>
         {passPct !== null && (
           <p className="mt-1 text-sm text-slate-600">
             Your pass mark is <strong>{passPct}%</strong>
