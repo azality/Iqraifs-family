@@ -74,6 +74,11 @@ export function StudentTermReportCard() {
     <div className="space-y-4">
       <style>{`
         @media print {
+          /* Print the CARD, nothing else - the portal nav and hero were
+             riding along on parents' printouts (25 Sep). */
+          body * { visibility: hidden; }
+          .rc-print-card, .rc-print-card * { visibility: visible; }
+          .rc-print-card { position: absolute; left: 0; top: 0; width: 100%; border: none !important; }
           .no-print, .no-print * { display: none !important; }
           body { background: white !important; }
         }
@@ -112,7 +117,7 @@ export function StudentTermReportCard() {
       )}
 
       {!card ? null : (
-        <div className="rounded-xl border border-slate-200 bg-white p-5 space-y-5">
+        <div className="rc-print-card rounded-xl border border-slate-200 bg-white p-5 space-y-5">
           <div className="flex items-start justify-between gap-4 border-b border-slate-200 pb-3">
             <div className="flex items-center gap-3">
               {card.school.logoUrl && <img src={card.school.logoUrl} alt="" className="h-12 w-12 rounded object-cover" />}
@@ -276,6 +281,43 @@ export function StudentTermReportCard() {
               )}
             </section>
           )}
+
+          {/* The paper ritual (25 Sep): signatures + the school stamp,
+              identical to the office's printed card. An uploaded
+              principal signature / stamp (Settings -> Organization)
+              sits on the line; blank lines otherwise. */}
+          <section className="pt-4 mt-2 border-t border-slate-200">
+            <div className="grid grid-cols-4 gap-4 text-[11px] text-slate-600">
+              <div className="text-center">
+                <div className="h-10 border-b border-slate-300"></div>
+                <div className="mt-1">{t("portal.rc.signClassTeacher")}</div>
+                <div className="text-[10px] text-slate-500">{card.placement.classTeacherName ?? ""}</div>
+              </div>
+              <div className="text-center">
+                <div className="h-10 border-b border-slate-300 flex items-end justify-center">
+                  {card.school.principalSignatureUrl && (
+                    <img src={card.school.principalSignatureUrl} alt="" className="max-h-9 max-w-full object-contain" />
+                  )}
+                </div>
+                <div className="mt-1">{t("portal.rc.signPrincipal")}</div>
+              </div>
+              <div className="text-center">
+                <div className="h-10 border-b border-slate-300"></div>
+                <div className="mt-1">{t("portal.rc.signParent")}</div>
+              </div>
+              <div className="text-center">
+                {card.school.stampUrl ? (
+                  <div className="h-14 flex items-center justify-center">
+                    <img src={card.school.stampUrl} alt="" className="max-h-14 max-w-full object-contain" />
+                  </div>
+                ) : (
+                  <div className="h-14 rounded border border-dashed border-slate-300 flex items-center justify-center text-[10px] text-slate-400">
+                    {t("portal.rc.stampBox")}
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
         </div>
       )}
     </div>

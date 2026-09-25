@@ -297,6 +297,10 @@
       "save": "Save PIN"
     },
     "rc": {
+      "signClassTeacher": "Class teacher",
+      "signPrincipal": "Principal",
+      "signParent": "Parent signature",
+      "stampBox": "School stamp",
       "title": "Report cards",
       "subtitle": "Published per term",
       "empty": "No report cards have been published yet. They'll appear here at the end of each term.",
@@ -397,6 +401,8 @@
       "late": "Late",
       "absent": "Absent",
       "excused": "Excused",
+      "reportCardOut": "Report card published — {{term}}",
+      "viewReportCard": "View card",
       "quiet": "Nothing needs you today — homework in, fees up to date.",
       "subjectHomeworkDue": "{{subject}} homework due {{when}}",
       "homeworkDue": "{{count}} homework due {{when}}",

@@ -194,6 +194,23 @@ export function PortalHome() {
                   ),
                 });
               }
+              // A fresh report card leads the card ("shouldn't it show
+              // up so they can go there directly" - 25 Sep). Two weeks
+              // of prominence, then the Learning tab keeps it forever.
+              const rc = snap.publishedReportCard;
+              if (rc && Date.now() - new Date(rc.publishedAt).getTime() < 14 * 86400e3) {
+                lines.unshift({
+                  tone: "indigo",
+                  node: (
+                    <span className="flex flex-1 items-start justify-between gap-2">
+                      <span className="font-semibold">{t("portal.home.reportCardOut", { term: rc.termName })}</span>
+                      <Link to={`/school-portal/students/${s.id}/report-card?term=${rc.termId}`} className="flex-none text-[11.5px] font-bold text-indigo-600 hover:underline">
+                        {t("portal.home.viewReportCard")}
+                      </Link>
+                    </span>
+                  ),
+                });
+              }
               if (snap.latestTeacherNote) {
                 lines.push({
                   tone: snap.latestTeacherNote.kind === "positive" ? "indigo" : "amber",
