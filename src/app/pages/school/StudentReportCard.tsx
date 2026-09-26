@@ -113,6 +113,8 @@ export function StudentReportCard() {
   useEffect(refresh, [orgId, studentId, termId]);
 
   const isAdmin = useMemo(() => isOrgAdmin(me, orgId), [me, orgId]);
+  // The server decides; the screen only reflects it.
+  const remarkLocked = !!card?.remarkLock?.locked;
 
   // Which signature lines this school prints. Everything defaults ON,
   // so a school that never opens the setting keeps the card it has.
@@ -603,11 +605,28 @@ export function StudentReportCard() {
                       placeholder={card.comments.auto?.classTeacher ? (card.comments.classTeacher ?? "—") : "—"}
                       className="text-xs h-20 no-print"
                       maxLength={2000}
+                      disabled={remarkLocked}
                     />
-                    {card.comments.auto?.classTeacher && !classTeacherComment && (
-                      <p className="mt-1 text-[10px] text-slate-400 no-print">
-                        Auto from the remarks chart — type to replace, leave empty to keep it following the chart.
+                    {/* Locked once the office finalizes, or once the
+                        remarks deadline passes - say which, rather than
+                        letting the save fail (27 Sep). */}
+                    {remarkLocked ? (
+                      <p className="mt-1 text-[10px] text-amber-700 no-print">
+                        {card.remarkLock?.message}
                       </p>
+                    ) : (
+                      <>
+                        {card.comments.auto?.classTeacher && !classTeacherComment && (
+                          <p className="mt-1 text-[10px] text-slate-400 no-print">
+                            Auto from the remarks chart — type to replace, leave empty to keep it following the chart.
+                          </p>
+                        )}
+                        {card.remarkLock?.closesAt && !isAdmin && (
+                          <p className="mt-1 text-[10px] text-slate-500 no-print">
+                            Remarks close {new Date(card.remarkLock.closesAt).toLocaleString()}.
+                          </p>
+                        )}
+                      </>
                     )}
                     <div className="hidden print:block text-xs text-slate-700">
                       {classTeacherComment || card.comments.classTeacher || "—"}
@@ -651,12 +670,14 @@ export function StudentReportCard() {
                 )}
 
                 <div className="flex flex-wrap items-center gap-2 no-print">
-                  <Button size="sm" onClick={handleSaveComments} disabled={saving}>
+                  <Button size="sm" onClick={handleSaveComments} disabled={saving || remarkLocked}>
                     <Pencil className="h-3.5 w-3.5 mr-1" /> {saving ? "Saving…" : "Save comments"}
                   </Button>
                   {/* Writes from the findings above, in the school's voice.
-                      It fills the boxes - saving is still a human act. */}
-                  <Button size="sm" variant="outline" onClick={handleSuggest} disabled={suggesting || saving}>
+                      It fills the boxes - saving is still a human act.
+                      Off once locked: no token is worth spending on a
+                      remark this reader could not save (27 Sep). */}
+                  <Button size="sm" variant="outline" onClick={handleSuggest} disabled={suggesting || saving || remarkLocked}>
                     <Sparkles className="h-3.5 w-3.5 mr-1" />
                     {suggesting ? "Writing…" : "Suggest with AI"}
                   </Button>

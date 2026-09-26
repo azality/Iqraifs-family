@@ -98,9 +98,16 @@ export function ReportCardsBrowser() {
           {data?.term && <span className="text-slate-400 font-normal">· {data.term.name}</span>}
         </h1>
         <p className="mt-1 text-sm text-slate-600">
-          Pick a class, open a child's card, then use Previous / Next on the card
-          itself to step through the class.
+          {data?.scope === "own-class"
+            ? "Your class. Open a child's card to write their remark, then use Previous / Next on the card to move through the class."
+            : "Pick a class, open a child's card, then use Previous / Next on the card itself to step through the class."}
         </p>
+        {data?.scope === "own-class" && (
+          <p className="mt-1 text-xs text-slate-500">
+            You can write the class teacher&apos;s remark and the per-subject
+            comments. Finalizing and sending to parents stays with the office.
+          </p>
+        )}
       </div>
 
       {error && <p className="text-sm text-rose-600">{error}</p>}

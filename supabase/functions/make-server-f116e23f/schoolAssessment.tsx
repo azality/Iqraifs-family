@@ -93,6 +93,9 @@ function termToJson(r: any) {
     // term. Null = not set.
     marksDeadlineAt: r.marks_deadline_at ?? null,
     resultsPublishAt: r.results_publish_at ?? null,
+    // When class teachers stop writing remarks (27 Sep). Null = no
+    // cutoff; finalizing a card is then the only lock.
+    remarksDeadlineAt: r.remarks_deadline_at ?? null,
   };
 }
 
@@ -1032,7 +1035,7 @@ export function installAssessment(school: Hono): void {
     if (!(await isAdminOrPrincipal(userId, orgId))) return c.json({ error: "forbidden" }, 403);
     const { data: term } = await serviceRoleClient
       .from("academic_term")
-      .select("org_id, marks_deadline_at, results_publish_at")
+      .select("org_id, marks_deadline_at, results_publish_at, remarks_deadline_at")
       .eq("id", termId).maybeSingle();
     if (!term || (term as any).org_id !== orgId) return c.json({ error: "term not found" }, 404);
     const { data: ovRows } = await serviceRoleClient
@@ -1043,6 +1046,7 @@ export function installAssessment(school: Hono): void {
       schedule: {
         marksDeadlineAt: (term as any).marks_deadline_at ?? null,
         resultsPublishAt: (term as any).results_publish_at ?? null,
+        remarksDeadlineAt: (term as any).remarks_deadline_at ?? null,
         overrides: ((ovRows ?? []) as any[]).map((o) => ({
           classId: o.class_id,
           className: o.class?.name ?? "",
@@ -1084,6 +1088,15 @@ export function installAssessment(school: Hono): void {
       const v = iso(body.resultsPublishAt);
       if (v === undefined && body.resultsPublishAt !== null) return c.json({ error: "resultsPublishAt invalid" }, 400);
       patch.results_publish_at = v ?? null;
+    }
+    // When class teachers stop writing remarks, leaving the office a
+    // quiet window to finalize and print (27 Sep). Deliberately its own
+    // moment, not the marks deadline: remarks are written after the
+    // marks are in.
+    if ("remarksDeadlineAt" in body) {
+      const v = iso(body.remarksDeadlineAt);
+      if (v === undefined && body.remarksDeadlineAt !== null) return c.json({ error: "remarksDeadlineAt invalid" }, 400);
+      patch.remarks_deadline_at = v ?? null;
     }
     if (Object.keys(patch).length === 0) return c.json({ error: "nothing to update" }, 400);
     const { data, error } = await serviceRoleClient

@@ -42,6 +42,7 @@ import { hasAnyRoleInOrg as hasAnyOrgRole, hasAdminOrPrincipal as isAdminOrPrinc
 import { verifyPinToken } from "./schoolPhaseA.tsx";
 import { attendanceTotals } from "./attendanceOpening.ts";
 import { checkOpeningAgainstAdmission } from "./admissionStart.ts";
+import { remarkLock, remarkLockMessage, type RemarkLock } from "./remarksLock.ts";
 import { orgPassMarkPct, isFailing, failedSubjectNames, failedTerm } from "./passMark.ts";
 
 async function isClassTeacherOfStudent(userId: string, studentId: string): Promise<boolean> {
@@ -591,6 +592,37 @@ async function assembleReportCard(
 }
 
 // ─── Ensure the term_report_card row exists; returns its id ───────────
+/** Whether this class teacher may still write on this card, and why not.
+ *  Reads the card's finalize state, the term's remarks deadline, and the
+ *  child's class exemption — the same exempt list the marks deadline
+ *  uses, so the school keeps one list of exempt classes (27 Sep). */
+async function remarkLockFor(
+  studentId: string, termId: string, isOffice: boolean,
+): Promise<RemarkLock> {
+  if (isOffice) return remarkLock({ isOffice: true });
+  const [{ data: card }, { data: term }, { data: stu }] = await Promise.all([
+    serviceRoleClient.from("term_report_card")
+      .select("finalized_at").eq("student_id", studentId).eq("term_id", termId).maybeSingle(),
+    serviceRoleClient.from("academic_term")
+      .select("remarks_deadline_at").eq("id", termId).maybeSingle(),
+    serviceRoleClient.from("student")
+      .select("class_section:class_section_id(class:class_id(id))").eq("id", studentId).maybeSingle(),
+  ]);
+  const classId = (stu as any)?.class_section?.class?.id ?? null;
+  let classExempt = false;
+  if (classId) {
+    const { data: ov } = await serviceRoleClient
+      .from("term_class_schedule").select("marks_deadline_off")
+      .eq("term_id", termId).eq("class_id", classId).maybeSingle();
+    classExempt = !!(ov as any)?.marks_deadline_off;
+  }
+  return remarkLock({
+    finalizedAt: (card as any)?.finalized_at ?? null,
+    deadlineAt: (term as any)?.remarks_deadline_at ?? null,
+    classExempt,
+  });
+}
+
 async function ensureCardRow(orgId: string, studentId: string, termId: string): Promise<string> {
   const { data: existing } = await serviceRoleClient
     .from("term_report_card")
@@ -632,7 +664,19 @@ export function installReportCard(school: Hono): void {
       }
       const r = await assembleReportCard(orgId, studentId, termId);
       if (!r.ok) return c.json({ error: r.error }, r.status);
-      return c.json(r.payload);
+      // Whether THIS reader may still write the remark, so the screen can
+      // grey the box and say why instead of failing on save (27 Sep).
+      const adminOK = await isAdminOrPrincipal(userId, orgId);
+      const lock = await remarkLockFor(studentId, termId, adminOK);
+      return c.json({
+        ...(r.payload as any),
+        remarkLock: {
+          locked: lock.locked,
+          reason: lock.reason,
+          closesAt: lock.closesAt,
+          message: remarkLockMessage(lock.reason),
+        },
+      });
     },
   );
 
@@ -650,6 +694,15 @@ export function installReportCard(school: Hono): void {
       const adminOK = await isAdminOrPrincipal(userId, orgId);
       const teacherOK = !adminOK && (await isClassTeacherOfStudent(userId, studentId));
       if (!adminOK && !teacherOK) return c.json({ error: "forbidden" }, 403);
+
+      // Never spend a token writing a remark this person could not save.
+      const lock = await remarkLockFor(studentId, termId, adminOK);
+      if (lock.locked) {
+        return c.json({
+          error: remarkLockMessage(lock.reason),
+          code: lock.reason === "finalized" ? "CARD_FINALIZED" : "REMARKS_DEADLINE_PASSED",
+        }, 403);
+      }
 
       const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
       if (!apiKey) {
@@ -748,6 +801,17 @@ export function installReportCard(school: Hono): void {
       const adminOK = await isAdminOrPrincipal(userId, orgId);
       const teacherOK = !adminOK && (await isClassTeacherOfStudent(userId, studentId));
       if (!adminOK && !teacherOK) return c.json({ error: "forbidden" }, 403);
+
+      // A finalized card, or one past the remarks deadline, is closed to
+      // its teacher — the office may already have printed it (27 Sep).
+      const lock = await remarkLockFor(studentId, termId, adminOK);
+      if (lock.locked) {
+        return c.json({
+          error: remarkLockMessage(lock.reason),
+          code: lock.reason === "finalized" ? "CARD_FINALIZED" : "REMARKS_DEADLINE_PASSED",
+          closesAt: lock.closesAt,
+        }, 403);
+      }
 
       const body = await c.req.json().catch(() => ({}));
       const id = await ensureCardRow(orgId, studentId, termId);

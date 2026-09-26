@@ -14,9 +14,11 @@
 // is, each with hasMarks / finalizedAt / publishedAt so the list reads as
 // a checklist of what is ready and what would print blank.
 //
-// Who sees it: the office sees every section; an incharge their wing —
-// the same rule as the marking board. Teachers keep their own section
-// pages; this browser is an office reading tool.
+// Who sees it: the office sees every section, an incharge their wing, a
+// class teacher their own class (27 Sep — "teachers should be able to
+// give remarks"). A class teacher could always WRITE the class-teacher
+// remark, but until now nothing linked them to a card, so they could
+// not in practice. Finalize and publish stay with the office.
 //
 // Unlike the marking board, Hifz sections ARE listed: the board hides
 // them because their marks live on their own paper, but their report
@@ -29,18 +31,49 @@ import { hasAdminOrPrincipal, inchargeClassIds } from "./schoolAuth.ts";
 import { classOrder } from "./markingProgress.ts";
 import { resolveMarkingTerm } from "./schoolMarkingProgress.tsx";
 
+/** Sections this user is CLASS TEACHER of — the same two places the card's
+ *  own permission check reads: the section's own class_teacher_user_id, or
+ *  the class's, for a one-section class where the school set it there.
+ *  Subject teaching does not count: a maths teacher writes marks, not the
+ *  class-teacher remark. */
+async function classTeacherSectionIds(userId: string, orgId: string): Promise<string[]> {
+  const { data } = await serviceRoleClient
+    .from("class_section")
+    .select("id, class_teacher_user_id, class:class_id(org_id, class_teacher_user_id)");
+  return ((data ?? []) as any[])
+    .filter((s) =>
+      s.class?.org_id === orgId &&
+      (s.class_teacher_user_id === userId || s.class?.class_teacher_user_id === userId))
+    .map((s) => s.id);
+}
+
 export function installReportCardsBrowser(school: Hono): void {
   school.get("/orgs/:orgId/report-cards-browser", async (c) => {
     const userId = getAuthUserId(c);
     if (!userId) return c.json({ error: "unauthenticated" }, 401);
     const orgId = c.req.param("orgId");
 
+    // Three reaches, narrowing: the office sees every section, an
+    // incharge their wing, a class teacher their own class only.
+    //
+    // The class teacher was added on 27 Sep. They could always WRITE the
+    // class-teacher remark — the comments endpoint has allowed it all
+    // along — but no screen ever linked them to a card, so in practice
+    // they could not. "Teachers should be able to give remarks."
     const isOffice = await hasAdminOrPrincipal(userId, orgId);
     let wingClassIds: string[] | null = null;
+    let ownSectionIds: string[] | null = null;
     if (!isOffice) {
       wingClassIds = await inchargeClassIds(userId, orgId);
       if (!wingClassIds.length) {
-        return c.json({ error: "the report cards browser is for the office and incharges", code: "FORBIDDEN" }, 403);
+        wingClassIds = null;
+        ownSectionIds = await classTeacherSectionIds(userId, orgId);
+        if (!ownSectionIds.length) {
+          return c.json({
+            error: "report cards are for the office, incharges and a class teacher's own class",
+            code: "FORBIDDEN",
+          }, 403);
+        }
       }
     }
 
@@ -68,6 +101,7 @@ export function installReportCardsBrowser(school: Hono): void {
       .from("class_section")
       .select("id, name, schedule_key, class:class_id(id, name, kind, org_id)");
     if (wingClassIds) secQ = secQ.in("class_id", wingClassIds);
+    if (ownSectionIds) secQ = secQ.in("id", ownSectionIds);
     const { data: secRows } = await secQ;
     const sections = ((secRows ?? []) as any[])
       .filter((s) => s.class?.org_id === orgId && s.schedule_key !== "sandbox")
@@ -94,9 +128,16 @@ export function installReportCardsBrowser(school: Hono): void {
       students: (bySec.get(s.id) ?? []).length,
     }));
 
+    // What the reader may do, so the page can say so plainly rather than
+    // offering a class teacher buttons the server would refuse.
+    const scope = isOffice ? "office" : wingClassIds ? "wing" : "own-class";
+
     const sectionId = c.req.query("sectionId") ?? "";
     if (!sectionId) {
-      return c.json({ term: { id: termId, name: (term as any).name }, terms: termList, sections: sectionList });
+      return c.json({
+        term: { id: termId, name: (term as any).name },
+        terms: termList, sections: sectionList, scope,
+      });
     }
     if (!sections.some((s) => s.id === sectionId)) {
       return c.json({ error: "section not found", code: "NOT_FOUND" }, 404);
@@ -145,6 +186,7 @@ export function installReportCardsBrowser(school: Hono): void {
       term: { id: termId, name: (term as any).name },
       terms: termList,
       sections: sectionList,
+      scope,
       section: sectionList.find((s) => s.id === sectionId) ?? null,
       students: kids.map((k) => ({
         id: k.id,
