@@ -54,6 +54,7 @@ const fmt = (iso: string | null): string => (iso ? new Date(iso).toLocaleString(
 export function TermSchedulePanel({ orgId, termId, schedule, classes, currentClassId, onChanged }: Props) {
   const [deadline, setDeadline] = useState(toLocalInput(schedule.marksDeadlineAt));
   const [publishAt, setPublishAt] = useState(toLocalInput(schedule.resultsPublishAt));
+  const [remarksAt, setRemarksAt] = useState(toLocalInput(schedule.remarksDeadlineAt ?? null));
   const [saving, setSaving] = useState(false);
   const [exceptions, setExceptions] = useState<MarksException[]>([]);
   const [teachers, setTeachers] = useState<AdminTeacher[]>([]);
@@ -68,14 +69,15 @@ export function TermSchedulePanel({ orgId, termId, schedule, classes, currentCla
   useEffect(() => {
     setDeadline(toLocalInput(schedule.marksDeadlineAt));
     setPublishAt(toLocalInput(schedule.resultsPublishAt));
-  }, [schedule.marksDeadlineAt, schedule.resultsPublishAt]);
+    setRemarksAt(toLocalInput(schedule.remarksDeadlineAt ?? null));
+  }, [schedule.marksDeadlineAt, schedule.resultsPublishAt, schedule.remarksDeadlineAt]);
   useEffect(() => {
     if (!orgId || !termId) return;
     listMarksExceptions(orgId, termId).then((r) => setExceptions(r.exceptions)).catch(() => {});
     listAdminTeachers(orgId).then(setTeachers).catch(() => {});
   }, [orgId, termId]);
 
-  const save = async (body: { marksDeadlineAt?: string | null; resultsPublishAt?: string | null }, doneMsg: string) => {
+  const save = async (body: { marksDeadlineAt?: string | null; resultsPublishAt?: string | null; remarksDeadlineAt?: string | null }, doneMsg: string) => {
     setSaving(true);
     try {
       await patchTermSchedule(orgId, termId, body);
@@ -206,6 +208,28 @@ export function TermSchedulePanel({ orgId, termId, schedule, classes, currentCla
           </div>
           <p className="mt-0.5 text-[10px] text-slate-400">
             FINALIZED report cards become visible to parents at this moment — finalize sections below first.
+          </p>
+        </div>
+        {/* Class teachers write the remark on their own class's cards;
+            this is when they stop, so the office has a quiet window to
+            finalize and print (27 Sep). Separate from the marks
+            deadline: remarks are written after the marks are in. */}
+        <div>
+          <div className="mb-0.5 flex items-center gap-1 font-bold uppercase tracking-wide text-slate-500">
+            <CalendarClock className="h-3.5 w-3.5" /> Remarks deadline — class teachers
+          </div>
+          <div className="flex items-center gap-1.5">
+            <input type="datetime-local" value={remarksAt}
+              onChange={(e) => setRemarksAt(e.target.value)}
+              className="h-8 rounded-md border border-slate-200 px-2 text-xs" />
+            <Button size="sm" variant="outline" className="h-8 text-xs" disabled={saving}
+              onClick={() => void save({ remarksDeadlineAt: fromLocalInput(remarksAt) }, remarksAt ? "Remarks deadline set" : "Remarks deadline cleared")}>
+              Set
+            </Button>
+          </div>
+          <p className="mt-0.5 text-[10px] text-slate-400">
+            Class teachers can no longer write remarks after this. Leave empty for no cutoff —
+            finalizing a card always locks its remarks either way. The office is never locked.
           </p>
         </div>
         <div className="min-w-[260px]">

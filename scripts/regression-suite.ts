@@ -7555,9 +7555,15 @@ await check("129. the report cards browser: a class at a time, one click per car
   // each card's state; the card page steps child-to-child from it.
   const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
 
-  // A teacher is refused: this is an office reading tool.
+  // A teacher who is class teacher of NOTHING is refused - a subject
+  // teacher has no business in another class's cards.
+  const { data: secBefore } = await admin.from("class_section")
+    .select("class_teacher_user_id").eq("id", sandboxSec.id).single();
+  const originalCt = (secBefore as any).class_teacher_user_id;
+  await admin.from("class_section")
+    .update({ class_teacher_user_id: null }).eq("id", sandboxSec.id);
   const t = await api(teacher.token, `/school/orgs/${ORG}/report-cards-browser`);
-  assert(t.status === 403, `a teacher must be refused the browser, got ${t.status}`);
+  assert(t.status === 403, `a teacher owning no class must be refused, got ${t.status}`);
 
   // The office sees the school's sections - but never the sandbox.
   const r = await api(admin2.token, `/school/orgs/${ORG}/report-cards-browser`);
@@ -7580,6 +7586,109 @@ await check("129. the report cards browser: a class at a time, one click per car
   for (const s of j2.students as any[]) {
     assert(typeof s.hasMarks === "boolean" && "finalizedAt" in s && "publishedAt" in s,
       `every child carries their card's state: ${JSON.stringify(s)}`);
+  }
+  assert(j.scope === "office", `the office's reach must say so, got ${j.scope}`);
+
+  // Made class teacher of one section, the same teacher is let in - and
+  // sees THAT SECTION ONLY. They could always write the remark; until
+  // 27 Sep nothing linked them to a card.
+  try {
+    await admin.from("class_section")
+      .update({ class_teacher_user_id: teacher.id }).eq("id", sandboxSec.id);
+    const ct = await api(teacher.token, `/school/orgs/${ORG}/report-cards-browser`);
+    assert(ct.status === 200, `a class teacher must reach their own cards, got ${ct.status}`);
+    const cj = await ct.json();
+    assert(cj.scope === "own-class", `a class teacher's reach is their class, got ${cj.scope}`);
+    assert((cj.sections ?? []).length === 1 && cj.sections[0].id === sandboxSec.id,
+      `a class teacher sees their OWN section alone, got ${JSON.stringify(cj.sections)}`);
+    const other = (j.sections as any[]).find((x) => x.id !== sandboxSec.id);
+    if (other) {
+      const peek = await api(teacher.token,
+        `/school/orgs/${ORG}/report-cards-browser?sectionId=${other.id}`);
+      assert(peek.status === 404,
+        `another class's cards must stay out of reach, got ${peek.status}`);
+    }
+  } finally {
+    await admin.from("class_section")
+      .update({ class_teacher_user_id: originalCt }).eq("id", sandboxSec.id);
+  }
+});
+
+await check("130. a teacher's remark locks when the office finalizes, and at the remarks deadline", async () => {
+  // 27 Sep, once teachers were given cards: "when they finalized their
+  // remarks are also locked", and "there should still be a cutoff time
+  // because the office needs to finalize ... if they enter the remarks
+  // last min the office won't have time to get those printed".
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const term = await markedTerm();
+  assert(term, "no term with papers");
+  const { data: secBefore } = await admin.from("class_section")
+    .select("class_teacher_user_id").eq("id", sandboxSec.id).single();
+  const originalCt = (secBefore as any).class_teacher_user_id;
+  const { data: termBefore } = await admin.from("academic_term")
+    .select("remarks_deadline_at").eq("id", term!.id).single();
+  const originalDl = (termBefore as any).remarks_deadline_at;
+  const url = `/school/orgs/${ORG}/students/${pStu1}/terms/${term!.id}/report-card`;
+
+  try {
+    await admin.from("class_section")
+      .update({ class_teacher_user_id: teacher.id }).eq("id", sandboxSec.id);
+    await admin.from("academic_term")
+      .update({ remarks_deadline_at: null }).eq("id", term!.id);
+    await admin.from("term_report_card").delete()
+      .eq("student_id", pStu1).eq("term_id", term!.id);
+
+    // Open card, no deadline: the class teacher writes.
+    const ok = await api(teacher.token, `${url}/comments`, {
+      method: "PUT", body: JSON.stringify({ classTeacherComment: "QA remark one" }),
+    });
+    assert(ok.status === 200, `an open card must accept its teacher, got ${ok.status}`);
+    const seen = await (await api(teacher.token, url)).json();
+    assert(seen.remarkLock && seen.remarkLock.locked === false,
+      `the card must report the remark unlocked: ${JSON.stringify(seen.remarkLock)}`);
+
+    // Finalized by the office: the teacher is shut out, the office is not.
+    const fin = await api(admin2.token, `${url}/finalize`, { method: "POST" });
+    assert(fin.status === 200, `finalize ${fin.status}`);
+    const shut = await api(teacher.token, `${url}/comments`, {
+      method: "PUT", body: JSON.stringify({ classTeacherComment: "QA remark two" }),
+    });
+    assert(shut.status === 403, `a finalized card must refuse its teacher, got ${shut.status}`);
+    assert((await shut.json()).code === "CARD_FINALIZED", "the refusal must say WHY");
+    const officeStill = await api(admin2.token, `${url}/comments`, {
+      method: "PUT", body: JSON.stringify({ classTeacherComment: "QA office edit" }),
+    });
+    assert(officeStill.status === 200, `the office is never locked, got ${officeStill.status}`);
+    // And the AI button spends no token on a card nobody can save.
+    const ai = await api(teacher.token, `${url}/suggest-remarks`, { method: "POST" });
+    assert(ai.status === 403, `suggest must be refused on a locked card, got ${ai.status}`);
+
+    // Unfinalized but past the remarks deadline: shut for a different reason.
+    await api(admin2.token, `${url}/unfinalize`, { method: "POST" });
+    await admin.from("academic_term")
+      .update({ remarks_deadline_at: new Date(Date.now() - 3600_000).toISOString() })
+      .eq("id", term!.id);
+    const late = await api(teacher.token, `${url}/comments`, {
+      method: "PUT", body: JSON.stringify({ classTeacherComment: "QA remark three" }),
+    });
+    assert(late.status === 403, `past the deadline the teacher is locked, got ${late.status}`);
+    assert((await late.json()).code === "REMARKS_DEADLINE_PASSED", "the refusal must name the deadline");
+
+    // A deadline still ahead leaves them writing.
+    await admin.from("academic_term")
+      .update({ remarks_deadline_at: new Date(Date.now() + 3600_000).toISOString() })
+      .eq("id", term!.id);
+    const inTime = await api(teacher.token, `${url}/comments`, {
+      method: "PUT", body: JSON.stringify({ classTeacherComment: "QA remark four" }),
+    });
+    assert(inTime.status === 200, `before the deadline the teacher writes, got ${inTime.status}`);
+  } finally {
+    await admin.from("academic_term")
+      .update({ remarks_deadline_at: originalDl }).eq("id", term!.id);
+    await admin.from("class_section")
+      .update({ class_teacher_user_id: originalCt }).eq("id", sandboxSec.id);
+    await admin.from("term_report_card").delete()
+      .eq("student_id", pStu1).eq("term_id", term!.id);
   }
 });
 

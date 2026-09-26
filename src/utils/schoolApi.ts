@@ -5548,6 +5548,9 @@ export interface AcademicTerm {
    *  day. Null = not set. */
   marksDeadlineAt?: string | null;
   resultsPublishAt?: string | null;
+  /** When class teachers stop writing remarks (v1.19.0). Null = no
+   *  cutoff; finalizing a card is then the only lock. */
+  remarksDeadlineAt?: string | null;
 }
 export interface MarksDeadlineState {
   deadlineAt: string | null;
@@ -5576,6 +5579,7 @@ export interface ClassScheduleOverride {
 export interface TermSchedule {
   marksDeadlineAt: string | null;
   resultsPublishAt: string | null;
+  remarksDeadlineAt?: string | null;
   overrides?: ClassScheduleOverride[];
   /** What THIS sheet's class ends up with after overrides. */
   effective?: { marksDeadlineAt: string | null; resultsPublishAt: string | null };
@@ -5587,7 +5591,7 @@ export const getTermSchedule = (
 export const patchTermSchedule = (
   orgId: string,
   termId: string,
-  body: { marksDeadlineAt?: string | null; resultsPublishAt?: string | null },
+  body: { marksDeadlineAt?: string | null; resultsPublishAt?: string | null; remarksDeadlineAt?: string | null },
 ): Promise<{ term: AcademicTerm }> =>
   apiCall(`/school/orgs/${orgId}/terms/${termId}/schedule`, {
     method: "PATCH", body: JSON.stringify(body),
@@ -5881,6 +5885,15 @@ export interface TermReportCardResponse {
       failedByTotal?: boolean; failedSubjects?: string[] };
   };
   attendance: { present: number; late: number; absent: number; excused: number; total: number; attendancePct: number | null; daysPresent?: number; workingDays?: number; carriedDays?: number; carriedAsOf?: string | null; joinedMidTerm?: boolean; startsOn?: string | null; admissionDate?: string | null };
+  /** Whether THIS reader may still write the class-teacher remark. The
+   *  office is never locked; a teacher is, once the card is finalized or
+   *  the remarks deadline has passed. */
+  remarkLock?: {
+    locked: boolean;
+    reason: "finalized" | "deadline" | null;
+    closesAt: string | null;
+    message: string;
+  };
   behavior: { positive: number; concern: number; netPoints: number };
   hifz: {
     /** False when the child is not memorizing (nazra/qaida or no Quran
@@ -5958,6 +5971,9 @@ export const getTermReportCard = (
 export interface ReportCardsBrowserResponse {
   term: { id: string; name: string } | null;
   terms: Array<{ id: string; name: string; isCurrent: boolean }>;
+  /** How far the reader's reach goes — the office's whole school, an
+   *  incharge's wing, or a class teacher's own class. */
+  scope?: "office" | "wing" | "own-class";
   sections: Array<{ id: string; name: string; className: string; kind: string | null; students: number }>;
   section?: { id: string; name: string; className: string } | null;
   students?: Array<{

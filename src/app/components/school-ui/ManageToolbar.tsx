@@ -148,6 +148,11 @@ function flatItemsForRole(
         // stays open after a nudge has gone. "My marks" read as marks
         // ABOUT the teacher and confused them (Muneeb, 22 Sep).
         I("my-marks", "Enter marks", `/school/orgs/${orgId}/my-marks`, ClipboardList),
+        // A class teacher's own class's report cards, to write the
+        // remark (27 Sep). The server shows them their class alone, and
+        // a visiting teacher who is class teacher of nothing gets an
+        // empty page rather than a door into someone else's class.
+        I("report-cards", "Report cards", `/school/orgs/${orgId}/admin/assessment/report-cards`, FileText),
         announcements,
         I("time-off", t("toolbar.timeOff"), `/school/orgs/${orgId}/my-schedule?action=time-off`, CalendarOff),
       ];
