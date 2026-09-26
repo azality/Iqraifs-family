@@ -173,6 +173,11 @@ export function ManageAssessment() {
         <Link to={`/school/orgs/${orgId}/admin/assessment/marking-progress`}>
           <Button variant="outline" size="sm">Marking progress →</Button>
         </Link>
+        {/* Reading the finished cards, class by class — the People →
+            profile → back-back loop the office lived in (27 Sep). */}
+        <Link to={`/school/orgs/${orgId}/admin/assessment/report-cards`}>
+          <Button variant="outline" size="sm">Report cards →</Button>
+        </Link>
       </div>
       <div>
         <h1 className={sectionTitleClasses}>Assessment</h1>

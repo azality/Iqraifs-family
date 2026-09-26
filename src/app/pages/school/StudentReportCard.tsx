@@ -26,7 +26,7 @@ import {
 } from "../../components/ui/select";
 import {
   getSchoolMe, isOrgAdmin,
-  listTerms, getTermReportCard,
+  listTerms, getTermReportCard, getReportCardsBrowser,
   saveReportCardComments, setReportCardWorkflow, suggestRemarks,
   type SchoolMeResponse, type AcademicTerm,
   type TermReportCardResponse,
@@ -43,6 +43,10 @@ export function StudentReportCard() {
   const { orgId = "", studentId = "" } = useParams<{ orgId: string; studentId: string }>();
   const [search, setSearch] = useSearchParams();
   const termId = search.get("term") || "";
+  // Set when the card was opened from the Report cards browser: the
+  // section whose children Previous/Next steps through.
+  const browseSectionId = search.get("browse") || "";
+  const [roster, setRoster] = useState<Array<{ id: string; name: string }>>([]);
   const setTermId = (id: string) => {
     const next = new URLSearchParams(search);
     if (id) next.set("term", id); else next.delete("term");
@@ -79,6 +83,15 @@ export function StudentReportCard() {
     }).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId]);
+  useEffect(() => {
+    // The class roster behind Previous/Next, only when browsing.
+    if (!orgId || !browseSectionId) { setRoster([]); return; }
+    getReportCardsBrowser(orgId, { termId: termId || undefined, sectionId: browseSectionId })
+      .then((r) => setRoster((r.students ?? []).map((s) => ({ id: s.id, name: s.name }))))
+      .catch(() => setRoster([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgId, browseSectionId]);
+  const rosterIdx = roster.findIndex((s) => s.id === studentId);
 
   const refresh = () => {
     if (!orgId || !studentId || !termId) { setCard(null); return; }
@@ -219,11 +232,40 @@ export function StudentReportCard() {
       `}</style>
 
       <div className="flex items-center justify-between flex-wrap gap-2 no-print">
-        <Link to={`/school/orgs/${orgId}/admin/students/${studentId}`}>
+        <Link
+          to={browseSectionId
+            ? `/school/orgs/${orgId}/admin/assessment/report-cards?term=${termId}&section=${browseSectionId}`
+            : `/school/orgs/${orgId}/admin/students/${studentId}`}
+        >
           <Button variant="outline" size="sm">
-            <ArrowLeft className="h-3.5 w-3.5 mr-1" /> Student
+            <ArrowLeft className="h-3.5 w-3.5 mr-1" /> {browseSectionId ? "Class list" : "Student"}
           </Button>
         </Link>
+        {/* Stepping child-to-child inside a class, so reading a class's
+            cards is not a back-back-back loop (Ambreen, 27 Sep). */}
+        {roster.length > 1 && rosterIdx >= 0 && (
+          <div className="flex items-center gap-1.5 text-xs text-slate-500">
+            <Link
+              to={rosterIdx > 0
+                ? `/school/orgs/${orgId}/admin/students/${roster[rosterIdx - 1].id}/report-card?term=${termId}&browse=${browseSectionId}`
+                : "#"}
+              aria-disabled={rosterIdx === 0}
+              className={rosterIdx === 0 ? "pointer-events-none opacity-40" : ""}
+            >
+              <Button variant="outline" size="sm">‹ Previous</Button>
+            </Link>
+            <span className="tabular-nums px-1">{rosterIdx + 1} of {roster.length}</span>
+            <Link
+              to={rosterIdx < roster.length - 1
+                ? `/school/orgs/${orgId}/admin/students/${roster[rosterIdx + 1].id}/report-card?term=${termId}&browse=${browseSectionId}`
+                : "#"}
+              aria-disabled={rosterIdx === roster.length - 1}
+              className={rosterIdx === roster.length - 1 ? "pointer-events-none opacity-40" : ""}
+            >
+              <Button variant="outline" size="sm">Next ›</Button>
+            </Link>
+          </div>
+        )}
         <div className="flex items-center gap-2">
           <Select value={termId || "__none__"} onValueChange={(v) => setTermId(v === "__none__" ? "" : v)}>
             <SelectTrigger className="h-9 text-sm w-40"><SelectValue placeholder="Pick term…" /></SelectTrigger>

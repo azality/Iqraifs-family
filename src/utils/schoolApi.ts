@@ -5953,6 +5953,29 @@ export const getTermReportCard = (
 ): Promise<TermReportCardResponse> =>
   apiCall(`/school/orgs/${orgId}/students/${studentId}/terms/${termId}/report-card`);
 
+/** One class at a time: every child with their card's state, so the
+ *  office reads cards without the People → profile → back-back loop. */
+export interface ReportCardsBrowserResponse {
+  term: { id: string; name: string } | null;
+  terms: Array<{ id: string; name: string; isCurrent: boolean }>;
+  sections: Array<{ id: string; name: string; className: string; kind: string | null; students: number }>;
+  section?: { id: string; name: string; className: string } | null;
+  students?: Array<{
+    id: string; name: string; gr: string | null;
+    hasMarks: boolean; finalizedAt: string | null; publishedAt: string | null;
+  }>;
+}
+export const getReportCardsBrowser = (
+  orgId: string,
+  opts: { termId?: string; sectionId?: string } = {},
+): Promise<ReportCardsBrowserResponse> => {
+  const q = new URLSearchParams();
+  if (opts.termId) q.set("termId", opts.termId);
+  if (opts.sectionId) q.set("sectionId", opts.sectionId);
+  const qs = q.toString();
+  return apiCall(`/school/orgs/${orgId}/report-cards-browser${qs ? `?${qs}` : ""}`);
+};
+
 export const saveReportCardComments = (
   orgId: string,
   studentId: string,
