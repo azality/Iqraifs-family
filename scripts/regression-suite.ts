@@ -7549,6 +7549,40 @@ await check("128. a child admitted mid-term is not divided by their class's whol
   }
 });
 
+await check("129. the report cards browser: a class at a time, one click per card, office and incharge only", async () => {
+  // Ambreen (27 Sep): reading cards meant People → student → profile →
+  // card → back, back, back. The browser lists a class's children with
+  // each card's state; the card page steps child-to-child from it.
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+
+  // A teacher is refused: this is an office reading tool.
+  const t = await api(teacher.token, `/school/orgs/${ORG}/report-cards-browser`);
+  assert(t.status === 403, `a teacher must be refused the browser, got ${t.status}`);
+
+  // The office sees the school's sections - but never the sandbox.
+  const r = await api(admin2.token, `/school/orgs/${ORG}/report-cards-browser`);
+  assert(r.status === 200, `browser ${r.status}`);
+  const j = await r.json();
+  assert(j.term, "the browser must land on a term");
+  assert((j.sections ?? []).length > 0, "the office must be offered sections");
+  assert(!(j.sections as any[]).some((s) => s.id === sandboxSec.id),
+    "the sandbox is not a class whose cards anyone reads");
+
+  // A real section lists its children, register order, with card state.
+  const sec = (j.sections as any[])[0];
+  const r2 = await api(admin2.token,
+    `/school/orgs/${ORG}/report-cards-browser?termId=${j.term.id}&sectionId=${sec.id}`);
+  assert(r2.status === 200, `section listing ${r2.status}`);
+  const j2 = await r2.json();
+  assert(Array.isArray(j2.students), "the section must list its students");
+  assert(j2.students.length === sec.students,
+    `the head count must match: chip said ${sec.students}, list has ${j2.students.length}`);
+  for (const s of j2.students as any[]) {
+    assert(typeof s.hasMarks === "boolean" && "finalizedAt" in s && "publishedAt" in s,
+      `every child carries their card's state: ${JSON.stringify(s)}`);
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

@@ -105,6 +105,8 @@ function flatItemsForRole(
         // Their wing's marks entry, section by section — the server trims
         // the board to the wing (18 Sep).
         I("marking-progress", "Marking progress", `/school/orgs/${orgId}/admin/assessment/marking-progress`, ClipboardList),
+        // Reading the wing's finished cards class by class (27 Sep).
+        I("report-cards", "Report cards", `/school/orgs/${orgId}/admin/assessment/report-cards`, FileText),
         // An incharge who also TEACHES enters marks like anyone else -
         // Amna is incharge AND a class teacher, and the incharge role
         // wins the toolbar, so removing this left her no door to her
@@ -229,6 +231,9 @@ function groupsForAdmin(
         // Every section's marks entry on one screen, while papers are
         // being checked (18 Sep).
         I("marking-progress", "Marking progress", `/school/orgs/${orgId}/admin/assessment/marking-progress`, ClipboardList),
+        // Reading the finished cards, class by class - the People ->
+        // profile -> back-back loop the office lived in (27 Sep).
+        I("report-cards", "Report cards", `/school/orgs/${orgId}/admin/assessment/report-cards`, FileText),
         // The paper register the school kept before roll call reached
         // the system - a report card adds those days (21 Sep). Office
         // work, so it is not on the incharge list above.
