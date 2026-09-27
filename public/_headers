@@ -1,0 +1,26 @@
+# Cache headers for static files (27 Sep 2026).
+#
+# Cloudflare's asset server answers everything with
+# `max-age=0, must-revalidate`, so a parent in Karachi re-validated every
+# JS chunk on every page load - a round trip to us-east-1 before the
+# browser could use a file it already had.
+#
+# The worker sets these headers too (withAssetCache in worker/index.js),
+# but asset requests do not reliably reach the worker: on the live site
+# the worker's own www->apex redirect does not fire for them either,
+# while apex navigations do run it. This file is Cloudflare's documented
+# mechanism for asset headers and does not depend on interception.
+#
+# Vite writes a content hash into every name under /assets/, so those
+# files can never change meaning and are safe to pin for a year. A new
+# deploy produces new names, which is what busts the cache.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Everything else here keeps its name across deploys (favicons, brand
+# art, manifests), so it gets an hour rather than a year.
+/brand/*
+  Cache-Control: public, max-age=3600
+
+# index.html is deliberately absent: it NAMES the hashed files, so it
+# must keep revalidating or a deploy would never reach anyone.
