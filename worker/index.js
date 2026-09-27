@@ -179,6 +179,32 @@ export function productRedirect(url) {
   return null;
 }
 
+/** Cache headers for static files (27 Sep 2026).
+ *
+ *  The platform serves everything as `max-age=0, must-revalidate`, so a
+ *  parent in Karachi re-validated every JS chunk on every page load - a
+ *  round trip to Virginia each time, before the browser could use a file
+ *  it already had.
+ *
+ *  Vite writes a content hash into every name under /assets/, so those
+ *  files can never change meaning: they are safe to pin for a year. A new
+ *  deploy produces new names, which is what busts the cache. Everything
+ *  else here (/brand/, favicons, manifests) keeps its name across deploys,
+ *  so it gets a short cache it can still be revalidated out of.
+ *
+ *  index.html is NEVER touched: it names the hashed files, so it has to
+ *  stay revalidating or a deploy would never reach anyone. */
+function withAssetCache(url, res) {
+  if (!res || res.status !== 200) return res;
+  const immutable = url.pathname.startsWith("/assets/");
+  const out = new Response(res.body, res);
+  out.headers.set(
+    "Cache-Control",
+    immutable ? "public, max-age=31536000, immutable" : "public, max-age=3600",
+  );
+  return out;
+}
+
 export default {
   async fetch(request, env, ctx) {
     if (request.method !== "GET") return env.ASSETS.fetch(request);
@@ -209,7 +235,7 @@ export default {
       url.pathname.startsWith("/assets/") ||
       url.pathname.startsWith("/brand/")
     ) {
-      return env.ASSETS.fetch(request);
+      return withAssetCache(url, await env.ASSETS.fetch(request));
     }
     // ── Two products, two hostnames ─────────────────────────────────
     const seg = url.pathname.split("/").filter(Boolean)[0] ?? "";

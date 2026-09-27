@@ -1,175 +1,211 @@
-import type { ReactNode } from "react";
+import { lazy, Suspense, type ReactNode, type ComponentType } from "react";
 import { createBrowserRouter, Navigate, useLocation, useRouteError } from "react-router";
 import { schoolPathOnFamilyHost, onFamilyHost, noFamilyDestination, familySetupOnSchoolHost } from "../utils/productHost";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { RequireParentRole } from "./components/RequireParentRole";
-import { Welcome } from "./pages/Welcome";
-import { ParentLogin } from "./pages/ParentLogin";
-import { ParentSignup } from "./pages/ParentSignup";
-import { KidLoginNew } from "./pages/KidLoginNew";
-import { DashboardRouter } from "./pages/DashboardRouter";
-import { LogBehavior } from "./pages/LogBehavior";
-import { WeeklyReview } from "./pages/WeeklyReview";
-import { MonthlyReview } from "./pages/MonthlyReview";
-import { Adjustments } from "./pages/Adjustments";
-import { AttendanceNew } from "./pages/AttendanceNew";
-import { Rewards } from "./pages/Rewards";
-import { AuditTrail } from "./pages/AuditTrail";
-import { Settings } from "./pages/Settings";
-import { LinkToSchool } from "./pages/LinkToSchool";
-import { EditRequests } from "./pages/EditRequests";
-import { KnowledgeQuest } from "./pages/KnowledgeQuest";
-import { KnowledgeQuestPlay } from "./pages/KnowledgeQuestPlay";
-import { KnowledgeQuestResults } from "./pages/KnowledgeQuestResults";
-import { QuestionBank } from "./pages/QuestionBank";
-import { QuestionForm } from "./pages/QuestionForm";
-import { ParentWishlistReview } from "./pages/ParentWishlistReview";
-import { PendingRedemptionRequests } from "./pages/PendingRedemptionRequests";
-import { Challenges } from "./pages/Challenges";
-import { TitlesBadgesPage } from "./pages/TitlesBadgesPage";
-import { SadqaPage } from "./pages/SadqaPage";
-import { KidDashboard } from "./pages/KidDashboard";
-import { KidWishlist } from "./pages/KidWishlist";
-import { KidRewardsGallery } from "./pages/KidRewardsGallery";
-import { Onboarding } from "./pages/Onboarding";
-import { JoinPending } from "./pages/JoinPending";
-import { NetworkTest } from "./pages/NetworkTest";
+/** Route-level code splitting (27 Sep 2026).
+ *
+ *  Every route used to be a static import, so one bundle carried the whole
+ *  product: a parent opening the portal on a phone in Karachi downloaded
+ *  the entire school administration - gradebooks, timetables, fees,
+ *  recharts, jspdf - before their child's attendance could render. The
+ *  school pages alone are ~2.7 MB of source against the portal's ~0.3 MB.
+ *
+ *  Each page now loads on demand. The pages export named components, not
+ *  defaults, so the loader picks the name out itself; the Suspense sits
+ *  here rather than at the router root, because the router has several
+ *  top-level trees and a page can be the element of any of them. */
+function page<T extends Record<string, unknown>>(
+  loader: () => Promise<T>,
+  name: keyof T & string,
+) {
+  const Lazy = lazy(async () => ({
+    default: (await loader())[name] as ComponentType<Record<string, unknown>>,
+  }));
+  // Props are forwarded: most routes take none, but SchoolSlugEntry is
+  // handed the slug the worker stashed at bootstrap.
+  return function RoutePage(props: Record<string, unknown>) {
+    return (
+      <Suspense fallback={<RouteFallback />}>
+        <Lazy {...props} />
+      </Suspense>
+    );
+  };
+}
+
+/** Deliberately quiet: a chunk arrives in well under a second on a warm
+ *  cache, and a spinner that flashes reads worse than a blank moment. */
+function RouteFallback() {
+  return <div className="min-h-[40vh]" aria-busy="true" aria-live="polite" />;
+}
+
+const Welcome = page(() => import("./pages/Welcome"), "Welcome");
+const ParentLogin = page(() => import("./pages/ParentLogin"), "ParentLogin");
+const ParentSignup = page(() => import("./pages/ParentSignup"), "ParentSignup");
+const KidLoginNew = page(() => import("./pages/KidLoginNew"), "KidLoginNew");
+const DashboardRouter = page(() => import("./pages/DashboardRouter"), "DashboardRouter");
+const LogBehavior = page(() => import("./pages/LogBehavior"), "LogBehavior");
+const WeeklyReview = page(() => import("./pages/WeeklyReview"), "WeeklyReview");
+const MonthlyReview = page(() => import("./pages/MonthlyReview"), "MonthlyReview");
+const Adjustments = page(() => import("./pages/Adjustments"), "Adjustments");
+const AttendanceNew = page(() => import("./pages/AttendanceNew"), "AttendanceNew");
+const Rewards = page(() => import("./pages/Rewards"), "Rewards");
+const AuditTrail = page(() => import("./pages/AuditTrail"), "AuditTrail");
+const Settings = page(() => import("./pages/Settings"), "Settings");
+const LinkToSchool = page(() => import("./pages/LinkToSchool"), "LinkToSchool");
+const EditRequests = page(() => import("./pages/EditRequests"), "EditRequests");
+const KnowledgeQuest = page(() => import("./pages/KnowledgeQuest"), "KnowledgeQuest");
+const KnowledgeQuestPlay = page(() => import("./pages/KnowledgeQuestPlay"), "KnowledgeQuestPlay");
+const KnowledgeQuestResults = page(() => import("./pages/KnowledgeQuestResults"), "KnowledgeQuestResults");
+const QuestionBank = page(() => import("./pages/QuestionBank"), "QuestionBank");
+const QuestionForm = page(() => import("./pages/QuestionForm"), "QuestionForm");
+const ParentWishlistReview = page(() => import("./pages/ParentWishlistReview"), "ParentWishlistReview");
+const PendingRedemptionRequests = page(() => import("./pages/PendingRedemptionRequests"), "PendingRedemptionRequests");
+const Challenges = page(() => import("./pages/Challenges"), "Challenges");
+const TitlesBadgesPage = page(() => import("./pages/TitlesBadgesPage"), "TitlesBadgesPage");
+const SadqaPage = page(() => import("./pages/SadqaPage"), "SadqaPage");
+const KidDashboard = page(() => import("./pages/KidDashboard"), "KidDashboard");
+const KidWishlist = page(() => import("./pages/KidWishlist"), "KidWishlist");
+const KidRewardsGallery = page(() => import("./pages/KidRewardsGallery"), "KidRewardsGallery");
+const Onboarding = page(() => import("./pages/Onboarding"), "Onboarding");
+const JoinPending = page(() => import("./pages/JoinPending"), "JoinPending");
+const NetworkTest = page(() => import("./pages/NetworkTest"), "NetworkTest");
 // School (Iqra Academy pilot) — principal + teacher surfaces.
 // Visible only to users with a school role; auth/role checks live inside
 // the components since the same routes serve principals and teachers.
-import { SchoolHome } from "./pages/school/SchoolHome";
+const SchoolHome = page(() => import("./pages/school/SchoolHome"), "SchoolHome");
 // New Performance Dashboard — replaces PrincipalDashboard as the org entry.
 // The PrincipalDashboard file is kept in the tree for now (no route uses it)
 // and will be removed in a follow-up.
-import { PerformanceDashboard } from "./pages/school/PerformanceDashboard";
-import { SchoolHomeRouter } from "./pages/school/SchoolHomeRouter";
+const PerformanceDashboard = page(() => import("./pages/school/PerformanceDashboard"), "PerformanceDashboard");
+const SchoolHomeRouter = page(() => import("./pages/school/SchoolHomeRouter"), "SchoolHomeRouter");
 // Internal preview for the school-ui primitives. Not linked from any nav.
-import { _DesignSystemPreview } from "./pages/school/_DesignSystemPreview";
-import { SchoolSetup } from "./pages/school/SchoolSetup";
-import { ClassDetail } from "./pages/school/ClassDetail";
-import { BehaviorCatalog } from "./pages/school/BehaviorCatalog";
-import { HifzProgress } from "./pages/school/HifzProgress";
+const _DesignSystemPreview = page(() => import("./pages/school/_DesignSystemPreview"), "_DesignSystemPreview");
+const SchoolSetup = page(() => import("./pages/school/SchoolSetup"), "SchoolSetup");
+const ClassDetail = page(() => import("./pages/school/ClassDetail"), "ClassDetail");
+const BehaviorCatalog = page(() => import("./pages/school/BehaviorCatalog"), "BehaviorCatalog");
+const HifzProgress = page(() => import("./pages/school/HifzProgress"), "HifzProgress");
 // Phase A Admin surfaces (school-pilot/phase-a-admin-ui). Gated client-
 // side via getSchoolMe() — pages render <Navigate to="/school" /> if
 // the caller has no principal/admin role on the org.
-import { AdminDashboard } from "./pages/school/AdminDashboard";
-import { WeeklyDigest } from "./pages/school/WeeklyDigest";
-import { ManageClasses } from "./pages/school/ManageClasses";
-import { YearRollover } from "./pages/school/YearRollover";
-import { TeacherCalendar } from "./pages/school/TeacherCalendar";
-import { AdminTeacherSchedule } from "./pages/school/AdminTeacherSchedule";
-import { AdminTimeOff } from "./pages/school/AdminTimeOff";
-import { ManagePublicSite } from "./pages/school/ManagePublicSite";
-import { SchoolGroupDashboard } from "./pages/school/SchoolGroupDashboard";
-import { ManageStudents } from "./pages/school/ManageStudents";
-import { StudentDetail } from "./pages/school/StudentDetail";
-import { ExamSyllabus } from "./pages/school/ExamSyllabus";
-import { ExamMarks } from "./pages/school/ExamMarks";
-import { MarkingProgress } from "./pages/school/MarkingProgress";
-import { ReportCardsBrowser } from "./pages/school/ReportCardsBrowser";
-import { MyMarks } from "./pages/school/MyMarks";
-import { CarriedAttendance } from "./pages/school/CarriedAttendance";
-import { StudentReportCard } from "./pages/school/StudentReportCard";
-import { ImportCenter } from "./pages/school/ImportCenter";
-import { ManageHifzGroups } from "./pages/school/ManageHifzGroups";
-import { HifzProgramDashboard } from "./pages/school/HifzProgramDashboard";
-import { AdminAcademicsDay } from "./pages/school/AdminAcademicsDay";
-import { TeachingOverview } from "./pages/school/TeachingOverview";
-import { OrgNotFound } from "./pages/school/OrgNotFound";
-import { ManageTimetable } from "./pages/school/ManageTimetable";
-import { MasterTimetable } from "./pages/school/MasterTimetable";
-import { TimetableSchedulePage } from "./pages/school/TimetableSchedulePage";
-import { TimetableSubstitutionsPage } from "./pages/school/TimetableSubstitutionsPage";
-import { TeacherWeekView } from "./pages/school/TeacherWeekView";
-import { ManageFeePlans } from "./pages/school/ManageFeePlans";
-import { ManageAssessment } from "./pages/school/ManageAssessment";
-import { MarksEntry } from "./pages/school/MarksEntry";
-import { TabulationSheet } from "./pages/school/TabulationSheet";
-import { TermSchedulePage } from "./pages/school/TermSchedulePage";
-import { PinSlips } from "./pages/school/PinSlips";
-import { ManageGradeScales } from "./pages/school/ManageGradeScales";
-import { ParentInbox } from "./pages/school/ParentInbox";
-import { ContactSchool } from "./pages/portal/ContactSchool";
-import { StudentTeacherComments } from "./pages/portal/StudentTeacherComments";
-import { ManageParents } from "./pages/school/ManageParents";
-import { ManageTeachers } from "./pages/school/ManageTeachers";
-import { TeacherDetail } from "./pages/school/TeacherDetail";
-import { LinkCodes } from "./pages/school/LinkCodes";
-import { PermissionsEditor } from "./pages/school/PermissionsEditor";
-import { OrgSettings } from "./pages/school/OrgSettings";
-import { AuditLog } from "./pages/school/AuditLog";
+const AdminDashboard = page(() => import("./pages/school/AdminDashboard"), "AdminDashboard");
+const WeeklyDigest = page(() => import("./pages/school/WeeklyDigest"), "WeeklyDigest");
+const ManageClasses = page(() => import("./pages/school/ManageClasses"), "ManageClasses");
+const YearRollover = page(() => import("./pages/school/YearRollover"), "YearRollover");
+const TeacherCalendar = page(() => import("./pages/school/TeacherCalendar"), "TeacherCalendar");
+const AdminTeacherSchedule = page(() => import("./pages/school/AdminTeacherSchedule"), "AdminTeacherSchedule");
+const AdminTimeOff = page(() => import("./pages/school/AdminTimeOff"), "AdminTimeOff");
+const ManagePublicSite = page(() => import("./pages/school/ManagePublicSite"), "ManagePublicSite");
+const SchoolGroupDashboard = page(() => import("./pages/school/SchoolGroupDashboard"), "SchoolGroupDashboard");
+const ManageStudents = page(() => import("./pages/school/ManageStudents"), "ManageStudents");
+const StudentDetail = page(() => import("./pages/school/StudentDetail"), "StudentDetail");
+const ExamSyllabus = page(() => import("./pages/school/ExamSyllabus"), "ExamSyllabus");
+const ExamMarks = page(() => import("./pages/school/ExamMarks"), "ExamMarks");
+const MarkingProgress = page(() => import("./pages/school/MarkingProgress"), "MarkingProgress");
+const ReportCardsBrowser = page(() => import("./pages/school/ReportCardsBrowser"), "ReportCardsBrowser");
+const MyMarks = page(() => import("./pages/school/MyMarks"), "MyMarks");
+const CarriedAttendance = page(() => import("./pages/school/CarriedAttendance"), "CarriedAttendance");
+const StudentReportCard = page(() => import("./pages/school/StudentReportCard"), "StudentReportCard");
+const ImportCenter = page(() => import("./pages/school/ImportCenter"), "ImportCenter");
+const ManageHifzGroups = page(() => import("./pages/school/ManageHifzGroups"), "ManageHifzGroups");
+const HifzProgramDashboard = page(() => import("./pages/school/HifzProgramDashboard"), "HifzProgramDashboard");
+const AdminAcademicsDay = page(() => import("./pages/school/AdminAcademicsDay"), "AdminAcademicsDay");
+const TeachingOverview = page(() => import("./pages/school/TeachingOverview"), "TeachingOverview");
+const OrgNotFound = page(() => import("./pages/school/OrgNotFound"), "OrgNotFound");
+const ManageTimetable = page(() => import("./pages/school/ManageTimetable"), "ManageTimetable");
+const MasterTimetable = page(() => import("./pages/school/MasterTimetable"), "MasterTimetable");
+const TimetableSchedulePage = page(() => import("./pages/school/TimetableSchedulePage"), "TimetableSchedulePage");
+const TimetableSubstitutionsPage = page(() => import("./pages/school/TimetableSubstitutionsPage"), "TimetableSubstitutionsPage");
+const TeacherWeekView = page(() => import("./pages/school/TeacherWeekView"), "TeacherWeekView");
+const ManageFeePlans = page(() => import("./pages/school/ManageFeePlans"), "ManageFeePlans");
+const ManageAssessment = page(() => import("./pages/school/ManageAssessment"), "ManageAssessment");
+const MarksEntry = page(() => import("./pages/school/MarksEntry"), "MarksEntry");
+const TabulationSheet = page(() => import("./pages/school/TabulationSheet"), "TabulationSheet");
+const TermSchedulePage = page(() => import("./pages/school/TermSchedulePage"), "TermSchedulePage");
+const PinSlips = page(() => import("./pages/school/PinSlips"), "PinSlips");
+const ManageGradeScales = page(() => import("./pages/school/ManageGradeScales"), "ManageGradeScales");
+const ParentInbox = page(() => import("./pages/school/ParentInbox"), "ParentInbox");
+const ContactSchool = page(() => import("./pages/portal/ContactSchool"), "ContactSchool");
+const StudentTeacherComments = page(() => import("./pages/portal/StudentTeacherComments"), "StudentTeacherComments");
+const ManageParents = page(() => import("./pages/school/ManageParents"), "ManageParents");
+const ManageTeachers = page(() => import("./pages/school/ManageTeachers"), "ManageTeachers");
+const TeacherDetail = page(() => import("./pages/school/TeacherDetail"), "TeacherDetail");
+const LinkCodes = page(() => import("./pages/school/LinkCodes"), "LinkCodes");
+const PermissionsEditor = page(() => import("./pages/school/PermissionsEditor"), "PermissionsEditor");
+const OrgSettings = page(() => import("./pages/school/OrgSettings"), "OrgSettings");
+const AuditLog = page(() => import("./pages/school/AuditLog"), "AuditLog");
 // Phase B teacher/admin surfaces (school-pilot/phase-b-ui).
-import { AttendanceRollCall } from "./pages/school/AttendanceRollCall";
-import { SectionOverview } from "./pages/school/SectionOverview";
-import { SectionBehaviorFeed } from "./pages/school/SectionBehaviorFeed";
-import { RosterRequestForm } from "./pages/school/RosterRequestForm";
-import { RosterReviewQueue } from "./pages/school/RosterReviewQueue";
+const AttendanceRollCall = page(() => import("./pages/school/AttendanceRollCall"), "AttendanceRollCall");
+const SectionOverview = page(() => import("./pages/school/SectionOverview"), "SectionOverview");
+const SectionBehaviorFeed = page(() => import("./pages/school/SectionBehaviorFeed"), "SectionBehaviorFeed");
+const RosterRequestForm = page(() => import("./pages/school/RosterRequestForm"), "RosterRequestForm");
+const RosterReviewQueue = page(() => import("./pages/school/RosterReviewQueue"), "RosterReviewQueue");
 // Phase C.1: daily sabaq + hifz progress
-import { SectionLessonsFeed } from "./pages/school/SectionLessonsFeed";
-import { LessonForm } from "./pages/school/LessonForm";
-import { SectionHifzOverview } from "./pages/school/SectionHifzOverview";
+const SectionLessonsFeed = page(() => import("./pages/school/SectionLessonsFeed"), "SectionLessonsFeed");
+const LessonForm = page(() => import("./pages/school/LessonForm"), "LessonForm");
+const SectionHifzOverview = page(() => import("./pages/school/SectionHifzOverview"), "SectionHifzOverview");
 // Phase C.2 — assignments + grades
-import { SectionAssignmentsList } from "./pages/school/SectionAssignmentsList";
-import { AssignmentForm } from "./pages/school/AssignmentForm";
-import { AssignmentDetail } from "./pages/school/AssignmentDetail";
-import { SectionGradebook } from "./pages/school/SectionGradebook";
+const SectionAssignmentsList = page(() => import("./pages/school/SectionAssignmentsList"), "SectionAssignmentsList");
+const AssignmentForm = page(() => import("./pages/school/AssignmentForm"), "AssignmentForm");
+const AssignmentDetail = page(() => import("./pages/school/AssignmentDetail"), "AssignmentDetail");
+const SectionGradebook = page(() => import("./pages/school/SectionGradebook"), "SectionGradebook");
 // Phase C.3 + Phase D — curriculum, fees, forms
-import { SectionCurriculum } from "./pages/school/SectionCurriculum";
-import { FeesOverview } from "./pages/school/FeesOverview";
-import { StudentFees } from "./pages/school/StudentFees";
-import { FormsList } from "./pages/school/FormsList";
-import { FormBuilder } from "./pages/school/FormBuilder";
-import { FormResponses } from "./pages/school/FormResponses";
+const SectionCurriculum = page(() => import("./pages/school/SectionCurriculum"), "SectionCurriculum");
+const FeesOverview = page(() => import("./pages/school/FeesOverview"), "FeesOverview");
+const StudentFees = page(() => import("./pages/school/StudentFees"), "StudentFees");
+const FormsList = page(() => import("./pages/school/FormsList"), "FormsList");
+const FormBuilder = page(() => import("./pages/school/FormBuilder"), "FormBuilder");
+const FormResponses = page(() => import("./pages/school/FormResponses"), "FormResponses");
 import { SchoolAdminShell } from "./layouts/SchoolAdminShell";
 // Parent-facing redemption page for school invite codes — lands here from
 // the SMS/WhatsApp links the school sends.
-import { ParentConnect } from "./pages/ParentConnect";
+const ParentConnect = page(() => import("./pages/ParentConnect"), "ParentConnect");
 // School Portal (student + parent PIN auth — separate from family JWT).
 import { PinAuthProvider } from "./contexts/PinAuthContext";
 import { PortalRouteGuard } from "./components/PortalRouteGuard";
 import { PortalLayout } from "./layouts/PortalLayout";
-import { PortalLogin } from "./pages/portal/PortalLogin";
-import { SchoolUnifiedLogin } from "./pages/school/SchoolUnifiedLogin";
-import { SchoolSlugEntry } from "./pages/school/SchoolSlugEntry";
-import { ResetPassword } from "./pages/ResetPassword";
-import { SchoolAccount } from "./pages/school/SchoolAccount";
-import { PortalChangePin } from "./pages/portal/PortalChangePin";
-import { PortalHome } from "./pages/portal/PortalHome";
-import { StudentDashboard } from "./pages/portal/StudentDashboard";
-import { StudentLessons } from "./pages/portal/StudentLessons";
-import { StudentHomework } from "./pages/portal/StudentHomework";
-import { StudentGrades } from "./pages/portal/StudentGrades";
-import { StudentHifz } from "./pages/portal/StudentHifz";
-import { StudentTimetable } from "./pages/portal/StudentTimetable";
-import { StudentTermReportCard } from "./pages/portal/StudentTermReportCard";
-import { StudentAttendance } from "./pages/portal/StudentAttendance";
-import { StudentBehavior } from "./pages/portal/StudentBehavior";
-import { MyForms } from "./pages/portal/MyForms";
-import { MyAnnouncements } from "./pages/portal/MyAnnouncements";
-import { MyStudentFees } from "./pages/portal/MyStudentFees";
-import { AnnouncementsList } from "./pages/school/AnnouncementsList";
-import { AnnouncementComposer } from "./pages/school/AnnouncementComposer";
-import { FormFill } from "./pages/portal/FormFill";
+const PortalLogin = page(() => import("./pages/portal/PortalLogin"), "PortalLogin");
+const SchoolUnifiedLogin = page(() => import("./pages/school/SchoolUnifiedLogin"), "SchoolUnifiedLogin");
+const SchoolSlugEntry = page(() => import("./pages/school/SchoolSlugEntry"), "SchoolSlugEntry");
+const ResetPassword = page(() => import("./pages/ResetPassword"), "ResetPassword");
+const SchoolAccount = page(() => import("./pages/school/SchoolAccount"), "SchoolAccount");
+const PortalChangePin = page(() => import("./pages/portal/PortalChangePin"), "PortalChangePin");
+const PortalHome = page(() => import("./pages/portal/PortalHome"), "PortalHome");
+const StudentDashboard = page(() => import("./pages/portal/StudentDashboard"), "StudentDashboard");
+const StudentLessons = page(() => import("./pages/portal/StudentLessons"), "StudentLessons");
+const StudentHomework = page(() => import("./pages/portal/StudentHomework"), "StudentHomework");
+const StudentGrades = page(() => import("./pages/portal/StudentGrades"), "StudentGrades");
+const StudentHifz = page(() => import("./pages/portal/StudentHifz"), "StudentHifz");
+const StudentTimetable = page(() => import("./pages/portal/StudentTimetable"), "StudentTimetable");
+const StudentTermReportCard = page(() => import("./pages/portal/StudentTermReportCard"), "StudentTermReportCard");
+const StudentAttendance = page(() => import("./pages/portal/StudentAttendance"), "StudentAttendance");
+const StudentBehavior = page(() => import("./pages/portal/StudentBehavior"), "StudentBehavior");
+const MyForms = page(() => import("./pages/portal/MyForms"), "MyForms");
+const MyAnnouncements = page(() => import("./pages/portal/MyAnnouncements"), "MyAnnouncements");
+const MyStudentFees = page(() => import("./pages/portal/MyStudentFees"), "MyStudentFees");
+const AnnouncementsList = page(() => import("./pages/school/AnnouncementsList"), "AnnouncementsList");
+const AnnouncementComposer = page(() => import("./pages/school/AnnouncementComposer"), "AnnouncementComposer");
+const FormFill = page(() => import("./pages/portal/FormFill"), "FormFill");
 import { RootLayout } from "./layouts/RootLayout";
 import { KidLayout } from "./layouts/KidLayout";
 import { ProvidersLayout } from "./layouts/ProvidersLayout";
-import { PrayerLogging } from "./pages/PrayerLogging";
+const PrayerLogging = page(() => import("./pages/PrayerLogging"), "PrayerLogging");
 // v27: kid-driven chore claims
-import { KidChores } from "./pages/KidChores";
-import { PrayerApprovals } from "./pages/PrayerApprovals";
-import { DiagnosticPage } from "./pages/DiagnosticPage";
-import { WishlistDebug } from "./pages/WishlistDebug";
-import { AdventureWorld } from "./pages/AdventureWorld";
-import { JannahGarden } from "./pages/JannahGarden";
-import { DuaSpellCasting } from "./pages/games/DuaSpellCasting";
-import { AyahPuzzle } from "./pages/games/AyahPuzzle";
-import { GuessProphet } from "./pages/games/GuessProphet";
-import { GamesReview } from "./pages/GamesReview";
-import { MakkahZone } from "./pages/adventure-zones/MakkahZone";
-import { MadinahZone } from "./pages/adventure-zones/MadinahZone";
-import { QuranValleyZone } from "./pages/adventure-zones/QuranValleyZone";
-import { DesertTrialsZone } from "./pages/adventure-zones/DesertTrialsZone";
-import { ZonePlay } from "./pages/adventure-zones/ZonePlay";
+const KidChores = page(() => import("./pages/KidChores"), "KidChores");
+const PrayerApprovals = page(() => import("./pages/PrayerApprovals"), "PrayerApprovals");
+const DiagnosticPage = page(() => import("./pages/DiagnosticPage"), "DiagnosticPage");
+const WishlistDebug = page(() => import("./pages/WishlistDebug"), "WishlistDebug");
+const AdventureWorld = page(() => import("./pages/AdventureWorld"), "AdventureWorld");
+const JannahGarden = page(() => import("./pages/JannahGarden"), "JannahGarden");
+const DuaSpellCasting = page(() => import("./pages/games/DuaSpellCasting"), "DuaSpellCasting");
+const AyahPuzzle = page(() => import("./pages/games/AyahPuzzle"), "AyahPuzzle");
+const GuessProphet = page(() => import("./pages/games/GuessProphet"), "GuessProphet");
+const GamesReview = page(() => import("./pages/GamesReview"), "GamesReview");
+const MakkahZone = page(() => import("./pages/adventure-zones/MakkahZone"), "MakkahZone");
+const MadinahZone = page(() => import("./pages/adventure-zones/MadinahZone"), "MadinahZone");
+const QuranValleyZone = page(() => import("./pages/adventure-zones/QuranValleyZone"), "QuranValleyZone");
+const DesertTrialsZone = page(() => import("./pages/adventure-zones/DesertTrialsZone"), "DesertTrialsZone");
+const ZonePlay = page(() => import("./pages/adventure-zones/ZonePlay"), "ZonePlay");
 import { useContext, useState, useEffect } from "react";
 import { WorkspaceContext } from "./contexts/WorkspaceContext";
 import { getCurrentMode } from "./utils/auth";
