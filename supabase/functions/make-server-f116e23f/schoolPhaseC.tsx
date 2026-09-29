@@ -1050,14 +1050,35 @@ export function installPhaseC(school: Hono): void {
     }
 
     const studentIds = studentList.map((s) => s.id);
-    const { data: entries, error: entryErr } = await serviceRoleClient
-      .from("hifz_progress")
-      // `missed` matters: a skip marker must never become a reader's
-      // "position" — without it in the select the !r.missed guard below
-      // saw undefined and waved every marker through (check 75).
-      .select("student_id, surah_number, ayah_from, ayah_to, juz_number, kind, quality, missed, missed_target_reason, recorded_at, qaida_lesson")
-      .in("student_id", studentIds);
-    if (entryErr) return c.json({ error: entryErr.message }, 500);
+    // PAGED (29 Sep). An unpaged select stops silently at 1000 rows, and
+    // Hifz II crossed that this week (1,109 rows for its 22 children):
+    // the NEWEST rows fell off, so the qari heard a child's sabaq, saw it
+    // in the history dialog (per-student, under the cap) — and the
+    // round-up's S/Sq/M chips stayed grey. Five children were re-heard
+    // because the screen said they hadn't been. Same fix and same reason
+    // as loadExamScores on the marking board (#620 class).
+    const entries: any[] = [];
+    {
+      const PAGE = 1000;
+      for (let i = 0; i < studentIds.length; i += 150) {
+        const chunk = studentIds.slice(i, i + 150);
+        for (let from = 0; ; from += PAGE) {
+          const { data, error: entryErr } = await serviceRoleClient
+            .from("hifz_progress")
+            // `missed` matters: a skip marker must never become a reader's
+            // "position" — without it in the select the !r.missed guard
+            // below saw undefined and waved every marker through (check 75).
+            .select("student_id, surah_number, ayah_from, ayah_to, juz_number, kind, quality, missed, missed_target_reason, recorded_at, qaida_lesson")
+            .in("student_id", chunk)
+            .order("id")
+            .range(from, from + PAGE - 1);
+          if (entryErr) return c.json({ error: entryErr.message }, 500);
+          const rows = (data ?? []) as any[];
+          entries.push(...rows);
+          if (rows.length < PAGE) break;
+        }
+      }
+    }
 
     const byStudent = new Map<string, Array<{
       surah_number: number;
