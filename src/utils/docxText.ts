@@ -405,6 +405,9 @@ export function parseTopicLines(source: string): Array<{ name: string; descripti
     for (const piece of raw.split(/\s*[·•●▪]\s*/)) {
       const trimmed = piece.trim();
       if (!trimmed) continue;
+      // "Topic:" / "Topics:" is the school's own column header inside a
+      // table cell, not a topic - Class IV's cells all carry one (29 Sep).
+      if (/^topics?\s*[:\-]?$/i.test(trimmed)) continue;
       const exercises = expandExerciseLine(trimmed);
       if (exercises) {
         for (const e of exercises) out.push({ name: e });
