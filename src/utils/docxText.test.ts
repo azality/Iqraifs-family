@@ -103,3 +103,13 @@ describe("the school's own typos", () => {
     expect(expandExerciseLine("Ex 9a 9b")).toEqual(["Exercise 9a", "Exercise 9b"]);
   });
 });
+
+describe("Class IX's trailing ellipsis", () => {
+  it("keeps 16.3 rather than dropping it", () => {
+    // Verbatim: "Ex16.1-16.2 ,16.3…" — a single trailing ellipsis, which is
+    // not a range, just the school trailing off.
+    expect(expandExerciseLine("Ex16.1-16.2 ,16.3…")).toEqual([
+      "Exercise 16.1", "Exercise 16.2", "Exercise 16.3",
+    ]);
+  });
+});

@@ -349,8 +349,12 @@ export function expandExerciseLine(line: string): string[] | null {
     const key = label.toLowerCase();
     if (!seen.has(key)) { seen.add(key); out.push(`Exercise ${label}`); }
   };
-  /** "16.1" → [,"16","1"]; "13a" → [,"13",,"a"]; "3" → [,"3"] */
-  const part = (tok: string) => /^(\d+)(?:\.(\d+)|([a-z]))?$/i.exec(tok.trim());
+  /** "16.1" → [,"16","1"]; "13a" → [,"13",,"a"]; "3" → [,"3"].
+   *  A lone trailing "…" or "." is the school trailing off mid-list, not a
+   *  range — Class IX's "Ex16.1-16.2 ,16.3…" lost 16.3 entirely without
+   *  this, because the token never parsed. */
+  const trim = (tok: string) => tok.trim().replace(/[.…]+$/, "");
+  const part = (tok: string) => /^(\d+)(?:\.(\d+)|([a-z]))?$/i.exec(trim(tok));
 
   // "……" and every kind of dash all mean "up to".
   const tokens = body
@@ -384,11 +388,11 @@ export function expandExerciseLine(line: string): string[] | null {
           continue;
         }
       }
-      if (pa) add(a);
-      if (pb) { add(b); last = b; }
+      if (pa) add(trim(a));
+      if (pb) { add(trim(b)); last = trim(b); }
       continue;
     }
-    if (part(tok)) { add(tok); last = tok; }
+    if (part(tok)) { add(trim(tok)); last = trim(tok); }
   }
   return out.length ? out : null;
 }
