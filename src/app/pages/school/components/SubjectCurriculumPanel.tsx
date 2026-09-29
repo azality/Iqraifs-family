@@ -284,6 +284,11 @@ export function SubjectCurriculumPanel({
   // topics; on the admin Classes page (class-wide, many sections) there
   // is no section and the block simply doesn't render.
   // "Hide done topics" — one global preference, remembered per user.
+  // Chapters fold their topics away (29 Sep: "it could be hierarchical
+  // where it can be collapsed"). No schema - a row that READS like a
+  // chapter heading owns everything under it until the next one, exactly
+  // how the school's own Word files are laid out.
+  const [collapsedChapters, setCollapsedChapters] = useState<Set<string>>(new Set());
   const [hideDone, setHideDoneState] = useState<boolean>(() => {
     try { return localStorage.getItem("iqra_hide_done_topics") === "1"; } catch { return false; }
   });
@@ -681,7 +686,22 @@ export function SubjectCurriculumPanel({
                 </p>
               )}
 
-              {topics.length > 0 && (
+              {topics.length > 0 && (() => {
+                const isChapterName = (n: string) => /^(chapter|unit)\b/i.test(n.trim());
+                const ownerOf = new Map<string, string | null>();
+                const childCount = new Map<string, number>();
+                let currentChapter: string | null = null;
+                for (const t of topics) {
+                  if (isChapterName(t.name)) {
+                    ownerOf.set(t.id, null);
+                    currentChapter = t.id;
+                    childCount.set(t.id, 0);
+                  } else {
+                    ownerOf.set(t.id, currentChapter);
+                    if (currentChapter) childCount.set(currentChapter, (childCount.get(currentChapter) ?? 0) + 1);
+                  }
+                }
+                return (
                 <ol className="space-y-1">
                   {(hideDone ? topics.filter((t) => !t.completed) : topics).map((t) => {
                     const idx = topics.indexOf(t);
@@ -723,22 +743,40 @@ export function SubjectCurriculumPanel({
                         </li>
                       );
                     }
-                    // Exercises sit indented under their chapter, so a
-                    // 28-row maths list reads as chapters with their
-                    // exercises rather than 28 equal lines (28 Sep). The
-                    // "Exercise " prefix is our own upload expander's
-                    // label, so the indent keys on wording we control.
+                    // A row under a chapter is its child: indented, and
+                    // folded away when the chapter is collapsed. Rows
+                    // before any chapter (or in a list with none) stay
+                    // flat - and exercises keep their indent either way.
+                    const owner = ownerOf.get(t.id) ?? null;
+                    const isChapter = isChapterName(t.name);
+                    if (owner && collapsedChapters.has(owner)) return null;
                     const isExercise = /^(Exercise|Ex)[\s.:]/i.test(t.name);
+                    const kids = isChapter ? (childCount.get(t.id) ?? 0) : 0;
+                    const folded = isChapter && collapsedChapters.has(t.id);
                     return (
                       <li
                         key={t.id}
                         className={
                           "rounded border border-slate-200 px-2 py-1.5 " +
-                          (isExercise ? "ml-7 " : "") +
+                          (owner || (isExercise && !isChapter) ? "ml-7 " : "") +
                           (t.completed ? "bg-emerald-50/40" : "bg-white")
                         }
                       >
                         <div className="flex flex-wrap items-center gap-2">
+                        {isChapter && kids > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setCollapsedChapters((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(t.id)) next.delete(t.id); else next.add(t.id);
+                              return next;
+                            })}
+                            className="flex h-5 w-5 items-center justify-center rounded text-slate-500 hover:bg-slate-100"
+                            title={folded ? `Show ${kids} topics` : "Collapse chapter"}
+                          >
+                            {folded ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                          </button>
+                        )}
                         <span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-100 text-[10px] font-semibold text-slate-700">
                           {idx + 1}
                         </span>
@@ -760,6 +798,11 @@ export function SubjectCurriculumPanel({
                           }
                         >
                           {t.name}
+                          {folded && (
+                            <span className="ml-1.5 text-[10px] font-normal text-slate-400">
+                              · {kids} topic{kids === 1 ? "" : "s"} hidden
+                            </span>
+                          )}
                         </span>
                         {t.targetDate && (
                           <span className="inline-flex items-center gap-1 text-[10px] text-slate-500">
@@ -906,7 +949,8 @@ export function SubjectCurriculumPanel({
                     );
                   })}
                 </ol>
-              )}
+                );
+              })()}
 
               {/* Add-topic form */}
               {canManage && adding && (

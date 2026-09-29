@@ -64,8 +64,9 @@ describe("parseTopicLines", () => {
     // school reported as "only chapters, no bullet points".
     const cell = "Chapter no 7 · Geometry · Topics: · Angle types of angles"
       + " · majoring angles using the protractor · drawing angles · circle · quadrilateral";
+    // "Topics:" is the cell's own column header, dropped since 29 Sep.
     expect(parseTopicLines(cell).map((t) => t.name)).toEqual([
-      "Chapter no 7", "Geometry", "Topics:", "Angle types of angles",
+      "Chapter no 7", "Geometry", "Angle types of angles",
       "majoring angles using the protractor", "drawing angles", "circle", "quadrilateral",
     ]);
   });
@@ -111,5 +112,17 @@ describe("Class IX's trailing ellipsis", () => {
     expect(expandExerciseLine("Ex16.1-16.2 ,16.3…")).toEqual([
       "Exercise 16.1", "Exercise 16.2", "Exercise 16.3",
     ]);
+  });
+});
+
+describe("cell header lines", () => {
+  it("drops bare Topic:/Topics: headers without touching real topics", () => {
+    const cell = "Chapter no 7 · Geometry · Topics: · circle · quadrilateral";
+    expect(parseTopicLines(cell).map((t) => t.name)).toEqual([
+      "Chapter no 7", "Geometry", "circle", "quadrilateral",
+    ]);
+    // A line that merely STARTS with "Topic" is content, not a header.
+    expect(parseTopicLines("Topics of algebra").map((t) => t.name))
+      .toEqual(["Topics of algebra"]);
   });
 });
