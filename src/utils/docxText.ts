@@ -97,7 +97,15 @@ function blockLines(container: Element, lines: string[]) {
           .map((tc) => {
             const cellLines: string[] = [];
             blockLines(tc, cellLines);
-            return cellLines.map((s) => s.trim()).filter(Boolean).join(" ");
+            // Joined with a BULLET, not a space (28 Sep). A maths cell holds
+            // a whole chapter - "Chapter no 7 / Geometry / Topics: / Angle
+            // types / drawing angles / circle" - and a space-join fused all
+            // of it into one untickable line, which is what the school saw:
+            // "only chapters, the bullet points are not showing". Word's own
+            // list bullets are numbering FORMAT, never text, so nothing in
+            // the XML marks them; the separator has to be put back here.
+            // splitInlineRow and parseTopicLines both split on it.
+            return cellLines.map((s) => s.trim()).filter(Boolean).join(" · ");
           });
         lines.push(cells.join("\t"));
       }
@@ -317,15 +325,97 @@ export function splitSyllabusFile(
  *  bullets and "1." prefixes stripped; "topic — detail" / "topic :: detail" /
  *  tab-separated split into name + description. Shared by the per-subject
  *  panel and the whole-file upload so the two never drift. */
+/** One tickable item per exercise (28 Sep). The school writes a chapter's
+ *  exercises as a single squashed line — "Ex 3.1 ,3.2 ,3.3 and 3.4",
+ *  "Ex16.1-16.2", "Ex :20.1,20.2 ,20.3 ,20.4,…….20.7", "Ex: 13a 13c" — and a
+ *  teacher wants to tick 3.1 off without ticking 3.4. Returns null when the
+ *  line is not an exercise list, so ordinary topics fall through untouched.
+ *
+ *  Ranges expand only WITHIN one chapter (16.1–16.2, 20.1…20.7, 13a–13c); a
+ *  range spanning chapters is left as its two ends rather than guessed at. */
+export function expandExerciseLine(line: string): string[] | null {
+  // Longest alternative first, and no \b: the school writes "Ex16.1-16.2"
+  // with no space at all, where a word boundary never matches.
+  const m = /^(?:exercises|exercise|ex)\.?\s*(?:no\.?)?\s*:?\s*(.+)$/i.exec(line.trim());
+  if (!m) return null;
+  const body = m[1].trim();
+  // Words beyond the number vocabulary mean prose, not a list — "Ex: as
+  // given in book" stays the single topic it is.
+  if (/[a-z]{2,}/i.test(body.replace(/\band\b/gi, ""))) return null;
+
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const add = (label: string) => {
+    const key = label.toLowerCase();
+    if (!seen.has(key)) { seen.add(key); out.push(`Exercise ${label}`); }
+  };
+  /** "16.1" → [,"16","1"]; "13a" → [,"13",,"a"]; "3" → [,"3"] */
+  const part = (tok: string) => /^(\d+)(?:\.(\d+)|([a-z]))?$/i.exec(tok.trim());
+
+  // "……" and every kind of dash all mean "up to".
+  const tokens = body
+    // "Ex 30.1,30. 2 ,30.3" - a stray space after the dot is a typo for
+    // 30.2, not chapter 30 followed by exercise 2.
+    .replace(/(\d)\.\s+(\d)/g, "$1.$2")
+    .replace(/[.…]{2,}/g, "~")
+    .replace(/\s*[-–—]\s*/g, "~")
+    .split(/\s*(?:,|\band\b|&|\s)+\s*/i)
+    .map((t) => t.trim())
+    .filter(Boolean);
+
+  let last = "";
+  for (const tok of tokens) {
+    if (tok.includes("~")) {
+      const [rawA, b] = tok.split("~").map((x) => x.trim());
+      // "20.1, 20.2, 20.3, 20.4, ……20.7" leaves the range's left side empty:
+      // the school means "and so on from the last one listed".
+      const a = rawA || last;
+      const pa = part(a), pb = part(b);
+      if (pa && pb && pa[1] === pb[1]) {
+        if (pa[2] && pb[2]) {
+          for (let i = Number(pa[2]); i <= Number(pb[2]); i++) add(`${pa[1]}.${i}`);
+          last = b;
+          continue;
+        }
+        if (pa[3] && pb[3]) {
+          for (let c = pa[3].charCodeAt(0); c <= pb[3].charCodeAt(0); c++) {
+            add(`${pa[1]}${String.fromCharCode(c)}`);
+          }
+          continue;
+        }
+      }
+      if (pa) add(a);
+      if (pb) { add(b); last = b; }
+      continue;
+    }
+    if (part(tok)) { add(tok); last = tok; }
+  }
+  return out.length ? out : null;
+}
+
 export function parseTopicLines(source: string): Array<{ name: string; description?: string }> {
-  return source
-    .split(/\r?\n/)
-    .map((line) => line.replace(/^[\s\-\*\d\.\)]+/, "").trim())
-    .filter((line) => line.length > 0)
-    .map((line) => {
+  const out: Array<{ name: string; description?: string }> = [];
+  for (const raw of source.split(/\r?\n/)) {
+    // A table cell arrives as "para · para · para" (blockLines), so put the
+    // bullets back into separate lines before anything else looks at them.
+    for (const piece of raw.split(/\s*[·•●▪]\s*/)) {
+      const trimmed = piece.trim();
+      if (!trimmed) continue;
+      const exercises = expandExerciseLine(trimmed);
+      if (exercises) {
+        for (const e of exercises) out.push({ name: e });
+        continue;
+      }
+      // Strip a list marker ("1.", "- ", ")"), but never strip the line away
+      // entirely — "16.1" alone is a topic, not a marker.
+      // Spaces only - a TAB still means "name<TAB>description".
+      const line = (trimmed.replace(/^[\s\-\*\d\.\)]+/, "").trim() || trimmed)
+        .replace(/ {2,}/g, " ");
       const m = /^(.+?)(?:\t+| — | :: )(.+)$/.exec(line);
-      return m ? { name: m[1].trim(), description: m[2].trim() } : { name: line };
-    });
+      out.push(m ? { name: m[1].trim(), description: m[2].trim() } : { name: line });
+    }
+  }
+  return out;
 }
 
 /** Canonical token for matching a heading label to a real class name:
