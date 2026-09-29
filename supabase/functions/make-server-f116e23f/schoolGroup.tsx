@@ -163,6 +163,7 @@ export function installSchoolGroup(school: Hono): void {
 
       // Attendance today — present / total
       const { data: attRows } = await serviceRoleClient
+        // cap-ok: one day's attendance per org, roster-sized
         .from("school_attendance")
         .select("status")
         .eq("org_id", orgId)
@@ -175,6 +176,7 @@ export function installSchoolGroup(school: Hono): void {
 
       // Fees for current period
       const { data: feeRows } = await serviceRoleClient
+        // cap-ok: one period's fees per org, roster-sized
         .from("fee_status")
         .select("amount_due, amount_paid")
         .eq("org_id", orgId)
@@ -189,6 +191,7 @@ export function installSchoolGroup(school: Hono): void {
 
       // Behavior this month
       const { data: behRows } = await serviceRoleClient
+        // cap-ok: one month's behavior notes per org; revisit if logging takes off
         .from("behavior_note")
         .select("kind")
         .eq("org_id", orgId)

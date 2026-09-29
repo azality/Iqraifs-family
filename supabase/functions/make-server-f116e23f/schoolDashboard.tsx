@@ -1143,6 +1143,7 @@ export function installDashboard(school: Hono): void {
     const currentFeePeriod = `${end.getUTCFullYear()}-${String(end.getUTCMonth() + 1).padStart(2, "0")}`;
     const feesTile: { value: number | null; hint: string } = (await (async () => {
       const { data } = await serviceRoleClient
+        // cap-ok: one billing period per org, one row per child
         .from("fee_status")
         .select("status, amount_due, amount_paid, student:student_id(class_section:class_section_id(schedule_key))")
         .eq("org_id", orgId)
@@ -1440,6 +1441,7 @@ export function installDashboard(school: Hono): void {
           const allStu = ((stuRows ?? []) as any[]).map((r) => r.id);
           const { data: finRows } = allStu.length
             ? await serviceRoleClient
+                // cap-ok: one term's finalized cards, one row per child
                 .from("term_report_card").select("student_id")
                 .eq("term_id", signTermId).in("student_id", allStu)
                 .not("finalized_at", "is", null)
@@ -2779,6 +2781,7 @@ export function installDashboard(school: Hono): void {
         totals[st.class_section_id] = (totals[st.class_section_id] ?? 0) + 1;
       }
       const { data: heardRows } = await serviceRoleClient
+        // cap-ok: one school day's hifz entries per org, tens of rows
         .from("hifz_progress")
         .select("student_id")
         .eq("org_id", orgId)

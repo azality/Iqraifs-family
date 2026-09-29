@@ -288,6 +288,7 @@ export function installAcademics(school: Hono) {
     // Pull recent grades with the assignment context inline so we can
     // bucket by section_subject_id without follow-up round trips.
     const { data: recentGrades } = await serviceRoleClient
+      // cap-ok: one section-subject's grades, class-sized
       .from("grade")
       .select(
         "score, status, assignment:assignment_id(section_subject_id, max_score, weight, class_section_id, class_section:class_section_id(name, class:class_id(id, name)), section_subject:section_subject_id(class_subject:class_subject_id(name)))",

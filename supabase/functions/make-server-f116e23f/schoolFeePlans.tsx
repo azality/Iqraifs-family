@@ -536,6 +536,7 @@ export function installFeePlans(school: Hono): void {
     const studentIdsToBill = rows.map((r) => r.student_id);
     const { data: existing } = studentIdsToBill.length
       ? await serviceRoleClient
+          // cap-ok: one period x the students being billed
           .from("fee_status")
           .select("id, student_id, amount_paid, status")
           .eq("org_id", orgId)

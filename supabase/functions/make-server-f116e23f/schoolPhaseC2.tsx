@@ -24,6 +24,7 @@
 //     DELETE /school/orgs/:orgId/grades/:gradeId
 // =============================================================================
 
+import { allRows } from "./pagedRows.ts";
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import {
@@ -352,6 +353,7 @@ export function installPhaseC2(school: Hono): void {
     const subCounts = new Map<string, { total: number; unreviewed: number }>();
     if (listIds.length > 0) {
       const { data: subRows } = await serviceRoleClient
+        // cap-ok: submissions for one screen's assignments
         .from("assignment_submission")
         .select("assignment_id, reviewed_at")
         .in("assignment_id", listIds);
@@ -684,6 +686,7 @@ export function installPhaseC2(school: Hono): void {
 
     const [{ data: subs, error: sErr }, { data: students }] = await Promise.all([
       serviceRoleClient
+        // cap-ok: one assignment's submissions, roster-sized
         .from("assignment_submission")
         .select("*, student:student_id(full_name, gr_number)")
         .eq("assignment_id", assignmentId)
@@ -1140,6 +1143,7 @@ export function installPhaseC2(school: Hono): void {
     if (!gate.ok) return c.json({ error: gate.error }, gate.status);
 
     const { data, error } = await serviceRoleClient
+      // cap-ok: one assignment's grades, roster-sized
       .from("grade")
       .select(
         "*, student:student_id(id, full_name, gr_number)",
@@ -1262,6 +1266,7 @@ export function installPhaseC2(school: Hono): void {
     if (stu.org_id !== orgId) return c.json({ error: "student not in this org" }, 404);
 
     const { data, error } = await serviceRoleClient
+      // cap-ok: one child's assignment grades
       .from("grade")
       .select(
         "score, status, graded_at, assignment:assignment_id(id, kind, max_score, weight)",
@@ -1349,6 +1354,7 @@ export function installPhaseC2(school: Hono): void {
     // alongside so the gradebook can offer subject filtering.
     const subjectFilter = c.req.query("subjectId");
     let aq = serviceRoleClient
+      // cap-ok: one section's assignments
       .from("assignment")
       .select(
         "*, section_subject:section_subject_id(class_subject:class_subject_id(name)), curriculum_topic:curriculum_topic_id(name)",
@@ -1378,6 +1384,7 @@ export function installPhaseC2(school: Hono): void {
     let grades: any[] = [];
     if (assignmentIds.length > 0) {
       const { data: g, error: gErr } = await serviceRoleClient
+        // cap-ok: grades for one section's assignments, 234 max today; watch
         .from("grade")
         .select("*")
         .in("assignment_id", assignmentIds);
@@ -1548,6 +1555,7 @@ export function installPhaseC2(school: Hono): void {
     // Pull every grade row for this student joined to its assignment;
     // collapse to per-subject averages weighted by assignment.weight.
     let gq = serviceRoleClient
+      // cap-ok: one child's graded work
       .from("grade")
       .select(
         "score_obtained, score_max, assignment:assignment_id(weight, assigned_date, section_subject_id, section_subject:section_subject_id(class_subject:class_subject_id(name)))",
@@ -1589,6 +1597,7 @@ export function installPhaseC2(school: Hono): void {
 
     // ─── Attendance ───────────────────────────────────────────────
     let attQ = serviceRoleClient
+      // cap-ok: one child's attendance in an optional window; full history about 190 rows a year
       .from("school_attendance")
       .select("status, attendance_date")
       .eq("student_id", studentId);
@@ -1607,6 +1616,7 @@ export function installPhaseC2(school: Hono): void {
 
     // ─── Behavior ─────────────────────────────────────────────────
     let behQ = serviceRoleClient
+      // cap-ok: one child's behavior notes
       .from("behavior_note")
       .select("kind, points")
       .eq("student_id", studentId);
@@ -1621,14 +1631,18 @@ export function installPhaseC2(school: Hono): void {
     }
 
     // ─── Hifz ─────────────────────────────────────────────────────
-    let hifzQ = serviceRoleClient
-      .from("hifz_progress")
-      .select("surah_number, ayah_from, ayah_to, kind, quality, missed, recorded_at")
-      .eq("student_id", studentId);
-    if (startDate) hifzQ = hifzQ.gte("recorded_at", startDate);
-    if (endDate) hifzQ = hifzQ.lte("recorded_at", `${endDate}T23:59:59.999Z`);
-    const { data: hifzRows } = await hifzQ;
-    const hifzAll = (hifzRows ?? []) as any[];
+    // PAGED (29 Sep): with no dates this is the child's whole history,
+    // which crosses the silent 1000-row cap mid-programme.
+    const { rows: hifzRows } = await allRows((from, to) => {
+      let hifzQ = serviceRoleClient
+        .from("hifz_progress")
+        .select("surah_number, ayah_from, ayah_to, kind, quality, missed, recorded_at")
+        .eq("student_id", studentId);
+      if (startDate) hifzQ = hifzQ.gte("recorded_at", startDate);
+      if (endDate) hifzQ = hifzQ.lte("recorded_at", `${endDate}T23:59:59.999Z`);
+      return hifzQ.order("id").range(from, to);
+    });
+    const hifzAll = hifzRows as any[];
     const memorized = computeMemorizedTotals(hifzAll);
     const qualityCounts = { excellent: 0, good: 0, needs_practice: 0, weak: 0 };
     let totalEntries = 0;

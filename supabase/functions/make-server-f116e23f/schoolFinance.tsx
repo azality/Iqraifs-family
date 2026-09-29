@@ -39,6 +39,7 @@ export function installFinance(school: Hono) {
     // 1. This-period collection summary.
     // ────────────────────────────────────────────────────────────────────
     const { data: feeRows } = await serviceRoleClient
+      // cap-ok: one billing period per org, one row per child; crosses 1000 near 1000 students
       .from("fee_status")
       .select(
         "id, student_id, amount_due, amount_paid, status, due_date, paid_date, student:student_id(full_name, gr_number, class_section:class_section_id(name, class:class_id(name)))",

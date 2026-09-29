@@ -7692,6 +7692,65 @@ await check("130. a teacher's remark locks when the office finalizes, and at the
   }
 });
 
+await check("131. row-cap canary: the biggest hifz section's round-up sees its newest entry", async () => {
+  // 29 Sep: Hifz II crossed 1000 hifz_progress rows and the round-up's
+  // unpaged select silently dropped the NEWEST rows — the qari heard a
+  // child minutes earlier, the history dialog showed it, the chips said
+  // he hadn't. The TEACHER caught it, not us. This canary replays that
+  // exact failure against live data: find the section with the most
+  // rows, ask the endpoint for its round-up, and demand that the child
+  // holding the section's newest SQL row shows that row as lastEntry.
+  // If any future refactor loses the paging, the newest rows fall off
+  // and this goes red the week a section crosses 1000 — BEFORE a
+  // teacher meets it. Read-only; scans real sections on purpose,
+  // because the Sandbox can never cross 1000 rows.
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+
+  const { data: secs } = await admin.from("class_section")
+    .select("id, name, schedule_key, class:class_id!inner(org_id, kind)")
+    .eq("class.org_id", ORG);
+  const hifzSecs = ((secs ?? []) as any[]).filter((s) =>
+    s.schedule_key !== "sandbox" && (s.schedule_key === "hifz" || s.class?.kind === "hifz"));
+  assert(hifzSecs.length > 0, "the school must have hifz sections");
+
+  // The section with the most hifz rows — the first to meet any cap.
+  let biggest: { id: string; name: string; rows: number } | null = null;
+  for (const s of hifzSecs) {
+    const { data: stus } = await admin.from("student")
+      .select("id").eq("class_section_id", s.id).eq("status", "active");
+    const ids = ((stus ?? []) as any[]).map((x) => x.id);
+    if (!ids.length) continue;
+    const { count } = await admin.from("hifz_progress")
+      .select("id", { count: "exact", head: true }).in("student_id", ids);
+    if (!biggest || (count ?? 0) > biggest.rows) {
+      biggest = { id: s.id, name: s.name, rows: count ?? 0 };
+    }
+  }
+  assert(biggest, "no hifz section has students");
+  // Under 1000 rows even unpaged code passes — the canary only bites
+  // past the cap. Still run it; note the headroom either way.
+  console.log(`      canary section: ${biggest!.name} (${biggest!.rows} rows${biggest!.rows > 1000 ? ", past the cap - canary live" : ", under the cap - canary dormant"})`);
+
+  // SQL truth: the newest row in the section and the child who holds it.
+  const { data: stus2 } = await admin.from("student")
+    .select("id").eq("class_section_id", biggest!.id).eq("status", "active");
+  const ids2 = ((stus2 ?? []) as any[]).map((x) => x.id);
+  const { data: newest } = await admin.from("hifz_progress")
+    .select("student_id, recorded_at").in("student_id", ids2)
+    .order("recorded_at", { ascending: false }).limit(1).maybeSingle();
+  if (!newest) return; // a section with students but no rows: nothing to canary
+
+  const r = await api(admin2.token,
+    `/school/orgs/${ORG}/sections/${biggest!.id}/hifz-progress/summary`);
+  assert(r.status === 200, `round-up must load, got ${r.status}`);
+  const j = await r.json();
+  const row = (j.students ?? []).find((x: any) => x.studentId === (newest as any).student_id);
+  assert(row, "the child holding the newest entry must be on the round-up");
+  assert(row.lastEntry === (newest as any).recorded_at,
+    `the round-up must see the section's newest entry: SQL says ${(newest as any).recorded_at}, ` +
+    `the endpoint shows ${row.lastEntry} - rows are being silently dropped (1000-row cap)`);
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
