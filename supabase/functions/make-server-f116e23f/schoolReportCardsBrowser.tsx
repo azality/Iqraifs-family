@@ -101,6 +101,11 @@ export function installReportCardsBrowser(school: Hono): void {
     }));
 
     // Sections in the caller's reach. Sandbox stays out; Hifz stays IN.
+    // Own-class reach keeps the sandbox: the list is already .in()'d to
+    // the caller's OWN sections, so nothing leaks to the office's view -
+    // and dropping it there only blinded the QA class teacher, whose one
+    // class IS the Sandbox (regression check 129 saw [], 29 Sep). No
+    // real section carries schedule_key "sandbox".
     let secQ = serviceRoleClient
       .from("class_section")
       .select("id, name, schedule_key, class:class_id(id, name, kind, org_id)");
@@ -108,7 +113,8 @@ export function installReportCardsBrowser(school: Hono): void {
     if (ownSectionIds) secQ = secQ.in("id", ownSectionIds);
     const { data: secRows } = await secQ;
     const sections = ((secRows ?? []) as any[])
-      .filter((s) => s.class?.org_id === orgId && s.schedule_key !== "sandbox")
+      .filter((s) => s.class?.org_id === orgId &&
+        (s.schedule_key !== "sandbox" || ownSectionIds !== null))
       .sort((a, b) =>
         classOrder(a.class.name) - classOrder(b.class.name) ||
         String(a.name).localeCompare(String(b.name)));
