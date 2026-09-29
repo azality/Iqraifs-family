@@ -1420,6 +1420,7 @@ export function installPhaseA(school: Hono) {
       // Arrears across ALL months - "paid this month" showed a green
       // tick over three months of unpaid fees (fees review, 17 Sep).
       const { data: owedRows } = await serviceRoleClient
+        // cap-ok: one child's unpaid months
         .from("fee_status").select("amount_due, amount_paid")
         .eq("student_id", studentId).in("status", ["unpaid", "partial"]);
       let owedTotal = 0;

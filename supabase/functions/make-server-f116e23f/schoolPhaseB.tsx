@@ -27,6 +27,7 @@
 //     PATCH  /school/orgs/:orgId/roster-requests/:requestId
 // =============================================================================
 
+import { allRows } from "./pagedRows.ts";
 import type { Hono } from "npm:hono";
 import {
   serviceRoleClient,
@@ -366,6 +367,7 @@ export function installPhaseB(school: Hono): void {
     }
 
     const { data, error } = await serviceRoleClient
+      // cap-ok: one section x one day's roll call
       .from("school_attendance")
       .select(
         "id, student_id, status, notes, attendance_date, recorded_by, left_early_at, left_early_reason, student:student_id(id, full_name, gr_number)",
@@ -383,6 +385,7 @@ export function installPhaseB(school: Hono): void {
     // and a rejected/cancelled request disappears from here.
     // (Approved-only before that: pilot review, 7 Sep.)
     const { data: notified } = await serviceRoleClient
+      // cap-ok: pending or approved student leave overlapping one day
       .from("time_off_request")
       .select("subject_id, reason, status, kind, start_date, end_date")
       .eq("org_id", orgId)
@@ -612,6 +615,7 @@ export function installPhaseB(school: Hono): void {
     if (stu.org_id !== orgId) return c.json({ error: "student not in this org" }, 404);
 
     let q = serviceRoleClient
+      // cap-ok: one child's attendance history, about 190 rows a school year; page within 4 years
       .from("school_attendance")
       .select("id, attendance_date, status, notes, class_section_id, recorded_by")
       .eq("student_id", studentId)
@@ -792,14 +796,18 @@ export function installPhaseB(school: Hono): void {
     const gate = await requireTeacherOfSection(userId, orgId, sectionId, PHASE_B_GATE_OPTS);
     if (!gate.ok) return c.json({ error: gate.error }, gate.status);
 
-    let q = serviceRoleClient
-      .from("school_attendance")
-      .select("student_id, status, student:student_id(id, full_name, gr_number)")
-      .eq("class_section_id", sectionId);
-    if (startDate) q = q.gte("attendance_date", startDate);
-    if (endDate) q = q.lte("attendance_date", endDate);
-
-    const { data, error } = await q;
+    // PAGED (29 Sep): with no dates this is a section's WHOLE register,
+    // and one section is already past 1,017 rows — the silent 1000-row
+    // cap was days from under-counting attendance summaries.
+    const { rows: data, error } = await allRows((from, to) => {
+      let q = serviceRoleClient
+        .from("school_attendance")
+        .select("student_id, status, student:student_id(id, full_name, gr_number)")
+        .eq("class_section_id", sectionId);
+      if (startDate) q = q.gte("attendance_date", startDate);
+      if (endDate) q = q.lte("attendance_date", endDate);
+      return q.order("id").range(from, to);
+    });
     if (error) return c.json({ error: error.message }, 500);
 
     type Bucket = {
@@ -990,6 +998,7 @@ export function installPhaseB(school: Hono): void {
     if (stu.org_id !== orgId) return c.json({ error: "student not in this org" }, 404);
 
     let q = serviceRoleClient
+      // cap-ok: one child's behavior notes
       .from("behavior_note")
       .select("id, kind, category, points, notes, observed_at, class_section_id, recorded_by")
       .eq("student_id", studentId)
@@ -1036,6 +1045,7 @@ export function installPhaseB(school: Hono): void {
     if (!gate.ok) return c.json({ error: gate.error }, gate.status);
 
     let q = serviceRoleClient
+      // cap-ok: one section's behavior notes; about 15 a month at pilot pace, revisit if logging takes off
       .from("behavior_note")
       .select(
         "id, student_id, kind, category, points, notes, observed_at, recorded_by, student:student_id(full_name, gr_number)",

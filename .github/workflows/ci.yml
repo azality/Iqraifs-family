@@ -28,6 +28,11 @@ jobs:
       # missing-import ReferenceErrors ship.)
       - run: npm run typecheck
 
+      # Gate: no unbounded select on an event table (Supabase silently
+      # returns at most 1000 rows — this class of bug shipped three times,
+      # the last one caught by the Hifz teacher, not by us).
+      - run: npm run check:caps
+
       # The unit tests never ran here, so every rule they pin — the two
       # product hostnames, the para ranges, the permission matrix — was
       # only ever checked on a laptop. Vitest only; the Deno backend

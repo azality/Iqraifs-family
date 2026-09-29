@@ -206,6 +206,7 @@ async function assembleReportCard(
 
   const { data: scores } = examIds.length
     ? await serviceRoleClient
+        // cap-ok: one child x one term's exams
         .from("exam_subject_score")
         .select("*, class_subject:class_subject_id(id, name, elective_group)")
         .eq("student_id", studentId)
@@ -296,6 +297,7 @@ async function assembleReportCard(
   const startD = (term as any).start_date;
   const endD = (term as any).end_date;
   const { data: att } = await serviceRoleClient
+    // cap-ok: one child x one term's attendance days
     .from("school_attendance")
     .select("attendance_date, status")
     .eq("student_id", studentId)
@@ -349,6 +351,7 @@ async function assembleReportCard(
 
   // ── Behavior in term window ──
   const { data: beh } = await serviceRoleClient
+    // cap-ok: one child x one term's behavior notes
     .from("behavior_note")
     .select("kind, points")
     .eq("student_id", studentId)
@@ -366,6 +369,7 @@ async function assembleReportCard(
   // sabaq (new memorization) ayahs counted via (ayah_from, ayah_to);
   // sabqi/manzil = revision; quality + missed tracked per entry.
   const { data: hifz } = await serviceRoleClient
+    // cap-ok: one child x one term's hifz entries, about 200 rows
     .from("hifz_progress")
     .select("surah_number, ayah_from, ayah_to, kind, quality, missed, recorded_at")
     .eq("student_id", studentId)
@@ -967,6 +971,7 @@ export function installReportCard(school: Hono): void {
       if ((stu as any)?.org_id) await applyScheduledPublish((stu as any).org_id);
     }
     const { data: cards } = await serviceRoleClient
+      // cap-ok: one child's published cards
       .from("term_report_card")
       .select(
         "id, term_id, published_at, term:term_id(name, start_date, end_date, archived_at)",

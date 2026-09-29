@@ -158,6 +158,7 @@ export function installReportCardsBrowser(school: Hono): void {
     const published = new Map<string, string>();
     if (kidIds.length) {
       const { data: cards } = await serviceRoleClient
+        // cap-ok: one term's cards for one section, roster-sized
         .from("term_report_card")
         .select("student_id, finalized_at, published_at")
         .eq("term_id", termId).in("student_id", kidIds);

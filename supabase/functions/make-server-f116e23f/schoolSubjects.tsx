@@ -434,6 +434,7 @@ export function installSubjects(school: Hono) {
       // Bulk-fetch graded counts per assignment.
       const gradedByAssignment = new Map<string, number>();
       const { data: grades } = await serviceRoleClient
+        // cap-ok: grades for one section's assignments, 234 max today; watch
         .from("grade")
         .select("assignment_id")
         .in("assignment_id", aIds);

@@ -1000,6 +1000,7 @@ export function installAnnounce(school: Hono): void {
     }
 
     const { data: comps, error: compErr } = await serviceRoleClient
+      // cap-ok: one lesson's completions, at most the section roster
       .from("lesson_completion")
       .select("student_id, completed_at")
       .eq("lesson_id", lessonId);
@@ -1058,6 +1059,7 @@ export function installAnnounce(school: Hono): void {
     }
 
     const { data, error } = await serviceRoleClient
+      // cap-ok: one child's fee months, 12 rows a year
       .from("fee_status")
       .select("*")
       .eq("student_id", studentId)

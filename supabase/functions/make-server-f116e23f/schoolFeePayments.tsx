@@ -61,6 +61,7 @@ export async function recomputeFeeFromLedger(feeId: string): Promise<any> {
     .from("fee_status").select("*").eq("id", feeId).maybeSingle();
   if (!fee) return null;
   const { data: pays } = await serviceRoleClient
+    // cap-ok: one voucher's payments, a handful
     .from("fee_payment")
     .select("amount, paid_on")
     .eq("fee_status_id", feeId)
@@ -86,6 +87,7 @@ export async function paymentsByFeeId(feeIds: string[]): Promise<Map<string, any
   const out = new Map<string, any[]>();
   if (feeIds.length === 0) return out;
   const { data } = await serviceRoleClient
+    // cap-ok: payments for the vouchers just listed, bounded upstream
     .from("fee_payment")
     .select("*")
     .in("fee_status_id", feeIds)
@@ -129,6 +131,7 @@ export async function outstandingByStudent(
   upToPeriod?: string,
 ): Promise<Record<string, StudentOutstandingRow>> {
   const { data } = await serviceRoleClient
+    // cap-ok: open vouchers per org, one row per child per unpaid month; watch at multi-campus
     .from("fee_status")
     .select("id, student_id, period, amount_due, amount_paid, status, due_date, student:student_id(class_section:class_section_id(schedule_key))")
     .eq("org_id", orgId)
@@ -157,6 +160,7 @@ export async function outstandingByStudent(
   const ids = Object.keys(out);
   if (ids.length) {
     const { data: pays } = await serviceRoleClient
+      // cap-ok: recent payments for the children listed on one screen
       .from("fee_payment")
       .select("student_id, amount, paid_on, method")
       .eq("org_id", orgId)
@@ -493,6 +497,7 @@ export function installFeePayments(school: Hono): void {
       targets = [{ id: (fee as any).id, owed: Number.POSITIVE_INFINITY }];
     } else {
       const { data: owedRows } = await serviceRoleClient
+        // cap-ok: one child's open months
         .from("fee_status")
         .select("id, period, amount_due, amount_paid")
         .eq("student_id", studentId)

@@ -204,6 +204,7 @@ export function installExamMarks(school: Hono): void {
     );
 
     const { data: scoreRows } = await serviceRoleClient
+      // cap-ok: one exam's component scores for one section, roster x components
       .from("exam_component_score")
       .select("component_id, student_id, obtained, absent")
       .in("student_id", ids);
@@ -290,6 +291,7 @@ export function installExamMarks(school: Hono): void {
     // Read back so the caller gets the totals the server computed rather
     // than adding up on its own and drifting.
     const { data: after } = await serviceRoleClient
+      // cap-ok: one child x one exam's components
       .from("exam_component_score")
       .select("component_id, obtained")
       .eq("student_id", studentId)
