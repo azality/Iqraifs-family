@@ -18,7 +18,8 @@ export type FindingKind =
   | "subject_strong" | "subject_weak" | "subject_failed" | "paper_gap"
   | "attendance_perfect" | "attendance_concern"
   | "trend_up" | "trend_down"
-  | "hifz_area_weak" | "hifz_area_strong";
+  | "hifz_area_weak" | "hifz_area_strong"
+  | "behavior_praised" | "behavior_concern_pattern";
 
 export type Severity = "strength" | "watch" | "concern";
 
@@ -51,7 +52,23 @@ export interface FindingsInput {
   hifz?: Record<string, Record<string, number>> | null;
   /** Same child's overall percentage in the previous term, when there is one. */
   priorOverallPct?: number | null;
+  /** This term's behavior notes, grouped by the school's own category
+   *  ("Akhlaq", "Late Assignment", …). 29 Sep: teachers were told their
+   *  notes would shape their remarks — this is what makes that true. */
+  behavior?: {
+    positive: number;
+    concern: number;
+    /** Per category, so a pattern can be named rather than counted. */
+    byCategory?: Array<{ category: string; positive: number; concern: number }>;
+  } | null;
 }
+
+/** Praise worth a line on a report card, rather than a single nice day. */
+const BEHAVIOR_MIN = 3;
+/** A concern in ONE category this many times is a pattern, not an incident.
+ *  Deliberately higher than the praise floor: naming a child's weakness
+ *  should need more evidence than naming their strength. */
+const BEHAVIOR_PATTERN = 4;
 
 /** A subject this far from the child's OWN average is worth naming. */
 const SUBJECT_GAP = 12;
@@ -202,6 +219,44 @@ export function computeFindings(input: FindingsInput): Finding[] {
         en: `${label.en}: ${excellent + good} of ${rated} entries rated good or better.`,
         ur: `${label.ur}: ${rated} میں سے ${excellent + good} کی کیفیت اچھی یا بہتر رہی۔`,
         data: { area: kind, good: excellent + good, rated, goodRate: r1(goodRate) },
+      });
+    }
+  }
+
+  // ── Behavior (29 Sep) ────────────────────────────────────────────────
+  // A teacher's notes are the only part of a report card that comes from
+  // watching the child rather than marking them, so they belong here. Two
+  // deliberate restraints: a pattern needs REPEATS before it is named (one
+  // late assignment is an incident, not a trait), and the wording describes
+  // what was observed — never what the child "is".
+  const b = input.behavior;
+  if (b && (b.positive > 0 || b.concern > 0)) {
+    const cats = b.byCategory ?? [];
+    if (b.positive >= BEHAVIOR_MIN) {
+      // Name the category the praise clustered in, when one did.
+      const top = cats.filter((c) => c.positive > 0)
+        .sort((x, y) => y.positive - x.positive)[0];
+      const where = top && top.positive >= BEHAVIOR_MIN ? top.category : null;
+      out.push({
+        kind: "behavior_praised", severity: "strength",
+        en: where
+          ? `Praised ${b.positive} times this term, most often for ${where}.`
+          : `Praised ${b.positive} times this term by their teachers.`,
+        ur: where
+          ? `اس مدت میں ${b.positive} مرتبہ تعریف ہوئی، سب سے زیادہ ${where} کے لیے۔`
+          : `اس مدت میں اساتذہ کی جانب سے ${b.positive} مرتبہ تعریف ہوئی۔`,
+        data: { positive: b.positive, ...(where ? { category: where } : {}) },
+      });
+    }
+    // Only a REPEATED concern in one category earns a line.
+    const pattern = cats.filter((c) => c.concern >= BEHAVIOR_PATTERN)
+      .sort((x, y) => y.concern - x.concern)[0];
+    if (pattern) {
+      out.push({
+        kind: "behavior_concern_pattern", severity: "watch",
+        en: `${pattern.category} came up ${pattern.concern} times this term - worth agreeing one small routine with them.`,
+        ur: `${pattern.category} کا معاملہ اس مدت میں ${pattern.concern} مرتبہ آیا — اس پر ایک چھوٹا سا معمول طے کرنا مفید ہوگا۔`,
+        data: { category: pattern.category, times: pattern.concern },
       });
     }
   }

@@ -169,3 +169,97 @@ Deno.test("isNotable: an average child is not notable, a real gap is", () => {
   assertEquals(isNotable(computeFindings({ ...base, overallPct: 70, subjects: [{ name: "Maths", percentage: 71 }] })), false);
   assertEquals(isNotable(computeFindings({ ...base, overallPct: 70, subjects: [{ name: "Urdu", percentage: 39 }] })), true);
 });
+
+// ── Behavior findings (29 Sep) ───────────────────────────────────────────
+// Teachers were told their notes would shape their remarks. These are the
+// rules that make that true WITHOUT letting a tally libel a child.
+const bare = {
+  subjects: [{ name: "Maths", percentage: 70 }],
+  overallPct: 70,
+  passMarkPct: 40,
+};
+
+Deno.test("praise is named once there is enough of it, with the area it clustered in", () => {
+  const f = computeFindings({
+    ...bare,
+    behavior: {
+      positive: 6, concern: 0,
+      byCategory: [
+        { category: "Akhlaq", positive: 4, concern: 0 },
+        { category: "Homework", positive: 2, concern: 0 },
+      ],
+    },
+  });
+  const praise = f.find((x) => x.kind === "behavior_praised");
+  assertEquals(praise?.severity, "strength");
+  assertEquals(praise?.en.includes("6 times"), true);
+  assertEquals(praise?.en.includes("Akhlaq"), true);
+  assertEquals(praise?.ur.includes("Akhlaq"), true);
+});
+
+Deno.test("a single good day is not a report-card finding", () => {
+  const f = computeFindings({
+    ...bare,
+    behavior: { positive: 2, concern: 0, byCategory: [{ category: "Akhlaq", positive: 2, concern: 0 }] },
+  });
+  assertEquals(f.some((x) => x.kind === "behavior_praised"), false);
+});
+
+Deno.test("praise with no dominant category still counts, without naming one", () => {
+  const f = computeFindings({
+    ...bare,
+    behavior: {
+      positive: 4, concern: 0,
+      byCategory: [
+        { category: "Akhlaq", positive: 2, concern: 0 },
+        { category: "Homework", positive: 2, concern: 0 },
+      ],
+    },
+  });
+  const praise = f.find((x) => x.kind === "behavior_praised");
+  assertEquals(praise?.en, "Praised 4 times this term by their teachers.");
+});
+
+Deno.test("one concern is an incident; a repeated one is a pattern worth naming", () => {
+  const once = computeFindings({
+    ...bare,
+    behavior: { positive: 0, concern: 2, byCategory: [{ category: "Late Assignment", positive: 0, concern: 2 }] },
+  });
+  assertEquals(once.some((x) => x.kind === "behavior_concern_pattern"), false);
+
+  const pattern = computeFindings({
+    ...bare,
+    behavior: { positive: 0, concern: 5, byCategory: [{ category: "Late Assignment", positive: 0, concern: 5 }] },
+  });
+  const p = pattern.find((x) => x.kind === "behavior_concern_pattern");
+  assertEquals(p?.severity, "watch");
+  assertEquals(p?.en.includes("Late Assignment"), true);
+  assertEquals(p?.en.includes("5 times"), true);
+  // Describes what happened and what to do — never what the child IS.
+  assertEquals(/lazy|careless|bad|poor student/i.test(p?.en ?? ""), false);
+});
+
+Deno.test("concerns spread thinly across categories name no pattern", () => {
+  // Five concerns, but no single area repeated enough to be a trait.
+  const f = computeFindings({
+    ...bare,
+    behavior: {
+      positive: 0, concern: 5,
+      byCategory: [
+        { category: "Late Assignment", positive: 0, concern: 2 },
+        { category: "Attendance", positive: 0, concern: 2 },
+        { category: "Uniform", positive: 0, concern: 1 },
+      ],
+    },
+  });
+  assertEquals(f.some((x) => x.kind === "behavior_concern_pattern"), false);
+});
+
+Deno.test("a child with no notes gets no behavior finding at all", () => {
+  assertEquals(computeFindings(bare).some((x) => x.kind.startsWith("behavior")), false);
+  assertEquals(
+    computeFindings({ ...bare, behavior: { positive: 0, concern: 0 } })
+      .some((x) => x.kind.startsWith("behavior")),
+    false,
+  );
+});

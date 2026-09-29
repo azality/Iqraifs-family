@@ -345,15 +345,25 @@ async function assembleReportCard(
   // ── Behavior in term window ──
   const { data: beh } = await serviceRoleClient
     .from("behavior_note")
-    .select("kind, points")
+    .select("kind, points, category")
     .eq("student_id", studentId)
     .gte("observed_at", startD + "T00:00:00")
     .lte("observed_at", endD + "T23:59:59.999Z");
   let positive = 0, concern = 0, netPoints = 0;
+  // Category tallies too (29 Sep): the findings engine names the area the
+  // praise clustered in, and only calls a concern a PATTERN when one
+  // category repeats. Counting alone could never say either.
+  const behByCat = new Map<string, { category: string; positive: number; concern: number }>();
   for (const b of (beh ?? []) as any[]) {
     if (b.kind === "positive") positive++;
     else if (b.kind === "concern") concern++;
     netPoints += Number(b.points ?? 0);
+    const cat = (b.category ?? "").toString().trim();
+    if (!cat) continue;
+    const row = behByCat.get(cat) ?? { category: cat, positive: 0, concern: 0 };
+    if (b.kind === "positive") row.positive++;
+    else if (b.kind === "concern") row.concern++;
+    behByCat.set(cat, row);
   }
 
   // ── Hifz in term window ──
@@ -573,6 +583,12 @@ async function assembleReportCard(
             ? { present, absent, late, total: totalAtt }
             : null,
           hifz: isMemorizer ? qualityByKind : null,
+          // The teacher's own observations of the child (29 Sep). Teachers
+          // were told their notes would shape their remarks; until this
+          // line that was not true.
+          behavior: (positive > 0 || concern > 0)
+            ? { positive, concern, byCategory: [...behByCat.values()] }
+            : null,
           // Trend needs the previous term's overall on the SAME weighted
           // basis; wiring it needs the aggregation extracted, and the
           // 1st Assessment is IFS's first marked term anyway. Left for
