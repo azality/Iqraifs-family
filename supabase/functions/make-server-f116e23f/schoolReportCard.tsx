@@ -46,15 +46,20 @@ import { remarkLock, remarkLockMessage, type RemarkLock } from "./remarksLock.ts
 import { orgPassMarkPct, isFailing, failedSubjectNames, failedTerm } from "./passMark.ts";
 
 async function isClassTeacherOfStudent(userId: string, studentId: string): Promise<boolean> {
-  const { data: stu } = await serviceRoleClient
+  // 29 Sep: this used to ALSO embed class:class_id(class_teacher_user_id),
+  // but `class` has no such column - the teacher assignment lives on the
+  // SECTION alone. The bad embed made PostgREST error, `data` came back
+  // null with the error swallowed, and every class teacher was refused -
+  // caught by regression checks 129/130, not by a teacher, which is the
+  // point of running them.
+  const { data: stu, error } = await serviceRoleClient
     .from("student")
-    .select("class_section:class_section_id(class_teacher_user_id, class:class_id(class_teacher_user_id))")
+    .select("class_section:class_section_id(class_teacher_user_id)")
     .eq("id", studentId)
     .maybeSingle();
-  if (!stu) return false;
-  const sec = (stu as any).class_section;
-  if (!sec) return false;
-  return sec.class_teacher_user_id === userId || sec.class?.class_teacher_user_id === userId;
+  if (error) console.error("isClassTeacherOfStudent:", error.message);
+  const sec = (stu as any)?.class_section;
+  return sec?.class_teacher_user_id === userId;
 }
 
 // ─── Grade scale (configurable per org, PR feat/grade-scales) ─────────

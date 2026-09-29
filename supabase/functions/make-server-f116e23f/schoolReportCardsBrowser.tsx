@@ -31,19 +31,23 @@ import { hasAdminOrPrincipal, inchargeClassIds } from "./schoolAuth.ts";
 import { classOrder } from "./markingProgress.ts";
 import { resolveMarkingTerm } from "./schoolMarkingProgress.tsx";
 
-/** Sections this user is CLASS TEACHER of — the same two places the card's
- *  own permission check reads: the section's own class_teacher_user_id, or
- *  the class's, for a one-section class where the school set it there.
- *  Subject teaching does not count: a maths teacher writes marks, not the
- *  class-teacher remark. */
+/** Sections this user is CLASS TEACHER of — the same place the card's own
+ *  permission check reads: the section's class_teacher_user_id. Subject
+ *  teaching does not count: a maths teacher writes marks, not the
+ *  class-teacher remark.
+ *
+ *  29 Sep: this used to also embed class:class_id(class_teacher_user_id),
+ *  a column that does not exist. PostgREST errored, the error was
+ *  swallowed, and EVERY class teacher was 403'd from the browser since
+ *  the day the feature shipped — caught by regression checks 129/130. */
 async function classTeacherSectionIds(userId: string, orgId: string): Promise<string[]> {
-  const { data } = await serviceRoleClient
+  const { data, error } = await serviceRoleClient
     .from("class_section")
-    .select("id, class_teacher_user_id, class:class_id(org_id, class_teacher_user_id)");
+    .select("id, class:class_id(org_id)")
+    .eq("class_teacher_user_id", userId);
+  if (error) console.error("classTeacherSectionIds:", error.message);
   return ((data ?? []) as any[])
-    .filter((s) =>
-      s.class?.org_id === orgId &&
-      (s.class_teacher_user_id === userId || s.class?.class_teacher_user_id === userId))
+    .filter((s) => s.class?.org_id === orgId)
     .map((s) => s.id);
 }
 
