@@ -7628,9 +7628,19 @@ await check("130. a teacher's remark locks when the office finalizes, and at the
   const { data: termBefore } = await admin.from("academic_term")
     .select("remarks_deadline_at").eq("id", term!.id).single();
   const originalDl = (termBefore as any).remarks_deadline_at;
+  // The standing QA fixture marks the Sandbox marks_deadline_off on every
+  // live term, and BY DESIGN that also waives the remarks deadline ("an
+  // exempt class has no cutoff"). Lift it here or the deadline legs can
+  // never lock; restore whatever was there in finally.
+  const { data: exBefore } = await admin.from("term_class_schedule")
+    .select("marks_deadline_off").eq("term_id", term!.id)
+    .eq("class_id", sandboxClass.id).maybeSingle();
   const url = `/school/orgs/${ORG}/students/${pStu1}/terms/${term!.id}/report-card`;
 
   try {
+    await admin.from("term_class_schedule").upsert({
+      org_id: ORG, term_id: term!.id, class_id: sandboxClass.id, marks_deadline_off: false,
+    }, { onConflict: "term_id,class_id" });
     await admin.from("class_section")
       .update({ class_teacher_user_id: teacher.id }).eq("id", sandboxSec.id);
     await admin.from("academic_term")
@@ -7689,6 +7699,10 @@ await check("130. a teacher's remark locks when the office finalizes, and at the
   } finally {
     await admin.from("academic_term")
       .update({ remarks_deadline_at: originalDl }).eq("id", term!.id);
+    await admin.from("term_class_schedule").upsert({
+      org_id: ORG, term_id: term!.id, class_id: sandboxClass.id,
+      marks_deadline_off: !!(exBefore as any)?.marks_deadline_off,
+    }, { onConflict: "term_id,class_id" });
     await admin.from("class_section")
       .update({ class_teacher_user_id: originalCt }).eq("id", sandboxSec.id);
     await admin.from("term_report_card").delete()
