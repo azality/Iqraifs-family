@@ -24,6 +24,7 @@
 //   GET /school/pin-me/students/:studentId/dashboard
 // =============================================================================
 
+import { allRows } from "./pagedRows.ts";
 import type { Hono, Context } from "npm:hono";
 import { applyScheduledPublish } from "./schoolAssessment.tsx";
 import { serviceRoleClient } from "./middleware.tsx";
@@ -603,6 +604,7 @@ export function installPortal(school: Hono): void {
     const completed = new Set<string>();
     if (lessonIds.length > 0) {
       const { data: comps } = await serviceRoleClient
+        // cap-ok: one child's completions for the lessons shown
         .from("lesson_completion")
         .select("lesson_id")
         .eq("student_id", studentId)
@@ -878,6 +880,7 @@ export function installPortal(school: Hono): void {
     // 1. Fees due — one item per child with an owed, due month.
     if (studentIds.length) {
       const { data: feeRows } = await serviceRoleClient
+        // cap-ok: open vouchers for one parent's children
         .from("fee_status")
         .select("student_id, period, amount_due, amount_paid, status, due_date, students:student_id(full_name)")
         .in("student_id", studentIds)
@@ -928,6 +931,7 @@ export function installPortal(school: Hono): void {
       const subjectByThread = new Map<string, string>();
       if (replyRows.length) {
         const { data: firsts } = await serviceRoleClient
+          // cap-ok: thread subjects for this parent's replies
           .from("parent_message")
           .select("thread_id, subject, created_at")
           .in("thread_id", replyRows.map((m) => m.thread_id))
@@ -1344,14 +1348,18 @@ export function installPortal(school: Hono): void {
     }
 
     // For the summary use ALL rows (not the limited slice) so totals stay
-    // correct regardless of pagination params.
-    const { data: allRows } = await serviceRoleClient
-      .from("hifz_progress")
-      .select("surah_number, ayah_from, ayah_to, kind, recorded_at, juz_number")
-      .eq("student_id", studentId)
-      .order("recorded_at", { ascending: false });
+    // correct regardless of pagination params. PAGED (29 Sep): a hafiz's
+    // full history crosses the silent 1000-row cap mid-programme.
+    const { rows: allHifzRows } = await allRows((from, to) =>
+      serviceRoleClient
+        .from("hifz_progress")
+        .select("surah_number, ayah_from, ayah_to, kind, recorded_at, juz_number")
+        .eq("student_id", studentId)
+        .order("recorded_at", { ascending: false })
+        .order("id")
+        .range(from, to));
 
-    const rows = (allRows ?? []) as Array<{
+    const rows = allHifzRows as Array<{
       surah_number: number;
       ayah_from: number;
       ayah_to: number;
@@ -1723,6 +1731,7 @@ export function installPortal(school: Hono): void {
     let attendancePct = 0;
     try {
       const { data: att } = await serviceRoleClient
+        // cap-ok: one child's attendance since a short cutoff
         .from("school_attendance")
         .select("status")
         .eq("student_id", studentId)
@@ -1744,6 +1753,7 @@ export function installPortal(school: Hono): void {
     let averageGrade: number | null = null;
     try {
       const { data: grades } = await serviceRoleClient
+        // cap-ok: one child's grades
         .from("grade")
         .select("score, assignment:assignment_id(max_score, weight)")
         .eq("student_id", studentId);
@@ -1766,11 +1776,15 @@ export function installPortal(school: Hono): void {
     // ---- Hifz totals ----
     let ayahsMemorized = 0;
     try {
-      const { data: hifz } = await serviceRoleClient
-        .from("hifz_progress")
-        .select("surah_number, ayah_from, ayah_to, kind, recorded_at, juz_number")
-        .eq("student_id", studentId);
-      const totals = computeMemorizedTotals((hifz ?? []) as any);
+      // PAGED (29 Sep): full history, crosses the 1000-row cap mid-programme.
+      const { rows: hifz } = await allRows((from, to) =>
+        serviceRoleClient
+          .from("hifz_progress")
+          .select("surah_number, ayah_from, ayah_to, kind, recorded_at, juz_number")
+          .eq("student_id", studentId)
+          .order("id")
+          .range(from, to));
+      const totals = computeMemorizedTotals(hifz as any);
       ayahsMemorized = totals.ayahsMemorized;
     } catch (_err) { /* graceful 0 */ }
 
@@ -1778,6 +1792,7 @@ export function installPortal(school: Hono): void {
     let behaviorScore = 0;
     try {
       const { data: notes } = await serviceRoleClient
+        // cap-ok: one child's recent behavior points
         .from("behavior_note")
         .select("points")
         .eq("student_id", studentId)
@@ -2014,6 +2029,7 @@ export function installPortal(school: Hono): void {
       if (mine.length > 0) {
         const assignIds = mine.map((a) => a.id);
         const { data: gradedRows } = await serviceRoleClient
+          // cap-ok: one child x the assignments shown
           .from("grade")
           .select("assignment_id")
           .eq("student_id", studentId)
@@ -2039,6 +2055,7 @@ export function installPortal(school: Hono): void {
     // Fees are family business — never shown to a child's own login.
     if (g.subject.subjectType === "parent") {
       const { data: rows } = await serviceRoleClient
+        // cap-ok: one child's open fee months
         .from("fee_status")
         .select("amount_due, amount_paid, period, due_date, status")
         .eq("student_id", studentId)
@@ -2369,6 +2386,7 @@ export function installPortal(school: Hono): void {
     // (no cron in this stack; the read is the trigger).
     await applyScheduledPublish(subject.orgId);
     const { data: cardRows } = await serviceRoleClient
+      // cap-ok: one child's published cards, a few per year
       .from("term_report_card")
       .select("id, principal_comment, class_teacher_comment, subject_comments, published_at, finalized_by, published_by, term:term_id(name)")
       .eq("student_id", studentId)
@@ -2498,6 +2516,7 @@ export function installPortal(school: Hono): void {
       // One query per kind keeps the IN-list scoped + indexed.
       for (const [kind, refs] of refsByKind) {
         const { data: ackRows } = await serviceRoleClient
+          // cap-ok: acks for one reader x the comment refs shown
           .from("comment_ack")
           .select("comment_ref, action")
           .eq("subject_type", subject.subjectType)
@@ -2560,6 +2579,7 @@ export function installPortal(school: Hono): void {
     }
     // Re-query the full set for response.
     const { data: rows } = await serviceRoleClient
+      // cap-ok: acks for one reader x one comment
       .from("comment_ack")
       .select("action")
       .eq("subject_type", subject.subjectType)
@@ -2608,12 +2628,14 @@ export function installPortal(school: Hono): void {
     const quizCountByAssign = new Map<string, number>();
     if (ids.length > 0) {
       const { data: subs } = await serviceRoleClient
+        // cap-ok: one child x the assignments shown
         .from("assignment_submission")
         .select("assignment_id, attachments, note, submitted_at, updated_at, reviewed_at, quiz_answers, quiz_score")
         .eq("student_id", studentId)
         .in("assignment_id", ids);
       for (const s of (subs ?? []) as any[]) subByAssign.set(s.assignment_id, s);
       const { data: grades } = await serviceRoleClient
+        // cap-ok: one child x the assignments shown
         .from("grade")
         .select("assignment_id, score, status, feedback")
         .eq("student_id", studentId)

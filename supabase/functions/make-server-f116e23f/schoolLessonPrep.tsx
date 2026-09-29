@@ -209,6 +209,7 @@ async function decorate(orgId: string, entries: EntryRow[], limit: number): Prom
   const latestLessonByTopicSection = new Map<string, LessonRow>();
   if (topicIds.length > 0 && sectionIds.length > 0) {
     const { data: lessons } = await serviceRoleClient
+      // cap-ok: lessons for chosen topics in chosen sections, timetable-sized
       .from("lesson")
       .select("id, title, lesson_date, published_at, curriculum_topic_id, class_section_id")
       .in("curriculum_topic_id", topicIds)
@@ -228,6 +229,7 @@ async function decorate(orgId: string, entries: EntryRow[], limit: number): Prom
   const dateLessonByKey = new Map<string, LessonRow & { section_subject_id: string }>();
   if (sectionIds.length > 0 && entryDates.length > 0) {
     const { data: planned } = await serviceRoleClient
+      // cap-ok: lessons for a handful of dates in chosen sections
       .from("lesson")
       .select("id, title, lesson_date, published_at, curriculum_topic_id, class_section_id, section_subject_id")
       .in("class_section_id", sectionIds)

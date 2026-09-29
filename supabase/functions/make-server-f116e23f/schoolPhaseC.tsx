@@ -22,6 +22,7 @@
 //     DELETE /school/orgs/:orgId/hifz-progress/:entryId
 // =============================================================================
 
+import { allRows } from "./pagedRows.ts";
 import type { Hono } from "npm:hono";
 import {
   serviceRoleClient,
@@ -421,6 +422,7 @@ export function installPhaseC(school: Hono): void {
     const countMap = new Map<string, number>();
     if (lessonIds.length > 0) {
       const { data: comps, error: compErr } = await serviceRoleClient
+        // cap-ok: completions for the lessons just listed
         .from("lesson_completion")
         .select("lesson_id")
         .in("lesson_id", lessonIds);
@@ -863,11 +865,14 @@ export function installPhaseC(school: Hono): void {
       !stu.hifz_coverage_complete_at && !stu.hafiz_since &&
       (body.kind === "sabaq" || body.kind === "memorized")
     ) {
-      const { data: allRows } = await serviceRoleClient
+      // PAGED (29 Sep): a memorizer's full history - the coverage check
+      // must see every row or a hafiz would never be recognized as one.
+      const { rows: allHifz } = await allRows((from, to) => serviceRoleClient
         .from("hifz_progress")
         .select("surah_number, ayah_from, ayah_to, kind, missed, juz_number")
-        .eq("student_id", stu.id);
-      const { ayahsMemorized } = computeMemorizedTotals((allRows ?? []) as any[]);
+        .eq("student_id", stu.id)
+        .order("id").range(from, to));
+      const { ayahsMemorized } = computeMemorizedTotals(allHifz as any[]);
       if (ayahsMemorized >= QURAN_AYAH_TOTAL) {
         const { error: hErr } = await serviceRoleClient
           .from("student")
@@ -978,11 +983,15 @@ export function installPhaseC(school: Hono): void {
     if (!stu) return c.json({ error: "student not found" }, 404);
     if (stu.org_id !== orgId) return c.json({ error: "student not in this org" }, 404);
 
-    const { data, error } = await serviceRoleClient
+    // PAGED (29 Sep): one child's full history; a hifz child logs ~200
+    // rows a term, so this crosses the silent 1000-row cap mid-programme.
+    const { rows: data, error } = await allRows((from, to) => serviceRoleClient
       .from("hifz_progress")
       .select("surah_number, ayah_from, ayah_to, kind, recorded_at, juz_number")
       .eq("student_id", studentId)
-      .order("recorded_at", { ascending: false });
+      .order("recorded_at", { ascending: false })
+      .order("id")
+      .range(from, to));
     if (error) return c.json({ error: error.message }, 500);
 
     const rows = (data ?? []) as Array<{

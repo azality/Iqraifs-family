@@ -112,6 +112,7 @@ export function installOffice(school: Hono) {
     const sectionsMarkedToday = new Set<string>();
     if (sectionIdsForToday.length > 0) {
       const { data: attRows } = await serviceRoleClient
+        // cap-ok: one day x today's timetabled sections
         .from("school_attendance")
         .select("class_section_id")
         .eq("attendance_date", todayIso)

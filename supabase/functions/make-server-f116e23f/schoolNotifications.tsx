@@ -193,6 +193,7 @@ export function installNotifications(school: Hono): void {
     const allowed = await enabledKinds(orgId, userId, roles as Set<string>);
 
     const { data: readRows } = await serviceRoleClient
+      // cap-ok: one user's read-marks, grows by alerts actually read
       .from("notification_read")
       .select("alert_key")
       .eq("org_id", orgId)
@@ -217,6 +218,7 @@ export function installNotifications(school: Hono): void {
     const mySections = await teacherSectionIds(userId, orgId);
     if (mySections.length > 0) {
       const { data: marked } = await serviceRoleClient
+        // cap-ok: one day x this teacher's sections
         .from("school_attendance")
         .select("class_section_id")
         .eq("org_id", orgId)

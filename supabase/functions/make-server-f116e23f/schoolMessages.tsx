@@ -137,6 +137,7 @@ export function installMessages(school: Hono): void {
     if (!g.ok) return g.resp;
     const { parentUserId, orgId } = g;
     const { data: rows } = await serviceRoleClient
+      // cap-ok: one parent's messages; tiny volumes today, revisit with usage
       .from("parent_message")
       .select("*")
       .eq("org_id", orgId)
@@ -171,6 +172,7 @@ export function installMessages(school: Hono): void {
     const threadId = c.req.param("threadId");
 
     const { data } = await serviceRoleClient
+      // cap-ok: one thread's messages
       .from("parent_message")
       .select("*")
       .eq("org_id", orgId)
@@ -296,6 +298,7 @@ export function installMessages(school: Hono): void {
       return c.json({ error: "forbidden" }, 403);
     }
     const { data: rows } = await serviceRoleClient
+      // cap-ok: org inbox; 4 messages today, revisit with usage
       .from("parent_message")
       .select("*")
       .eq("org_id", orgId)
@@ -404,6 +407,7 @@ export function installMessages(school: Hono): void {
     }
     const threadId = c.req.param("threadId");
     const { data } = await serviceRoleClient
+      // cap-ok: one thread's messages
       .from("parent_message")
       .select("*")
       .eq("org_id", orgId)

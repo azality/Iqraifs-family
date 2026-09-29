@@ -11,6 +11,7 @@
 // All routes use serviceRoleClient + app-level scope checks (no RLS).
 // =============================================================================
 
+import { allRows } from "./pagedRows.ts";
 import type { Hono } from "npm:hono";
 import {
   serviceRoleClient,
@@ -904,6 +905,7 @@ export function installPhaseCD(school: Hono): void {
     if (!authorized) return c.json({ error: "forbidden" }, 403);
 
     let q = serviceRoleClient
+      // cap-ok: one child's fee months
       .from("fee_status")
       .select("*")
       .eq("student_id", studentId)
@@ -941,19 +943,22 @@ export function installPhaseCD(school: Hono): void {
       return c.json({ error: "invalid status" }, 400);
     }
 
-    let q = serviceRoleClient
-      .from("fee_status")
-      // Pull class + section names alongside student so the table can
-      // render 'Grade 3 · 3-A' without N follow-up queries.
-      .select(
-        "*, student:student_id(id, full_name, gr_number, guardian_phone, class_section_id, class_section:class_section_id(name, schedule_key, class:class_id(name)))",
-      )
-      .eq("org_id", orgId)
-      .order("period", { ascending: false });
-    if (period) q = q.eq("period", period);
-    if (status) q = q.eq("status", status);
-
-    const { data, error } = await q;
+    // PAGED (29 Sep): unfiltered this is every child x every billed month —
+    // 475 rows today, crosses the silent 1000-row cap around December.
+    const { rows: data, error } = await allRows((from, to) => {
+      let q = serviceRoleClient
+        .from("fee_status")
+        // Pull class + section names alongside student so the table can
+        // render 'Grade 3 · 3-A' without N follow-up queries.
+        .select(
+          "*, student:student_id(id, full_name, gr_number, guardian_phone, class_section_id, class_section:class_section_id(name, schedule_key, class:class_id(name)))",
+        )
+        .eq("org_id", orgId)
+        .order("period", { ascending: false });
+      if (period) q = q.eq("period", period);
+      if (status) q = q.eq("status", status);
+      return q.order("id").range(from, to);
+    });
     if (error) return c.json({ error: error.message }, 500);
 
     let rows = data ?? [];
@@ -1853,6 +1858,7 @@ export function installPhaseCD(school: Hono): void {
     }
 
     const { data: responses, error: rErr } = await serviceRoleClient
+      // cap-ok: one form's responses, at most one per parent
       .from("form_response")
       .select("*")
       .eq("form_id", formId)
@@ -1863,6 +1869,7 @@ export function installPhaseCD(school: Hono): void {
     let values: any[] = [];
     if (responseIds.length > 0) {
       const { data: v, error: vErr } = await serviceRoleClient
+        // cap-ok: values for one form's responses; parents x fields, watch on big forms
         .from("form_response_value")
         .select("*")
         .in("response_id", responseIds);
@@ -2029,6 +2036,7 @@ export function installPhaseCD(school: Hono): void {
     const formIds = targeted.map((f: any) => f.id);
     let myResponses: any[] = [];
     if (formIds.length > 0) {
+      // cap-ok: one submitter's responses across listed forms
       let q = serviceRoleClient.from("form_response").select("form_id").in("form_id", formIds);
       if (caller.kind === "pin") {
         q = q.eq("submitter_parent_id", caller.subjectId);

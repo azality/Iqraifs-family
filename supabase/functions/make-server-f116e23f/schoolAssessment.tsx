@@ -617,6 +617,7 @@ export function installAssessment(school: Hono): void {
     let finalizedCount = 0, publishedCount = 0;
     if (stuIds.length) {
       const { data: cards } = await serviceRoleClient
+        // cap-ok: one term's cards for one section's students, roster-sized
         .from("term_report_card")
         .select("student_id, finalized_at, published_at")
         .eq("term_id", termId).in("student_id", stuIds);
@@ -1518,6 +1519,7 @@ export function installAssessment(school: Hono): void {
 
     const subjectIds = [...new Set(mine.map((r) => r.class_subject_id))];
     const { data: scores } = await serviceRoleClient
+      // cap-ok: one term x one class's subjects: roster x subjects x papers, well under 1000
       .from("exam_subject_score")
       .select("exam_id, student_id, class_subject_id, obtained_marks, absent")
       .in("exam_id", (exams as any[]).map((e) => e.id))
@@ -1690,6 +1692,7 @@ export function installAssessment(school: Hono): void {
 
     const { data: scores } = studentIds.length && subjectIds.length
       ? await serviceRoleClient
+          // cap-ok: one exam x one section, roster x subjects
           .from("exam_subject_score")
           .select("*")
           .eq("exam_id", examId)

@@ -46,15 +46,20 @@ import { remarkLock, remarkLockMessage, type RemarkLock } from "./remarksLock.ts
 import { orgPassMarkPct, isFailing, failedSubjectNames, failedTerm } from "./passMark.ts";
 
 async function isClassTeacherOfStudent(userId: string, studentId: string): Promise<boolean> {
-  const { data: stu } = await serviceRoleClient
+  // 29 Sep: this used to ALSO embed class:class_id(class_teacher_user_id),
+  // but `class` has no such column - the teacher assignment lives on the
+  // SECTION alone. The bad embed made PostgREST error, `data` came back
+  // null with the error swallowed, and every class teacher was refused -
+  // caught by regression checks 129/130, not by a teacher, which is the
+  // point of running them.
+  const { data: stu, error } = await serviceRoleClient
     .from("student")
-    .select("class_section:class_section_id(class_teacher_user_id, class:class_id(class_teacher_user_id))")
+    .select("class_section:class_section_id(class_teacher_user_id)")
     .eq("id", studentId)
     .maybeSingle();
-  if (!stu) return false;
-  const sec = (stu as any).class_section;
-  if (!sec) return false;
-  return sec.class_teacher_user_id === userId || sec.class?.class_teacher_user_id === userId;
+  if (error) console.error("isClassTeacherOfStudent:", error.message);
+  const sec = (stu as any)?.class_section;
+  return sec?.class_teacher_user_id === userId;
 }
 
 // ─── Grade scale (configurable per org, PR feat/grade-scales) ─────────
@@ -201,6 +206,7 @@ async function assembleReportCard(
 
   const { data: scores } = examIds.length
     ? await serviceRoleClient
+        // cap-ok: one child x one term's exams
         .from("exam_subject_score")
         .select("*, class_subject:class_subject_id(id, name, elective_group)")
         .eq("student_id", studentId)
@@ -291,6 +297,7 @@ async function assembleReportCard(
   const startD = (term as any).start_date;
   const endD = (term as any).end_date;
   const { data: att } = await serviceRoleClient
+    // cap-ok: one child x one term's attendance days
     .from("school_attendance")
     .select("attendance_date, status")
     .eq("student_id", studentId)
@@ -344,6 +351,7 @@ async function assembleReportCard(
 
   // ── Behavior in term window ──
   const { data: beh } = await serviceRoleClient
+    // cap-ok: one child x one term's behavior notes
     .from("behavior_note")
     .select("kind, points, category")
     .eq("student_id", studentId)
@@ -371,6 +379,7 @@ async function assembleReportCard(
   // sabaq (new memorization) ayahs counted via (ayah_from, ayah_to);
   // sabqi/manzil = revision; quality + missed tracked per entry.
   const { data: hifz } = await serviceRoleClient
+    // cap-ok: one child x one term's hifz entries, about 200 rows
     .from("hifz_progress")
     .select("surah_number, ayah_from, ayah_to, kind, quality, missed, recorded_at")
     .eq("student_id", studentId)
@@ -978,6 +987,7 @@ export function installReportCard(school: Hono): void {
       if ((stu as any)?.org_id) await applyScheduledPublish((stu as any).org_id);
     }
     const { data: cards } = await serviceRoleClient
+      // cap-ok: one child's published cards
       .from("term_report_card")
       .select(
         "id, term_id, published_at, term:term_id(name, start_date, end_date, archived_at)",

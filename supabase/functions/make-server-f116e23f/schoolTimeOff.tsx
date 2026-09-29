@@ -131,6 +131,7 @@ export function installTimeOff(school: Hono): void {
     if (!userId) return c.json({ error: "unauthenticated" }, 401);
     const orgId = c.req.param("orgId");
     const { data } = await serviceRoleClient
+      // cap-ok: one teacher's own requests
       .from("time_off_request")
       .select("*")
       .eq("org_id", orgId)
@@ -236,6 +237,7 @@ export function installTimeOff(school: Hono): void {
       if (!link) return c.json({ error: "forbidden" }, 403);
     }
     const { data } = await serviceRoleClient
+      // cap-ok: one child's leave requests
       .from("time_off_request")
       .select("*")
       .eq("subject_type", "student")
@@ -306,6 +308,7 @@ export function installTimeOff(school: Hono): void {
     }
     const status = c.req.query("status");
     let q = serviceRoleClient
+      // cap-ok: org leave requests, tens a year; watch at multi-campus
       .from("time_off_request")
       .select("*")
       .eq("org_id", orgId)
