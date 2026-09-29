@@ -707,8 +707,22 @@ export function SectionOverview() {
                     />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-baseline justify-between gap-2">
-                        <span className="text-xs font-medium text-slate-700 capitalize truncate">
-                          {n.category ?? "—"}
+                        {/* The child's NAME leads — seven "Not attend
+                            class" rows with nobody's name on them told
+                            the office nothing (Muneeb, 28 Sep). The
+                            endpoint always carried it; the card just
+                            never showed it. */}
+                        <span className="min-w-0 truncate text-xs">
+                          <Link
+                            to={`/school/orgs/${orgId}/admin/students/${n.studentId}`}
+                            className="font-semibold text-slate-800 hover:underline"
+                          >
+                            {n.studentName ?? "Unknown student"}
+                          </Link>
+                          <span className="text-slate-400"> · </span>
+                          <span className="font-medium capitalize text-slate-600">
+                            {n.category ?? "—"}
+                          </span>
                         </span>
                         <span className="text-[10px] text-slate-400 flex-shrink-0">{relativeDate(n.observedAt)}</span>
                       </div>

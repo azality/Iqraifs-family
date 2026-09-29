@@ -723,11 +723,18 @@ export function SubjectCurriculumPanel({
                         </li>
                       );
                     }
+                    // Exercises sit indented under their chapter, so a
+                    // 28-row maths list reads as chapters with their
+                    // exercises rather than 28 equal lines (28 Sep). The
+                    // "Exercise " prefix is our own upload expander's
+                    // label, so the indent keys on wording we control.
+                    const isExercise = /^(Exercise|Ex)[\s.:]/i.test(t.name);
                     return (
                       <li
                         key={t.id}
                         className={
                           "rounded border border-slate-200 px-2 py-1.5 " +
+                          (isExercise ? "ml-7 " : "") +
                           (t.completed ? "bg-emerald-50/40" : "bg-white")
                         }
                       >
