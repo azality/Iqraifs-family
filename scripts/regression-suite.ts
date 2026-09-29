@@ -7660,7 +7660,11 @@ await check("130. a teacher's remark locks when the office finalizes, and at the
     });
     assert(officeStill.status === 200, `the office is never locked, got ${officeStill.status}`);
     // And the AI button spends no token on a card nobody can save.
-    const ai = await api(teacher.token, `${url}/suggest-remarks`, { method: "POST" });
+    // (The route lives at /terms/:termId/suggest-remarks - NOT under
+    // /report-card like /comments; posting there 404s.)
+    const ai = await api(teacher.token,
+      `/school/orgs/${ORG}/students/${pStu1}/terms/${term!.id}/suggest-remarks`,
+      { method: "POST" });
     assert(ai.status === 403, `suggest must be refused on a locked card, got ${ai.status}`);
 
     // Unfinalized but past the remarks deadline: shut for a different reason.
