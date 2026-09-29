@@ -18,6 +18,7 @@ import {
 import {
   getSchoolMe,
   getSectionHifzSummary,
+  getSectionAttendance,
   setStudentQuranTrack,
   clearHifzAbsence,
   updateStudent,
@@ -25,6 +26,7 @@ import {
   listClasses,
   type QuranTrack,
   type SchoolMeResponse,
+  type SectionAttendanceEntry,
   type SectionHifzSummaryRow,
 } from "../../../utils/schoolApi";
 import { HifzLogEntry } from "./HifzLogEntry";
@@ -43,6 +45,12 @@ import {
 type SortKey = "name" | "ayahs" | "last";
 type SortDir = "asc" | "desc";
 
+function todayIsoLocal(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
   return new Date(iso).toLocaleDateString();
@@ -60,6 +68,12 @@ export function SectionHifzOverview() {
   // the roster is loaded — the dialog opens on the first student.
   const [searchParams, setSearchParams] = useSearchParams();
   const [roundConsumed, setRoundConsumed] = useState(false);
+  // Today's roll call (29 Sep, head teacher): a Hifz class opens straight
+  // onto this page — the day view links Hifz sections past the section
+  // overview — so she reached the round but never the attendance. "Class
+  // open karte hi mujhe nahi pata chal pata ke kitne aaye hain kitne nahi.
+  // Main Hifz ki baat kar rahi hoon."
+  const [todayAtt, setTodayAtt] = useState<SectionAttendanceEntry[] | null>(null);
   const [me, setMe] = useState<SchoolMeResponse | null>(null);
   const [meLoading, setMeLoading] = useState(true);
   const [students, setStudents] = useState<SectionHifzSummaryRow[]>([]);
@@ -131,6 +145,15 @@ export function SectionHifzOverview() {
       toast.error(e instanceof Error ? e.message : "Could not record the milestone.");
     }
   };
+
+  // Best-effort: a teacher without the roll-call surface still gets the
+  // round, they just see no counts.
+  useEffect(() => {
+    if (!orgId || !sectionId) return;
+    getSectionAttendance(orgId, sectionId, { date: todayIsoLocal() })
+      .then((r) => setTodayAtt(r.entries))
+      .catch(() => setTodayAtt([]));
+  }, [orgId, sectionId, reloadKey]);
 
   const refresh = () => {
     if (!orgId || !sectionId) return;
@@ -659,6 +682,54 @@ export function SectionHifzOverview() {
           </div>
         }
       />
+
+      {/* Today's roll call — the Hifz page is where the office lands when
+          they open a Hifz class, so the day's attendance has to be here
+          too, not only on the section overview they never reach. */}
+      {(() => {
+        const taken = (todayAtt?.length ?? 0) > 0;
+        let present = 0, absent = 0;
+        for (const e of todayAtt ?? []) {
+          if (e.status === "present" || e.status === "late") present += 1;
+          else if (e.status === "absent") absent += 1;
+        }
+        return (
+          <div className={
+            "flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border px-4 py-2.5 text-sm " +
+            (todayAtt !== null && !taken
+              ? "border-amber-200 bg-amber-50/60"
+              : "border-slate-200 bg-white shadow-sm")
+          }>
+            <span className="text-xs font-extrabold uppercase tracking-wide text-slate-600">
+              Attendance today
+            </span>
+            {todayAtt === null ? (
+              <span className="text-slate-400">…</span>
+            ) : taken ? (
+              <span className="font-semibold text-slate-800">
+                {present} present
+                {absent > 0 && <span className="text-rose-700"> · {absent} absent</span>}
+              </span>
+            ) : (
+              <span className="font-semibold text-amber-700">not taken yet</span>
+            )}
+            <span className="ml-auto flex items-center gap-3">
+              <Link
+                to={`/school/orgs/${orgId}/sections/${sectionId}/attendance`}
+                className="font-medium text-indigo-700 hover:underline"
+              >
+                {taken ? "Edit roll call →" : "Take roll call →"}
+              </Link>
+              <Link
+                to={`/school/orgs/${orgId}/sections/${sectionId}`}
+                className="font-medium text-slate-500 hover:text-indigo-700 hover:underline"
+              >
+                Class page →
+              </Link>
+            </span>
+          </div>
+        );
+      })()}
 
       {error && <p className="text-sm text-rose-600">{error}</p>}
 
