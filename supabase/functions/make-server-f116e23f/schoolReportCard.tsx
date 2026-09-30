@@ -45,6 +45,16 @@ import { checkOpeningAgainstAdmission } from "./admissionStart.ts";
 import { remarkLock, remarkLockMessage, type RemarkLock } from "./remarksLock.ts";
 import { orgPassMarkPct, isFailing, failedSubjectNames, failedTerm } from "./passMark.ts";
 
+/** Which paper an exam is, read from its name ("1st Assessment - Oral").
+ *  The same convention the marks sheet uses (schoolApi.paperOfExamName);
+ *  anything else returns null and the column keeps the exam's own name. */
+function examPaperKind(e: { name?: string | null }): string {
+  const n = (e?.name ?? "").toLowerCase();
+  if (/\boral\b/.test(n)) return "oral";
+  if (/\bwritten\b/.test(n)) return "written";
+  return "";
+}
+
 async function isClassTeacherOfStudent(userId: string, studentId: string): Promise<boolean> {
   // 29 Sep: this used to ALSO embed class:class_id(class_teacher_user_id),
   // but `class` has no such column - the teacher assignment lives on the
@@ -159,7 +169,7 @@ async function assembleReportCard(
     .select(
       "id, full_name, gr_number, date_of_birth, gender, photo_url, program, religion, nationality, " +
       "quran_track, hafiz_since, admission_date, " +
-      "class_section:class_section_id(name, class_teacher_user_id, hifz_teacher_user_id, class:class_id(name, kind)), " +
+      "class_section:class_section_id(name, class_teacher_user_id, hifz_teacher_user_id, class:class_id(id, name, kind)), " +
       "org_id",
     )
     .eq("id", studentId)
@@ -212,6 +222,30 @@ async function assembleReportCard(
         .eq("student_id", studentId)
         .in("exam_id", examIds)
     : { data: [] as any[] };
+
+  // What THIS class heads its paper columns with (office, 30 Sep:
+  // Classes I-VII wanted the oral column to read "Overall Learning &
+  // Participation", while VIII keeps its Quran viva and Senior keeps
+  // "Oral"). The exams are school-wide, so their names cannot carry a
+  // per-class heading, and the per-SUBJECT labels must stay as they are -
+  // they say "Oral (Mind Maths)", "Oral (viva)", "زبانی", which the marks
+  // sheet needs. So the heading is its own per-class setting.
+  //
+  // settings.report_card_paper_labels = { "<classId>": { oral: "..." } }
+  const paperLabel = new Map<string, string>(); // "oral" | "written" -> label
+  {
+    const classId = (section as any)?.class?.id ?? null;
+    if (classId) {
+      const { data: orgRow } = await serviceRoleClient
+        .from("organizations").select("settings").eq("id", orgId).maybeSingle();
+      const all = ((orgRow as any)?.settings ?? {}).report_card_paper_labels ?? {};
+      const mine = all?.[classId] ?? {};
+      for (const paper of ["oral", "written"]) {
+        const label = typeof mine?.[paper] === "string" ? mine[paper].trim() : "";
+        if (label) paperLabel.set(paper, label);
+      }
+    }
+  }
 
   // Streams: the child sits ONE subject of an elective group. A stray
   // score row for the other one - Class IX's Biology "absent" stamps on
@@ -353,15 +387,25 @@ async function assembleReportCard(
   const { data: beh } = await serviceRoleClient
     // cap-ok: one child x one term's behavior notes
     .from("behavior_note")
-    .select("kind, points")
+    .select("kind, points, category")
     .eq("student_id", studentId)
     .gte("observed_at", startD + "T00:00:00")
     .lte("observed_at", endD + "T23:59:59.999Z");
   let positive = 0, concern = 0, netPoints = 0;
+  // Category tallies too (29 Sep): the findings engine names the area the
+  // praise clustered in, and only calls a concern a PATTERN when one
+  // category repeats. Counting alone could never say either.
+  const behByCat = new Map<string, { category: string; positive: number; concern: number }>();
   for (const b of (beh ?? []) as any[]) {
     if (b.kind === "positive") positive++;
     else if (b.kind === "concern") concern++;
     netPoints += Number(b.points ?? 0);
+    const cat = (b.category ?? "").toString().trim();
+    if (!cat) continue;
+    const row = behByCat.get(cat) ?? { category: cat, positive: 0, concern: 0 };
+    if (b.kind === "positive") row.positive++;
+    else if (b.kind === "concern") row.concern++;
+    behByCat.set(cat, row);
   }
 
   // ── Hifz in term window ──
@@ -474,6 +518,10 @@ async function assembleReportCard(
       exams: ((exams ?? []) as any[]).map((e) => ({
         id: e.id, name: e.name, examType: e.exam_type,
         weight: Number(e.weight), examDate: e.exam_date,
+        /** What THIS class calls the paper, when its subjects agree on a
+         *  label (see paperLabel above). The card heads the column with
+         *  this; null falls back to the school-wide exam name. */
+        columnLabel: paperLabel.get(examPaperKind(e)) ?? null,
       })),
       academic: {
         subjects: subjects.map((s) => ({
@@ -595,6 +643,12 @@ async function assembleReportCard(
               }
             : null,
           hifz: isMemorizer ? qualityByKind : null,
+          // The teacher's own observations of the child (29 Sep). Teachers
+          // were told their notes would shape their remarks; until this
+          // line that was not true.
+          behavior: (positive > 0 || concern > 0)
+            ? { positive, concern, byCategory: [...behByCat.values()] }
+            : null,
           // Trend needs the previous term's overall on the SAME weighted
           // basis; wiring it needs the aggregation extracted, and the
           // 1st Assessment is IFS's first marked term anyway. Left for
