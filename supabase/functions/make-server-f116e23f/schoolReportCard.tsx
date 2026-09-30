@@ -588,8 +588,21 @@ async function assembleReportCard(
           // Withheld for a mid-term joiner: the denominator is their whole
           // class's, so a findings line would call a new child a poor
           // attender on arithmetic we know to be wrong.
+          // 30 Sep: this used to pass `present`, which counts ONLY the
+          // roll-call days after the register's as_of - while `total` is
+          // the whole term including the carried register. Once each
+          // class's register covered its full term, `present` became 0
+          // for nearly every child and every card read "Attendance was
+          // 0%" - on children with 61 of 61. Use the carried-inclusive
+          // totals, and derive absent as the days not present, because
+          // the register gives one total and no absent/excused split.
           attendance: totalAtt > 0 && !admissionCheck.impossible
-            ? { present, absent, late, total: totalAtt }
+            ? {
+                present: attTotals.daysPresent,
+                absent: attTotals.workingDays - attTotals.daysPresent,
+                late,
+                total: attTotals.workingDays,
+              }
             : null,
           hifz: isMemorizer ? qualityByKind : null,
           // The teacher's own observations of the child (29 Sep). Teachers

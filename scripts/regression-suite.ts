@@ -7769,6 +7769,58 @@ await check("131. row-cap canary: the biggest hifz section's round-up sees its n
     `the endpoint shows ${row.lastEntry} - rows are being silently dropped (1000-row cap)`);
 });
 
+await check("132. the attendance finding agrees with the attendance the card prints", async () => {
+  // 30 Sep: the findings input was fed `present`, which counts only the
+  // roll-call days AFTER the register's as_of, while `total` was the whole
+  // term including the carried register. Once each class's register
+  // covered its full term, `present` was 0 for nearly every child and
+  // every card carried "Attendance was 0% - missed lessons are hard to
+  // recover" — on children with 61 of 61. The card's own attendance block
+  // was right the whole time, so the two disagreeing IS the bug.
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const term = await markedTerm();
+  assert(term, "no term with papers");
+
+  // Real children across several classes, so a class-specific register
+  // shape cannot hide it.
+  const { data: kids } = await admin.from("student")
+    .select("id, full_name, gr_number, class_section:class_section_id!inner(schedule_key, class:class_id!inner(name, org_id))")
+    .eq("org_id", ORG).eq("status", "active");
+  const pool = ((kids ?? []) as any[])
+    .filter((k) => k.class_section?.schedule_key !== "sandbox")
+    .slice(0, 40);
+  assert(pool.length > 0, "no children to sample");
+
+  let checked = 0, perfect = 0;
+  for (const k of pool) {
+    const r = await api(admin2.token,
+      `/school/orgs/${ORG}/students/${k.id}/terms/${term!.id}/report-card`);
+    if (r.status !== 200) continue;
+    const card = await r.json();
+    const att = card.attendance;
+    if (!att || att.attendancePct === null || att.workingDays === 0) continue;
+    checked++;
+    const finding = (card.findings?.items ?? [])
+      .find((f: any) => f.kind === "attendance_concern");
+    if (finding) {
+      const stated = Number(finding.data?.attendancePct);
+      assert(Math.abs(stated - att.attendancePct) < 1.0,
+        `${k.full_name} (${k.gr_number}): the card prints ${att.attendancePct.toFixed(1)}% ` +
+        `(${att.daysPresent} of ${att.workingDays}) but the finding says ${stated}% — ` +
+        `the finding is reading a different numerator`);
+    }
+    // A child at full attendance must never carry a concern.
+    if (att.daysPresent === att.workingDays) {
+      perfect++;
+      assert(!finding,
+        `${k.full_name} (${k.gr_number}) was present every one of ${att.workingDays} days ` +
+        `but the card still carries an attendance concern`);
+    }
+  }
+  assert(checked >= 10, `only ${checked} cards had attendance to check`);
+  console.log(`      checked ${checked} cards (${perfect} at full attendance)`);
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
