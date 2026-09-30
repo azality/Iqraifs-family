@@ -29,11 +29,32 @@
 const PROVEN_SAFE_ROWS = 15;   // measured: fits with maximal remarks
 const A4_LIMIT_PX = 1062;      // 281mm printable at 96dpi
 
+// Read .env ourselves. The deno scripts get it via --env=.env; node does
+// not, and PowerShell has no `set -a && . ./.env`, so a plain
+// `npm run check:print` failed on the office machine (30 Sep).
+import { readFileSync } from "node:fs";
+for (const file of [".env", ".env.local"]) {
+  let text;
+  try { text = readFileSync(file, "utf8"); } catch { continue; }
+  for (const line of text.split(/\r?\n/)) {
+    const m = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
+    if (!m || line.trimStart().startsWith("#")) continue;
+    let v = m[2].trim();
+    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+      v = v.slice(1, -1);
+    }
+    if (process.env[m[1]] === undefined) process.env[m[1]] = v;
+  }
+}
+
 const url = process.env.SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const ORG = process.env.IFS_ORG_ID || "63cd5732-5db4-40e1-8fb9-60782bcfd059";
 if (!url || !key) {
-  console.error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set (see .env).");
+  console.error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set.");
+  console.error("Run this from the repo root, where .env lives:");
+  console.error("  cd C:\\Users\\MuneebZafar\\Documents\\Dev\\Iqraifs-family");
+  console.error("  npm run check:print");
   process.exit(2);
 }
 
