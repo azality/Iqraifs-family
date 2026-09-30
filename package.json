@@ -30,7 +30,8 @@
     "test:backend": "npx deno test --allow-env --no-check supabase/functions/make-server-f116e23f/",
     "test:perm": "npx deno run --allow-net --allow-env --allow-read --env=.env scripts/test-permission-boundaries.ts",
     "db:types": "tsx scripts/gen-db-types.ts",
-    "db:types:check": "tsx scripts/gen-db-types.ts --check"
+    "db:types:check": "tsx scripts/gen-db-types.ts --check",
+    "check:print": "node scripts/check-card-print-fit.mjs"
   },
   "dependencies": {
     "@capacitor/cli": "^8.1.0",

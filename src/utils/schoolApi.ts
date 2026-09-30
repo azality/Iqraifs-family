@@ -5873,7 +5873,13 @@ export interface TermReportCardResponse {
   student: { id: string; fullName: string; grNumber: string; dateOfBirth: string | null; gender: string | null; photoUrl: string | null; program: string | null; religion: string | null; nationality: string | null };
   placement: { className: string | null; sectionName: string | null; classTeacherName: string | null; classTeacherSignatureUrl?: string | null; hifzTeacherName: string | null };
   term: { id: string; name: string; startDate: string; endDate: string };
-  exams: Array<{ id: string; name: string; examType: string; weight: number; examDate: string | null }>;
+  exams: Array<{
+    id: string; name: string; examType: string; weight: number; examDate: string | null;
+    /** What THIS class calls the paper, when its subjects agree on a
+     *  label (the marks distribution the office edits). The card heads
+     *  the column with it; null falls back to the exam name. */
+    columnLabel?: string | null;
+  }>;
   academic: {
     subjects: TermReportCardSubject[];
     overall: { obtained: number; max: number; percentage: number | null; letter: string; remark: string;
