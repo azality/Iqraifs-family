@@ -28,6 +28,7 @@
 import { paperOfExam, subjectSitsExam, progressForSection } from "./markingProgress.ts";
 import { loadSitsResolver } from "./subjectStreamsLoad.ts";
 import { deadlineState, effectiveSchedule, type DeadlineState } from "./marksDeadline.ts";
+import { loadOrgBands } from "./schoolReportCard.tsx";
 import { loadExamScores, gradebookExams, resolveMarkingTerm } from "./schoolMarkingProgress.tsx";
 import type { Hono } from "npm:hono";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
@@ -251,6 +252,8 @@ function scoreToJson(r: any) {
     obtainedMarks: r.obtained_marks === null ? null : Number(r.obtained_marks),
     absent: r.absent,
     notes: r.notes,
+    /** A grade-mode subject's letter (30 Sep). Null on marks rows. */
+    gradeLetter: r.grade_letter ?? null,
   };
 }
 
@@ -1650,7 +1653,7 @@ export function installAssessment(school: Hono): void {
     // with an error, which we then silently coerce to [] downstream.
     const { data: subjects } = await serviceRoleClient
       .from("class_subject")
-      .select("id, name, sort_order, assessment_weights, elective_group")
+      .select("id, name, sort_order, assessment_weights, elective_group, assessment_mode")
       .eq("class_id", classId)
       .order("sort_order", { ascending: true });
 
@@ -1732,7 +1735,13 @@ export function installAssessment(school: Hono): void {
         id: s.id,
         name: s.name,
         assessmentWeights: s.assessment_weights ?? null,
+        /** How the subject is assessed (30 Sep): marks | grade |
+         *  pass_fail. A grade-mode column takes a letter, not a number. */
+        assessmentMode: s.assessment_mode ?? "marks",
       })),
+      // The letters a grade-mode column may take, from the school's OWN
+      // grade scale - a school with a different scale gets its letters.
+      gradeLetters: (await loadOrgBands(orgId)).map((b) => b.letter),
       editableSubjectIds: editable === null ? null : Array.from(editable),
       // True when the caller sees columns they cannot edit — an incharge
       // viewing their wing. The screen locks those columns read-only.
@@ -1749,6 +1758,7 @@ export function installAssessment(school: Hono): void {
           const base = sc ? scoreToJson(sc) : {
             id: null, examId, studentId: s.id, classSubjectId: subj.id,
             maxMarks: null, obtainedMarks: null, absent: false, notes: null,
+            gradeLetter: null,
           };
           // enrolled: false = the child takes the OTHER subject of this
           // elective group - the cell renders as not-theirs and stays
@@ -1849,7 +1859,7 @@ export function installAssessment(school: Hono): void {
     // who TAKES the subject. The Biology teacher stamping her computer
     // students "absent" is exactly what this refuses (23 Sep).
     const { data: subsForWrite } = await serviceRoleClient
-      .from("class_subject").select("id, name, elective_group")
+      .from("class_subject").select("id, name, elective_group, assessment_mode")
       .eq("class_id", (secForWrite as any)?.class_id ?? "");
     const writeSits = await loadSitsResolver(
       (subsForWrite ?? []) as any[],
@@ -1869,6 +1879,16 @@ export function installAssessment(school: Hono): void {
       }
     }
 
+    // Grade-mode subjects (30 Sep) take a LETTER, not a number. Valid
+    // letters come from the school's own grade scale; pass_fail takes
+    // PASS or FAIL. Anything else is refused before it can print.
+    const modeById = new Map<string, string>(
+      ((subsForWrite ?? []) as any[]).map((x) => [x.id, x.assessment_mode ?? "marks"]),
+    );
+    const scaleLetters = new Set(
+      (await loadOrgBands(orgId)).map((b) => String(b.letter).toUpperCase()),
+    );
+
     // Build inserts. Skip rows with no obtained_marks AND not-absent AND
     // no maxMarks/notes — they're empty cells, no point creating a row.
     const toUpsert: any[] = [];
@@ -1886,6 +1906,42 @@ export function installAssessment(school: Hono): void {
       const rawMax = r.maxMarks === null || r.maxMarks === undefined || r.maxMarks === ""
         ? null : Number(r.maxMarks);
       const notes = r.notes ? String(r.notes).slice(0, 500) : null;
+
+      // ── Grade-mode subject: the cell is a letter, not a number ──
+      const mode = modeById.get(subjectId) ?? "marks";
+      if (mode === "grade" || mode === "pass_fail") {
+        const letter = typeof r.gradeLetter === "string" ? r.gradeLetter.trim().toUpperCase() : "";
+        if (!letter && !absent && !notes) {
+          toDelete.push({ student_id: studentId, class_subject_id: subjectId });
+          continue;
+        }
+        const ok = mode === "pass_fail"
+          ? letter === "" || letter === "PASS" || letter === "FAIL"
+          : letter === "" || scaleLetters.has(letter);
+        if (!ok) {
+          return c.json({
+            error: mode === "pass_fail"
+              ? `"${letter}" is not a grade here - this subject takes PASS or FAIL`
+              : `"${letter}" is not on the school's grade scale`,
+          }, 400);
+        }
+        toUpsert.push({
+          org_id: orgId,
+          exam_id: examId,
+          student_id: studentId,
+          class_subject_id: subjectId,
+          // The DB requires a positive max; grade rows carry the same
+          // placeholder the no-marks subjects always had. Nothing reads
+          // it - obtained stays NULL so no total ever moves.
+          max_marks: rawMax ?? defaultsMax ?? 25,
+          obtained_marks: null,
+          absent,
+          notes,
+          grade_letter: absent || !letter ? null : letter,
+          recorded_by: userId,
+        });
+        continue;
+      }
 
       // Truly empty cell — clear any existing score row. Decided BEFORE
       // defaults apply: stamping defaults.maxMarks onto cells that hold
@@ -1919,6 +1975,10 @@ export function installAssessment(school: Hono): void {
         obtained_marks: absent ? null : obtained,
         absent,
         notes,
+        // A marks-mode save clears any letter left over from a mode
+        // change - the upsert writes every provided column, so leaving
+        // this out would silently keep a stale grade.
+        grade_letter: null,
         recorded_by: userId,
       });
     }

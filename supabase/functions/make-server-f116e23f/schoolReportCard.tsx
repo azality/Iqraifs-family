@@ -80,7 +80,7 @@ async function isClassTeacherOfStudent(userId: string, studentId: string): Promi
 //
 // Bands are half-open [min_pct, max_pct) — except the top band where
 // max_pct = 100 is treated as inclusive.
-interface GradeBand { letter: string; minPct: number; maxPct: number; remark: string | null }
+export interface GradeBand { letter: string; minPct: number; maxPct: number; remark: string | null }
 
 const FALLBACK_BANDS: GradeBand[] = [
   { letter: "A+", minPct: 90, maxPct: 100, remark: "Excellent" },
@@ -91,7 +91,7 @@ const FALLBACK_BANDS: GradeBand[] = [
   { letter: "F",  minPct: 0,  maxPct: 50,  remark: "Unsatisfactory" },
 ];
 
-async function loadOrgBands(orgId: string): Promise<GradeBand[]> {
+export async function loadOrgBands(orgId: string): Promise<GradeBand[]> {
   const { data: scale } = await serviceRoleClient
     .from("grade_scale")
     .select("id")
@@ -271,6 +271,9 @@ async function assembleReportCard(
     subjectName: string;
     weightedObtained: number;
     weightedMax: number;
+    /** A grade-mode subject's letter (A+, B, PASS...) - a first-class
+     *  score value since 30 Sep; obtained stays null on such rows. */
+    gradeLetter: string | null;
     perExam: Array<{ examId: string; examName: string; obtained: number | null; max: number; absent: boolean }>;
   };
   const bySubj = new Map<string, SubjAgg>();
@@ -285,10 +288,13 @@ async function assembleReportCard(
     if (!bySubj.has(csId)) {
       bySubj.set(csId, {
         classSubjectId: csId, subjectName: subjName,
-        weightedObtained: 0, weightedMax: 0, perExam: [],
+        weightedObtained: 0, weightedMax: 0, gradeLetter: null, perExam: [],
       });
     }
     const agg = bySubj.get(csId)!;
+    if (typeof sc.grade_letter === "string" && sc.grade_letter.trim()) {
+      agg.gradeLetter = sc.grade_letter.trim().toUpperCase();
+    }
     const max = Number(sc.max_marks);
     const obt = sc.obtained_marks === null ? null : Number(sc.obtained_marks);
     agg.perExam.push({
@@ -314,7 +320,11 @@ async function assembleReportCard(
       totalObtained: s.weightedObtained,
       totalMax: s.weightedMax,
       percentage: pct,
-      letter: letterFor(bands, pct),
+      // A stored letter wins for a subject with no marked papers - that
+      // is what a grade-mode subject IS. A subject with real marks keeps
+      // its computed letter even if a stray grade_letter appears on it.
+      letter: s.weightedMax === 0 && s.gradeLetter ? s.gradeLetter : letterFor(bands, pct),
+      gradeLetter: s.weightedMax === 0 ? s.gradeLetter : null,
       perExam: s.perExam,
     };
   }).sort((a, b) => a.name.localeCompare(b.name));
@@ -525,25 +535,21 @@ async function assembleReportCard(
       })),
       academic: {
         subjects: subjects.map((s) => {
-          // A LETTER GRADE for a subject with no marks papers (office,
-          // 30 Sep: "for the robotics I will be providing grades" - Art
-          // and Craft and Robotics are graded A+/A/B, not marked). The
-          // letter is stored as the subject's comment - the same field
-          // the office already edits on this page - and when a no-marks
-          // subject's comment IS a grade token, it prints in the Grade
-          // column with the band's own remark, exactly like a marked
-          // subject: "Art and Craft | - | - | - | A+ | Excellent".
-          const raw = (subjectComments[s.classSubjectId] ?? "").trim();
-          const gradeToken =
-            s.totalMax === 0 && /^[A-F]\+?$/i.test(raw) ? raw.toUpperCase() : null;
-          const gradeBand = gradeToken
-            ? bands.find((b) => (b.letter ?? "").toUpperCase() === gradeToken) ?? null
+          // A grade-mode subject's letter is a first-class score value
+          // (grade_letter, 30 Sep - the comment-as-grade interim is gone)
+          // and prints with the band's own remark, exactly like a marked
+          // subject: "Robotics | - | - | - | A+ | Excellent". PASS/FAIL
+          // (the Final Assessment's Reception and Junior grading) has no
+          // band, so its remark stays empty.
+          const gradeBand = s.gradeLetter
+            ? bands.find((b) => (b.letter ?? "").toUpperCase() === s.gradeLetter) ?? null
             : null;
           return {
             ...s,
             teacherComment: subjectComments[s.classSubjectId] ?? null,
-            letter: gradeToken ?? s.letter,
-            remark: gradeToken ? (gradeBand?.remark ?? "") : remarkFor(bands, s.percentage),
+            remark: s.gradeLetter
+              ? (gradeBand?.remark ?? "")
+              : remarkFor(bands, s.percentage),
           };
         }),
         overall: {

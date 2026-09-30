@@ -85,6 +85,19 @@ function buildSheetRows(
   for (const stu of s.students) {
     for (const subj of subs) {
       const c = cs.get(`${stu.id}:${subj.id}`) ?? { obtained: "", maxOverride: "", absent: false };
+      if ((subj.assessmentMode ?? "marks") !== "marks") {
+        // Grade-mode column: the cell IS the letter. An empty, not-absent
+        // cell clears the row server-side.
+        rows.push({
+          studentId: stu.id,
+          classSubjectId: subj.id,
+          gradeLetter: c.absent ? "" : c.obtained,
+          absent: c.absent,
+          maxMarks: null,
+          obtainedMarks: null,
+        });
+        continue;
+      }
       const subjTotal = subjectMaxForPaper(subj.assessmentWeights, paper);
       const holds = c.absent || c.obtained !== "" || c.maxOverride !== "";
       rows.push({
@@ -154,9 +167,13 @@ export function MarksEntry() {
     }
     return held;
   }, [sheet]);
-  const isOnThisPaper = useCallback((s: { assessmentWeights?: AssessmentWeight[] | null }) => {
+  const isOnThisPaper = useCallback((s: { assessmentWeights?: AssessmentWeight[] | null; assessmentMode?: "marks" | "grade" | "pass_fail" }) => {
     const paper = paperOfExamName(sheet?.exam?.name);
     const other = paper === "oral" ? "written" : "oral";
+    // A grade-mode subject sits no papers at all - its empty weights used
+    // to hide the column entirely. Its letters live on the WRITTEN
+    // exam's rows, so it appears on that sheet, exactly once (30 Sep).
+    if ((s.assessmentMode ?? "marks") !== "marks") return paper !== "oral";
     if (Array.isArray(s.assessmentWeights) && s.assessmentWeights.length === 0) return false;
     if (!paper) return true;
     return (
@@ -258,10 +275,24 @@ export function MarksEntry() {
         for (const s of r.subjects) {
           autoMax.set(s.id, subjectMaxForPaper(s.assessmentWeights, paper));
         }
+        const gradeModeIds = new Set(
+          r.subjects.filter((x) => (x.assessmentMode ?? "marks") !== "marks").map((x) => x.id),
+        );
         const next = new Map<string, CellState>();
         for (const stu of r.students) {
           for (const sc of stu.scores) {
             const key = `${stu.id}:${sc.classSubjectId}`;
+            // A grade-mode subject's cell holds the LETTER in the same
+            // string slot marks use - all the absent/dirty/discard
+            // plumbing then just works (30 Sep).
+            if (gradeModeIds.has(sc.classSubjectId)) {
+              next.set(key, {
+                obtained: sc.gradeLetter ?? "",
+                maxOverride: "",
+                absent: sc.absent,
+              });
+              continue;
+            }
             const auto = autoMax.get(sc.classSubjectId) ?? null;
             const isAuto = sc.maxMarks !== null && auto !== null && Number(sc.maxMarks) === auto;
             // An EMPTY cell's stored max measured nothing — it is the
@@ -899,6 +930,40 @@ export function MarksEntry() {
                       const mx = cellMax(c.maxOverride, subjectMax.get(subj.id) ?? null, defaultMax);
                       const ob = c.obtained ? Number(c.obtained) : null;
                       const cellPct = !c.absent ? pct(ob, mx) : null;
+                      // Grade-mode column (30 Sep): the teacher picks a
+                      // letter from the school's own grade scale (or
+                      // Pass/Fail), whole class on this one screen.
+                      if ((subj.assessmentMode ?? "marks") !== "marks") {
+                        const options = subj.assessmentMode === "pass_fail"
+                          ? ["PASS", "FAIL"]
+                          : (sheet.gradeLetters ?? []);
+                        return (
+                          <td key={subj.id} className="px-1 py-1 align-top">
+                            <div className="flex items-center gap-1">
+                              <select
+                                value={c.obtained}
+                                onChange={(e) => setCell(key, { obtained: e.target.value })}
+                                disabled={c.absent || colLocked}
+                                className="h-7 w-16 rounded-md border border-slate-200 bg-white text-center text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400 disabled:bg-slate-50 disabled:text-slate-400"
+                              >
+                                <option value="">—</option>
+                                {options.map((g) => (
+                                  <option key={g} value={g}>{g}</option>
+                                ))}
+                              </select>
+                              <label className="flex items-center gap-0.5 text-[10px] text-slate-400" title="Absent">
+                                <input
+                                  type="checkbox"
+                                  checked={c.absent}
+                                  disabled={colLocked}
+                                  onChange={(e) => setCell(key, { absent: e.target.checked, obtained: e.target.checked ? "" : c.obtained })}
+                                />
+                                A
+                              </label>
+                            </div>
+                          </td>
+                        );
+                      }
                       return (
                         <td key={subj.id} className="px-1 py-1 align-top">
                           <div className="flex items-center gap-1">

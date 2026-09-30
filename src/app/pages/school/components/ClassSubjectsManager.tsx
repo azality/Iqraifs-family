@@ -78,6 +78,11 @@ export function ClassSubjectsManager({ classId, orgId, teachers, structureEditab
   // split (Oral 40 / Written 60; Science adds Practical 15, …). Shown
   // as guidance on the marks sheet; marks-as-weight does the math.
   const [weightsFor, setWeightsFor] = useState<ClassSubject | null>(null);
+  // How a NEW subject is assessed (30 Sep): marks papers, a letter from
+  // the school's own grade scale (Art and Craft, Robotics), or pass/fail
+  // (Final Assessment - Reception and Junior). The school picks this
+  // here, no developer in the loop.
+  const [draftMode, setDraftMode] = useState<"marks" | "grade" | "pass_fail">("marks");
   const [weightRows, setWeightRows] = useState<
     Array<{ label: string; marks: string; paper: "oral" | "written" }>
   >([]);
@@ -136,13 +141,34 @@ export function ClassSubjectsManager({ classId, orgId, teachers, structureEditab
       await createClassSubject(classId, {
         name,
         sortOrder: subjects.length,
+        assessmentMode: draftMode,
       });
       toast.success(`Added ${name}`);
       setDraftName("");
+      setDraftMode("marks");
       setAdding(false);
       refresh();
     } catch (e: any) {
       toast.error(e?.message || "Could not add subject");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const cycleMode = async (subj: ClassSubject) => {
+    const order: Array<"marks" | "grade" | "pass_fail"> = ["marks", "grade", "pass_fail"];
+    const next = order[(order.indexOf((subj.assessmentMode ?? "marks") as any) + 1) % order.length];
+    setSaving(true);
+    try {
+      await updateClassSubject(subj.id, { assessmentMode: next });
+      toast.success(
+        next === "marks" ? `${subj.name} is assessed by marks`
+          : next === "grade" ? `${subj.name} is graded by letter (A+, A, B…)`
+          : `${subj.name} is pass / fail`,
+      );
+      refresh();
+    } catch (e: any) {
+      toast.error(e?.message || "Could not change the assessment mode");
     } finally {
       setSaving(false);
     }
@@ -295,6 +321,24 @@ export function ClassSubjectsManager({ classId, orgId, teachers, structureEditab
               <X className="mr-1 h-3.5 w-3.5" /> Cancel
             </Button>
           </div>
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+            <span className="font-medium text-slate-600">How is this subject assessed?</span>
+            {([
+              ["marks", "Marks (papers with totals)"],
+              ["grade", "Letter grade (A+, A, B…)"],
+              ["pass_fail", "Pass / Fail"],
+            ] as const).map(([mode, label]) => (
+              <label key={mode} className="inline-flex items-center gap-1 cursor-pointer">
+                <input
+                  type="radio"
+                  name="assessment-mode"
+                  checked={draftMode === mode}
+                  onChange={() => setDraftMode(mode)}
+                />
+                <span>{label}</span>
+              </label>
+            ))}
+          </div>
           <div className="mt-2 flex flex-wrap gap-1.5">
             {COMMON_SUBJECTS.filter((s) => !existingNames.has(s.toLowerCase())).map((s) => (
               <button
@@ -376,16 +420,41 @@ export function ClassSubjectsManager({ classId, orgId, teachers, structureEditab
                         >
                           <Pencil className="h-3.5 w-3.5" />
                         </button>
+                        {(s.assessmentMode ?? "marks") === "marks" && (
+                          <button
+                            type="button"
+                            onClick={() => openWeights(s)}
+                            className={
+                              "rounded-md p-1 hover:bg-violet-50 hover:text-violet-700 " +
+                              ((s.assessmentWeights?.length ?? 0) > 0 ? "text-violet-600" : "text-slate-400")
+                            }
+                            title="Marks distribution (written / oral)"
+                          >
+                            <Percent className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                        {/* How the subject is assessed (30 Sep). Click
+                            cycles marks -> letter grade -> pass/fail; a
+                            graded subject has no marks distribution. */}
                         <button
                           type="button"
-                          onClick={() => openWeights(s)}
+                          onClick={() => void cycleMode(s)}
                           className={
-                            "rounded-md p-1 hover:bg-violet-50 hover:text-violet-700 " +
-                            ((s.assessmentWeights?.length ?? 0) > 0 ? "text-violet-600" : "text-slate-400")
+                            "rounded-md px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide " +
+                            ((s.assessmentMode ?? "marks") === "marks"
+                              ? "text-slate-400 hover:bg-slate-100"
+                              : "bg-amber-50 text-amber-700 hover:bg-amber-100")
                           }
-                          title="Marks distribution (written / oral)"
+                          title={
+                            (s.assessmentMode ?? "marks") === "marks"
+                              ? "Assessed by marks - click to grade by letter instead"
+                              : (s.assessmentMode === "grade"
+                                ? "Graded by letter (A+, A, B...) - click for pass/fail"
+                                : "Pass / fail - click to assess by marks")
+                          }
                         >
-                          <Percent className="h-3.5 w-3.5" />
+                          {(s.assessmentMode ?? "marks") === "marks" ? "marks"
+                            : s.assessmentMode === "grade" ? "A+/B" : "P/F"}
                         </button>
                         <button
                           type="button"
