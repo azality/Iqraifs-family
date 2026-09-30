@@ -524,11 +524,28 @@ async function assembleReportCard(
         columnLabel: paperLabel.get(examPaperKind(e)) ?? null,
       })),
       academic: {
-        subjects: subjects.map((s) => ({
-          ...s,
-          teacherComment: subjectComments[s.classSubjectId] ?? null,
-          remark: remarkFor(bands, s.percentage),
-        })),
+        subjects: subjects.map((s) => {
+          // A LETTER GRADE for a subject with no marks papers (office,
+          // 30 Sep: "for the robotics I will be providing grades" - Art
+          // and Craft and Robotics are graded A+/A/B, not marked). The
+          // letter is stored as the subject's comment - the same field
+          // the office already edits on this page - and when a no-marks
+          // subject's comment IS a grade token, it prints in the Grade
+          // column with the band's own remark, exactly like a marked
+          // subject: "Art and Craft | - | - | - | A+ | Excellent".
+          const raw = (subjectComments[s.classSubjectId] ?? "").trim();
+          const gradeToken =
+            s.totalMax === 0 && /^[A-F]\+?$/i.test(raw) ? raw.toUpperCase() : null;
+          const gradeBand = gradeToken
+            ? bands.find((b) => (b.letter ?? "").toUpperCase() === gradeToken) ?? null
+            : null;
+          return {
+            ...s,
+            teacherComment: subjectComments[s.classSubjectId] ?? null,
+            letter: gradeToken ?? s.letter,
+            remark: gradeToken ? (gradeBand?.remark ?? "") : remarkFor(bands, s.percentage),
+          };
+        }),
         overall: {
           obtained: overallObtained,
           max: overallMax,
