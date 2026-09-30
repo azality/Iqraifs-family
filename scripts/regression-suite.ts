@@ -8010,6 +8010,38 @@ await check("134. a failing subject earns its own remark - placed by a human, pr
   }
 });
 
+await check("135. every exposed table is sealed to the anon key", async () => {
+  // 1 Oct: the Supabase advisor caught exam_component and
+  // exam_component_score readable AND writable with the anon key that
+  // ships in every browser - created after the schema-wide RLS pass,
+  // they missed it. The rule is structural (every table: RLS on, zero
+  // policies; the Edge Function's service role is the only door), so
+  // the guard is black-box: enumerate what PostgREST actually exposes
+  // (the service key's OpenAPI root - the anon view hides what anon
+  // cannot see, which is exactly the blind spot) and read each one AS
+  // the anon key. A single row back makes the NEXT forgotten table a
+  // suite failure instead of an advisor email three days later.
+  // Caveat: an EMPTY table with RLS off passes here - the dashboard
+  // advisor stays the belt-and-braces for that case.
+  const SR = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const spec = await (await fetch(`${URL_}/rest/v1/`, {
+    headers: { apikey: SR, Authorization: `Bearer ${SR}` },
+  })).json();
+  const rels = Object.keys(spec.definitions ?? {});
+  assert(rels.length > 50, `the OpenAPI root should list the schema, got ${rels.length} relations`);
+  const leaks: string[] = [];
+  for (const t of rels) {
+    const r = await fetch(`${URL_}/rest/v1/${encodeURIComponent(t)}?select=*&limit=1`, {
+      headers: { apikey: ANON, Authorization: `Bearer ${ANON}` },
+    });
+    if (r.status !== 200) continue; // refused outright - sealed
+    const rows = await r.json();
+    if (Array.isArray(rows) && rows.length > 0) leaks.push(t);
+  }
+  assert(leaks.length === 0,
+    `anon key can read rows from: ${leaks.join(", ")} - enable RLS on them`);
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
