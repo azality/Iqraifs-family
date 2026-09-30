@@ -29,7 +29,7 @@ import {
   listTerms, getTermReportCard, getReportCardsBrowser,
   saveReportCardComments, setReportCardWorkflow, suggestRemarks,
   type SchoolMeResponse, type AcademicTerm,
-  type TermReportCardResponse,
+  type TermReportCardResponse, type SuggestedRemarks,
 } from "../../../utils/schoolApi";
 import { ReportFindingsPanel } from "./components/ReportFindingsPanel";
 import { Sparkles } from "lucide-react";
@@ -73,10 +73,16 @@ export function StudentReportCard() {
   const [principalComment, setPrincipalComment] = useState("");
   const [subjectComments, setSubjectComments] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
-  // AI suggestion: written from the computed findings, dropped into the
-  // boxes for a human to edit. Never saved on its own (26 Sep).
+  // AI suggestion: written from the computed findings, held in a review
+  // tray. Nothing lands in a field until its Use button is pressed, and
+  // nothing saves until Save comments (round 2, 30 Sep - the office had
+  // no way to place the Urdu or the per-subject remarks).
   const [suggesting, setSuggesting] = useState(false);
-  const [suggestedUr, setSuggestedUr] = useState<{ ct: string; pr: string } | null>(null);
+  const [sugg, setSugg] = useState<{
+    s: SuggestedRemarks;
+    urduOk: boolean;
+    usage?: { inputTokens: number; outputTokens: number; approxUsd: number };
+  } | null>(null);
 
   useEffect(() => {
     getSchoolMe().then(setMe).catch(() => setMe(null)).finally(() => setMeLoading(false));
@@ -137,13 +143,11 @@ export function StudentReportCard() {
     setSuggesting(true);
     try {
       const r = await suggestRemarks(orgId, studentId, termId);
-      setClassTeacherComment(r.suggestion.classTeacher);
-      if (isAdmin) setPrincipalComment(r.suggestion.principal);
-      setSuggestedUr({ ct: r.suggestion.classTeacherUr, pr: r.suggestion.principalUr });
+      setSugg({ s: r.suggestion, urduOk: r.urduOk, usage: r.usage });
       toast.success(
         r.urduOk
-          ? "Suggested from this child's own numbers — edit anything, then Save."
-          : "Suggested — but the Urdu came back oddly, please check it before saving.",
+          ? "Written from this child's own numbers — place what you want, edit, then Save."
+          : "Suggested — but the Urdu came back oddly, please check it before placing.",
       );
       setError(null);
     } catch (e) {
@@ -152,6 +156,38 @@ export function StudentReportCard() {
       setSuggesting(false);
     }
   };
+
+  // Place a whole suggestion set in one press - the office's ask: "a
+  // single button to paste the suggested remarks to their respective
+  // subject remark field, or class teacher field". Per-line Use buttons
+  // cover the mixed case (this subject in Urdu, the rest in English).
+  const placeAll = (lang: "en" | "ur") => {
+    if (!sugg) return;
+    const s = sugg.s;
+    const next = { ...subjectComments };
+    for (const x of s.subjects ?? []) next[x.id] = lang === "en" ? x.en : x.ur;
+    setSubjectComments(next);
+    setClassTeacherComment(lang === "en" ? s.classTeacher : s.classTeacherUr);
+    if (isAdmin) setPrincipalComment(lang === "en" ? s.principal : s.principalUr);
+    toast.success("Placed — review, edit anything, then Save comments.");
+  };
+
+  // One suggested line and the button that lands it in its field.
+  const suggLine = (text: string, current: string, place: (t: string) => void, rtl = false) => (
+    <div className="flex items-start gap-2">
+      <p dir={rtl ? "rtl" : undefined} lang={rtl ? "ur" : undefined} className="flex-1 text-slate-800">
+        {text}
+      </p>
+      <Button
+        size="sm" variant={current.trim() === text ? "secondary" : "outline"}
+        className="h-6 px-2 text-[10px] shrink-0"
+        disabled={remarkLocked || current.trim() === text}
+        onClick={() => place(text)}
+      >
+        {current.trim() === text ? "Placed ✓" : "Use"}
+      </Button>
+    </div>
+  );
   if (meLoading) return null;
   if (!isAdmin && !me) return <Navigate to={`/school/orgs/${orgId}`} replace />;
 
@@ -692,16 +728,77 @@ export function StudentReportCard() {
                   </div>
                 </div>
 
-                {suggestedUr && (
-                  <div className="rounded-md border border-indigo-100 bg-indigo-50/60 px-3 py-2 text-xs no-print">
-                    <div className="mb-1 font-semibold text-indigo-900">
-                      Urdu suggestion — copy into the chart, or keep for reference
+                {/* The review tray (round 2, 30 Sep). Every suggested
+                    line — per weak subject, class teacher, principal —
+                    shows English and Urdu side by side with a Use button
+                    that fills its field. "Placed ✓" is literal: the
+                    field currently holds exactly this text. Nothing here
+                    saves anything; Save comments does. */}
+                {sugg && (
+                  <div className="rounded-md border border-indigo-200 bg-indigo-50/60 px-3 py-2.5 text-xs no-print space-y-2.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="font-semibold text-indigo-900 mr-auto">
+                        Suggested remarks — press Use to place each line
+                      </div>
+                      <Button size="sm" variant="outline" className="h-6 px-2 text-[10px]"
+                        disabled={remarkLocked} onClick={() => placeAll("en")}>
+                        Place all · English
+                      </Button>
+                      <Button size="sm" variant="outline" className="h-6 px-2 text-[10px]"
+                        disabled={remarkLocked} onClick={() => placeAll("ur")}>
+                        Place all · اردو
+                      </Button>
+                      <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px]"
+                        onClick={() => setSugg(null)}>
+                        Dismiss
+                      </Button>
                     </div>
-                    <p dir="rtl" lang="ur" className="text-slate-800">{suggestedUr.ct}</p>
-                    {isAdmin && <p dir="rtl" lang="ur" className="mt-1 text-slate-800">{suggestedUr.pr}</p>}
-                    <p className="mt-1 text-[10px] text-slate-500">
-                      Saved remarks keep the language they were typed in; the Urdu band chart
-                      covers parents reading in Urdu.
+
+                    {(sugg.s.subjects ?? []).map((x) => {
+                      const subj = card.academic.subjects.find((s) => s.classSubjectId === x.id);
+                      const cur = subjectComments[x.id] ?? "";
+                      const place = (t: string) =>
+                        setSubjectComments({ ...subjectComments, [x.id]: t });
+                      return (
+                        <div key={x.id} className="space-y-1">
+                          <div className="font-medium text-slate-700">
+                            {subj?.name ?? "Subject"}
+                            {subj?.percentage != null && (
+                              <span className="ml-1.5 font-normal text-slate-400">
+                                {Math.round(subj.percentage * 10) / 10}%
+                                {subj.letter ? ` · ${subj.letter}` : ""}
+                              </span>
+                            )}
+                          </div>
+                          {suggLine(x.en, cur, place)}
+                          {suggLine(x.ur, cur, place, true)}
+                        </div>
+                      );
+                    })}
+
+                    <div className="space-y-1">
+                      <div className="font-medium text-slate-700">Class teacher's remark</div>
+                      {suggLine(sugg.s.classTeacher, classTeacherComment, setClassTeacherComment)}
+                      {suggLine(sugg.s.classTeacherUr, classTeacherComment, setClassTeacherComment, true)}
+                    </div>
+                    {isAdmin && (
+                      <div className="space-y-1">
+                        <div className="font-medium text-slate-700">Principal's remark</div>
+                        {suggLine(sugg.s.principal, principalComment, setPrincipalComment)}
+                        {suggLine(sugg.s.principalUr, principalComment, setPrincipalComment, true)}
+                      </div>
+                    )}
+
+                    {!sugg.urduOk && (
+                      <p className="text-[10px] text-amber-700">
+                        The Urdu came back oddly — read it before placing.
+                      </p>
+                    )}
+                    <p className="text-[10px] text-slate-500">
+                      Nothing is saved until you press Save comments. Subject remarks print
+                      inside the table's Remarks column; a placed remark keeps its language.
+                      {sugg.usage &&
+                        ` This suggestion used ${sugg.usage.inputTokens + sugg.usage.outputTokens} tokens (≈ ${sugg.usage.approxUsd < 0.01 ? "1¢" : "$" + sugg.usage.approxUsd.toFixed(2)}).`}
                     </p>
                   </div>
                 )}
