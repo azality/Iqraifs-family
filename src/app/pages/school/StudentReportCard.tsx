@@ -459,15 +459,11 @@ export function StudentReportCard() {
                                 table (like the school's paper registers and
                                 the parent portal); the band remark is the
                                 fallback. Live state, so unsaved edits print.
-                                A comment that IS the grade (a no-marks
-                                subject's "A+", 30 Sep) already prints in the
-                                Grade column - the remarks cell shows the
-                                band remark instead of repeating it. */}
+                                (A graded subject's letter is grade_letter
+                                on the score row since 30 Sep - comments are
+                                comments again.) */}
                             <td className={"px-2 py-1.5 " + (subjFailed ? "text-rose-700" : "text-slate-600")}>
-                              {(() => {
-                                const c = (subjectComments[s.classSubjectId] ?? "").trim();
-                                return c && c.toUpperCase() !== s.letter ? c : s.remark;
-                              })()}
+                              {(subjectComments[s.classSubjectId] ?? "").trim() || s.remark}
                             </td>
                           </tr>
                         );

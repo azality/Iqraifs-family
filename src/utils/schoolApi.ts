@@ -475,6 +475,10 @@ export interface ClassSubject {
    *  NO paper at all (e.g. Senior's Material Activity) — the marks
    *  sheet drops its column on every paper. */
   assessmentWeights?: AssessmentWeight[] | null;
+  /** How the subject is assessed (30 Sep): marks papers, a letter from
+   *  the school's grade scale, or pass/fail (Final Assessment,
+   *  Reception/Junior). Default marks. */
+  assessmentMode?: "marks" | "grade" | "pass_fail";
   /** Subjects sharing a group name are alternatives — a child takes
    *  exactly one ("Stream": Biology | Computer, Class IX/X). */
   electiveGroup?: string | null;
@@ -508,7 +512,7 @@ export const listClassSubjects = (
 
 export const createClassSubject = (
   classId: string,
-  body: { name: string; sortOrder?: number },
+  body: { name: string; sortOrder?: number; assessmentMode?: "marks" | "grade" | "pass_fail" },
 ): Promise<{ subject: ClassSubject }> =>
   apiCall(`/school/classes/${classId}/subjects`, {
     method: "POST",
@@ -517,7 +521,7 @@ export const createClassSubject = (
 
 export const updateClassSubject = (
   classSubjectId: string,
-  body: { name?: string; sortOrder?: number; assessmentWeights?: AssessmentWeight[] | null; electiveGroup?: string | null },
+  body: { name?: string; sortOrder?: number; assessmentWeights?: AssessmentWeight[] | null; electiveGroup?: string | null; assessmentMode?: "marks" | "grade" | "pass_fail" },
 ): Promise<{ subject: ClassSubject }> =>
   apiCall(`/school/class-subjects/${classSubjectId}`, {
     method: "PATCH",
@@ -5648,6 +5652,8 @@ export interface ExamSubjectScore {
    *  (Class IX: Biology | Computer) — not theirs to mark, and out of
    *  every completeness count. Server >= v1.3.6. */
   enrolled?: boolean;
+  /** A grade-mode subject's letter; null on marks rows (v1.19.7). */
+  gradeLetter?: string | null;
 }
 export interface MarksSheetStudent {
   id: string;
@@ -5672,7 +5678,10 @@ export interface MarksSheetResponse {
   /** The caller's own deadline state — countdown + lock (v1.5.0). */
   marksDeadline?: MarksDeadlineState;
   section: { id: string; name: string; className: string };
-  subjects: { id: string; name: string; assessmentWeights?: AssessmentWeight[] | null }[];
+  subjects: { id: string; name: string; assessmentWeights?: AssessmentWeight[] | null; assessmentMode?: "marks" | "grade" | "pass_fail" }[];
+  /** The letters a grade-mode column may take — the school's own grade
+   *  scale, in display order (server >= v1.19.7). */
+  gradeLetters?: string[];
   /** null = caller may edit every column; otherwise the subject ids
    *  they teach. Normally the subjects list is already filtered to these;
    *  when `oversees` is true it is NOT — see below. */
@@ -5846,6 +5855,9 @@ export const saveMarksSheet = (
       obtainedMarks?: number | null;
       absent?: boolean;
       notes?: string | null;
+      /** Grade-mode subjects only: the letter (or PASS/FAIL). Empty
+       *  string clears the cell. */
+      gradeLetter?: string | null;
     }>;
   },
 ): Promise<{ ok: true; written: number; deleted: number }> =>

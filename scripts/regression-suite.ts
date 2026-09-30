@@ -7821,6 +7821,97 @@ await check("132. the attendance finding agrees with the attendance the card pri
   console.log(`      checked ${checked} cards (${perfect} at full attendance)`);
 });
 
+await check("133. a grade-mode subject: letter in, letter on the card, totals untouched", async () => {
+  // 30 Sep: Art and Craft and Robotics are graded A+/A/B, not marked, and
+  // the office asked for the proper build ("we would need this for the
+  // long term... other schools with these requirements"). The letter is a
+  // first-class score value (grade_letter); the marks sheet takes it from
+  // a dropdown of the school's own scale; the card prints it with the
+  // band's remark. This drives the whole loop on the Sandbox.
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const term = await markedTerm();
+  assert(term, "no term with papers");
+  const { data: exam } = await admin.from("exam").select("id")
+    .eq("term_id", term!.id).is("archived_at", null).ilike("name", "%written%").maybeSingle();
+  assert(exam, "no written exam in the term");
+  const { data: subj } = await admin.from("class_subject")
+    .select("id, name, assessment_mode").eq("class_id", sandboxClass.id)
+    .is("archived_at", null).limit(1).maybeSingle();
+  assert(subj, "sandbox has no subject");
+  const originalMode = (subj as any).assessment_mode ?? "marks";
+
+  const cardUrl = `/school/orgs/${ORG}/students/${pStu1}/terms/${term!.id}/report-card`;
+  const overallBefore = (await (await api(admin2.token, cardUrl)).json())
+    ?.academic?.overall?.percentage ?? null;
+
+  try {
+    // The office flips the subject to letter grading from the UI.
+    const flip = await api(admin2.token, `/school/class-subjects/${subj!.id}`, {
+      method: "PATCH", body: JSON.stringify({ assessmentMode: "grade" }),
+    });
+    assert(flip.status === 200, `mode change ${flip.status}`);
+
+    // The sheet now offers the school's own letters for that column.
+    const sheetR = await api(admin2.token,
+      `/school/orgs/${ORG}/exams/${(exam as any).id}/marks-sheet?sectionId=${sandboxSec.id}`);
+    assert(sheetR.status === 200, `sheet ${sheetR.status}`);
+    const sheet = await sheetR.json();
+    assert(Array.isArray(sheet.gradeLetters) && sheet.gradeLetters.length > 0,
+      "the sheet must carry the school's grade-scale letters");
+    const letter = sheet.gradeLetters[0]; // top band, usually A+
+    const sheetSubj = (sheet.subjects ?? []).find((x: any) => x.id === subj!.id);
+    assert(sheetSubj?.assessmentMode === "grade", "the sheet must say the column is grade-mode");
+
+    // A letter not on the scale is refused before it can print.
+    const bad = await api(admin2.token, `/school/orgs/${ORG}/exams/${(exam as any).id}/marks-sheet`, {
+      method: "POST",
+      body: JSON.stringify({ sectionId: sandboxSec.id, rows: [
+        { studentId: pStu1, classSubjectId: subj!.id, gradeLetter: "Z9" },
+      ] }),
+    });
+    assert(bad.status === 400, `an off-scale letter must be refused, got ${bad.status}`);
+
+    // The real letter lands...
+    const save = await api(admin2.token, `/school/orgs/${ORG}/exams/${(exam as any).id}/marks-sheet`, {
+      method: "POST",
+      body: JSON.stringify({ sectionId: sandboxSec.id, rows: [
+        { studentId: pStu1, classSubjectId: subj!.id, gradeLetter: letter },
+      ] }),
+    });
+    assert(save.status === 200, `save ${save.status}: ${await save.text()}`);
+
+    // ...round-trips on the sheet...
+    const again = await (await api(admin2.token,
+      `/school/orgs/${ORG}/exams/${(exam as any).id}/marks-sheet?sectionId=${sandboxSec.id}`)).json();
+    const cell = (again.students ?? []).find((st: any) => st.id === pStu1)
+      ?.scores?.find((sc: any) => sc.classSubjectId === subj!.id);
+    assert(cell?.gradeLetter === letter,
+      `the sheet must hand the letter back, got ${JSON.stringify(cell?.gradeLetter)}`);
+
+    // ...and prints on the card with the band's own remark, without
+    // moving the overall a single decimal.
+    const card = await (await api(admin2.token, cardUrl)).json();
+    const row = (card.academic?.subjects ?? []).find((x: any) => x.classSubjectId === subj!.id);
+    assert(row, "the graded subject must be on the card");
+    assert(row.letter === letter, `card grade must be ${letter}, got ${row.letter}`);
+    assert(row.totalMax === 0, "a graded subject must carry no marks into the totals");
+    const { data: bandRow } = await admin.from("grade_scale_band")
+      .select("remark").ilike("letter", letter).limit(1).maybeSingle();
+    if ((bandRow as any)?.remark) {
+      assert(row.remark === (bandRow as any).remark,
+        `the band remark must ride along, got ${JSON.stringify(row.remark)}`);
+    }
+    const overallAfter = card?.academic?.overall?.percentage ?? null;
+    assert((overallBefore === null) === (overallAfter === null) &&
+      (overallBefore === null || Math.abs(overallBefore - overallAfter) < 0.001),
+      `the overall must not move: ${overallBefore} -> ${overallAfter}`);
+  } finally {
+    await admin.from("exam_subject_score").delete()
+      .eq("student_id", pStu1).eq("class_subject_id", subj!.id).eq("exam_id", (exam as any).id);
+    await admin.from("class_subject").update({ assessment_mode: originalMode }).eq("id", subj!.id);
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
