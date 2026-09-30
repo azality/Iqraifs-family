@@ -5969,10 +5969,19 @@ export interface SuggestedRemarks {
   classTeacherUr: string;
   principal: string;
   principalUr: string;
+  /** One per weak subject (below the pass mark or in the chart's bottom
+   *  bands), keyed by class_subject id - the subject remark field's key. */
+  subjects: Array<{ id: string; en: string; ur: string }>;
 }
 export const suggestRemarks = (
   orgId: string, studentId: string, termId: string,
-): Promise<{ suggestion: SuggestedRemarks; urduOk: boolean; usedFindings: number }> =>
+): Promise<{
+  suggestion: SuggestedRemarks;
+  urduOk: boolean;
+  usedFindings: number;
+  /** What this very call spent, at list price - the tray footer shows it. */
+  usage?: { inputTokens: number; outputTokens: number; approxUsd: number };
+}> =>
   apiCall(`/school/orgs/${orgId}/students/${studentId}/terms/${termId}/suggest-remarks`, {
     method: "POST",
   });

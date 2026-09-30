@@ -18,6 +18,20 @@
 
 import type { Finding } from "./reportFindings.ts";
 
+/** A subject the school's own chart calls weak - below the pass mark,
+ *  or in the chart's bottom bands (the office's "failing or Ds or Es",
+ *  30 Sep). The remark written for it lands in that subject's own
+ *  remark field on the card, still placed and saved by a human. */
+export interface WeakSubject {
+  /** class_subject id - the key the subject's remark field is stored under. */
+  id: string;
+  name: string;
+  pct: number;
+  letter: string | null;
+  /** The computed finding sentences about this subject (exact, auditable). */
+  findings: string[];
+}
+
 export interface RemarkContext {
   schoolName: string;
   studentFirstName: string;
@@ -26,6 +40,7 @@ export interface RemarkContext {
   overallPct: number | null;
   passMarkPct: number;
   isMemorizer: boolean;
+  weakSubjects: WeakSubject[];
 }
 
 export interface SuggestedRemarks {
@@ -33,6 +48,8 @@ export interface SuggestedRemarks {
   classTeacherUr: string;
   principal: string;
   principalUr: string;
+  /** One per weak subject the context listed - never any other subject. */
+  subjects: Array<{ id: string; en: string; ur: string }>;
 }
 
 /** Sonnet for the Urdu: the school reads these, and the register
@@ -52,9 +69,11 @@ Rules:
 - Tone: warm, respectful, never harsh about a struggling child, never inflated about a strong one. "Mashallah" and "Inshallah" are natural here; use them where they fit, not in every sentence.
 - Urdu must carry the same meaning as the English, not a word-for-word translation. Write it in a NOMINAL style ("محنت نمایاں ہے") and avoid gendered verb endings such as کرتا/کرتی, so the same remark suits a boy or a girl.
 - Address the parent about the child. Do not use the child's name more than once.
+- When the input lists WEAK SUBJECTS, also write one remark per listed subject: a single English sentence of at most 20 words, and its Urdu counterpart. Name the specific gap the findings state for that subject and one concrete thing to do at home. Encouraging, never harsh - the parent reads it printed beside a low mark. Never write a subject remark for a subject that is not listed, and copy each subject's id exactly as given.
 
 Reply with JSON only, no other text, exactly:
-{"classTeacher": "...", "classTeacherUr": "...", "principal": "...", "principalUr": "..."}`;
+{"classTeacher": "...", "classTeacherUr": "...", "principal": "...", "principalUr": "...", "subjects": [{"id": "...", "en": "...", "ur": "..."}]}
+"subjects" is [] when no weak subjects were listed.`;
 
 export function buildUserPrompt(ctx: RemarkContext, findings: Finding[]): string {
   const lines = findings.map((f) => `- [${f.severity}] ${f.en}`);
@@ -69,12 +88,24 @@ export function buildUserPrompt(ctx: RemarkContext, findings: Finding[]): string
     ``,
     `Findings:`,
     ...(lines.length > 0 ? lines : ["- (nothing stands out in the numbers)"]),
+    ...(ctx.weakSubjects.length > 0
+      ? [
+          ``,
+          `WEAK SUBJECTS (write one remark per subject, copy each id exactly):`,
+          ...ctx.weakSubjects.flatMap((w) => [
+            `- id=${w.id} | ${w.name} - ${w.pct}%${w.letter ? ` (${w.letter})` : ""}`,
+            ...w.findings.map((f) => `    * ${f}`),
+          ]),
+        ]
+      : []),
   ].filter((x) => x !== null).join("\n");
 }
 
 /** Parse defensively: a malformed reply must surface as an error the
- *  teacher can see, never as half a remark saved onto a child's card. */
-export function parseSuggestion(raw: string): SuggestedRemarks | null {
+ *  teacher can see, never as half a remark saved onto a child's card.
+ *  Subject remarks are filtered to the ids WE asked about - a subject
+ *  the model invented never reaches a card, however fluent it sounds. */
+export function parseSuggestion(raw: string, allowedSubjectIds: Set<string>): SuggestedRemarks | null {
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
   if (start === -1 || end <= start) return null;
@@ -92,7 +123,20 @@ export function parseSuggestion(raw: string): SuggestedRemarks | null {
     if (typeof v !== "string" || v.trim().length === 0) return null;
     out[k] = v.trim();
   }
-  return out as unknown as SuggestedRemarks;
+  const subjects: Array<{ id: string; en: string; ur: string }> = [];
+  const seen = new Set<string>();
+  for (const item of Array.isArray(p?.subjects) ? (p.subjects as unknown[]) : []) {
+    const s = item as Record<string, unknown>;
+    const id = typeof s?.id === "string" ? s.id : "";
+    if (!allowedSubjectIds.has(id) || seen.has(id)) continue;
+    const en = typeof s?.en === "string" ? s.en.trim() : "";
+    const ur = typeof s?.ur === "string" ? s.ur.trim() : "";
+    if (!en || !ur) continue;
+    seen.add(id);
+    // The field caps at 1000; a runaway sentence is cut rather than refused.
+    subjects.push({ id, en: en.slice(0, 400), ur: ur.slice(0, 400) });
+  }
+  return { ...(out as unknown as Omit<SuggestedRemarks, "subjects">), subjects };
 }
 
 /** Urdu must actually be Urdu - a model that answers in English twice

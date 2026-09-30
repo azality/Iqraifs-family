@@ -7454,13 +7454,24 @@ await check("127. AI remark suggestions are gated, refuse a blank card, and neve
   // The real path needs a child who actually HAS marks - the QA portal
   // students carry none, and the endpoint rightly refuses those. Borrow
   // a real marked student (read-only; nothing is written to their card).
-  const { data: markedStu } = await admin
+  // Two traps an arbitrary row can fall into: a FINALIZED card rightly
+  // refuses the suggester (242 were finalized on 30 Sep), and an
+  // absent-only child has no overall and is refused with NO_MARKS - so
+  // pick a child with a real obtained mark whose card is still open.
+  const { data: markedRows } = await admin
     .from("exam_subject_score")
     .select("student_id, exam:exam_id!inner(term_id)")
     .eq("exam.term_id", term!.id)
-    .limit(1)
-    .maybeSingle();
-  const subjectStudent = (markedStu as any)?.student_id ?? pStu1;
+    .eq("absent", false)
+    .not("obtained_marks", "is", null)
+    .limit(40);
+  const candidates = [...new Set(((markedRows ?? []) as any[]).map((r) => r.student_id))];
+  const { data: closed } = await admin.from("term_report_card")
+    .select("student_id").eq("term_id", term!.id)
+    .in("student_id", candidates.length ? candidates : ["-"])
+    .not("finalized_at", "is", null);
+  const closedSet = new Set(((closed ?? []) as any[]).map((r) => r.student_id));
+  const subjectStudent = candidates.find((id) => !closedSet.has(id)) ?? candidates[0] ?? pStu1;
   const before = await (await api(admin2.token,
     `/school/orgs/${ORG}/students/${subjectStudent}/terms/${term!.id}/report-card`)).json();
   const r = await api(admin2.token, url(subjectStudent), { method: "POST" });
@@ -7475,6 +7486,19 @@ await check("127. AI remark suggestions are gated, refuse a blank card, and neve
         `the suggestion must carry ${k}`);
     }
     assert(typeof j.urduOk === "boolean", "the reply must say whether the Urdu is really Urdu");
+    // Round 2 (30 Sep): weak-subject remarks ride along - possibly none
+    // for a strong card, but always as an array of ids off THIS card.
+    assert(Array.isArray(j.suggestion?.subjects), "the suggestion must carry a subjects array");
+    const cardIds = new Set((before.academic?.subjects ?? []).map((s: any) => s.classSubjectId));
+    for (const x of j.suggestion.subjects) {
+      assert(cardIds.has(x.id), `a subject remark for an id not on the card: ${x.id}`);
+      assert(typeof x.en === "string" && x.en.length > 0 && typeof x.ur === "string" && x.ur.length > 0,
+        "each subject remark must carry en and ur");
+    }
+    // "Can you check what it cost us" - the reply itself accounts for it.
+    assert(j.usage && Number.isFinite(j.usage.inputTokens) && Number.isFinite(j.usage.outputTokens)
+      && Number.isFinite(j.usage.approxUsd),
+      "the reply must account for the tokens it spent");
   }
   // Either way, the card itself is untouched - suggesting is not saving.
   const after = await (await api(admin2.token,
@@ -7909,6 +7933,80 @@ await check("133. a grade-mode subject: letter in, letter on the card, totals un
     await admin.from("exam_subject_score").delete()
       .eq("student_id", pStu1).eq("class_subject_id", subj!.id).eq("exam_id", (exam as any).id);
     await admin.from("class_subject").update({ assessment_mode: originalMode }).eq("id", subj!.id);
+  }
+});
+
+await check("134. a failing subject earns its own remark - placed by a human, priced in the reply", async () => {
+  // 30 Sep, the office: a child "failing or with Ds or Es" should get a
+  // remark FOR that subject on the card, and "can you check what it cost
+  // us". The suggester now writes one remark per weak subject - weak by
+  // the school's OWN chart - keyed by the subject's id so the tray lands
+  // it in that subject's remark field, and the reply prices itself.
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const term = await markedTerm();
+  assert(term, "no term with papers");
+  const { data: exam } = await admin.from("exam").select("id")
+    .eq("term_id", term!.id).is("archived_at", null).ilike("name", "%written%").maybeSingle();
+  assert(exam, "no written exam in the term");
+  const { data: subj } = await admin.from("class_subject")
+    .select("id, name, assessment_mode").eq("class_id", sandboxClass.id)
+    .is("archived_at", null).limit(1).maybeSingle();
+  assert(subj, "sandbox has no subject");
+  const originalMode = (subj as any).assessment_mode ?? "marks";
+
+  try {
+    // The fixture needs a MARKS column; put it back if 133's restore
+    // left the subject graded.
+    if (originalMode !== "marks") {
+      await admin.from("class_subject").update({ assessment_mode: "marks" }).eq("id", subj!.id);
+    }
+    // 5/25 - far below any chart's pass mark.
+    const save = await api(admin2.token, `/school/orgs/${ORG}/exams/${(exam as any).id}/marks-sheet`, {
+      method: "POST",
+      body: JSON.stringify({ sectionId: sandboxSec.id, rows: [
+        { studentId: pStu1, classSubjectId: subj!.id, maxMarks: 25, obtainedMarks: 5 },
+      ] }),
+    });
+    assert(save.status === 200, `save ${save.status}: ${await save.text()}`);
+
+    const beforeCard = await (await api(admin2.token,
+      `/school/orgs/${ORG}/students/${pStu1}/terms/${term!.id}/report-card`)).json();
+    const commentBefore = (beforeCard.academic?.subjects ?? [])
+      .find((x: any) => x.classSubjectId === subj!.id)?.teacherComment ?? null;
+
+    const r = await api(admin2.token,
+      `/school/orgs/${ORG}/students/${pStu1}/terms/${term!.id}/suggest-remarks`, { method: "POST" });
+    const j = await r.json();
+    if (r.status === 503) {
+      assert(j.code === "AI_NOT_CONFIGURED",
+        `an unset key must say so plainly, got ${JSON.stringify(j).slice(0, 120)}`);
+      return;
+    }
+    assert(r.status === 200, `suggest ${r.status}: ${JSON.stringify(j).slice(0, 200)}`);
+    const subjects = j.suggestion?.subjects;
+    assert(Array.isArray(subjects), "the suggestion must carry a subjects array");
+    const mine = subjects.find((x: any) => x.id === subj!.id);
+    assert(mine, `the failing subject must get its own remark, got [${
+      subjects.map((x: any) => x.id).join(", ")}]`);
+    assert(typeof mine.en === "string" && mine.en.length > 0 &&
+      typeof mine.ur === "string" && mine.ur.length > 0,
+      "the subject remark must carry en and ur");
+    assert(j.usage && Number.isFinite(j.usage.inputTokens) && Number.isFinite(j.usage.outputTokens)
+      && Number.isFinite(j.usage.approxUsd) && j.usage.outputTokens > 0,
+      "the reply must account for the tokens it spent");
+    // And still: suggesting saved nothing to the card.
+    const card = await (await api(admin2.token,
+      `/school/orgs/${ORG}/students/${pStu1}/terms/${term!.id}/report-card`)).json();
+    const commentAfter = (card.academic?.subjects ?? [])
+      .find((x: any) => x.classSubjectId === subj!.id)?.teacherComment ?? null;
+    assert(commentAfter === commentBefore,
+      "a suggested subject remark must not save itself");
+  } finally {
+    await admin.from("exam_subject_score").delete()
+      .eq("student_id", pStu1).eq("class_subject_id", subj!.id).eq("exam_id", (exam as any).id);
+    if (originalMode !== "marks") {
+      await admin.from("class_subject").update({ assessment_mode: originalMode }).eq("id", subj!.id);
+    }
   }
 });
 

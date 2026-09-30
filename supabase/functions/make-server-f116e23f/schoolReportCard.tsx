@@ -826,17 +826,46 @@ export function installReportCard(school: Hono): void {
 
       const findings = (card.findings?.items ?? []) as any[];
       const fullName = String(card.student?.fullName ?? "");
+
+      // The office's ask (30 Sep): a child failing a subject, or sitting
+      // in the chart's bottom bands ("Ds or Es"), gets a remark FOR that
+      // subject. "Weak" is the school's OWN chart - below the pass mark,
+      // or in the two lowest bands - never a hardcoded threshold. Grade-
+      // mode subjects (Art, Robotics) carry no percentage and stay out.
+      const passMarkPct = card.academic?.overall?.passMarkPct ?? 40;
+      const bands = await loadOrgBands(orgId);
+      const bottomLetters = new Set(
+        [...bands].sort((a, b) => a.minPct - b.minPct).slice(0, 2)
+          .map((b) => (b.letter ?? "").toUpperCase()),
+      );
+      const weakSubjects = ((card.academic?.subjects ?? []) as any[])
+        .filter((s) => s.percentage !== null && !s.gradeLetter)
+        .filter((s) =>
+          s.percentage < passMarkPct ||
+          bottomLetters.has(String(s.letter ?? "").toUpperCase()))
+        .sort((a, b) => a.percentage - b.percentage)
+        .slice(0, 6) // bound the spend on a child failing everything
+        .map((s) => ({
+          id: s.classSubjectId as string,
+          name: s.name as string,
+          pct: Math.round(s.percentage * 10) / 10,
+          letter: (s.letter ?? null) as string | null,
+          findings: findings.filter((f) => f.subject === s.name).map((f) => String(f.en)),
+        }));
+
       const prompt = buildUserPrompt({
         schoolName: card.school?.name ?? "",
         studentFirstName: fullName.split(/\s+/)[0] ?? "",
         className: card.placement?.className ?? null,
         termName: card.term?.name ?? "",
         overallPct: card.academic?.overall?.percentage ?? null,
-        passMarkPct: card.academic?.overall?.passMarkPct ?? 40,
+        passMarkPct,
         isMemorizer: !!card.hifz?.show,
+        weakSubjects,
       }, findings);
 
       let text = "";
+      let spent = { inputTokens: 0, outputTokens: 0 };
       try {
         const res = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
@@ -847,7 +876,9 @@ export function installReportCard(school: Hono): void {
           },
           body: JSON.stringify({
             model: REMARK_MODEL,
-            max_tokens: 1200,
+            // Room for a sentence pair per weak subject on top of the
+            // four remarks; unspent headroom costs nothing.
+            max_tokens: weakSubjects.length > 0 ? 2600 : 1200,
             // Short, bounded writing from facts already established -
             // low effort keeps it fast and cheap without costing quality.
             output_config: { effort: "low" },
@@ -870,12 +901,16 @@ export function installReportCard(school: Hono): void {
           .filter((b) => b?.type === "text")
           .map((b) => b.text)
           .join("\n");
+        spent = {
+          inputTokens: Number(json?.usage?.input_tokens ?? 0),
+          outputTokens: Number(json?.usage?.output_tokens ?? 0),
+        };
       } catch (e) {
         console.error("[suggest-remarks] fetch", e);
         return c.json({ error: "Could not reach the writing service.", code: "AI_UNREACHABLE" }, 502);
       }
 
-      const parsed = parseSuggestion(text);
+      const parsed = parseSuggestion(text, new Set(weakSubjects.map((w) => w.id)));
       if (!parsed) {
         return c.json({
           error: "The suggestion came back in an unexpected shape - please try again.",
@@ -884,8 +919,19 @@ export function installReportCard(school: Hono): void {
       }
       // If the Urdu came back in English, say so rather than quietly
       // filling the Urdu box with English nobody checks.
-      const urduOk = looksLikeUrdu(parsed.classTeacherUr) && looksLikeUrdu(parsed.principalUr);
-      return c.json({ suggestion: parsed, urduOk, usedFindings: findings.length });
+      const urduOk = looksLikeUrdu(parsed.classTeacherUr) && looksLikeUrdu(parsed.principalUr) &&
+        parsed.subjects.every((s) => looksLikeUrdu(s.ur));
+      // "Can you check what it cost us" (office, 30 Sep) deserves an
+      // answer IN the product: list-price arithmetic on the tokens this
+      // very call spent, shown in the tray footer. An estimate, not a
+      // bill - the console stays the authority.
+      const approxUsd = (spent.inputTokens * 3 + spent.outputTokens * 15) / 1_000_000;
+      return c.json({
+        suggestion: parsed,
+        urduOk,
+        usedFindings: findings.length,
+        usage: { ...spent, approxUsd: Math.round(approxUsd * 10000) / 10000 },
+      });
     },
   );
 
