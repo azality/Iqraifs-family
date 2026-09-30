@@ -659,6 +659,7 @@ export function installSubjects(school: Hono) {
         name: t.name,
         sortOrder: t.sort_order,
         assessmentWeights: t.assessment_weights ?? null,
+        assessmentMode: t.assessment_mode ?? "marks",
         electiveGroup: t.elective_group ?? null,
         createdAt: t.created_at,
         updatedAt: t.updated_at,
@@ -702,10 +703,19 @@ export function installSubjects(school: Hono) {
       return c.json({ error: "name must be 1..100 characters" }, 400);
     }
     const sortOrder = typeof body?.sortOrder === "number" ? Math.trunc(body.sortOrder) : 0;
+    // How the subject is assessed (30 Sep): marks papers, a letter from
+    // the school's grade scale, or pass/fail (the Final Assessment's
+    // Reception and Junior grading). The school picks this itself when
+    // creating the subject - no developer in the loop.
+    const MODES = new Set(["marks", "grade", "pass_fail"]);
+    const assessmentMode = typeof body?.assessmentMode === "string" ? body.assessmentMode : "marks";
+    if (!MODES.has(assessmentMode)) {
+      return c.json({ error: "assessmentMode must be marks, grade or pass_fail" }, 400);
+    }
 
     const { data: template, error } = await serviceRoleClient
       .from("class_subject")
-      .insert({ org_id: orgId, class_id: classId, name, sort_order: sortOrder, created_by: userId })
+      .insert({ org_id: orgId, class_id: classId, name, sort_order: sortOrder, created_by: userId, assessment_mode: assessmentMode })
       .select()
       .single();
     if (error) {
@@ -766,6 +776,12 @@ export function installSubjects(school: Hono) {
     }
     if (typeof body?.sortOrder === "number") {
       patch.sort_order = Math.trunc(body.sortOrder);
+    }
+    if (typeof body?.assessmentMode === "string") {
+      if (!["marks", "grade", "pass_fail"].includes(body.assessmentMode)) {
+        return c.json({ error: "assessmentMode must be marks, grade or pass_fail" }, 400);
+      }
+      patch.assessment_mode = body.assessmentMode;
     }
     // The school's marks distribution for this subject: components with
     // the MARKS each carries and which paper it belongs to, e.g. Class I
