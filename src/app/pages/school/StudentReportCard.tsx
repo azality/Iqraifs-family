@@ -39,6 +39,15 @@ function fmtPct(n: number | null): string {
   return n === null ? "—" : `${n.toFixed(1)}%`;
 }
 
+/** Day-month-year, the way Pakistan writes a date (office, 30 Sep). The
+ *  term dates arrive as YYYY-MM-DD; split the string rather than parsing,
+ *  so a date never shifts a day across a timezone. */
+function fmtDayMonthYear(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : iso;
+}
+
 export function StudentReportCard() {
   const { orgId = "", studentId = "" } = useParams<{ orgId: string; studentId: string }>();
   const [search, setSearch] = useSearchParams();
@@ -211,8 +220,26 @@ export function StudentReportCard() {
             padding-top: 3px !important; padding-bottom: 3px !important;
           }
           .print-card .print-keep .rounded-md { padding: 8px !important; }
-          /* Signature block stays at the bottom of the card */
-          .print-signature { break-before: auto; }
+          /* NO ORPHANS (office, 30 Sep: "if it absolutely has to be on the
+             second page then there should be more than just sign and
+             stamp"). A lone signature strip on page two is the worst
+             outcome - the card looks finished on page one and the parent
+             gets a near-blank sheet. 'break-before: avoid' forbids a break
+             immediately before the strip, so the browser carries the
+             remarks block over with it rather than stranding it. */
+          .print-signature { break-before: avoid !important; page-break-before: avoid !important; }
+          /* Same rule one level up: the remarks block must not be split
+             from what precedes it either, so whatever moves, moves as a
+             readable chunk. */
+          .print-remarks { break-before: avoid; page-break-before: avoid; }
+          /* A printed remark is capped in HEIGHT as well as in characters:
+             a teacher who pastes an essay cannot push the signature onto
+             its own page. Eight lines is roughly 600 characters at this
+             width, which is above every remark the school has written. */
+          .print-remark-body {
+            display: -webkit-box; -webkit-box-orient: vertical;
+            -webkit-line-clamp: 8; overflow: hidden;
+          }
           /* A blank SECOND page (Ambreen's print, 25 Sep): the card
              itself ended on page one and only trailing space spilled
              over. Nothing after the last section may carry margin,
@@ -337,13 +364,20 @@ export function StudentReportCard() {
                     <div className="text-lg font-bold text-slate-900">{card.school.name}</div>
                     {card.school.motto && <div className="text-xs text-slate-600 italic">{card.school.motto}</div>}
                     {card.school.address && <div className="text-[11px] text-slate-500">{card.school.address}</div>}
+                    {/* The term and its dates sit on the LEFT (office, 30 Sep):
+                        in the right-hand column they wrapped over three lines
+                        and cost height the card could not spare. Dates read
+                        day-month-year, the way Pakistan writes them. */}
+                    <div className="text-[11px] text-slate-600 mt-0.5 whitespace-nowrap">
+                      <span className="font-medium text-slate-900">{card.term.name}</span>
+                      <span className="text-slate-400"> · </span>
+                      {fmtDayMonthYear(card.term.startDate)} – {fmtDayMonthYear(card.term.endDate)}
+                    </div>
                   </div>
                 </div>
                 <div className="text-right flex items-start gap-3">
                   <div>
                     <div className="text-xs font-semibold uppercase tracking-wider text-indigo-700">Report Card</div>
-                    <div className="text-sm font-medium text-slate-900">{card.term.name}</div>
-                    <div className="text-[11px] text-slate-500">{card.term.startDate} → {card.term.endDate}</div>
                   </div>
                   {/* Print-only QR. Points at the school-portal login page
                       for this org so a parent can scan and access their
@@ -387,7 +421,7 @@ export function StudentReportCard() {
                         <tr>
                           <th className="text-left px-2 py-1.5">Subject</th>
                           {card.exams.map((e) => (
-                            <th key={e.id} className="text-center px-2 py-1.5">{e.name}</th>
+                            <th key={e.id} className="text-center px-2 py-1.5">{e.columnLabel || e.name}</th>
                           ))}
                           <th className="text-right px-2 py-1.5">Total</th>
                           <th className="text-right px-2 py-1.5">%</th>
@@ -593,7 +627,7 @@ export function StudentReportCard() {
                 />
               )}
 
-              <section className="space-y-3 print-keep">
+              <section className="space-y-3 print-keep print-remarks">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
@@ -604,7 +638,7 @@ export function StudentReportCard() {
                       onChange={(e) => setClassTeacherComment(e.target.value)}
                       placeholder={card.comments.auto?.classTeacher ? (card.comments.classTeacher ?? "—") : "—"}
                       className="text-xs h-20 no-print"
-                      maxLength={2000}
+                      maxLength={700}
                       disabled={remarkLocked}
                     />
                     {/* Locked once the office finalizes, or once the
@@ -628,7 +662,7 @@ export function StudentReportCard() {
                         )}
                       </>
                     )}
-                    <div className="hidden print:block text-xs text-slate-700">
+                    <div className="hidden print:block text-xs text-slate-700 print-remark-body">
                       {classTeacherComment || card.comments.classTeacher || "—"}
                     </div>
                   </div>
@@ -641,7 +675,7 @@ export function StudentReportCard() {
                       onChange={(e) => setPrincipalComment(e.target.value)}
                       placeholder={card.comments.auto?.principal ? (card.comments.principal ?? "—") : "—"}
                       className="text-xs h-20 no-print"
-                      maxLength={2000}
+                      maxLength={700}
                       disabled={!isAdmin}
                     />
                     {card.comments.auto?.principal && !principalComment && (
@@ -649,7 +683,7 @@ export function StudentReportCard() {
                         Auto from the remarks chart — type to replace.
                       </p>
                     )}
-                    <div className="hidden print:block text-xs text-slate-700">
+                    <div className="hidden print:block text-xs text-slate-700 print-remark-body">
                       {principalComment || card.comments.principal || "—"}
                     </div>
                   </div>
