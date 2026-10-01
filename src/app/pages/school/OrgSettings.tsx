@@ -50,6 +50,8 @@ interface OrgFormState {
   name: string;
   contact_email: string;
   contact_phone: string;
+  /** Prints on the report-card header, labelled WhatsApp (office, 1 Oct). */
+  whatsapp_number: string;
   address: string;
   // PR C #5: branding + timezone editors. Stored in
   // organizations.settings jsonb on the backend.
@@ -101,6 +103,7 @@ export function OrgSettings() {
     name: "",
     contact_email: "",
     contact_phone: "",
+    whatsapp_number: "",
     address: "",
     timezone: "",
     parent_reply_sla_days: "",
@@ -204,6 +207,8 @@ export function OrgSettings() {
             (o.organization.settings?.contact_email as string | undefined) ?? "",
           contact_phone:
             (o.organization.settings?.contact_phone as string | undefined) ?? "",
+          whatsapp_number:
+            (o.organization.settings?.whatsapp_number as string | undefined) ?? "",
           address: (o.organization.settings?.address as string | undefined) ?? "",
           timezone: (o.organization.settings?.timezone as string | undefined) ?? "",
           parent_reply_sla_days:
@@ -274,6 +279,7 @@ export function OrgSettings() {
         name: orgForm.name,
         contact_email: orgForm.contact_email,
         contact_phone: orgForm.contact_phone,
+        whatsapp_number: orgForm.whatsapp_number,
         address: orgForm.address,
         timezone: orgForm.timezone,
         ...(orgForm.parent_reply_sla_days.trim() !== ""
@@ -422,6 +428,21 @@ export function OrgSettings() {
                 setOrgForm((s) => ({ ...s, contact_phone: e.target.value }))
               }
             />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="org-whatsapp">WhatsApp number</Label>
+            <Input
+              id="org-whatsapp"
+              type="text"
+              placeholder="+92 ..."
+              value={orgForm.whatsapp_number}
+              onChange={(e) =>
+                setOrgForm((s) => ({ ...s, whatsapp_number: e.target.value }))
+              }
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Prints on the report-card header so parents can reach the school.
+            </p>
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="org-address">Address</Label>

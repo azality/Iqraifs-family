@@ -595,6 +595,8 @@ school.patch("/orgs/:orgId", async (c) => {
   const settingsKeys = [
     "contact_email",
     "contact_phone",
+    // Prints on the report-card header, labelled WhatsApp (office, 1 Oct).
+    "whatsapp_number",
     "address",
     "academic_year",
     "timezone",
