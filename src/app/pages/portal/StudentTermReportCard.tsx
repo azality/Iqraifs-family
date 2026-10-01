@@ -13,6 +13,7 @@ import {
   type MyTermReportCardListItem,
 } from "../../../utils/schoolPortalApi";
 import type { TermReportCardResponse } from "../../../utils/schoolApi";
+import { defaultSubjectRemark } from "../../../utils/subjectRemarkDefaults";
 
 function fmtPct(n: number | null): string {
   return n === null ? "—" : `${n.toFixed(1)}%`;
@@ -39,11 +40,17 @@ export function StudentTermReportCard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // What shows when the teacher wrote nothing: the band remark, same
-  // as the paper card (round 3, 2 Oct). Computed findings describe the
-  // marks the parent is already looking at, so they stay out of this
-  // column everywhere; the remark worth reading is the one a teacher
-  // wrote or approved.
+  // What shows when the teacher wrote nothing: the same tiered
+  // evidence-finding activity the paper card prints (2 Oct review's
+  // marks-only answer), in the reader's own language. The teacher's
+  // words always win.
+  const portalDefault = (pct: number | null, bandRemark: string) => {
+    const d = defaultSubjectRemark({
+      percentage: pct,
+      passMarkPct: card?.academic.overall.passMarkPct ?? 40,
+    });
+    return d ? (inReaderLanguage(d.en, d.ur) ?? bandRemark) : bandRemark;
+  };
 
   useEffect(() => {
     setLoading(true);
@@ -194,7 +201,7 @@ export function StudentTermReportCard() {
                         <td className={"px-2 py-1.5 text-right font-medium " + (subjFailed ? "text-rose-700" : "")}>{fmtPct(s.percentage)}</td>
                         <td className={"px-2 py-1.5 text-center font-bold " + (subjFailed ? "text-rose-700" : "")}>{s.letter}</td>
                         <td className={"px-2 py-1.5 " + (subjFailed ? "text-rose-700" : "text-slate-600")}>
-                          {s.teacherComment || s.remark}
+                          {s.teacherComment || portalDefault(s.percentage, s.remark)}
                         </td>
                       </tr>
                     );
