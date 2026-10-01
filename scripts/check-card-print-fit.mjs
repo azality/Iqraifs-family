@@ -4,23 +4,28 @@
 // page ... we need a check where it reviews all reports to make sure it's
 // not falling on the second page - no orphans."
 //
-// A card's printed height has two drivers:
+// A card's printed height has three drivers:
 //
 //   1. the subject table - one row per subject, plus the overall row;
-//   2. the two remark columns - now capped at 8 printed lines by
-//      .print-remark-body, so no amount of typing can grow them further.
+//   2. the two remark boxes - capped at 8 printed lines by
+//      .print-remark-body, so no amount of typing can grow them further;
+//   3. per-subject remarks (1 Oct: findings print by default) - capped
+//      at 3 lines x 8.5pt by .print-subject-remark .remark-clamp.
 //
-// Because (2) is bounded, the only thing that can push a card over a page
-// is (1). These thresholds come from measuring the real cards in Chrome at
-// A4 portrait with the print stylesheet applied (30 Sep):
+// Because (2) and (3) are bounded, the only thing that can push a card
+// over a page is (1). Re-measured in Chrome at A4 portrait with the
+// print stylesheet after the 1 Oct layout revision (ruled table,
+// identity band, grading key, boxed remarks, findings-as-remarks):
 //
-//   15 rows + short remarks ........ 934px of 1062px
-//   15 rows + MAXIMAL remarks ..... 1030px of 1062px  (32px spare)
-//   10 rows + a 588-char remark ... 1015px of 1062px
+//   WORST card in the school (Class III, 15 rows,
+//     9 three-line finding remarks) ............ 1037px of 1062px
+//   runners-up (15 rows, 7-9 findings) ... 1029px and 1045px
+//   Senior (12 rows) ............................ 869px
 //
-// So 15 rows is proven to fit even in the worst case. A class carrying
-// more subjects than that has never been measured, and this fails so
-// somebody measures it before the cards print rather than after.
+// So 15 rows is proven to fit even with a finding on every notable
+// subject. A class carrying more subjects than that has never been
+// measured, and this fails so somebody measures it before the cards
+// print rather than after.
 //
 //   node scripts/check-card-print-fit.mjs            (uses .env)
 //
