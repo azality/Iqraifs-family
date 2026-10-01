@@ -33,6 +33,7 @@ import {
   type TermReportCardResponse, type SuggestedRemarks, type GradeBand,
 } from "../../../utils/schoolApi";
 import { ReportFindingsPanel } from "./components/ReportFindingsPanel";
+import { defaultSubjectRemark } from "../../../utils/subjectRemarkDefaults";
 import { Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
@@ -152,14 +153,17 @@ export function StudentReportCard() {
   // auditable sentences the findings engine already writes; no model, no
   // credits, recomputed per term). Worst finding first in the payload,
   // so the first one per subject is the one worth the column.
-  // What prints when the teacher writes nothing: the band remark, and
-  // nothing cleverer (round 3, 2 Oct review). Computed findings - the
-  // paper gaps, the own-average lines - describe the marks the parent
-  // is already looking at; they stay in the teacher's insight panel,
-  // where they prioritize a conversation, and in what the AI writes
-  // from. The path to a remark that tells a parent what to TRY is the
-  // teacher's observation + the AI suggestion, reviewed and placed by
-  // a human.
+  // What prints when the teacher writes nothing: the review's own
+  // marks-only answer - an evidence-finding activity the parent can
+  // actually do, tiered by how the subject went (2 Oct: "having just
+  // good, not graded, excellent is not good"). See
+  // subjectRemarkDefaults.ts. The teacher's words always win; the
+  // AI-suggested, teacher-approved remark is still the ceiling.
+  const printedDefault = (pct: number | null, bandRemark: string) =>
+    defaultSubjectRemark({
+      percentage: pct,
+      passMarkPct: card?.academic.overall.passMarkPct ?? 40,
+    })?.en ?? bandRemark;
 
   // The grading key printed at the foot of the card (office, 1 Oct:
   // "Keys" pen note). The school's own chart; quietly absent if this
@@ -670,7 +674,8 @@ export function StudentReportCard() {
                                 unsaved edits print. */}
                             <td className={"px-2 py-1.5 border border-slate-200 print-subject-remark " + (subjFailed ? "text-rose-700" : "text-slate-600")}>
                               <div className="remark-clamp">
-                                {(subjectComments[s.classSubjectId] ?? "").trim() || s.remark}
+                                {(subjectComments[s.classSubjectId] ?? "").trim()
+                                  || printedDefault(s.percentage, s.remark)}
                               </div>
                             </td>
                           </tr>
@@ -825,9 +830,9 @@ export function StudentReportCard() {
                     {card.academic.subjects.map((s) => {
                       const v = subjectComments[s.classSubjectId] ?? "";
                       // What the card will print if the teacher writes
-                      // nothing: the band remark. Shown as the placeholder
-                      // so an override is an informed act (1 Oct).
-                      const dflt = s.remark;
+                      // nothing. Shown as the placeholder so an override
+                      // is an informed act (1 Oct).
+                      const dflt = printedDefault(s.percentage, s.remark);
                       const obs = subjectObservations[s.classSubjectId] ?? {};
                       const setObs = (patch: { need?: string; note?: string }) =>
                         setSubjectObservations({
