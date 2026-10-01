@@ -30,16 +30,16 @@ export interface SubjectObservation {
   note?: string;
 }
 
-/** A subject the suggester writes about. kind "weak" = below the pass
- *  mark or in the chart's bottom bands (office, 30 Sep); kind "strong"
- *  = a genuine strength worth an extension, never a manufactured
- *  weakness (round 3). The remark lands in that subject's own remark
- *  field, still placed and saved by a human. */
+/** A subject the writer covers. kind "weak" = below the pass mark or
+ *  in the chart's bottom bands (office, 30 Sep); "strong" = a genuine
+ *  strength worth an extension, never a manufactured weakness;
+ *  "mid" = a steady subject - one honest sentence, no drama (full
+ *  coverage, 2 Oct: auto-generation writes for every marked subject). */
 export interface SubjectContext {
   /** class_subject id - the key the subject's remark field is stored under. */
   id: string;
   name: string;
-  kind: "weak" | "strong";
+  kind: "weak" | "strong" | "mid";
   pct: number;
   letter: string | null;
   /** The same subject's percentage in the previous marked term, when
@@ -78,7 +78,13 @@ export interface SuggestedRemarks {
  *  (a whole 1,000-child school costs well under $30 a year either way). */
 export const REMARK_MODEL = "claude-sonnet-5";
 
-export const SYSTEM_PROMPT = `You write report-card remarks for an Islamic school in Pakistan, in English and Urdu.
+/** One prompt, two language modes. Auto-generation at finalize writes
+ *  ENGLISH ONLY (2 Oct: Urdu roughly doubles the output tokens, so it
+ *  is generated on demand through the Suggest button instead); the
+ *  button keeps producing both so an Urdu-reading family is one click
+ *  away. */
+export function systemPrompt(urdu: boolean): string {
+  return `You write report-card remarks for an Islamic school in Pakistan, in ${urdu ? "English and Urdu" : "English"}.
 
 You are given computed FINDINGS (correct arithmetic from the child's own marks, attendance and hifz record) and, for some subjects, a TEACHER OBSERVATION - what the teacher actually saw in class. Your job is to turn that evidence into remarks a parent will read.
 
@@ -94,18 +100,27 @@ Per-subject remarks (one per listed subject, copy each id exactly; never for a s
 - WITH a teacher observation, build on it. Example shape: "Your child understands the lessons but sometimes leaves written answers incomplete. Twice a week, practise one short question, checking that every part has been answered."
 - WITHOUT an observation, do not invent a weakness to sound personal. Suggest an evidence-finding activity instead, e.g.: "For the next revision, have your child retry two questions where marks were lost, then compare their answers with the teacher's corrections."
 - For a STRONG subject, offer an appropriate extension (a harder exercise, teaching it to a sibling, a related reading) - never manufacture a weakness.
+- For a MID subject (steady, nothing stands out), ONE honest sentence: a brief affirmation or a light next step. No drama, no manufactured concern.
 - Where a previous term's result is given, you may name the direction of movement ("improved since last term") without quoting numbers.
 - Encouraging, never harsh - a weak subject's remark is printed beside a low mark.
+- Vary the wording across subjects - the parent reads them as one column, and ten copies of the same sentence read as a machine.
 
 Class teacher's remark: 2-3 sentences. ONE supported strength and one or two priorities across subjects - never a list of per-subject homework routines. End with the single most useful thing to do at home.
 Principal's remark: 1-2 sentences. Warmer and broader - encouragement, and where relevant an invitation to meet the school.
 Tone: warm, respectful, never harsh about a struggling child, never inflated about a strong one. "Mashallah" and "Inshallah" are natural here; use them where they fit, not in every sentence.
-Urdu must carry the same meaning as the English, not a word-for-word translation. Write it in a NOMINAL style ("محنت نمایاں ہے") and avoid gendered verb endings such as کرتا/کرتی, so the same remark suits a boy or a girl.
-Address the parent about the child. Do not use the child's name more than once.
+${urdu ? `Urdu must carry the same meaning as the English, not a word-for-word translation. Write it in a NOMINAL style ("محنت نمایاں ہے") and avoid gendered verb endings such as کرتا/کرتی, so the same remark suits a boy or a girl.
+` : ""}Address the parent about the child. Do not use the child's name more than once.
 
 Reply with JSON only, no other text, exactly:
-{"classTeacher": "...", "classTeacherUr": "...", "principal": "...", "principalUr": "...", "subjects": [{"id": "...", "en": "...", "ur": "..."}]}
+${urdu
+    ? `{"classTeacher": "...", "classTeacherUr": "...", "principal": "...", "principalUr": "...", "subjects": [{"id": "...", "en": "...", "ur": "..."}]}`
+    : `{"classTeacher": "...", "principal": "...", "subjects": [{"id": "...", "en": "..."}]}`}
 "subjects" is [] when no subjects were listed.`;
+}
+
+/** The two-language prompt, kept under its old name for the Suggest
+ *  button's path. */
+export const SYSTEM_PROMPT = systemPrompt(true);
 
 export function buildUserPrompt(ctx: RemarkContext, findings: Finding[]): string {
   const lines = findings.map((f) => `- [${f.severity}] ${f.en}`);
@@ -143,7 +158,12 @@ export function buildUserPrompt(ctx: RemarkContext, findings: Finding[]): string
  *  teacher can see, never as half a remark saved onto a child's card.
  *  Subject remarks are filtered to the ids WE asked about - a subject
  *  the model invented never reaches a card, however fluent it sounds. */
-export function parseSuggestion(raw: string, allowedSubjectIds: Set<string>): SuggestedRemarks | null {
+export function parseSuggestion(
+  raw: string,
+  allowedSubjectIds: Set<string>,
+  opts: { urdu?: boolean } = {},
+): SuggestedRemarks | null {
+  const urdu = opts.urdu !== false;
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
   if (start === -1 || end <= start) return null;
@@ -154,8 +174,10 @@ export function parseSuggestion(raw: string, allowedSubjectIds: Set<string>): Su
     return null;
   }
   const p = parsed as Record<string, unknown>;
-  const need = ["classTeacher", "classTeacherUr", "principal", "principalUr"] as const;
-  const out: Record<string, string> = {};
+  const need = urdu
+    ? (["classTeacher", "classTeacherUr", "principal", "principalUr"] as const)
+    : (["classTeacher", "principal"] as const);
+  const out: Record<string, string> = { classTeacherUr: "", principalUr: "" };
   for (const k of need) {
     const v = p?.[k];
     if (typeof v !== "string" || v.trim().length === 0) return null;
@@ -169,7 +191,7 @@ export function parseSuggestion(raw: string, allowedSubjectIds: Set<string>): Su
     if (!allowedSubjectIds.has(id) || seen.has(id)) continue;
     const en = typeof s?.en === "string" ? s.en.trim() : "";
     const ur = typeof s?.ur === "string" ? s.ur.trim() : "";
-    if (!en || !ur) continue;
+    if (!en || (urdu && !ur)) continue;
     seen.add(id);
     // The field caps at 1000; a runaway sentence is cut rather than refused.
     subjects.push({ id, en: en.slice(0, 400), ur: ur.slice(0, 400) });
