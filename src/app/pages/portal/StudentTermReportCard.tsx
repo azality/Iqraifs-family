@@ -39,20 +39,11 @@ export function StudentTermReportCard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // The paper card defaults each subject's remark to its computed
-  // finding (1 Oct); the phone must say the same thing. Same guards
-  // too: a paper-gap line never prints (it restates the row's own
-  // numbers - 2 Oct), and a RELATIVE "clear strength" stays off a
-  // subject that is weak in absolute terms. An Urdu reader gets the
-  // finding's own Urdu.
-  const subjectFinding = (name: string) =>
-    (card?.findings?.items ?? []).find((f) => f.subject === name && f.kind !== "paper_gap") ?? null;
-  const defaultRemark = (name: string, pct: number | null, bandRemark: string) => {
-    const f = subjectFinding(name);
-    if (!f) return bandRemark;
-    if (f.kind === "subject_strong" && (pct ?? 0) < 60) return bandRemark;
-    return inReaderLanguage(f.en, f.ur) ?? bandRemark;
-  };
+  // What shows when the teacher wrote nothing: the band remark, same
+  // as the paper card (round 3, 2 Oct). Computed findings describe the
+  // marks the parent is already looking at, so they stay out of this
+  // column everywhere; the remark worth reading is the one a teacher
+  // wrote or approved.
 
   useEffect(() => {
     setLoading(true);
@@ -203,7 +194,7 @@ export function StudentTermReportCard() {
                         <td className={"px-2 py-1.5 text-right font-medium " + (subjFailed ? "text-rose-700" : "")}>{fmtPct(s.percentage)}</td>
                         <td className={"px-2 py-1.5 text-center font-bold " + (subjFailed ? "text-rose-700" : "")}>{s.letter}</td>
                         <td className={"px-2 py-1.5 " + (subjFailed ? "text-rose-700" : "text-slate-600")}>
-                          {s.teacherComment || defaultRemark(s.name, s.percentage, s.remark)}
+                          {s.teacherComment || s.remark}
                         </td>
                       </tr>
                     );

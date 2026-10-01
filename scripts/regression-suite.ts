@@ -7969,10 +7969,25 @@ await check("134. a failing subject earns its own remark - placed by a human, pr
     });
     assert(save.status === 200, `save ${save.status}: ${await save.text()}`);
 
+    // Round 3 (v1.22.0): the teacher's observation is the evidence the
+    // suggester writes from. It round-trips through the comments PUT
+    // and comes back on the card - and is never printed as a remark.
+    const obsPut = await api(admin2.token,
+      `/school/orgs/${ORG}/students/${pStu1}/terms/${term!.id}/report-card/comments`, {
+        method: "PUT",
+        body: JSON.stringify({ subjectObservations: {
+          [subj!.id]: { need: "Incomplete answers", note: "stops after the first part" },
+        } }),
+      });
+    assert(obsPut.status === 200, `observation save ${obsPut.status}: ${await obsPut.text()}`);
+
     const beforeCard = await (await api(admin2.token,
       `/school/orgs/${ORG}/students/${pStu1}/terms/${term!.id}/report-card`)).json();
     const commentBefore = (beforeCard.academic?.subjects ?? [])
       .find((x: any) => x.classSubjectId === subj!.id)?.teacherComment ?? null;
+    const obsBack = beforeCard.comments?.observations?.[subj!.id];
+    assert(obsBack?.need === "Incomplete answers" && obsBack?.note === "stops after the first part",
+      `the observation must come back on the card, got ${JSON.stringify(obsBack)}`);
 
     const r = await api(admin2.token,
       `/school/orgs/${ORG}/students/${pStu1}/terms/${term!.id}/suggest-remarks`, { method: "POST" });
@@ -8004,6 +8019,8 @@ await check("134. a failing subject earns its own remark - placed by a human, pr
   } finally {
     await admin.from("exam_subject_score").delete()
       .eq("student_id", pStu1).eq("class_subject_id", subj!.id).eq("exam_id", (exam as any).id);
+    await admin.from("term_report_card").update({ subject_observations: {} })
+      .eq("student_id", pStu1).eq("term_id", term!.id);
     if (originalMode !== "marks") {
       await admin.from("class_subject").update({ assessment_mode: originalMode }).eq("id", subj!.id);
     }
