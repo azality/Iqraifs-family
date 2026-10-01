@@ -28,7 +28,7 @@ import {
   getSchoolMe, isOrgAdmin,
   listTerms, getTermReportCard, getReportCardsBrowser,
   saveReportCardComments, setReportCardWorkflow, suggestRemarks,
-  listGradeScales,
+  listGradeScales, getOrganization,
   type SchoolMeResponse, type AcademicTerm,
   type TermReportCardResponse, type SuggestedRemarks, type GradeBand,
 } from "../../../utils/schoolApi";
@@ -179,6 +179,23 @@ export function StudentReportCard() {
         setKeyBands(scale?.bands?.length ? scale.bands : null);
       })
       .catch(() => setKeyBands(null));
+  }, [orgId]);
+
+  // The school's WhatsApp number for the header (office pen, 1 Oct).
+  // Settings-owned: whatsapp_number, else the plain contact phone.
+  // Quietly absent when neither is set or this viewer cannot read the
+  // org (the card payload itself is frozen until the 4 Oct deploy).
+  const [schoolPhone, setSchoolPhone] = useState<{ n: string; wa: boolean } | null>(null);
+  useEffect(() => {
+    if (!orgId) return;
+    getOrganization(orgId)
+      .then((o) => {
+        const s = (o.organization.settings ?? {}) as Record<string, unknown>;
+        const wa = typeof s.whatsapp_number === "string" && s.whatsapp_number.trim();
+        const tel = typeof s.contact_phone === "string" && s.contact_phone.trim();
+        setSchoolPhone(wa ? { n: wa as string, wa: true } : tel ? { n: tel as string, wa: false } : null);
+      })
+      .catch(() => setSchoolPhone(null));
   }, [orgId]);
 
   // Which signature lines this school prints. Everything defaults ON,
@@ -361,6 +378,13 @@ export function StudentReportCard() {
           .print-card .space-y-3 > * + * { margin-top: 5px !important; }
           html, body { height: auto !important; min-height: 0 !important; }
           .print-signature { padding-top: 8px !important; margin-top: 8px !important; }
+          /* QR prints a notch smaller (48px = 12.7mm, still an easy
+             scan for a short URL) to pay for the WhatsApp line beside
+             it (1 Oct) - the header must not outgrow the left stack. */
+          .print-card img.print-only { height: 48px !important; width: 48px !important; }
+          /* The 3-line address (", Pakistan" since 1 Oct) drives the
+             header's height - print it a touch smaller and tighter. */
+          .print-card .print-addr { font-size: 8pt !important; line-height: 1.3 !important; }
           .print-signature .h-14 { height: 36px !important; }
           .print-signature .h-10 { height: 26px !important; }
           .print-only { display: block !important; }
@@ -474,12 +498,19 @@ export function StudentReportCard() {
                   <div>
                     <div className="text-lg font-bold text-slate-900">{card.school.name}</div>
                     {card.school.motto && <div className="text-xs text-slate-600 italic">{card.school.motto}</div>}
-                    {card.school.address && <div className="text-[11px] text-slate-500">{card.school.address}</div>}
+                    {card.school.address && <div className="text-[11px] text-slate-500 print-addr">{card.school.address}</div>}
                   </div>
                 </div>
                 <div className="text-right flex items-start gap-3">
                   <div>
                     <div className="text-xs font-semibold uppercase tracking-wider text-indigo-700">Report Card</div>
+                    {/* The office pen wrote the WhatsApp number on the
+                        header (1 Oct) - settings-owned, see schoolPhone. */}
+                    {schoolPhone && (
+                      <div className="text-[10px] text-slate-600 mt-0.5 whitespace-nowrap">
+                        {schoolPhone.wa ? "WhatsApp " : "Tel "}{schoolPhone.n}
+                      </div>
+                    )}
                   </div>
                   {/* Print-only QR. Points at the school-portal login page
                       for this org so a parent can scan and access their
@@ -635,8 +666,8 @@ export function StudentReportCard() {
               </section>
 
               <section className={`grid grid-cols-1 ${card.hifz.show !== false ? "sm:grid-cols-3" : "sm:grid-cols-2"} gap-3 print-keep`}>
-                <div className="rounded-md border border-slate-200 bg-white p-3">
-                  <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 flex items-center gap-1">
+                <div className="rounded-md border border-slate-300 bg-white p-3">
+                  <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 pb-1 border-b border-slate-200 flex items-center gap-1">
                     <Calendar className="h-3.5 w-3.5 text-indigo-500" /> Attendance
                   </div>
                   <div className="text-xs space-y-0.5">
@@ -689,8 +720,8 @@ export function StudentReportCard() {
                     </div>
                   </div>
                 </div>
-                <div className="rounded-md border border-slate-200 bg-white p-3">
-                  <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 flex items-center gap-1">
+                <div className="rounded-md border border-slate-300 bg-white p-3">
+                  <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 pb-1 border-b border-slate-200 flex items-center gap-1">
                     <TrendingUp className="h-3.5 w-3.5 text-emerald-500" /> Behavior
                   </div>
                   <div className="text-xs space-y-0.5">
@@ -702,8 +733,8 @@ export function StudentReportCard() {
                 {/* Only a memorizing child gets the Hifz box — an academic
                     child's card showed a box of zeros (school, 14 Sep). */}
                 {card.hifz.show !== false && (
-                  <div className="rounded-md border border-slate-200 bg-white p-3">
-                    <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 flex items-center gap-1">
+                  <div className="rounded-md border border-slate-300 bg-white p-3">
+                    <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 pb-1 border-b border-slate-200 flex items-center gap-1">
                       <Award className="h-3.5 w-3.5 text-amber-500" /> Hifz progress
                     </div>
                     <div className="text-xs space-y-0.5">

@@ -271,6 +271,10 @@ export const updateOrganization = (
     slug: string;
     contact_email: string;
     contact_phone: string;
+    /** Prints on the report-card header, labelled WhatsApp (1 Oct).
+     *  Server accepts it from v1.21.0 - saved values before that deploy
+     *  are dropped by the whitelist. */
+    whatsapp_number: string;
     address: string;
     academic_year: string;
     timezone: string;

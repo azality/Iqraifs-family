@@ -17,10 +17,10 @@
 // print stylesheet after the 1 Oct layout revision (ruled table,
 // identity band, grading key, boxed remarks, findings-as-remarks):
 //
-//   WORST card in the school (Class III, 15 rows,
-//     9 three-line finding remarks) ............ 1037px of 1062px
-//   runners-up (15 rows, 7-9 findings) ... 1029px and 1045px
-//   Senior (12 rows) ............................ 869px
+//   WORST card in the school (Class III, 15 rows, 9 three-line
+//     finding remarks, WhatsApp header line) ... 1042px of 1062px
+//   runners-up (15 rows, 7-9 findings) ... ~1030px and ~1046px
+//   Senior (12 rows) ............................ ~870px
 //
 // So 15 rows is proven to fit even with a finding on every notable
 // subject. A class carrying more subjects than that has never been
