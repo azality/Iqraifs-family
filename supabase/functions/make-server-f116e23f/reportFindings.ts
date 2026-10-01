@@ -78,6 +78,14 @@ const SUBJECT_GAP = 12;
 const PAPER_GAP = 20;
 /** The stronger paper must clear this for the split to mean anything. */
 const PAPER_CONTRAST_FLOOR = 50;
+/** BOTH papers must carry real weight for a split to be a finding.
+ *  2 Oct: IFS marks a 10-of-75 "Overall Learning & Participation"
+ *  component generously and examines 65-of-75 in writing, so "the
+ *  Written paper is far weaker than Oral" fired for most of the school
+ *  - and a finding that fires for the majority is noise, not insight.
+ *  A paper below this share of the subject is a participation mark,
+ *  not a paper you can be weaker than. */
+const PAPER_MIN_SHARE = 0.25;
 /** Attendance below this is worth a parent's attention. */
 const ATTENDANCE_FLOOR = 85;
 /** Term-over-term movement this large is a real change, not noise. */
@@ -126,8 +134,10 @@ export function computeFindings(input: FindingsInput): Finding[] {
     const sat = (s.papers ?? []).filter(
       (p) => !p.absent && p.obtained !== null && p.max > 0,
     );
-    if (sat.length >= 2) {
-      const scored = sat.map((p) => ({ label: p.label, pct: (p.obtained! / p.max) * 100 }));
+    const satMax = sat.reduce((a, p) => a + p.max, 0);
+    const weighty = sat.filter((p) => satMax > 0 && p.max / satMax >= PAPER_MIN_SHARE);
+    if (weighty.length >= 2) {
+      const scored = weighty.map((p) => ({ label: p.label, pct: (p.obtained! / p.max) * 100 }));
       scored.sort((a, b) => a.pct - b.pct);
       const low = scored[0];
       const high = scored[scored.length - 1];

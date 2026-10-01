@@ -637,12 +637,20 @@ async function assembleReportCard(
           subjects: subjects.map((s) => ({
             name: s.name,
             percentage: s.percentage,
-            papers: s.perExam.map((e: any) => ({
-              // The exam name carries the paper ("1st Assessment - Oral");
-              // the tail after the dash is what a parent recognises.
-              label: String(e.examName).split(/[-—–]/).pop()?.trim() || e.examName,
-              obtained: e.obtained, max: e.max, absent: e.absent,
-            })),
+            papers: s.perExam.map((e: any) => {
+              // The paper's name as THIS CLASS's card prints it: the
+              // per-class column override first (Classes I-VII call the
+              // oral column "Overall Learning & Participation"), else
+              // the tail of the exam name ("1st Assessment - Oral").
+              // 2 Oct: a finding that said "Oral" beside a column headed
+              // something else read as a mistake, not an insight.
+              const exam = examById.get(e.examId);
+              const override = exam ? paperLabel.get(examPaperKind(exam)) : null;
+              return {
+                label: override ?? (String(e.examName).split(/[-—–]/).pop()?.trim() || e.examName),
+                obtained: e.obtained, max: e.max, absent: e.absent,
+              };
+            }),
           })),
           overallPct,
           passMarkPct,
