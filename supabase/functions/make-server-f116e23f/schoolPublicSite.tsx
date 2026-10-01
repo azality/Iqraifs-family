@@ -71,7 +71,12 @@ function siteToJson(orgRow: any) {
     contactEmail: ps.contact_email || orgSettings.contact_email || null,
     contactPhone: ps.contact_phone || orgSettings.contact_phone || null,
     contactAddress: ps.contact_address || orgSettings.address || null,
-    whatsappPhone: ps.whatsapp_phone ?? null,
+    // WhatsApp follows the same one-source rule as the rest of the
+    // contact block (2 Oct). It was the only field with no fallback, so
+    // the number had to be typed into the site editor AND into Settings
+    // (where the report-card header reads it) - two records of one fact,
+    // which is exactly how the card's address drifted from the site's.
+    whatsappPhone: ps.whatsapp_phone || orgSettings.whatsapp_number || null,
     visitHours: ps.visit_hours ?? null,
     instagramUrl: ps.instagram_url ?? null,
     // Connection status for the editor (username only - never the token).

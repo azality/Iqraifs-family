@@ -694,7 +694,16 @@ export function SchoolPublicSite({ slug }: { slug?: string } = {}) {
                   <div style={{ background: PALETTE.creamHi, border: "1px solid rgba(201,162,74,0.3)", borderRadius: 16, padding: 24, display: "flex", flexDirection: "column", gap: 14 }}>
                     {phone && <a href={`tel:${phone.replace(/\s/g, "")}`} style={{ font: `600 15px/1.4 ${fontSans}`, color: PALETTE.emerald, textDecoration: "none" }}>📞 {phone}</a>}
                     {site.contactEmail && <a href={`mailto:${site.contactEmail}`} style={{ font: `600 15px/1.4 ${fontSans}`, color: PALETTE.emerald, textDecoration: "none" }}>✉️ {site.contactEmail}</a>}
-                    {site.contactAddress && <p style={{ font: `400 14px/1.65 ${fontSans}`, color: PALETTE.mutedInk, margin: 0 }}>{site.contactAddress}</p>}
+                    {/* One line per campus — the address field holds them
+                        newline-separated and a school with two campuses
+                        should not have them run together (2 Oct). */}
+                    {site.contactAddress && (
+                      <p style={{ font: `400 14px/1.65 ${fontSans}`, color: PALETTE.mutedInk, margin: 0 }}>
+                        {site.contactAddress.split(/\r?\n/).filter((l) => l.trim()).map((line, i) => (
+                          <span key={i} style={{ display: "block" }}>{line.trim()}</span>
+                        ))}
+                      </p>
+                    )}
                   </div>
                   {site.visitHours && (
                     <div style={{ background: "rgba(201,162,74,0.12)", border: "1px solid rgba(201,162,74,0.4)", borderRadius: 16, padding: "20px 24px", display: "flex", flexDirection: "column", gap: 6 }}>
