@@ -150,7 +150,15 @@ export function StudentReportCard() {
   const subjectFinding = useMemo(() => {
     const m = new Map<string, { en: string; kind: string }>();
     for (const f of card?.findings?.items ?? []) {
-      if (f.subject && !m.has(f.subject)) m.set(f.subject, { en: f.en, kind: f.kind });
+      if (!f.subject) continue;
+      // A paper-gap line never PRINTS as the default remark (office,
+      // 2 Oct: "what is showing is exactly on the same line just few
+      // spaces to the left") - both papers' scores sit in that very
+      // row, so restating them is noise. It stays in the teacher panel
+      // and in what the AI writes from. The own-average findings say
+      // something the row does NOT show, so they stay printable.
+      if (f.kind === "paper_gap") continue;
+      if (!m.has(f.subject)) m.set(f.subject, { en: f.en, kind: f.kind });
     }
     return m;
   }, [card]);

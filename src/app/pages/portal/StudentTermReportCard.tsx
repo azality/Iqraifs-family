@@ -40,11 +40,13 @@ export function StudentTermReportCard() {
   const [error, setError] = useState<string | null>(null);
 
   // The paper card defaults each subject's remark to its computed
-  // finding (1 Oct); the phone must say the same thing. Same guard too:
-  // a RELATIVE "clear strength" stays off a subject that is weak in
-  // absolute terms. An Urdu reader gets the finding's own Urdu.
+  // finding (1 Oct); the phone must say the same thing. Same guards
+  // too: a paper-gap line never prints (it restates the row's own
+  // numbers - 2 Oct), and a RELATIVE "clear strength" stays off a
+  // subject that is weak in absolute terms. An Urdu reader gets the
+  // finding's own Urdu.
   const subjectFinding = (name: string) =>
-    (card?.findings?.items ?? []).find((f) => f.subject === name) ?? null;
+    (card?.findings?.items ?? []).find((f) => f.subject === name && f.kind !== "paper_gap") ?? null;
   const defaultRemark = (name: string, pct: number | null, bandRemark: string) => {
     const f = subjectFinding(name);
     if (!f) return bandRemark;
