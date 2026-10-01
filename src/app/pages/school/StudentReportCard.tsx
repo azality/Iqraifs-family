@@ -1017,51 +1017,6 @@ export function StudentReportCard() {
                   the office a defined area for the rubber stamp so it
                   doesn't smudge over the text. */}
               <section className="pt-4 mt-4 border-t border-slate-200 print-keep print-signature">
-                {/* The REMARKS CHART, laid out the way the school prints
-                    it on its own paper (office, 2 Oct, with a photo of
-                    theirs): remark word, grade, range - boxed, headed,
-                    centered. Built from the school's OWN grade scale, so
-                    it can never drift from the letters the card awards.
-                    Ranges read their way too: a band stored half-open as
-                    [80, 90) prints "80% - 89%", and the bottom band
-                    prints "Below 40%". */}
-                {keyBands && keyBands.length > 0 && (() => {
-                  const bands = [...keyBands].sort((a, b) => b.minPct - a.minPct);
-                  const lowest = bands[bands.length - 1];
-                  const range = (b: GradeBand) =>
-                    b.minPct <= 0
-                      ? `Below ${Math.round(b.maxPct)}%`
-                      : `${Math.round(b.minPct)}% – ${Math.round(b.maxPct) >= 100 ? 100 : Math.round(b.maxPct) - 1}%`;
-                  // Only say the pass mark when it is NOT simply the
-                  // bottom band's edge - otherwise the chart already
-                  // says it and repeating it adds noise.
-                  const passSaidByChart = Math.round(lowest?.maxPct ?? -1) === card.academic.overall.passMarkPct;
-                  return (
-                    <div className="mb-3 flex justify-center print-keep">
-                      <div className="inline-block border-2 border-indigo-900/70 rounded-sm px-4 py-2">
-                        <div className="text-center text-[11px] font-bold uppercase tracking-wider text-indigo-900 mb-1">
-                          Remarks chart
-                        </div>
-                        <table className="text-[10px] text-slate-700">
-                          <tbody>
-                            {bands.map((b) => (
-                              <tr key={`${b.letter}-${b.minPct}`}>
-                                <td className="pr-6 py-[1px] whitespace-nowrap">{b.remark ?? "—"}</td>
-                                <td className="pr-6 py-[1px] text-center font-semibold whitespace-nowrap">{b.letter}</td>
-                                <td className="py-[1px] text-right whitespace-nowrap tabular-nums">{range(b)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                        {!passSaidByChart && (
-                          <div className="text-center text-[9px] text-slate-500 mt-1">
-                            Pass mark {card.academic.overall.passMarkPct}%
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })()}
                 {/* Which lines print is the school's call (26 Sep: teachers
                     were uneasy about handing over a signature image). The
                     row rebalances to however many are switched on, and the
@@ -1119,6 +1074,54 @@ export function StudentReportCard() {
                     </div>
                   )}
                 </div>
+                {/* The REMARKS CHART, laid out the way the school prints
+                    it on its own paper (office, 2 Oct, with a photo of
+                    theirs): remark word, grade, range - boxed, headed,
+                    centered. It sits BELOW the signature row, where they
+                    asked for it ("Remarks chart sign k bad hona chahiye",
+                    2 Oct), with only the issued footer after it.
+                    Built from the school's OWN grade scale, so it can
+                    never drift from the letters the card awards.
+                    Ranges read their way too: a band stored half-open as
+                    [80, 90) prints "80% - 89%", and the bottom band
+                    prints "Below 40%". */}
+                {keyBands && keyBands.length > 0 && (() => {
+                  const bands = [...keyBands].sort((a, b) => b.minPct - a.minPct);
+                  const lowest = bands[bands.length - 1];
+                  const range = (b: GradeBand) =>
+                    b.minPct <= 0
+                      ? `Below ${Math.round(b.maxPct)}%`
+                      : `${Math.round(b.minPct)}% – ${Math.round(b.maxPct) >= 100 ? 100 : Math.round(b.maxPct) - 1}%`;
+                  // Only say the pass mark when it is NOT simply the
+                  // bottom band's edge - otherwise the chart already
+                  // says it and repeating it adds noise.
+                  const passSaidByChart = Math.round(lowest?.maxPct ?? -1) === card.academic.overall.passMarkPct;
+                  return (
+                    <div className="mt-5 flex justify-center print-keep">
+                      <div className="inline-block border-2 border-indigo-900/70 rounded-sm px-4 py-2">
+                        <div className="text-center text-[11px] font-bold uppercase tracking-wider text-indigo-900 mb-1">
+                          Remarks chart
+                        </div>
+                        <table className="text-[10px] text-slate-700">
+                          <tbody>
+                            {bands.map((b) => (
+                              <tr key={`${b.letter}-${b.minPct}`}>
+                                <td className="pr-6 py-[1px] whitespace-nowrap">{b.remark ?? "—"}</td>
+                                <td className="pr-6 py-[1px] text-center font-semibold whitespace-nowrap">{b.letter}</td>
+                                <td className="py-[1px] text-right whitespace-nowrap tabular-nums">{range(b)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        {!passSaidByChart && (
+                          <div className="text-center text-[9px] text-slate-500 mt-1">
+                            Pass mark {card.academic.overall.passMarkPct}%
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
                 <div className="mt-3 text-[10px] text-slate-400 text-center">
                   Issued {new Date().toLocaleDateString()} · {card.school.name}
                   {card.school.slug && ` · Scan the QR on the header to view this card on the parent portal.`}
