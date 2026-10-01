@@ -250,14 +250,23 @@ export function AdminAcademicsDay() {
                       </>
                     ) : (
                       <>
-                        {(r.act?.lessons ?? []).slice(0, 2).map((l, i) => (
-                          <span key={l.id}>
-                            {i > 0 && " · "}
-                            {l.subjectName ? `${l.subjectName}: ` : ""}
-                            {l.topicName ?? l.title}
-                          </span>
-                        ))}
-                        {(r.act?.assignments ?? []).slice(0, 2).map((a, i) => (
+                        {/* EVERY lesson shows (office, 2 Oct: "S.St ka
+                            lesson daal kar dekha, nahi aa raha" — this
+                            row used to clip at two with no "+N more",
+                            so once teachers logged each period, most of
+                            a class's day was silently hidden). Sorted
+                            by subject so the entry they just made is
+                            findable at a glance. */}
+                        {[...(r.act?.lessons ?? [])]
+                          .sort((a, b) => (a.subjectName ?? "~").localeCompare(b.subjectName ?? "~"))
+                          .map((l, i) => (
+                            <span key={l.id}>
+                              {i > 0 && " · "}
+                              {l.subjectName ? `${l.subjectName}: ` : ""}
+                              {l.topicName ?? l.title}
+                            </span>
+                          ))}
+                        {(r.act?.assignments ?? []).map((a, i) => (
                           <span key={a.id}>
                             {((r.act?.lessons.length ?? 0) > 0 || i > 0) && " · "}
                             <span className="capitalize">{a.kind.replace("_", " ")}</span>: {a.title}
