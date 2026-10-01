@@ -17,10 +17,15 @@
 // print stylesheet after the 1 Oct layout revision (ruled table,
 // identity band, grading key, boxed remarks, findings-as-remarks):
 //
-//   WORST card in the school (Class III, 15 rows, 9 three-line
-//     finding remarks, WhatsApp header line) ... 1042px of 1062px
-//   runners-up (15 rows, 7-9 findings) ... ~1030px and ~1046px
+//   WORST card in the school (Class III, 15 rows, 8 finding
+//     remarks, WhatsApp + 2 campus lines) ...... 1034px of 1062px
+//   next worst (15 rows, 9 findings) ............ 1025px
 //   Senior (12 rows) ............................ ~870px
+//
+// The header grows with the school's OWN address: IFS prints one line
+// per campus, so a school with four campuses would eat ~45px more.
+// If a card ever lands near the limit, the header is the first place
+// to look, not the table.
 //
 // So 15 rows is proven to fit even with a finding on every notable
 // subject. A class carrying more subjects than that has never been

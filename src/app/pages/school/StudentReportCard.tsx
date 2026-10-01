@@ -322,7 +322,7 @@ export function StudentReportCard() {
              2px since 1 Oct: the ruled grid carries the separation that
              padding used to, and 15-row classes need the height back. */
           .print-card table td, .print-card table th {
-            padding-top: 2px !important; padding-bottom: 2px !important;
+            padding-top: 1.5px !important; padding-bottom: 1.5px !important;
           }
           .print-card .print-keep .rounded-md { padding: 6px !important; }
           /* NO ORPHANS (office, 30 Sep: "if it absolutely has to be on the
@@ -373,7 +373,7 @@ export function StudentReportCard() {
           .print-card { padding-bottom: 0 !important; margin-bottom: 0 !important; }
           .print-card > *:last-child,
           .print-signature { margin-bottom: 0 !important; padding-bottom: 0 !important; }
-          .print-card .space-y-5 > * + * { margin-top: 7px !important; }
+          .print-card .space-y-5 > * + * { margin-top: 6px !important; }
           .print-card .space-y-4 > * + * { margin-top: 6px !important; }
           .print-card .space-y-3 > * + * { margin-top: 5px !important; }
           html, body { height: auto !important; min-height: 0 !important; }
@@ -384,7 +384,11 @@ export function StudentReportCard() {
           .print-card img.print-only { height: 48px !important; width: 48px !important; }
           /* The 3-line address (", Pakistan" since 1 Oct) drives the
              header's height - print it a touch smaller and tighter. */
-          .print-card .print-addr { font-size: 8pt !important; line-height: 1.3 !important; }
+          .print-card .print-addr { font-size: 8pt !important; line-height: 1.15 !important; }
+          /* One line per campus costs real height in a header that is
+             already the tightest part of the card (2 Oct) - the term
+             line and the section gaps give it back. */
+          .print-card .print-term-line { margin-top: 2px !important; }
           .print-signature .h-14 { height: 36px !important; }
           .print-signature .h-10 { height: 26px !important; }
           .print-only { display: block !important; }
@@ -498,7 +502,18 @@ export function StudentReportCard() {
                   <div>
                     <div className="text-lg font-bold text-slate-900">{card.school.name}</div>
                     {card.school.motto && <div className="text-xs text-slate-600 italic">{card.school.motto}</div>}
-                    {card.school.address && <div className="text-[11px] text-slate-500 print-addr">{card.school.address}</div>}
+                    {/* One line PER CAMPUS. The setting holds them
+                        newline-separated; rendered as one blob they ran
+                        together ("...KARACHI, Pakistan Campus II: B-15...")
+                        and a parent could not tell where one address
+                        ended (office, 2 Oct). */}
+                    {card.school.address && (
+                      <div className="text-[11px] text-slate-500 print-addr">
+                        {card.school.address.split(/\r?\n/).filter((l) => l.trim()).map((line, i) => (
+                          <div key={i}>{line.trim()}</div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="text-right flex items-start gap-3">
@@ -530,7 +545,7 @@ export function StudentReportCard() {
                 {/* The term and its dates, CENTERED on their own line
                     (office, 1 Oct print markup: "centralize"). Dates read
                     day-month-year, the way Pakistan writes them. */}
-                <div className="text-center text-[11px] text-slate-600 mt-1.5 whitespace-nowrap">
+                <div className="text-center text-[11px] text-slate-600 mt-1.5 whitespace-nowrap print-term-line">
                   <span className="font-semibold text-slate-900">{card.term.name}</span>
                   <span className="text-slate-400"> · </span>
                   {fmtDayMonthYear(card.term.startDate)} – {fmtDayMonthYear(card.term.endDate)}
