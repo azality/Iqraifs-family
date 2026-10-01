@@ -13,19 +13,34 @@
 //      at 3 lines x 8.5pt by .print-subject-remark .remark-clamp.
 //
 // Because (2) and (3) are bounded, the only thing that can push a card
-// over a page is (1). Re-measured in Chrome at A4 portrait with the
-// print stylesheet after the 1 Oct layout revision (ruled table,
-// identity band, grading key, boxed remarks, findings-as-remarks):
+// over a page is (1).
 //
-//   WORST card in the school (Class III, 15 rows, 8 finding
-//     remarks, WhatsApp + 2 campus lines) ...... 1034px of 1062px
-//   next worst (15 rows, 9 findings) ............ 1025px
-//   Senior (12 rows) ............................ ~870px
+// MEASURE AT 718px, NOT THE BROWSER'S OWN WIDTH (learned 2 Oct). A4
+// portrait with 10mm side margins is 190mm = 718 CSS px. Every earlier
+// figure in this file was taken in a ~1000px-wide window because the
+// print rule `.print-card { width: 100% !important }` silently beat the
+// inline width the measuring script set - a wider card wraps less and
+// reads ~90px shorter, so cards that "passed" at 1034px were really
+// 1130px and spilled. Emulate a 718px viewport, inject the @media print
+// rules as plain CSS, and force `img.print-only` visible (the QR is
+// display:none on screen and must be counted).
 //
-// The header grows with the school's OWN address: IFS prints one line
-// per campus, so a school with four campuses would eat ~45px more.
-// If a card ever lands near the limit, the header is the first place
-// to look, not the table.
+// Measured that way after the 2 Oct revision (fixed column widths,
+// margin-bottom fix, address out of the header row):
+//
+//   WORST card in the school (Rida, Class III, 15 rows,
+//     7 three-line findings) .................... 999px of 1062px
+//   next worst (Uzair, 15 rows) ................ 1022px
+//   Fariha 994px · Abrish 970px · Senior 947px
+//
+// Two height levers worth knowing, both found the hard way:
+//   - The REMARKS COLUMN must stay >= ~310px at A4 width. Below that
+//     the finding sentences wrap to three lines instead of two and the
+//     worst card grows ~80px. That is why the table carries a colgroup
+//     with fixed shares instead of letting the browser balance it.
+//   - Tailwind's space-y-* gap lands on margin-BOTTOM here; print
+//     overrides that only shrink margin-top leave ~20px per section
+//     (140px total) in place.
 //
 // So 15 rows is proven to fit even with a finding on every notable
 // subject. A class carrying more subjects than that has never been

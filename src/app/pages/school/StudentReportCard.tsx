@@ -324,7 +324,23 @@ export function StudentReportCard() {
           .print-card table td, .print-card table th {
             padding-top: 1.5px !important; padding-bottom: 1.5px !important;
           }
-          .print-card .print-keep .rounded-md { padding: 6px !important; }
+          .print-card .print-keep .rounded-md { padding: 5px !important; }
+          .print-card .print-keep .rounded-md .text-xs { line-height: 1.35 !important; }
+          /* THE BIG ONE (2 Oct). Tailwind's space-y-* puts the gap on
+             margin-BOTTOM here, and every print override since 14 Sep
+             only ever shrank margin-top - so seven sections carried a
+             20px bottom margin nobody had measured, 140px of invisible
+             padding on a 1062px page. Measuring at the real A4 width
+             (718px, not the browser's own width) is what exposed it. */
+          /* Fixed layout so the colgroup's shares actually bind, and a
+             smaller header so a long per-class label ("Overall Learning
+             & Participation") wraps in two lines rather than five. */
+          .print-card .print-subject-table { table-layout: fixed !important; }
+          .print-card table th { font-size: 7.5pt !important; line-height: 1.15 !important; }
+          .print-card .space-y-5 > * { margin-bottom: 6px !important; }
+          .print-card .space-y-4 > * { margin-bottom: 5px !important; }
+          .print-card .space-y-3 > * { margin-bottom: 4px !important; }
+          .print-card > div { padding-top: 14px !important; }
           /* NO ORPHANS (office, 30 Sep: "if it absolutely has to be on the
              second page then there should be more than just sign and
              stamp"). A lone signature strip on page two is the worst
@@ -358,8 +374,9 @@ export function StudentReportCard() {
           }
           /* The identity band prints tighter than it shows. */
           .print-card .print-info-band {
-            padding-top: 4px !important; padding-bottom: 4px !important;
+            padding-top: 3px !important; padding-bottom: 3px !important;
           }
+          .print-card .print-info-band .text-slate-500 { line-height: 1.2 !important; }
           /* Chrome drops cell fills and some rules when printing unless
              told otherwise - the ruled table and the quiet grey bands
              are the whole point of this revision (office, 1 Oct). */
@@ -372,12 +389,13 @@ export function StudentReportCard() {
              padding or height, or the page box grows past A4. */
           .print-card { padding-bottom: 0 !important; margin-bottom: 0 !important; }
           .print-card > *:last-child,
+          .print-card .space-y-5 > *:last-child,
           .print-signature { margin-bottom: 0 !important; padding-bottom: 0 !important; }
           .print-card .space-y-5 > * + * { margin-top: 6px !important; }
           .print-card .space-y-4 > * + * { margin-top: 6px !important; }
           .print-card .space-y-3 > * + * { margin-top: 5px !important; }
           html, body { height: auto !important; min-height: 0 !important; }
-          .print-signature { padding-top: 8px !important; margin-top: 8px !important; }
+          .print-signature { padding-top: 6px !important; margin-top: 6px !important; }
           /* QR prints a notch smaller (48px = 12.7mm, still an easy
              scan for a short URL) to pay for the WhatsApp line beside
              it (1 Oct) - the header must not outgrow the left stack. */
@@ -495,28 +513,16 @@ export function StudentReportCard() {
             <CardContent className="p-6 space-y-5">
               <div className="border-b border-slate-200 pb-2 print-keep">
                 <div className="flex items-start justify-between gap-4">
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 min-w-0">
                   {card.school.logoUrl && (
-                    <img src={card.school.logoUrl} alt="" className="h-12 w-12 rounded object-cover" />
+                    <img src={card.school.logoUrl} alt="" className="h-12 w-12 rounded object-cover shrink-0" />
                   )}
-                  <div>
+                  <div className="min-w-0">
                     <div className="text-lg font-bold text-slate-900">{card.school.name}</div>
                     {card.school.motto && <div className="text-xs text-slate-600 italic">{card.school.motto}</div>}
-                    {/* One line PER CAMPUS. The setting holds them
-                        newline-separated; rendered as one blob they ran
-                        together ("...KARACHI, Pakistan Campus II: B-15...")
-                        and a parent could not tell where one address
-                        ended (office, 2 Oct). */}
-                    {card.school.address && (
-                      <div className="text-[11px] text-slate-500 print-addr">
-                        {card.school.address.split(/\r?\n/).filter((l) => l.trim()).map((line, i) => (
-                          <div key={i}>{line.trim()}</div>
-                        ))}
-                      </div>
-                    )}
                   </div>
                 </div>
-                <div className="text-right flex items-start gap-3">
+                <div className="text-right flex items-start gap-3 shrink-0">
                   <div>
                     <div className="text-xs font-semibold uppercase tracking-wider text-indigo-700">Report Card</div>
                     {/* The office pen wrote the WhatsApp number on the
@@ -542,6 +548,21 @@ export function StudentReportCard() {
                   )}
                 </div>
                 </div>
+                {/* One line PER CAMPUS, full width UNDER the header row.
+                    Inside the row it fought the QR column for width:
+                    either the QR was pushed past the printable edge
+                    (office, 2 Oct: "the QR code is cutting off") or, once
+                    the block was allowed to shrink, every campus line
+                    wrapped and the card grew past A4. Rendered as one
+                    blob the campuses also ran together ("...KARACHI,
+                    Pakistan Campus II: B-15..."). */}
+                {card.school.address && (
+                  <div className="text-[11px] text-slate-500 mt-1 print-addr">
+                    {card.school.address.split(/\r?\n/).filter((l) => l.trim()).map((line, i) => (
+                      <div key={i} className="truncate">{line.trim()}</div>
+                    ))}
+                  </div>
+                )}
                 {/* The term and its dates, CENTERED on their own line
                     (office, 1 Oct print markup: "centralize"). Dates read
                     day-month-year, the way Pakistan writes them. */}
@@ -581,7 +602,22 @@ export function StudentReportCard() {
                     {/* Full grid lines (office, 1 Oct): every cell ruled so
                         a parent's eye can't drift a row - which grade and
                         remark belongs to which subject is unmistakable. */}
-                    <table className="w-full text-xs border border-slate-300">
+                    <table className="w-full text-xs border border-slate-300 print-subject-table">
+                      {/* Column widths are a PRINT-FIT lever, not decoration
+                          (2 Oct). The remarks column holds the computed
+                          finding for each subject; below ~310px at A4 width
+                          those sentences wrap to three lines instead of two
+                          and the worst card grows ~80px - the difference
+                          between one page and two. Giving the mark columns
+                          a fixed, narrow share hands the slack to remarks. */}
+                      <colgroup>
+                        <col className="w-[15%]" />
+                        {card.exams.map((e) => <col key={e.id} className="w-[9%]" />)}
+                        <col className="w-[8%]" />
+                        <col className="w-[6%]" />
+                        <col className="w-[6%]" />
+                        <col />
+                      </colgroup>
                       <thead className="bg-slate-50 text-slate-700">
                         <tr>
                           <th className="text-left px-2 py-1.5 border border-slate-200">Subject</th>
