@@ -318,29 +318,34 @@ export function StudentReportCard() {
           .print-card .text-xs, .print-card .text-\\[10px\\], .print-card .text-\\[11px\\] {
             font-size: 9pt !important;
           }
-          /* Tighter rows + boxes on paper — screen keeps its spacing.
-             2px since 1 Oct: the ruled grid carries the separation that
-             padding used to, and 15-row classes need the height back. */
+          /* Rows breathe again (office, 2 Oct: "it's okay if it spills to
+             the next page because it doesn't look nice"). One page stopped
+             being the top priority the moment keeping it cost legibility -
+             squeezed rows, a 7.5pt heading and a truncated remark. The
+             no-orphan rules below still govern HOW it spills. */
           .print-card table td, .print-card table th {
-            padding-top: 1.5px !important; padding-bottom: 1.5px !important;
+            padding-top: 4px !important; padding-bottom: 4px !important;
           }
-          .print-card .print-keep .rounded-md { padding: 5px !important; }
-          .print-card .print-keep .rounded-md .text-xs { line-height: 1.35 !important; }
-          /* THE BIG ONE (2 Oct). Tailwind's space-y-* puts the gap on
-             margin-BOTTOM here, and every print override since 14 Sep
-             only ever shrank margin-top - so seven sections carried a
-             20px bottom margin nobody had measured, 140px of invisible
-             padding on a 1062px page. Measuring at the real A4 width
-             (718px, not the browser's own width) is what exposed it. */
-          /* Fixed layout so the colgroup's shares actually bind, and a
-             smaller header so a long per-class label ("Overall Learning
-             & Participation") wraps in two lines rather than five. */
-          .print-card .print-subject-table { table-layout: fixed !important; }
-          .print-card table th { font-size: 7.5pt !important; line-height: 1.15 !important; }
-          .print-card .space-y-5 > * { margin-bottom: 6px !important; }
-          .print-card .space-y-4 > * { margin-bottom: 5px !important; }
-          .print-card .space-y-3 > * { margin-bottom: 4px !important; }
-          .print-card > div { padding-top: 14px !important; }
+          .print-card .print-keep .rounded-md { padding: 10px !important; }
+          /* Tailwind's space-y-* puts the gap on margin-BOTTOM here, and
+             every print override before 2 Oct only shrank margin-top - so
+             each section carried an unmeasured 20px. Set deliberately now
+             rather than accidentally: enough air to read, not the 20px
+             that nobody chose. */
+          .print-card .space-y-5 > * { margin-bottom: 12px !important; }
+          .print-card .space-y-4 > * { margin-bottom: 10px !important; }
+          .print-card .space-y-3 > * { margin-bottom: 8px !important; }
+          .print-card > div { padding-top: 18px !important; }
+          /* Table headings stay readable. NO table-layout:fixed - with it,
+             a wide value ("422.5/650") overflowed its share and printed on
+             top of the next column (office's 2 Oct print). The colgroup
+             shares are hints the browser may grow from. */
+          .print-card table th { font-size: 8.5pt !important; line-height: 1.25 !important; }
+          /* A row is never split down the middle by a page break, and the
+             heading repeats on the second page so the columns still have
+             names there. */
+          .print-card table tr { break-inside: avoid; page-break-inside: avoid; }
+          .print-card table thead { display: table-header-group; }
           /* NO ORPHANS (office, 30 Sep: "if it absolutely has to be on the
              second page then there should be more than just sign and
              stamp"). A lone signature strip on page two is the worst
@@ -352,31 +357,28 @@ export function StudentReportCard() {
           /* Same rule one level up: the remarks block must not be split
              from what precedes it either, so whatever moves, moves as a
              readable chunk. */
-          .print-remarks { break-before: avoid; page-break-before: avoid; }
-          /* A printed remark is capped in HEIGHT as well as in characters:
-             a teacher who pastes an essay cannot push the signature onto
-             its own page. Eight lines is roughly 600 characters at this
-             width, which is above every remark the school has written. */
-          .print-remark-body {
-            display: -webkit-box; -webkit-box-orient: vertical;
-            -webkit-line-clamp: 8; overflow: hidden;
+          .print-remarks {
+            break-before: avoid; page-break-before: avoid;
+            break-after: avoid; page-break-after: avoid;
           }
-          /* Per-subject remarks (findings by default since 1 Oct) are
-             bounded the same way: four lines in the column - one
-             subject's essay can never push the card to page two. The
-             clamp sits on an inner wrapper because -webkit-box cannot
-             apply to a table cell. */
+          /* Whatever else moves, these never arrive alone: a second page
+             carrying only a signature line and a stamp is the outcome
+             the office rejected (30 Sep). Remarks + key + signatures
+             travel as one readable block. */
+          .print-remarks, .print-signature { break-inside: avoid; page-break-inside: avoid; }
+          /* Remarks print IN FULL (2 Oct). The line clamps existed only
+             to defend the single page; defending it truncated a class
+             teacher's remark mid-sentence with an ellipsis on the copy
+             that goes home to a parent. The 700-character input caps
+             still bound how much can be written. */
+          .print-remark-body { line-height: 1.45; }
           .print-subject-remark .remark-clamp {
-            display: -webkit-box; -webkit-box-orient: vertical;
-            -webkit-line-clamp: 3; overflow: hidden;
-            line-height: 1.25;
-            font-size: 8.5pt !important;
+            line-height: 1.35;
+            font-size: 9pt !important;
           }
-          /* The identity band prints tighter than it shows. */
           .print-card .print-info-band {
-            padding-top: 3px !important; padding-bottom: 3px !important;
+            padding-top: 6px !important; padding-bottom: 6px !important;
           }
-          .print-card .print-info-band .text-slate-500 { line-height: 1.2 !important; }
           /* Chrome drops cell fills and some rules when printing unless
              told otherwise - the ruled table and the quiet grey bands
              are the whole point of this revision (office, 1 Oct). */
@@ -391,24 +393,26 @@ export function StudentReportCard() {
           .print-card > *:last-child,
           .print-card .space-y-5 > *:last-child,
           .print-signature { margin-bottom: 0 !important; padding-bottom: 0 !important; }
-          .print-card .space-y-5 > * + * { margin-top: 6px !important; }
-          .print-card .space-y-4 > * + * { margin-top: 6px !important; }
-          .print-card .space-y-3 > * + * { margin-top: 5px !important; }
+          .print-card .space-y-5 > * + * { margin-top: 12px !important; }
+          .print-card .space-y-4 > * + * { margin-top: 10px !important; }
+          .print-card .space-y-3 > * + * { margin-top: 8px !important; }
           html, body { height: auto !important; min-height: 0 !important; }
-          .print-signature { padding-top: 6px !important; margin-top: 6px !important; }
+          .print-signature { padding-top: 14px !important; margin-top: 14px !important; }
+          .print-signature .h-14 { height: 44px !important; }
+          .print-signature .h-10 { height: 30px !important; }
           /* QR prints a notch smaller (48px = 12.7mm, still an easy
              scan for a short URL) to pay for the WhatsApp line beside
              it (1 Oct) - the header must not outgrow the left stack. */
-          .print-card img.print-only { height: 48px !important; width: 48px !important; }
+          .print-card img.print-only { height: 60px !important; width: 60px !important; }
           /* The 3-line address (", Pakistan" since 1 Oct) drives the
              header's height - print it a touch smaller and tighter. */
-          .print-card .print-addr { font-size: 8pt !important; line-height: 1.15 !important; }
+          .print-card .print-addr { font-size: 9pt !important; line-height: 1.35 !important; }
           /* One line per campus costs real height in a header that is
              already the tightest part of the card (2 Oct) - the term
              line and the section gaps give it back. */
-          .print-card .print-term-line { margin-top: 2px !important; }
-          .print-signature .h-14 { height: 36px !important; }
-          .print-signature .h-10 { height: 26px !important; }
+          .print-card .print-term-line { margin-top: 6px !important; }
+          .print-signature .h-14 { height: 44px !important; }
+          .print-signature .h-10 { height: 30px !important; }
           .print-only { display: block !important; }
         }
         @media screen {
@@ -589,7 +593,7 @@ export function StudentReportCard() {
                 </div>
               </div>
 
-              <section className="print-keep">
+              <section>
                 {/* Underlined, per the office's pen (1 Oct). */}
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-2 flex items-center gap-1">
                   <BookOpen className="h-3.5 w-3.5 text-indigo-500" />
@@ -603,19 +607,19 @@ export function StudentReportCard() {
                         a parent's eye can't drift a row - which grade and
                         remark belongs to which subject is unmistakable. */}
                     <table className="w-full text-xs border border-slate-300 print-subject-table">
-                      {/* Column widths are a PRINT-FIT lever, not decoration
-                          (2 Oct). The remarks column holds the computed
-                          finding for each subject; below ~310px at A4 width
-                          those sentences wrap to three lines instead of two
-                          and the worst card grows ~80px - the difference
-                          between one page and two. Giving the mark columns
-                          a fixed, narrow share hands the slack to remarks. */}
+                      {/* Width HINTS, not hard shares - the table lays out
+                          auto, so a column grows if its content needs it.
+                          With table-layout:fixed a wide total ("422.5/650")
+                          overflowed its share and printed across the next
+                          column (office's 2 Oct print). Remarks still take
+                          whatever is left, which keeps the finding
+                          sentences to two lines on most cards. */}
                       <colgroup>
-                        <col className="w-[15%]" />
-                        {card.exams.map((e) => <col key={e.id} className="w-[9%]" />)}
+                        <col className="w-[14%]" />
+                        {card.exams.map((e) => <col key={e.id} className="w-[10%]" />)}
+                        <col className="w-[11%]" />
                         <col className="w-[8%]" />
-                        <col className="w-[6%]" />
-                        <col className="w-[6%]" />
+                        <col className="w-[7%]" />
                         <col />
                       </colgroup>
                       <thead className="bg-slate-50 text-slate-700">
