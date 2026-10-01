@@ -884,6 +884,25 @@ export function StudentReportCard() {
                 />
               )}
 
+              {/* Finalize pre-filled these drafts (v1.23.0). The badge
+                  keeps the human gate visible: AI wrote them, a person
+                  publishes them. English by design - Urdu comes from
+                  the Suggest button when a family needs it. */}
+              {card.comments.aiMeta?.generatedAt && (
+                <div className="rounded-md border border-indigo-200 bg-indigo-50/60 px-3 py-2 text-[11px] text-indigo-900 no-print">
+                  <span className="font-semibold">AI drafts</span> were pre-filled when this card
+                  was finalized ({new Date(card.comments.aiMeta.generatedAt).toLocaleString()}) —
+                  review and edit anything before publishing. Your own words are never overwritten
+                  on re-finalize. For Urdu, use Suggest with AI and place the Urdu lines.
+                  {card.comments.aiMeta.usage && (
+                    <span className="text-indigo-700/70">
+                      {" "}That generation used{" "}
+                      {(card.comments.aiMeta.usage.inputTokens ?? 0) + (card.comments.aiMeta.usage.outputTokens ?? 0)} tokens.
+                    </span>
+                  )}
+                </div>
+              )}
+
               <section className="space-y-3 print-keep print-remarks">
                 {/* Boxed and top-aligned (office, 1 Oct): the two remarks
                     read as two clearly separate sections whose headings

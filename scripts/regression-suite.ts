@@ -8059,6 +8059,125 @@ await check("135. every exposed table is sealed to the anon key", async () => {
     `anon key can read rows from: ${leaks.join(", ")} - enable RLS on them`);
 });
 
+await check("136. finalize pre-fills AI drafts; unchanged re-finalize is free; human words survive", async () => {
+  // 2 Oct: the Suggest button's job moved to the FINALIZE event - every
+  // marked subject + CT + principal get English drafts, pre-filled for
+  // review. Cost rules under test: an input-hash makes an unchanged
+  // re-finalize spend zero tokens, and a human-edited field is never
+  // overwritten by a regeneration.
+  const admin2 = await ensureUser("qa-admin@azality.com", "QA Admin", "admin");
+  const term = await markedTerm();
+  assert(term, "no term with papers");
+  const { data: exam } = await admin.from("exam").select("id")
+    .eq("term_id", term!.id).is("archived_at", null).ilike("name", "%written%").maybeSingle();
+  assert(exam, "no written exam");
+  const { data: subj } = await admin.from("class_subject")
+    .select("id, name, assessment_mode").eq("class_id", sandboxClass.id)
+    .is("archived_at", null).limit(1).maybeSingle();
+  assert(subj, "sandbox has no subject");
+  const originalMode = (subj as any).assessment_mode ?? "marks";
+  const cardUrl = `/school/orgs/${ORG}/students/${pStu1}/terms/${term!.id}/report-card`;
+  const wf = (action: string) => api(admin2.token, `${cardUrl}/${action}`, { method: "POST" });
+
+  // If AI is not configured on this server, the contract is simply
+  // "finalize works and nothing is pre-filled" - probe via suggest.
+  const probe = await api(admin2.token,
+    `/school/orgs/${ORG}/students/${pStu1}/terms/${term!.id}/suggest-remarks`, { method: "POST" });
+  const aiOff = probe.status === 503;
+
+  const getCard = async () => await (await api(admin2.token, cardUrl)).json();
+  const waitForMeta = async (not?: string | null) => {
+    for (let i = 0; i < 15; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const c = await getCard();
+      const at = c.comments?.aiMeta?.generatedAt ?? null;
+      if (at && at !== (not ?? "__never__")) return c;
+    }
+    return null;
+  };
+
+  try {
+    if (originalMode !== "marks") {
+      await admin.from("class_subject").update({ assessment_mode: "marks" }).eq("id", subj!.id);
+    }
+    // Clean slate: a failing mark, no remarks, no meta, unfinalized.
+    await wf("unfinalize");
+    await admin.from("term_report_card").update({
+      class_teacher_comment: null, principal_comment: null,
+      subject_comments: {}, ai_remarks_meta: null,
+    }).eq("student_id", pStu1).eq("term_id", term!.id);
+    const save = await api(admin2.token, `/school/orgs/${ORG}/exams/${(exam as any).id}/marks-sheet`, {
+      method: "POST",
+      body: JSON.stringify({ sectionId: sandboxSec.id, rows: [
+        { studentId: pStu1, classSubjectId: subj!.id, maxMarks: 25, obtainedMarks: 5 },
+      ] }),
+    });
+    assert(save.status === 200, `mark save ${save.status}`);
+
+    // 1. Finalize -> drafts appear (CT + the failing subject), meta set.
+    const fin1 = await wf("finalize");
+    assert(fin1.status === 200, `finalize ${fin1.status}`);
+    if (aiOff) {
+      await new Promise((r) => setTimeout(r, 4000));
+      const c = await getCard();
+      assert(!c.comments?.aiMeta, "with no AI key, finalize must pre-fill nothing");
+      return; // the rest of the loop needs the key
+    }
+    const c1 = await waitForMeta();
+    assert(c1, "AI drafts did not arrive within 30s of finalize");
+    assert((c1.comments?.classTeacher ?? "").length > 0, "CT draft must be pre-filled");
+    assert(((c1.comments?.subjects ?? {})[subj!.id] ?? "").length > 0,
+      "the marked subject must get a draft");
+    const gen1 = c1.comments.aiMeta.generatedAt;
+    assert((c1.comments.aiMeta.usage?.outputTokens ?? 0) > 0, "meta must account for spend");
+
+    // 2. Unfinalize + re-finalize with NOTHING changed: zero tokens,
+    //    same generatedAt.
+    await wf("unfinalize");
+    const fin2 = await wf("finalize");
+    assert(fin2.status === 200, `re-finalize ${fin2.status}`);
+    await new Promise((r) => setTimeout(r, 6000));
+    const c2 = await getCard();
+    assert(c2.comments?.aiMeta?.generatedAt === gen1,
+      `an unchanged re-finalize must not regenerate (was ${gen1}, now ${c2.comments?.aiMeta?.generatedAt})`);
+
+    // 3. A human edits the CT remark, a mark changes, re-finalize:
+    //    regeneration fires but the human's words survive.
+    await wf("unfinalize");
+    const humanText = "QA-HUMAN: seen and written by a person.";
+    const edit = await api(admin2.token, `${cardUrl}/comments`, {
+      method: "PUT", body: JSON.stringify({ classTeacherComment: humanText }),
+    });
+    assert(edit.status === 200, `human edit ${edit.status}`);
+    const save2 = await api(admin2.token, `/school/orgs/${ORG}/exams/${(exam as any).id}/marks-sheet`, {
+      method: "POST",
+      body: JSON.stringify({ sectionId: sandboxSec.id, rows: [
+        { studentId: pStu1, classSubjectId: subj!.id, maxMarks: 25, obtainedMarks: 7 },
+      ] }),
+    });
+    assert(save2.status === 200, `mark change ${save2.status}`);
+    const fin3 = await wf("finalize");
+    assert(fin3.status === 200, `finalize-3 ${fin3.status}`);
+    const c3 = await waitForMeta(gen1);
+    assert(c3, "changed inputs must regenerate within 30s");
+    assert(c3.comments?.classTeacher === humanText,
+      `a human's remark must survive regeneration, got ${JSON.stringify(c3.comments?.classTeacher).slice(0, 80)}`);
+    assert(((c3.comments?.subjects ?? {})[subj!.id] ?? "").length > 0,
+      "the AI-owned subject draft must refresh");
+  } finally {
+    await wf("unfinalize");
+    await admin.from("exam_subject_score").delete()
+      .eq("student_id", pStu1).eq("class_subject_id", subj!.id).eq("exam_id", (exam as any).id);
+    await admin.from("term_report_card").update({
+      class_teacher_comment: null, principal_comment: null,
+      subject_comments: {}, ai_remarks_meta: null,
+    }).eq("student_id", pStu1).eq("term_id", term!.id);
+    if (originalMode !== "marks") {
+      await admin.from("class_subject").update({ assessment_mode: originalMode }).eq("id", subj!.id);
+    }
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

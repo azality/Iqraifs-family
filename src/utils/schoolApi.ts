@@ -5937,6 +5937,12 @@ export interface TermReportCardResponse {
      *  + a few words of their own. Evidence for the AI suggester and
      *  the editor; never printed raw. */
     observations?: Record<string, { need?: string; note?: string }>;
+    /** Set when finalize pre-filled AI remark drafts (v1.23.0): when,
+     *  and what that generation spent. */
+    aiMeta?: {
+      generatedAt: string | null;
+      usage?: { inputTokens: number; outputTokens: number; cacheReadTokens?: number } | null;
+    } | null;
   };
   /** What the numbers say, computed (v1.13.0) - the teacher's "what do
    *  I tell this parent" panel, worst finding first. */

@@ -35,7 +35,7 @@ import { applyScheduledPublish } from "./schoolAssessment.tsx";
 import { DEFAULT_REMARK_BANDS, normalizeRemarkBands, pickRemarkBand } from "./remarkBands.ts";
 import { computeFindings, isNotable } from "./reportFindings.ts";
 import {
-  REMARK_MODEL, SYSTEM_PROMPT, buildUserPrompt, parseSuggestion, looksLikeUrdu,
+  REMARK_MODEL, SYSTEM_PROMPT, systemPrompt, buildUserPrompt, parseSuggestion, looksLikeUrdu,
 } from "./aiRemarks.ts";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { hasAnyRoleInOrg as hasAnyOrgRole, hasAdminOrPrincipal as isAdminOrPrincipal } from "./schoolAuth.ts";
@@ -631,6 +631,14 @@ async function assembleReportCard(
           >,
           // So the staff editor can say "auto - edit to customize".
           auto: { classTeacher: !savedCt && !!band?.classTeacher, principal: !savedPr && !!band?.principal },
+          // When the drafts on this card were last AI-generated at
+          // finalize, and what that run spent (v1.23.0).
+          aiMeta: (card as any)?.ai_remarks_meta
+            ? {
+                generatedAt: (card as any).ai_remarks_meta.generatedAt ?? null,
+                usage: (card as any).ai_remarks_meta.usage ?? null,
+              }
+            : null,
         };
       })(),
       // What the numbers SAY - computed, never written (26 Sep). Powers
@@ -793,6 +801,203 @@ export function installReportCard(school: Hono): void {
     },
   );
 
+  // ─── Remark evidence + auto-generation (v1.23.0, 2 Oct) ───────────
+  // Finalizing a card pre-fills ENGLISH remark drafts for EVERY marked
+  // subject plus the class-teacher and principal remarks. Cost is held
+  // down four ways: English only (Urdu stays on demand through the
+  // Suggest button), an input hash so re-finalizing an unchanged card
+  // spends zero tokens, a cached system prompt across a class's
+  // finalize burst, and a published card is never touched.
+
+  async function buildRemarkEvidence(orgId: string, studentId: string, card: any) {
+    const findings = (card.findings?.items ?? []) as any[];
+    const passMarkPct = card.academic?.overall?.passMarkPct ?? 40;
+    const bands = await loadOrgBands(orgId);
+    const byMin = [...bands].sort((a, b) => a.minPct - b.minPct);
+    const bottomLetters = new Set(byMin.slice(0, 2).map((b) => (b.letter ?? "").toUpperCase()));
+    const topLetters = new Set(byMin.slice(-2).map((b) => (b.letter ?? "").toUpperCase()));
+    const observations = (card.comments?.observations ?? {}) as Record<
+      string, { need?: string; note?: string }
+    >;
+
+    // The same subjects in the PREVIOUS marked term, when one exists:
+    // movement is information no single card shows. class_subject ids
+    // are stable across terms, so they match directly.
+    const priorPctBySubject = new Map<string, number>();
+    let priorOverallPct: number | null = null;
+    try {
+      const { data: priorTerms } = await serviceRoleClient
+        .from("academic_term").select("id, start_date")
+        .eq("org_id", orgId).is("archived_at", null)
+        .lt("start_date", card.term?.startDate ?? "0000-01-01")
+        .order("start_date", { ascending: false }).limit(2);
+      for (const pt of (priorTerms ?? []) as any[]) {
+        const prior = await assembleReportCard(orgId, studentId, pt.id);
+        if (!prior.ok) continue;
+        const pOverall = (prior.payload as any).academic?.overall?.percentage ?? null;
+        if (pOverall === null) continue;
+        priorOverallPct = Math.round(pOverall * 10) / 10;
+        for (const ps of ((prior.payload as any).academic?.subjects ?? []) as any[]) {
+          if (ps.percentage !== null) {
+            priorPctBySubject.set(ps.classSubjectId, Math.round(ps.percentage * 10) / 10);
+          }
+        }
+        break;
+      }
+    } catch { /* a missing prior term never blocks generation */ }
+
+    const marked = ((card.academic?.subjects ?? []) as any[])
+      .filter((s) => s.percentage !== null && !s.gradeLetter);
+    const isWeak = (s: any) =>
+      s.percentage < passMarkPct || bottomLetters.has(String(s.letter ?? "").toUpperCase());
+    const strongNames = new Set(
+      findings.filter((f) => f.kind === "subject_strong" && f.subject).map((f) => f.subject),
+    );
+    const isStrong = (s: any) => !isWeak(s) &&
+      topLetters.has(String(s.letter ?? "").toUpperCase()) && strongNames.has(s.name);
+    const toCtx = (s: any, kind: "weak" | "strong" | "mid") => ({
+      id: s.classSubjectId as string,
+      name: s.name as string,
+      kind,
+      pct: Math.round(s.percentage * 10) / 10,
+      letter: (s.letter ?? null) as string | null,
+      priorPct: priorPctBySubject.get(s.classSubjectId) ?? null,
+      findings: findings.filter((f) => f.subject === s.name).map((f) => String(f.en)),
+      observation: observations[s.classSubjectId] ?? null,
+    });
+    // Full coverage for auto-generation; the Suggest button keeps its
+    // focused slice (weak get help, the clearest strengths get an
+    // extension) so an interactive click stays small.
+    const allCtx = marked.map((s) => toCtx(s, isWeak(s) ? "weak" : isStrong(s) ? "strong" : "mid"));
+    const focusCtx = [
+      ...allCtx.filter((x) => x.kind === "weak").sort((a, b) => a.pct - b.pct).slice(0, 6),
+      ...allCtx.filter((x) => x.kind === "strong").sort((a, b) => b.pct - a.pct).slice(0, 2),
+    ];
+    return { findings, passMarkPct, priorOverallPct, allCtx, focusCtx };
+  }
+
+  function remarkPromptFor(card: any, ev: any, subjects: any[]) {
+    const fullName = String(card.student?.fullName ?? "");
+    return buildUserPrompt({
+      schoolName: card.school?.name ?? "",
+      studentFirstName: fullName.split(/\s+/)[0] ?? "",
+      className: card.placement?.className ?? null,
+      termName: card.term?.name ?? "",
+      overallPct: card.academic?.overall?.percentage ?? null,
+      priorOverallPct: ev.priorOverallPct,
+      passMarkPct: ev.passMarkPct,
+      isMemorizer: !!card.hifz?.show,
+      subjects,
+    }, ev.findings);
+  }
+
+  /** SHA-256 of everything generation reads. Same hash = same card =
+   *  re-finalizing spends ZERO tokens. */
+  async function remarkInputsHash(card: any, allCtx: any[]): Promise<string> {
+    const basis = JSON.stringify({
+      s: allCtx.map((x) => [x.id, x.pct, x.letter, x.priorPct,
+        x.observation?.need ?? "", x.observation?.note ?? ""]),
+      o: card.academic?.overall?.percentage ?? null,
+      a: [card.attendance?.daysPresent ?? card.attendance?.present ?? 0,
+          card.attendance?.workingDays ?? card.attendance?.total ?? 0,
+          card.attendance?.absent ?? 0, card.attendance?.late ?? 0],
+      b: [card.behavior?.positive ?? 0, card.behavior?.concern ?? 0],
+    });
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(basis));
+    return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+
+  /** The finalize hook. Fire-and-forget; every failure is a logged
+   *  no-op - finalizing never breaks because the writing service did. */
+  async function autoGenerateRemarks(orgId: string, studentId: string, termId: string): Promise<void> {
+    try {
+      const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
+      if (!apiKey) return;
+      const r = await assembleReportCard(orgId, studentId, termId);
+      if (!r.ok) return;
+      const card = r.payload as any;
+      // A published card is parent-visible - never changed silently.
+      if (card.workflow?.publishedAt) return;
+      if (card.academic?.overall?.percentage === null) return;
+      const ev = await buildRemarkEvidence(orgId, studentId, card);
+      if (ev.allCtx.length === 0) return;
+      const hash = await remarkInputsHash(card, ev.allCtx);
+      const { data: row } = await serviceRoleClient.from("term_report_card")
+        .select("id, class_teacher_comment, principal_comment, subject_comments, ai_remarks_meta")
+        .eq("student_id", studentId).eq("term_id", termId).maybeSingle();
+      const meta = (row?.ai_remarks_meta ?? null) as any;
+      if (meta?.hash === hash) return; // unchanged inputs: zero tokens
+
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model: REMARK_MODEL,
+          max_tokens: 1800,
+          output_config: { effort: "low" },
+          // Cached across a class's finalize burst (15-20 cards inside
+          // a few minutes) - the shared prompt is billed once, not 20x.
+          system: [{ type: "text", text: systemPrompt(false), cache_control: { type: "ephemeral" } }],
+          messages: [{ role: "user", content: remarkPromptFor(card, ev, ev.allCtx) }],
+        }),
+      });
+      if (!res.ok) {
+        console.error("[auto-remarks] upstream", res.status, (await res.text()).slice(0, 200));
+        return;
+      }
+      const json = await res.json();
+      const text = ((json?.content ?? []) as any[])
+        .filter((b) => b?.type === "text").map((b) => b.text).join("\n");
+      const parsed = parseSuggestion(text, new Set(ev.allCtx.map((x: any) => x.id)), { urdu: false });
+      if (!parsed) { console.error("[auto-remarks] bad shape"); return; }
+
+      // Write ONLY where the field is empty or still holds our own
+      // previous draft. A human's words are never overwritten.
+      const prevFields = (meta?.fields ?? {}) as any;
+      const patch: Record<string, unknown> = {};
+      const newFields: any = { subjects: {} };
+      const ctCur = String(row?.class_teacher_comment ?? "");
+      if (!ctCur.trim() || ctCur === prevFields.classTeacher) {
+        patch.class_teacher_comment = parsed.classTeacher.slice(0, 2000);
+        newFields.classTeacher = patch.class_teacher_comment;
+      }
+      const prCur = String(row?.principal_comment ?? "");
+      if (!prCur.trim() || prCur === prevFields.principal) {
+        patch.principal_comment = parsed.principal.slice(0, 2000);
+        newFields.principal = patch.principal_comment;
+      }
+      const scCur = { ...((row?.subject_comments ?? {}) as Record<string, string>) };
+      for (const sub of parsed.subjects) {
+        const cur = String(scCur[sub.id] ?? "");
+        if (!cur.trim() || cur === (prevFields.subjects ?? {})[sub.id]) {
+          scCur[sub.id] = sub.en.slice(0, 1000);
+          newFields.subjects[sub.id] = scCur[sub.id];
+        }
+      }
+      patch.subject_comments = scCur;
+      patch.ai_remarks_meta = {
+        hash,
+        generatedAt: new Date().toISOString(),
+        usage: {
+          inputTokens: Number(json?.usage?.input_tokens ?? 0),
+          outputTokens: Number(json?.usage?.output_tokens ?? 0),
+          cacheReadTokens: Number(json?.usage?.cache_read_input_tokens ?? 0),
+        },
+        fields: newFields,
+      };
+      const id = row?.id ?? await ensureCardRow(orgId, studentId, termId);
+      const { error } = await serviceRoleClient
+        .from("term_report_card").update(patch).eq("id", id);
+      if (error) console.error("[auto-remarks] write", error.message);
+    } catch (e) {
+      console.error("[auto-remarks]", e);
+    }
+  }
+
   // ─── Suggest remarks with Claude (26 Sep) ──────────────────────────
   // Writes FROM the computed findings - the model never sees raw marks
   // and never does arithmetic, so it cannot put a wrong number on a
@@ -838,94 +1043,8 @@ export function installReportCard(school: Hono): void {
         }, 400);
       }
 
-      const findings = (card.findings?.items ?? []) as any[];
-      const fullName = String(card.student?.fullName ?? "");
-
-      // Which subjects get a written remark (round 3, 2 Oct review):
-      // the WEAK ones (below the pass mark or in the chart's two lowest
-      // bands - the office's "failing or Ds or Es", never a hardcoded
-      // threshold) get observation + one action; a genuinely STRONG one
-      // (top two bands AND a strength finding) gets an extension, never
-      // a manufactured weakness. Grade-mode subjects (Art, Robotics)
-      // carry no percentage and stay out.
-      const passMarkPct = card.academic?.overall?.passMarkPct ?? 40;
-      const bands = await loadOrgBands(orgId);
-      const byMin = [...bands].sort((a, b) => a.minPct - b.minPct);
-      const bottomLetters = new Set(byMin.slice(0, 2).map((b) => (b.letter ?? "").toUpperCase()));
-      const topLetters = new Set(byMin.slice(-2).map((b) => (b.letter ?? "").toUpperCase()));
-
-      // The teacher's recorded observations - the evidence only a human
-      // can supply. Keyed by class_subject id.
-      const observations = (card.comments?.observations ?? {}) as Record<
-        string, { need?: string; note?: string }
-      >;
-
-      // The same subjects in the PREVIOUS marked term, when one exists:
-      // movement is information no single card shows. class_subject ids
-      // are stable across terms, so they match directly.
-      const priorPctBySubject = new Map<string, number>();
-      let priorOverallPct: number | null = null;
-      try {
-        const { data: priorTerms } = await serviceRoleClient
-          .from("academic_term").select("id, start_date")
-          .eq("org_id", orgId).is("archived_at", null)
-          .lt("start_date", card.term?.startDate ?? "0000-01-01")
-          .order("start_date", { ascending: false }).limit(2);
-        for (const pt of (priorTerms ?? []) as any[]) {
-          const prior = await assembleReportCard(orgId, studentId, pt.id);
-          if (!prior.ok) continue;
-          const pOverall = (prior.payload as any).academic?.overall?.percentage ?? null;
-          if (pOverall === null) continue;
-          priorOverallPct = Math.round(pOverall * 10) / 10;
-          for (const ps of ((prior.payload as any).academic?.subjects ?? []) as any[]) {
-            if (ps.percentage !== null) {
-              priorPctBySubject.set(ps.classSubjectId, Math.round(ps.percentage * 10) / 10);
-            }
-          }
-          break;
-        }
-      } catch { /* a missing prior term never blocks a suggestion */ }
-
-      const marked = ((card.academic?.subjects ?? []) as any[])
-        .filter((s) => s.percentage !== null && !s.gradeLetter);
-      const isWeak = (s: any) =>
-        s.percentage < passMarkPct || bottomLetters.has(String(s.letter ?? "").toUpperCase());
-      const strongNames = new Set(
-        findings.filter((f) => f.kind === "subject_strong" && f.subject).map((f) => f.subject),
-      );
-      const toCtx = (s: any, kind: "weak" | "strong") => ({
-        id: s.classSubjectId as string,
-        name: s.name as string,
-        kind,
-        pct: Math.round(s.percentage * 10) / 10,
-        letter: (s.letter ?? null) as string | null,
-        priorPct: priorPctBySubject.get(s.classSubjectId) ?? null,
-        findings: findings.filter((f) => f.subject === s.name).map((f) => String(f.en)),
-        observation: observations[s.classSubjectId] ?? null,
-      });
-      const subjectCtx = [
-        ...marked.filter(isWeak)
-          .sort((a, b) => a.percentage - b.percentage)
-          .slice(0, 6) // bound the spend on a child failing everything
-          .map((s) => toCtx(s, "weak")),
-        ...marked.filter((s) => !isWeak(s) &&
-            topLetters.has(String(s.letter ?? "").toUpperCase()) && strongNames.has(s.name))
-          .sort((a, b) => b.percentage - a.percentage)
-          .slice(0, 2)
-          .map((s) => toCtx(s, "strong")),
-      ];
-
-      const prompt = buildUserPrompt({
-        schoolName: card.school?.name ?? "",
-        studentFirstName: fullName.split(/\s+/)[0] ?? "",
-        className: card.placement?.className ?? null,
-        termName: card.term?.name ?? "",
-        overallPct: card.academic?.overall?.percentage ?? null,
-        priorOverallPct,
-        passMarkPct,
-        isMemorizer: !!card.hifz?.show,
-        subjects: subjectCtx,
-      }, findings);
+      const ev = await buildRemarkEvidence(orgId, studentId, card);
+      const prompt = remarkPromptFor(card, ev, ev.focusCtx);
 
       let text = "";
       let spent = { inputTokens: 0, outputTokens: 0 };
@@ -941,11 +1060,11 @@ export function installReportCard(school: Hono): void {
             model: REMARK_MODEL,
             // Room for a sentence pair per weak subject on top of the
             // four remarks; unspent headroom costs nothing.
-            max_tokens: subjectCtx.length > 0 ? 2600 : 1200,
+            max_tokens: ev.focusCtx.length > 0 ? 2600 : 1200,
             // Short, bounded writing from facts already established -
             // low effort keeps it fast and cheap without costing quality.
             output_config: { effort: "low" },
-            system: SYSTEM_PROMPT,
+            system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
             messages: [{ role: "user", content: prompt }],
           }),
         });
@@ -973,7 +1092,7 @@ export function installReportCard(school: Hono): void {
         return c.json({ error: "Could not reach the writing service.", code: "AI_UNREACHABLE" }, 502);
       }
 
-      const parsed = parseSuggestion(text, new Set(subjectCtx.map((w) => w.id)));
+      const parsed = parseSuggestion(text, new Set(ev.focusCtx.map((w) => w.id)));
       if (!parsed) {
         return c.json({
           error: "The suggestion came back in an unexpected shape - please try again.",
@@ -992,7 +1111,7 @@ export function installReportCard(school: Hono): void {
       return c.json({
         suggestion: parsed,
         urduOk,
-        usedFindings: findings.length,
+        usedFindings: ev.findings.length,
         usage: { ...spent, approxUsd: Math.round(approxUsd * 10000) / 10000 },
       });
     },
@@ -1089,6 +1208,17 @@ export function installReportCard(school: Hono): void {
       })
       .eq("id", id);
     if (error) return c.json({ error: error.message }, 500);
+
+    // Finalize -> pre-fill AI remark drafts (v1.23.0, 2 Oct). Runs in
+    // the background so a class's 15-20 finalize clicks stay fast; the
+    // hash check inside makes an unchanged re-finalize free. Unfinalize
+    // itself generates nothing - the re-finalize does.
+    if (field === "finalized_at" && set) {
+      const gen = autoGenerateRemarks(orgId, studentId, termId);
+      const rt = (globalThis as any).EdgeRuntime;
+      if (rt?.waitUntil) rt.waitUntil(gen);
+      else gen.catch((e: unknown) => console.error("[auto-remarks]", e));
+    }
 
     // Notification trigger (PR feat/notification-scaffold).
     // Only on the publish→true edge — un-publish, finalize, unfinalize
