@@ -1,57 +1,46 @@
-// Will every report card print on ONE page?
+// How does a report card paginate?
 //
-// Office, 30 Sep: "when they try to print it falls again on the second
-// page ... we need a check where it reviews all reports to make sure it's
-// not falling on the second page - no orphans."
+// The policy CHANGED on 2 Oct. It used to be "one page, whatever it
+// costs" (office, 30 Sep: "it falls again on the second page"). Holding
+// that line meant 1.5px row padding, a 7.5pt table heading, hard column
+// shares and three-line clamps - and on the office's print it showed:
+// "422.5/650" printed on top of the % column, and a class teacher's
+// remark cut off mid-sentence with an ellipsis on the copy that goes
+// home to a parent. Their call (2 Oct): "it's okay if it spills to the
+// next page because it doesn't look nice."
 //
-// A card's printed height has three drivers:
+// So the rule is now:
+//   1. READABLE first - full remarks, room to breathe, nothing clipped.
+//   2. One page when it fits naturally.
+//   3. If it spills, it spills GRACEFULLY. The remarks block, grading
+//      key and signature strip travel together (break-inside/-before
+//      avoid), table rows never split, and the table heading repeats
+//      on page two. A second page carrying only a signature and a
+//      stamp - the office's original complaint - cannot happen.
 //
-//   1. the subject table - one row per subject, plus the overall row;
-//   2. the two remark boxes - capped at 8 printed lines by
-//      .print-remark-body, so no amount of typing can grow them further;
-//   3. per-subject remarks (1 Oct: findings print by default) - capped
-//      at 3 lines x 8.5pt by .print-subject-remark .remark-clamp.
-//
-// Because (2) and (3) are bounded, the only thing that can push a card
-// over a page is (1).
+// This check therefore reports ROW COUNT as a size signal, not a
+// pass/fail on height. A class well past the usual size is worth a
+// human look at a real print before a batch goes out.
 //
 // MEASURE AT 718px, NOT THE BROWSER'S OWN WIDTH (learned 2 Oct). A4
-// portrait with 10mm side margins is 190mm = 718 CSS px. Every earlier
-// figure in this file was taken in a ~1000px-wide window because the
-// print rule `.print-card { width: 100% !important }` silently beat the
-// inline width the measuring script set - a wider card wraps less and
-// reads ~90px shorter, so cards that "passed" at 1034px were really
-// 1130px and spilled. Emulate a 718px viewport, inject the @media print
-// rules as plain CSS, and force `img.print-only` visible (the QR is
-// display:none on screen and must be counted).
+// portrait with 10mm side margins is 190mm = 718 CSS px. The print rule
+// `.print-card { width: 100% !important }` beats an inline width a
+// measuring script sets, so a card measured in a ~1000px window wraps
+// less and reads ~90px short. Emulate a 718px viewport, inject the
+// @media print rules as plain CSS, and force BOTH `img.print-only` and
+// `.print-remark-body` visible - they are display:none on screen and
+// the remark bodies are most of the remarks block's height.
 //
-// Measured that way after the 2 Oct revision (fixed column widths,
-// margin-bottom fix, address out of the header row):
-//
-//   WORST card in the school (Rida, Class III, 15 rows,
-//     7 three-line findings) .................... 999px of 1062px
-//   next worst (Uzair, 15 rows) ................ 1022px
-//   Fariha 994px · Abrish 970px · Senior 947px
-//
-// Two height levers worth knowing, both found the hard way:
-//   - The REMARKS COLUMN must stay >= ~310px at A4 width. Below that
-//     the finding sentences wrap to three lines instead of two and the
-//     worst card grows ~80px. That is why the table carries a colgroup
-//     with fixed shares instead of letting the browser balance it.
-//   - Tailwind's space-y-* gap lands on margin-BOTTOM here; print
-//     overrides that only shrink margin-top leave ~20px per section
-//     (140px total) in place.
-//
-// So 15 rows is proven to fit even with a finding on every notable
-// subject. A class carrying more subjects than that has never been
-// measured, and this fails so somebody measures it before the cards
-// print rather than after.
+// Reference heights at 718px after the 2 Oct revision (Class IV, 11
+// rows, full remarks): 1397px = 1.32 pages, breaking after the
+// attendance/behavior strip, with remarks + key + signatures on page
+// two.
 //
 //   node scripts/check-card-print-fit.mjs            (uses .env)
 //
 // It reads live data, so run it after any change to a class's subjects.
 
-const PROVEN_SAFE_ROWS = 15;   // measured: fits with maximal remarks
+const TYPICAL_MAX_ROWS = 15;   // biggest class today (Class III); above this, eyeball a real print
 const A4_LIMIT_PX = 1062;      // 281mm printable at 96dpi
 
 // Read .env ourselves. The deno scripts get it via --env=.env; node does
@@ -113,9 +102,11 @@ for (const st of students) {
   headcount.set(sec.class_id, (headcount.get(sec.class_id) ?? 0) + 1);
 }
 
-console.log(`print-fit check — ${term?.name ?? "term"} · one A4 page = ${A4_LIMIT_PX}px`);
-console.log(`proven safe: ${PROVEN_SAFE_ROWS} table rows even with maximal remarks\n`);
-console.log("class            cards  subjects  table rows  verdict");
+console.log(`card pagination check — ${term?.name ?? "term"} · one A4 page = ${A4_LIMIT_PX}px`);
+console.log(`typical size today: ${TYPICAL_MAX_ROWS} table rows. Spilling to a second page is`);
+console.log(`allowed since 2 Oct; what must never happen is page two carrying only a`);
+console.log(`signature — the remarks block travels with it.\n`);
+console.log("class            cards  subjects  table rows  size");
 
 const over = [];
 for (const c of classes.sort((a, b) => a.name.localeCompare(b.name))) {
@@ -123,10 +114,10 @@ for (const c of classes.sort((a, b) => a.name.localeCompare(b.name))) {
   if (!cardsHere) continue;
   const subs = subjCount.get(c.id) ?? 0;
   const rows = subs + 1; // the overall row
-  const ok = rows <= PROVEN_SAFE_ROWS;
+  const ok = rows <= TYPICAL_MAX_ROWS;
   if (!ok) over.push({ name: c.name, rows, cards: cardsHere });
   console.log(
-    `  ${c.name.padEnd(14)} ${String(cardsHere).padStart(4)}  ${String(subs).padStart(8)}  ${String(rows).padStart(10)}  ${ok ? "fits" : "NOT MEASURED — check it"}`,
+    `  ${c.name.padEnd(14)} ${String(cardsHere).padStart(4)}  ${String(subs).padStart(8)}  ${String(rows).padStart(10)}  ${ok ? "usual" : "BIGGER THAN ANY MEASURED — eyeball a print"}`,
   );
 }
 
@@ -135,8 +126,10 @@ if (over.length) {
   for (const o of over) {
     console.error(`  ${o.name}: ${o.rows} rows across ${o.cards} card(s)`);
   }
-  console.error(`\nOpen one of those cards, print-preview it, and either confirm it fits`);
-  console.error(`or trim the class's subject list. Raise PROVEN_SAFE_ROWS here once measured.`);
+  console.error(`\nOpen one of those cards and print-preview it: confirm it reads well, and`);
+  console.error(`that any second page carries the remarks block, not just a signature.`);
+  console.error(`Raise TYPICAL_MAX_ROWS here once you have looked.`);
   process.exit(1);
 }
-console.log(`\nevery class is within the measured-safe height — no card should reach a second page.`);
+console.log(`\nevery class is within the usual size. A card may still run to a second page`);
+console.log(`with long remarks — that is fine, as long as the remarks travel with it.`);
