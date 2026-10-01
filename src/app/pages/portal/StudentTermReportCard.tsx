@@ -39,6 +39,19 @@ export function StudentTermReportCard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // The paper card defaults each subject's remark to its computed
+  // finding (1 Oct); the phone must say the same thing. Same guard too:
+  // a RELATIVE "clear strength" stays off a subject that is weak in
+  // absolute terms. An Urdu reader gets the finding's own Urdu.
+  const subjectFinding = (name: string) =>
+    (card?.findings?.items ?? []).find((f) => f.subject === name) ?? null;
+  const defaultRemark = (name: string, pct: number | null, bandRemark: string) => {
+    const f = subjectFinding(name);
+    if (!f) return bandRemark;
+    if (f.kind === "subject_strong" && (pct ?? 0) < 60) return bandRemark;
+    return inReaderLanguage(f.en, f.ur) ?? bandRemark;
+  };
+
   useEffect(() => {
     setLoading(true);
     listMyTermReportCards(studentId)
@@ -187,7 +200,9 @@ export function StudentTermReportCard() {
                         <td className="px-2 py-1.5 text-right">{s.totalMax > 0 ? `${s.totalObtained}/${s.totalMax}` : "—"}</td>
                         <td className={"px-2 py-1.5 text-right font-medium " + (subjFailed ? "text-rose-700" : "")}>{fmtPct(s.percentage)}</td>
                         <td className={"px-2 py-1.5 text-center font-bold " + (subjFailed ? "text-rose-700" : "")}>{s.letter}</td>
-                        <td className={"px-2 py-1.5 " + (subjFailed ? "text-rose-700" : "text-slate-600")}>{s.teacherComment || s.remark}</td>
+                        <td className={"px-2 py-1.5 " + (subjFailed ? "text-rose-700" : "text-slate-600")}>
+                          {s.teacherComment || defaultRemark(s.name, s.percentage, s.remark)}
+                        </td>
                       </tr>
                     );
                     })}

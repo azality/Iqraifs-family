@@ -28,8 +28,9 @@ import {
   getSchoolMe, isOrgAdmin,
   listTerms, getTermReportCard, getReportCardsBrowser,
   saveReportCardComments, setReportCardWorkflow, suggestRemarks,
+  listGradeScales,
   type SchoolMeResponse, type AcademicTerm,
-  type TermReportCardResponse, type SuggestedRemarks,
+  type TermReportCardResponse, type SuggestedRemarks, type GradeBand,
 } from "../../../utils/schoolApi";
 import { ReportFindingsPanel } from "./components/ReportFindingsPanel";
 import { Sparkles } from "lucide-react";
@@ -46,6 +47,16 @@ function fmtDayMonthYear(iso: string | null | undefined): string {
   if (!iso) return "—";
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
   return m ? `${m[3]}-${m[2]}-${m[1]}` : iso;
+}
+
+/** "1st Assessment — Written" said the term twice on the card (office,
+ *  1 Oct): the term heads the whole card, so the column keeps only its
+ *  paper. Strips a leading "<term name> — " (any dash); anything else
+ *  passes through untouched. */
+function paperOnly(examName: string, termName: string): string {
+  if (!examName.startsWith(termName)) return examName;
+  const rest = examName.slice(termName.length).replace(/^\s*[—–-]+\s*/, "").trim();
+  return rest || examName;
 }
 
 export function StudentReportCard() {
@@ -130,6 +141,45 @@ export function StudentReportCard() {
   const isAdmin = useMemo(() => isOrgAdmin(me, orgId), [me, orgId]);
   // The server decides; the screen only reflects it.
   const remarkLocked = !!card?.remarkLock?.locked;
+
+  // The default remark for each subject is its computed FINDING (office,
+  // 1 Oct: "remarks for every subject by default" - these are the exact,
+  // auditable sentences the findings engine already writes; no model, no
+  // credits, recomputed per term). Worst finding first in the payload,
+  // so the first one per subject is the one worth the column.
+  const subjectFinding = useMemo(() => {
+    const m = new Map<string, { en: string; kind: string }>();
+    for (const f of card?.findings?.items ?? []) {
+      if (f.subject && !m.has(f.subject)) m.set(f.subject, { en: f.en, kind: f.kind });
+    }
+    return m;
+  }, [card]);
+
+  // A "clear strength" line is RELATIVE to the child's own average - on
+  // a struggling card it can fire for a 43% subject, and printing that
+  // beside a letter E reads absurd (seen on Abrish's card, 1 Oct). A
+  // strength only defaults onto paper when the subject stands tall in
+  // absolute terms too; otherwise the band remark speaks.
+  const defaultRemark = (name: string, pct: number | null, bandRemark: string) => {
+    const f = subjectFinding.get(name);
+    if (!f) return bandRemark;
+    if (f.kind === "subject_strong" && (pct ?? 0) < 60) return bandRemark;
+    return f.en;
+  };
+
+  // The grading key printed at the foot of the card (office, 1 Oct:
+  // "Keys" pen note). The school's own chart; quietly absent if this
+  // viewer cannot read the scales endpoint.
+  const [keyBands, setKeyBands] = useState<GradeBand[] | null>(null);
+  useEffect(() => {
+    if (!orgId) return;
+    listGradeScales(orgId)
+      .then((r) => {
+        const scale = r.scales.find((s) => s.isDefault) ?? r.scales[0];
+        setKeyBands(scale?.bands?.length ? scale.bands : null);
+      })
+      .catch(() => setKeyBands(null));
+  }, [orgId]);
 
   // Which signature lines this school prints. Everything defaults ON,
   // so a school that never opens the setting keeps the card it has.
@@ -251,11 +301,13 @@ export function StudentReportCard() {
           .print-card .text-xs, .print-card .text-\\[10px\\], .print-card .text-\\[11px\\] {
             font-size: 9pt !important;
           }
-          /* Tighter rows + boxes on paper — screen keeps its spacing. */
+          /* Tighter rows + boxes on paper — screen keeps its spacing.
+             2px since 1 Oct: the ruled grid carries the separation that
+             padding used to, and 15-row classes need the height back. */
           .print-card table td, .print-card table th {
-            padding-top: 3px !important; padding-bottom: 3px !important;
+            padding-top: 2px !important; padding-bottom: 2px !important;
           }
-          .print-card .print-keep .rounded-md { padding: 8px !important; }
+          .print-card .print-keep .rounded-md { padding: 6px !important; }
           /* NO ORPHANS (office, 30 Sep: "if it absolutely has to be on the
              second page then there should be more than just sign and
              stamp"). A lone signature strip on page two is the worst
@@ -276,6 +328,27 @@ export function StudentReportCard() {
             display: -webkit-box; -webkit-box-orient: vertical;
             -webkit-line-clamp: 8; overflow: hidden;
           }
+          /* Per-subject remarks (findings by default since 1 Oct) are
+             bounded the same way: four lines in the column - one
+             subject's essay can never push the card to page two. The
+             clamp sits on an inner wrapper because -webkit-box cannot
+             apply to a table cell. */
+          .print-subject-remark .remark-clamp {
+            display: -webkit-box; -webkit-box-orient: vertical;
+            -webkit-line-clamp: 3; overflow: hidden;
+            line-height: 1.25;
+            font-size: 8.5pt !important;
+          }
+          /* The identity band prints tighter than it shows. */
+          .print-card .print-info-band {
+            padding-top: 4px !important; padding-bottom: 4px !important;
+          }
+          /* Chrome drops cell fills and some rules when printing unless
+             told otherwise - the ruled table and the quiet grey bands
+             are the whole point of this revision (office, 1 Oct). */
+          .print-card, .print-card * {
+            print-color-adjust: exact; -webkit-print-color-adjust: exact;
+          }
           /* A blank SECOND page (Ambreen's print, 25 Sep): the card
              itself ended on page one and only trailing space spilled
              over. Nothing after the last section may carry margin,
@@ -283,12 +356,13 @@ export function StudentReportCard() {
           .print-card { padding-bottom: 0 !important; margin-bottom: 0 !important; }
           .print-card > *:last-child,
           .print-signature { margin-bottom: 0 !important; padding-bottom: 0 !important; }
-          .print-card .space-y-5 > * + * { margin-top: 10px !important; }
-          .print-card .space-y-4 > * + * { margin-top: 8px !important; }
-          .print-card .space-y-3 > * + * { margin-top: 6px !important; }
+          .print-card .space-y-5 > * + * { margin-top: 7px !important; }
+          .print-card .space-y-4 > * + * { margin-top: 6px !important; }
+          .print-card .space-y-3 > * + * { margin-top: 5px !important; }
           html, body { height: auto !important; min-height: 0 !important; }
-          .print-signature .h-14 { height: 44px !important; }
-          .print-signature .h-10 { height: 30px !important; }
+          .print-signature { padding-top: 8px !important; margin-top: 8px !important; }
+          .print-signature .h-14 { height: 36px !important; }
+          .print-signature .h-10 { height: 26px !important; }
           .print-only { display: block !important; }
         }
         @media screen {
@@ -391,7 +465,8 @@ export function StudentReportCard() {
 
           <Card className="print-card">
             <CardContent className="p-6 space-y-5">
-              <div className="flex items-start justify-between gap-4 border-b border-slate-200 pb-3 print-keep">
+              <div className="border-b border-slate-200 pb-2 print-keep">
+                <div className="flex items-start justify-between gap-4">
                 <div className="flex items-center gap-3">
                   {card.school.logoUrl && (
                     <img src={card.school.logoUrl} alt="" className="h-12 w-12 rounded object-cover" />
@@ -400,15 +475,6 @@ export function StudentReportCard() {
                     <div className="text-lg font-bold text-slate-900">{card.school.name}</div>
                     {card.school.motto && <div className="text-xs text-slate-600 italic">{card.school.motto}</div>}
                     {card.school.address && <div className="text-[11px] text-slate-500">{card.school.address}</div>}
-                    {/* The term and its dates sit on the LEFT (office, 30 Sep):
-                        in the right-hand column they wrapped over three lines
-                        and cost height the card could not spare. Dates read
-                        day-month-year, the way Pakistan writes them. */}
-                    <div className="text-[11px] text-slate-600 mt-0.5 whitespace-nowrap">
-                      <span className="font-medium text-slate-900">{card.term.name}</span>
-                      <span className="text-slate-400"> · </span>
-                      {fmtDayMonthYear(card.term.startDate)} – {fmtDayMonthYear(card.term.endDate)}
-                    </div>
                   </div>
                 </div>
                 <div className="text-right flex items-start gap-3">
@@ -429,40 +495,63 @@ export function StudentReportCard() {
                     />
                   )}
                 </div>
+                </div>
+                {/* The term and its dates, CENTERED on their own line
+                    (office, 1 Oct print markup: "centralize"). Dates read
+                    day-month-year, the way Pakistan writes them. */}
+                <div className="text-center text-[11px] text-slate-600 mt-1.5 whitespace-nowrap">
+                  <span className="font-semibold text-slate-900">{card.term.name}</span>
+                  <span className="text-slate-400"> · </span>
+                  {fmtDayMonthYear(card.term.startDate)} – {fmtDayMonthYear(card.term.endDate)}
+                </div>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                <div><div className="text-slate-500">Name</div><div className="font-medium">{card.student.fullName}</div></div>
-                <div><div className="text-slate-500">GR No</div><div className="font-medium">{card.student.grNumber}</div></div>
+              {/* The child's identity sits in its own quiet band (office,
+                  1 Oct markup: wanted it bolder; a subtle boxed strip
+                  separates it without shouting). Values go semibold. */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs rounded-md border border-slate-200 bg-slate-50/70 px-3 py-2 print-keep print-info-band">
+                <div><div className="text-slate-500">Name</div><div className="font-semibold text-slate-900">{card.student.fullName}</div></div>
+                <div><div className="text-slate-500">GR No</div><div className="font-semibold text-slate-900">{card.student.grNumber}</div></div>
                 <div><div className="text-slate-500">Class</div>
-                  <div className="font-medium">
+                  <div className="font-semibold text-slate-900">
                     {card.placement.className ?? "—"}{card.placement.sectionName ? ` — ${card.placement.sectionName}` : ""}
                   </div>
                 </div>
                 <div><div className="text-slate-500">Class teacher</div>
-                  <div className="font-medium">{card.placement.classTeacherName ?? "—"}</div>
+                  <div className="font-semibold text-slate-900">{card.placement.classTeacherName ?? "—"}</div>
                 </div>
               </div>
 
               <section className="print-keep">
+                {/* Underlined, per the office's pen (1 Oct). */}
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-2 flex items-center gap-1">
-                  <BookOpen className="h-3.5 w-3.5 text-indigo-500" /> Academic performance
+                  <BookOpen className="h-3.5 w-3.5 text-indigo-500" />
+                  <span className="underline underline-offset-2">Academic performance</span>
                 </h3>
                 {card.academic.subjects.length === 0 ? (
                   <div className="text-xs text-slate-500 italic">No subject scores recorded for this term.</div>
                 ) : (
                   <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
+                    {/* Full grid lines (office, 1 Oct): every cell ruled so
+                        a parent's eye can't drift a row - which grade and
+                        remark belongs to which subject is unmistakable. */}
+                    <table className="w-full text-xs border border-slate-300">
                       <thead className="bg-slate-50 text-slate-700">
                         <tr>
-                          <th className="text-left px-2 py-1.5">Subject</th>
+                          <th className="text-left px-2 py-1.5 border border-slate-200">Subject</th>
+                          {/* "1st Assessment — Written" said the term twice:
+                              the term already heads the card, so the column is
+                              just "Written" (office, 1 Oct). A per-class
+                              override label is used as-is. */}
                           {card.exams.map((e) => (
-                            <th key={e.id} className="text-center px-2 py-1.5">{e.columnLabel || e.name}</th>
+                            <th key={e.id} className="text-center px-2 py-1.5 border border-slate-200">
+                              {e.columnLabel || paperOnly(e.name, card.term.name)}
+                            </th>
                           ))}
-                          <th className="text-right px-2 py-1.5">Total</th>
-                          <th className="text-right px-2 py-1.5">%</th>
-                          <th className="text-center px-2 py-1.5">Grade</th>
-                          <th className="text-left px-2 py-1.5">Remarks</th>
+                          <th className="text-right px-2 py-1.5 border border-slate-200">Total</th>
+                          <th className="text-right px-2 py-1.5 border border-slate-200">%</th>
+                          <th className="text-center px-2 py-1.5 border border-slate-200">Grade</th>
+                          <th className="text-center px-2 py-1.5 border border-slate-200">Remarks</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -474,52 +563,57 @@ export function StudentReportCard() {
                         const subjFailed = s.percentage !== null &&
                           s.percentage < card.academic.overall.passMarkPct;
                         return (
-                          <tr key={s.classSubjectId} className="border-t border-slate-100">
-                            <td className="px-2 py-1.5 font-medium">{s.name}</td>
+                          <tr key={s.classSubjectId}>
+                            <td className="px-2 py-1.5 font-medium border border-slate-200">{s.name}</td>
                             {card.exams.map((e) => {
                               const pe = s.perExam.find((x) => x.examId === e.id);
                               return (
-                                <td key={e.id} className="px-2 py-1.5 text-center">
+                                <td key={e.id} className="px-2 py-1.5 text-center border border-slate-200">
                                   {!pe ? "—" : pe.absent ? <span className="text-rose-600">Abs</span> :
                                     pe.obtained === null ? "—" :
                                     <>{pe.obtained}<span className="text-slate-400">/{pe.max}</span></>}
                                 </td>
                               );
                             })}
-                            <td className="px-2 py-1.5 text-right">
+                            <td className="px-2 py-1.5 text-right border border-slate-200">
                               {s.totalMax > 0 ? `${s.totalObtained}/${s.totalMax}` : "—"}
                             </td>
-                            <td className={"px-2 py-1.5 text-right font-medium " + (subjFailed ? "text-rose-700" : "")}>{fmtPct(s.percentage)}</td>
-                            <td className={"px-2 py-1.5 text-center font-bold " + (subjFailed ? "text-rose-700" : "")}>{s.letter}</td>
+                            <td className={"px-2 py-1.5 text-right font-medium border border-slate-200 " + (subjFailed ? "text-rose-700" : "")}>{fmtPct(s.percentage)}</td>
+                            <td className={"px-2 py-1.5 text-center font-bold border border-slate-200 " + (subjFailed ? "text-rose-700" : "")}>{s.letter}</td>
                             {/* The subject teacher's own comment lives IN the
-                                table (like the school's paper registers and
-                                the parent portal); the band remark is the
-                                fallback. Live state, so unsaved edits print.
-                                (A graded subject's letter is grade_letter
-                                on the score row since 30 Sep - comments are
-                                comments again.) */}
-                            <td className={"px-2 py-1.5 " + (subjFailed ? "text-rose-700" : "text-slate-600")}>
-                              {(subjectComments[s.classSubjectId] ?? "").trim() || s.remark}
+                                table; the computed FINDING for the subject is
+                                the default (office, 1 Oct: "remarks for every
+                                subject by default" - the findings are exact
+                                arithmetic, no model, no credits); the band
+                                remark is the last fallback. Live state, so
+                                unsaved edits print. */}
+                            <td className={"px-2 py-1.5 border border-slate-200 print-subject-remark " + (subjFailed ? "text-rose-700" : "text-slate-600")}>
+                              <div className="remark-clamp">
+                                {(subjectComments[s.classSubjectId] ?? "").trim()
+                                  || defaultRemark(s.name, s.percentage, s.remark)}
+                              </div>
                             </td>
                           </tr>
                         );
                         })}
-                        <tr className="border-t-2 border-slate-300 bg-slate-50/60 font-semibold">
-                          <td className="px-2 py-1.5">Overall</td>
-                          <td colSpan={card.exams.length} className="px-2 py-1.5"></td>
-                          <td className="px-2 py-1.5 text-right">
+                        {/* The heavier rule above Overall is the office's
+                            "line in between" pen note (1 Oct). */}
+                        <tr className="border-t-2 border-slate-400 bg-slate-50/60 font-semibold">
+                          <td className="px-2 py-1.5 border border-slate-200 border-t-2 border-t-slate-400">Overall</td>
+                          <td colSpan={card.exams.length} className="px-2 py-1.5 border border-slate-200 border-t-2 border-t-slate-400"></td>
+                          <td className="px-2 py-1.5 text-right border border-slate-200 border-t-2 border-t-slate-400">
                             {card.academic.overall.max > 0
                               ? `${card.academic.overall.obtained}/${card.academic.overall.max}`
                               : "—"}
                           </td>
                           {/* The verdict by the SCHOOL's own pass mark, which
                               is set independently of the grading chart (22 Sep). */}
-                          <td className={"px-2 py-1.5 text-right " +
+                          <td className={"px-2 py-1.5 text-right border border-slate-200 border-t-2 border-t-slate-400 " +
                             (card.academic.overall.failed ? "font-bold text-rose-700" : "")}>
                             {fmtPct(card.academic.overall.percentage)}
                           </td>
-                          <td className="px-2 py-1.5 text-center">{card.academic.overall.letter}</td>
-                          <td className="px-2 py-1.5">
+                          <td className="px-2 py-1.5 text-center border border-slate-200 border-t-2 border-t-slate-400">{card.academic.overall.letter}</td>
+                          <td className="px-2 py-1.5 border border-slate-200 border-t-2 border-t-slate-400">
                             {card.academic.overall.remark}
                             {card.academic.overall.failed && (
                               <span className="ml-1.5 font-bold text-rose-700">
@@ -642,13 +736,18 @@ export function StudentReportCard() {
                   <div className="space-y-1.5">
                     {card.academic.subjects.map((s) => {
                       const v = subjectComments[s.classSubjectId] ?? "";
+                      // What the card will print if the teacher writes
+                      // nothing: the subject's computed finding, else the
+                      // band remark. Shown as the placeholder so an
+                      // override is an informed act (1 Oct).
+                      const dflt = defaultRemark(s.name, s.percentage, s.remark);
                       return (
                         <div key={s.classSubjectId} className="text-xs">
                           <div className="font-medium text-slate-700">{s.name}:</div>
                           <Textarea
                             value={v}
                             onChange={(e) => setSubjectComments({ ...subjectComments, [s.classSubjectId]: e.target.value })}
-                            placeholder="—"
+                            placeholder={dflt ? `Auto: ${dflt}` : "—"}
                             className="text-xs h-16"
                             maxLength={1000}
                           />
@@ -667,8 +766,11 @@ export function StudentReportCard() {
               )}
 
               <section className="space-y-3 print-keep print-remarks">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
+                {/* Boxed and top-aligned (office, 1 Oct): the two remarks
+                    read as two clearly separate sections whose headings
+                    start level with each other. */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-stretch">
+                  <div className="rounded-md border border-slate-200 p-3">
                     <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
                       Class teacher's remark
                     </div>
@@ -705,7 +807,7 @@ export function StudentReportCard() {
                       {classTeacherComment || card.comments.classTeacher || "—"}
                     </div>
                   </div>
-                  <div>
+                  <div className="rounded-md border border-slate-200 p-3">
                     <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
                       Principal's remark
                     </div>
@@ -829,6 +931,21 @@ export function StudentReportCard() {
                   the office a defined area for the rubber stamp so it
                   doesn't smudge over the text. */}
               <section className="pt-4 mt-4 border-t border-slate-200 print-keep print-signature">
+                {/* The grading key (office pen, 1 Oct: "Keys"): the
+                    school's own chart in one quiet line, so a parent can
+                    decode every letter on the card without asking. It
+                    rides inside the signature block so the two never
+                    separate across pages. */}
+                {keyBands && (
+                  <div className="mb-3 text-[10px] text-slate-500">
+                    <span className="font-semibold text-slate-600">Key:</span>{" "}
+                    {[...keyBands]
+                      .sort((a, b) => b.minPct - a.minPct)
+                      .map((b) => `${b.letter} ${Math.round(b.minPct)}–${Math.round(b.maxPct)}%`)
+                      .join(" · ")}
+                    {" · "}Pass mark {card.academic.overall.passMarkPct}%
+                  </div>
+                )}
                 {/* Which lines print is the school's call (26 Sep: teachers
                     were uneasy about handing over a signature image). The
                     row rebalances to however many are switched on, and the
