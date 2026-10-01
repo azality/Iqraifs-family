@@ -83,6 +83,10 @@ export function StudentReportCard() {
   const [classTeacherComment, setClassTeacherComment] = useState("");
   const [principalComment, setPrincipalComment] = useState("");
   const [subjectComments, setSubjectComments] = useState<Record<string, string>>({});
+  // What the teacher SAW per subject (round 3, 2 Oct): a picked need +
+  // a few words. The evidence the AI writes from; never printed raw.
+  const [subjectObservations, setSubjectObservations] =
+    useState<Record<string, { need?: string; note?: string }>>({});
   const [saving, setSaving] = useState(false);
   // AI suggestion: written from the computed findings, held in a review
   // tray. Nothing lands in a field until its Use button is pressed, and
@@ -131,6 +135,7 @@ export function StudentReportCard() {
         setClassTeacherComment(r.comments.auto?.classTeacher ? "" : (r.comments.classTeacher ?? ""));
         setPrincipalComment(r.comments.auto?.principal ? "" : (r.comments.principal ?? ""));
         setSubjectComments(r.comments.subjects ?? {});
+        setSubjectObservations(r.comments.observations ?? {});
         setError(null);
       })
       .catch((e) => { setCard(null); setError(e instanceof Error ? e.message : "Failed to load"); })
@@ -147,33 +152,14 @@ export function StudentReportCard() {
   // auditable sentences the findings engine already writes; no model, no
   // credits, recomputed per term). Worst finding first in the payload,
   // so the first one per subject is the one worth the column.
-  const subjectFinding = useMemo(() => {
-    const m = new Map<string, { en: string; kind: string }>();
-    for (const f of card?.findings?.items ?? []) {
-      if (!f.subject) continue;
-      // A paper-gap line never PRINTS as the default remark (office,
-      // 2 Oct: "what is showing is exactly on the same line just few
-      // spaces to the left") - both papers' scores sit in that very
-      // row, so restating them is noise. It stays in the teacher panel
-      // and in what the AI writes from. The own-average findings say
-      // something the row does NOT show, so they stay printable.
-      if (f.kind === "paper_gap") continue;
-      if (!m.has(f.subject)) m.set(f.subject, { en: f.en, kind: f.kind });
-    }
-    return m;
-  }, [card]);
-
-  // A "clear strength" line is RELATIVE to the child's own average - on
-  // a struggling card it can fire for a 43% subject, and printing that
-  // beside a letter E reads absurd (seen on Abrish's card, 1 Oct). A
-  // strength only defaults onto paper when the subject stands tall in
-  // absolute terms too; otherwise the band remark speaks.
-  const defaultRemark = (name: string, pct: number | null, bandRemark: string) => {
-    const f = subjectFinding.get(name);
-    if (!f) return bandRemark;
-    if (f.kind === "subject_strong" && (pct ?? 0) < 60) return bandRemark;
-    return f.en;
-  };
+  // What prints when the teacher writes nothing: the band remark, and
+  // nothing cleverer (round 3, 2 Oct review). Computed findings - the
+  // paper gaps, the own-average lines - describe the marks the parent
+  // is already looking at; they stay in the teacher's insight panel,
+  // where they prioritize a conversation, and in what the AI writes
+  // from. The path to a remark that tells a parent what to TRY is the
+  // teacher's observation + the AI suggestion, reviewed and placed by
+  // a human.
 
   // The grading key printed at the foot of the card (office, 1 Oct:
   // "Keys" pen note). The school's own chart; quietly absent if this
@@ -274,6 +260,7 @@ export function StudentReportCard() {
         classTeacherComment: classTeacherComment || null,
         principalComment: isAdmin ? (principalComment || null) : undefined,
         subjectComments,
+        subjectObservations,
       });
       refresh();
     } catch (e) {
@@ -683,8 +670,7 @@ export function StudentReportCard() {
                                 unsaved edits print. */}
                             <td className={"px-2 py-1.5 border border-slate-200 print-subject-remark " + (subjFailed ? "text-rose-700" : "text-slate-600")}>
                               <div className="remark-clamp">
-                                {(subjectComments[s.classSubjectId] ?? "").trim()
-                                  || defaultRemark(s.name, s.percentage, s.remark)}
+                                {(subjectComments[s.classSubjectId] ?? "").trim() || s.remark}
                               </div>
                             </td>
                           </tr>
@@ -827,14 +813,27 @@ export function StudentReportCard() {
                       printed inside the table's Remarks column
                     </span>
                   </div>
+                  {/* Round 3 (2 Oct): the AI can only write what someone
+                      saw. An observation per subject - a picked need and
+                      a few words - is what turns "practice is needed"
+                      into "finish every part of the written answer". */}
+                  <p className="mb-2 text-[11px] text-slate-500">
+                    What you observed makes the AI suggestion specific — pick what you saw,
+                    add a few words. Observations are never printed; they shape the suggested remark.
+                  </p>
                   <div className="space-y-1.5">
                     {card.academic.subjects.map((s) => {
                       const v = subjectComments[s.classSubjectId] ?? "";
                       // What the card will print if the teacher writes
-                      // nothing: the subject's computed finding, else the
-                      // band remark. Shown as the placeholder so an
-                      // override is an informed act (1 Oct).
-                      const dflt = defaultRemark(s.name, s.percentage, s.remark);
+                      // nothing: the band remark. Shown as the placeholder
+                      // so an override is an informed act (1 Oct).
+                      const dflt = s.remark;
+                      const obs = subjectObservations[s.classSubjectId] ?? {};
+                      const setObs = (patch: { need?: string; note?: string }) =>
+                        setSubjectObservations({
+                          ...subjectObservations,
+                          [s.classSubjectId]: { ...obs, ...patch },
+                        });
                       return (
                         <div key={s.classSubjectId} className="text-xs">
                           <div className="font-medium text-slate-700">{s.name}:</div>
@@ -845,6 +844,27 @@ export function StudentReportCard() {
                             className="text-xs h-16"
                             maxLength={1000}
                           />
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                            <span className="text-[10px] text-slate-400">Observed:</span>
+                            <select
+                              className="h-6 rounded border border-slate-200 bg-white px-1 text-[10px] text-slate-600"
+                              value={obs.need ?? ""}
+                              onChange={(e) => setObs({ need: e.target.value || undefined })}
+                            >
+                              <option value="">— nothing picked —</option>
+                              <option>Incomplete answers</option>
+                              <option>Difficulty recalling content</option>
+                              <option>Needs help applying concepts</option>
+                            </select>
+                            <input
+                              type="text"
+                              className="h-6 flex-1 min-w-[140px] rounded border border-slate-200 bg-white px-1.5 text-[10px] text-slate-600"
+                              placeholder="…a few words of your own (not printed)"
+                              value={obs.note ?? ""}
+                              maxLength={280}
+                              onChange={(e) => setObs({ note: e.target.value || undefined })}
+                            />
+                          </div>
                         </div>
                       );
                     })}

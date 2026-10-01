@@ -5933,6 +5933,10 @@ export interface TermReportCardResponse {
      *  saved remark (v1.12.0) - the editor starts empty there so the
      *  auto text keeps following the chart until someone writes. */
     auto?: { classTeacher: boolean; principal: boolean };
+    /** The teacher's per-subject observations (v1.22.0): a picked need
+     *  + a few words of their own. Evidence for the AI suggester and
+     *  the editor; never printed raw. */
+    observations?: Record<string, { need?: string; note?: string }>;
   };
   /** What the numbers say, computed (v1.13.0) - the teacher's "what do
    *  I tell this parent" panel, worst finding first. */
@@ -6027,7 +6031,13 @@ export const saveReportCardComments = (
   orgId: string,
   studentId: string,
   termId: string,
-  body: { classTeacherComment?: string | null; principalComment?: string | null; subjectComments?: Record<string, string> },
+  body: {
+    classTeacherComment?: string | null;
+    principalComment?: string | null;
+    subjectComments?: Record<string, string>;
+    /** v1.22.0 - saved values before that deploy are ignored by the server. */
+    subjectObservations?: Record<string, { need?: string; note?: string }>;
+  },
 ): Promise<{ ok: true }> =>
   apiCall(`/school/orgs/${orgId}/students/${studentId}/terms/${termId}/report-card/comments`, {
     method: "PUT", body: JSON.stringify(body),

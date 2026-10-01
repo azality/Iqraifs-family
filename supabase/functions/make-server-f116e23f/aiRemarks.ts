@@ -18,18 +18,37 @@
 
 import type { Finding } from "./reportFindings.ts";
 
-/** A subject the school's own chart calls weak - below the pass mark,
- *  or in the chart's bottom bands (the office's "failing or Ds or Es",
- *  30 Sep). The remark written for it lands in that subject's own
- *  remark field on the card, still placed and saved by a human. */
-export interface WeakSubject {
+/** What the teacher actually SAW in a subject - the one input only a
+ *  human can supply (round 3, 2 Oct design review). Optional per
+ *  subject; never preselected from marks; never printed raw. */
+export interface SubjectObservation {
+  /** A picked need ("incomplete answers", "difficulty recalling
+   *  content", "needs help applying concepts") or the teacher's own
+   *  short phrase. */
+  need?: string;
+  /** A few words in the teacher's own voice. */
+  note?: string;
+}
+
+/** A subject the suggester writes about. kind "weak" = below the pass
+ *  mark or in the chart's bottom bands (office, 30 Sep); kind "strong"
+ *  = a genuine strength worth an extension, never a manufactured
+ *  weakness (round 3). The remark lands in that subject's own remark
+ *  field, still placed and saved by a human. */
+export interface SubjectContext {
   /** class_subject id - the key the subject's remark field is stored under. */
   id: string;
   name: string;
+  kind: "weak" | "strong";
   pct: number;
   letter: string | null;
+  /** The same subject's percentage in the previous marked term, when
+   *  one exists - movement is information no single card shows. */
+  priorPct: number | null;
   /** The computed finding sentences about this subject (exact, auditable). */
   findings: string[];
+  /** The teacher's observation, when they recorded one. */
+  observation: SubjectObservation | null;
 }
 
 export interface RemarkContext {
@@ -38,9 +57,11 @@ export interface RemarkContext {
   className: string | null;
   termName: string;
   overallPct: number | null;
+  /** Previous marked term's overall, when one exists. */
+  priorOverallPct: number | null;
   passMarkPct: number;
   isMemorizer: boolean;
-  weakSubjects: WeakSubject[];
+  subjects: SubjectContext[];
 }
 
 export interface SuggestedRemarks {
@@ -59,43 +80,60 @@ export const REMARK_MODEL = "claude-sonnet-5";
 
 export const SYSTEM_PROMPT = `You write report-card remarks for an Islamic school in Pakistan, in English and Urdu.
 
-You are given FINDINGS that have already been computed from the child's own marks, attendance and hifz record. They are correct. Your job is only to turn them into remarks a parent will read.
+You are given computed FINDINGS (correct arithmetic from the child's own marks, attendance and hifz record) and, for some subjects, a TEACHER OBSERVATION - what the teacher actually saw in class. Your job is to turn that evidence into remarks a parent will read.
+
+The acceptance test for every remark: after reading it, the parent knows ONE useful thing to try - and you have claimed nothing you do not know.
 
 Rules:
-- Use ONLY what the findings state. Never invent a subject, a behaviour, an attitude, an effort level or a number that is not there. If the findings are thin, write something short and general rather than inventing detail.
-- Never restate a percentage the findings did not give you, and never do your own arithmetic.
-- Class teacher's remark: 2-3 sentences. Name the specific strength and the specific thing to work on, and say what would actually help at home.
-- Principal's remark: 1-2 sentences. Warmer and broader - encouragement, and where relevant an invitation to meet the school.
-- Tone: warm, respectful, never harsh about a struggling child, never inflated about a strong one. "Mashallah" and "Inshallah" are natural here; use them where they fit, not in every sentence.
-- Urdu must carry the same meaning as the English, not a word-for-word translation. Write it in a NOMINAL style ("محنت نمایاں ہے") and avoid gendered verb endings such as کرتا/کرتی, so the same remark suits a boy or a girl.
-- Address the parent about the child. Do not use the child's name more than once.
-- When the input lists WEAK SUBJECTS, also write one remark per listed subject: a single English sentence of at most 20 words, and its Urdu counterpart. Name the specific gap the findings state for that subject and one concrete thing to do at home. Encouraging, never harsh - the parent reads it printed beside a low mark. Never write a subject remark for a subject that is not listed, and copy each subject's id exactly as given.
+- Use ONLY what the findings and observations state. Never invent a behaviour, an attitude, an effort level, a cause, or a number that is not there. A mark tells you WHERE marks were lost, never WHY.
+- Never repeat a percentage or score in a subject remark - the parent is reading it beside the printed numbers. Do not do your own arithmetic.
+- A high participation or classwork score does NOT prove the child understands the concepts. Never infer understanding from it.
+
+Per-subject remarks (one per listed subject, copy each id exactly; never for a subject not listed):
+- 1-2 short sentences: a supported observation, then ONE manageable action, and where it fits naturally, how to check progress.
+- WITH a teacher observation, build on it. Example shape: "Your child understands the lessons but sometimes leaves written answers incomplete. Twice a week, practise one short question, checking that every part has been answered."
+- WITHOUT an observation, do not invent a weakness to sound personal. Suggest an evidence-finding activity instead, e.g.: "For the next revision, have your child retry two questions where marks were lost, then compare their answers with the teacher's corrections."
+- For a STRONG subject, offer an appropriate extension (a harder exercise, teaching it to a sibling, a related reading) - never manufacture a weakness.
+- Where a previous term's result is given, you may name the direction of movement ("improved since last term") without quoting numbers.
+- Encouraging, never harsh - a weak subject's remark is printed beside a low mark.
+
+Class teacher's remark: 2-3 sentences. ONE supported strength and one or two priorities across subjects - never a list of per-subject homework routines. End with the single most useful thing to do at home.
+Principal's remark: 1-2 sentences. Warmer and broader - encouragement, and where relevant an invitation to meet the school.
+Tone: warm, respectful, never harsh about a struggling child, never inflated about a strong one. "Mashallah" and "Inshallah" are natural here; use them where they fit, not in every sentence.
+Urdu must carry the same meaning as the English, not a word-for-word translation. Write it in a NOMINAL style ("محنت نمایاں ہے") and avoid gendered verb endings such as کرتا/کرتی, so the same remark suits a boy or a girl.
+Address the parent about the child. Do not use the child's name more than once.
 
 Reply with JSON only, no other text, exactly:
 {"classTeacher": "...", "classTeacherUr": "...", "principal": "...", "principalUr": "...", "subjects": [{"id": "...", "en": "...", "ur": "..."}]}
-"subjects" is [] when no weak subjects were listed.`;
+"subjects" is [] when no subjects were listed.`;
 
 export function buildUserPrompt(ctx: RemarkContext, findings: Finding[]): string {
   const lines = findings.map((f) => `- [${f.severity}] ${f.en}`);
+  const subjLines = ctx.subjects.flatMap((s) => {
+    const head = `- id=${s.id} | ${s.name} [${s.kind.toUpperCase()}] - ${s.pct}%${s.letter ? ` (${s.letter})` : ""}` +
+      (s.priorPct !== null ? ` | previous term: ${s.priorPct}%` : "");
+    const obs = s.observation
+      ? [`    TEACHER OBSERVED: ${[s.observation.need, s.observation.note].filter(Boolean).join(" - ")}`]
+      : [`    (no teacher observation recorded)`];
+    return [head, ...obs, ...s.findings.map((f) => `    * ${f}`)];
+  });
   return [
     `School: ${ctx.schoolName}`,
     `Term: ${ctx.termName}`,
     ctx.className ? `Class: ${ctx.className}` : null,
     ctx.isMemorizer ? `This child is a hifz student (memorising the Quran).` : null,
     ctx.overallPct !== null
-      ? `Overall result: ${Math.round(ctx.overallPct * 10) / 10}% (the school's pass mark is ${ctx.passMarkPct}%)`
+      ? `Overall result: ${Math.round(ctx.overallPct * 10) / 10}% (the school's pass mark is ${ctx.passMarkPct}%)` +
+        (ctx.priorOverallPct !== null ? ` | previous term overall: ${Math.round(ctx.priorOverallPct * 10) / 10}%` : "")
       : `No overall result for this term.`,
     ``,
     `Findings:`,
     ...(lines.length > 0 ? lines : ["- (nothing stands out in the numbers)"]),
-    ...(ctx.weakSubjects.length > 0
+    ...(ctx.subjects.length > 0
       ? [
           ``,
-          `WEAK SUBJECTS (write one remark per subject, copy each id exactly):`,
-          ...ctx.weakSubjects.flatMap((w) => [
-            `- id=${w.id} | ${w.name} - ${w.pct}%${w.letter ? ` (${w.letter})` : ""}`,
-            ...w.findings.map((f) => `    * ${f}`),
-          ]),
+          `SUBJECTS to write a remark for (one per subject, copy each id exactly):`,
+          ...subjLines,
         ]
       : []),
   ].filter((x) => x !== null).join("\n");

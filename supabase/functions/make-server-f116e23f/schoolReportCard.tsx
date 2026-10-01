@@ -623,6 +623,12 @@ async function assembleReportCard(
           classTeacherUr: savedCt ? null : (band?.classTeacherUr ? band.classTeacherUr + addUr : null),
           principalUr: savedPr ? null : (band?.principalUr || null),
           subjects: subjectComments,
+          // The teacher's per-subject observations (round 3, 2 Oct):
+          // evidence for the suggester and the editor, never printed raw.
+          observations: ((card as any)?.subject_observations ?? {}) as Record<
+            string,
+            { need?: string; note?: string }
+          >,
           // So the staff editor can say "auto - edit to customize".
           auto: { classTeacher: !savedCt && !!band?.classTeacher, principal: !savedPr && !!band?.principal },
         };
@@ -835,31 +841,79 @@ export function installReportCard(school: Hono): void {
       const findings = (card.findings?.items ?? []) as any[];
       const fullName = String(card.student?.fullName ?? "");
 
-      // The office's ask (30 Sep): a child failing a subject, or sitting
-      // in the chart's bottom bands ("Ds or Es"), gets a remark FOR that
-      // subject. "Weak" is the school's OWN chart - below the pass mark,
-      // or in the two lowest bands - never a hardcoded threshold. Grade-
-      // mode subjects (Art, Robotics) carry no percentage and stay out.
+      // Which subjects get a written remark (round 3, 2 Oct review):
+      // the WEAK ones (below the pass mark or in the chart's two lowest
+      // bands - the office's "failing or Ds or Es", never a hardcoded
+      // threshold) get observation + one action; a genuinely STRONG one
+      // (top two bands AND a strength finding) gets an extension, never
+      // a manufactured weakness. Grade-mode subjects (Art, Robotics)
+      // carry no percentage and stay out.
       const passMarkPct = card.academic?.overall?.passMarkPct ?? 40;
       const bands = await loadOrgBands(orgId);
-      const bottomLetters = new Set(
-        [...bands].sort((a, b) => a.minPct - b.minPct).slice(0, 2)
-          .map((b) => (b.letter ?? "").toUpperCase()),
+      const byMin = [...bands].sort((a, b) => a.minPct - b.minPct);
+      const bottomLetters = new Set(byMin.slice(0, 2).map((b) => (b.letter ?? "").toUpperCase()));
+      const topLetters = new Set(byMin.slice(-2).map((b) => (b.letter ?? "").toUpperCase()));
+
+      // The teacher's recorded observations - the evidence only a human
+      // can supply. Keyed by class_subject id.
+      const observations = (card.comments?.observations ?? {}) as Record<
+        string, { need?: string; note?: string }
+      >;
+
+      // The same subjects in the PREVIOUS marked term, when one exists:
+      // movement is information no single card shows. class_subject ids
+      // are stable across terms, so they match directly.
+      const priorPctBySubject = new Map<string, number>();
+      let priorOverallPct: number | null = null;
+      try {
+        const { data: priorTerms } = await serviceRoleClient
+          .from("academic_term").select("id, start_date")
+          .eq("org_id", orgId).is("archived_at", null)
+          .lt("start_date", card.term?.startDate ?? "0000-01-01")
+          .order("start_date", { ascending: false }).limit(2);
+        for (const pt of (priorTerms ?? []) as any[]) {
+          const prior = await assembleReportCard(orgId, studentId, pt.id);
+          if (!prior.ok) continue;
+          const pOverall = (prior.payload as any).academic?.overall?.percentage ?? null;
+          if (pOverall === null) continue;
+          priorOverallPct = Math.round(pOverall * 10) / 10;
+          for (const ps of ((prior.payload as any).academic?.subjects ?? []) as any[]) {
+            if (ps.percentage !== null) {
+              priorPctBySubject.set(ps.classSubjectId, Math.round(ps.percentage * 10) / 10);
+            }
+          }
+          break;
+        }
+      } catch { /* a missing prior term never blocks a suggestion */ }
+
+      const marked = ((card.academic?.subjects ?? []) as any[])
+        .filter((s) => s.percentage !== null && !s.gradeLetter);
+      const isWeak = (s: any) =>
+        s.percentage < passMarkPct || bottomLetters.has(String(s.letter ?? "").toUpperCase());
+      const strongNames = new Set(
+        findings.filter((f) => f.kind === "subject_strong" && f.subject).map((f) => f.subject),
       );
-      const weakSubjects = ((card.academic?.subjects ?? []) as any[])
-        .filter((s) => s.percentage !== null && !s.gradeLetter)
-        .filter((s) =>
-          s.percentage < passMarkPct ||
-          bottomLetters.has(String(s.letter ?? "").toUpperCase()))
-        .sort((a, b) => a.percentage - b.percentage)
-        .slice(0, 6) // bound the spend on a child failing everything
-        .map((s) => ({
-          id: s.classSubjectId as string,
-          name: s.name as string,
-          pct: Math.round(s.percentage * 10) / 10,
-          letter: (s.letter ?? null) as string | null,
-          findings: findings.filter((f) => f.subject === s.name).map((f) => String(f.en)),
-        }));
+      const toCtx = (s: any, kind: "weak" | "strong") => ({
+        id: s.classSubjectId as string,
+        name: s.name as string,
+        kind,
+        pct: Math.round(s.percentage * 10) / 10,
+        letter: (s.letter ?? null) as string | null,
+        priorPct: priorPctBySubject.get(s.classSubjectId) ?? null,
+        findings: findings.filter((f) => f.subject === s.name).map((f) => String(f.en)),
+        observation: observations[s.classSubjectId] ?? null,
+      });
+      const subjectCtx = [
+        ...marked.filter(isWeak)
+          .sort((a, b) => a.percentage - b.percentage)
+          .slice(0, 6) // bound the spend on a child failing everything
+          .map((s) => toCtx(s, "weak")),
+        ...marked.filter((s) => !isWeak(s) &&
+            topLetters.has(String(s.letter ?? "").toUpperCase()) && strongNames.has(s.name))
+          .sort((a, b) => b.percentage - a.percentage)
+          .slice(0, 2)
+          .map((s) => toCtx(s, "strong")),
+      ];
 
       const prompt = buildUserPrompt({
         schoolName: card.school?.name ?? "",
@@ -867,9 +921,10 @@ export function installReportCard(school: Hono): void {
         className: card.placement?.className ?? null,
         termName: card.term?.name ?? "",
         overallPct: card.academic?.overall?.percentage ?? null,
+        priorOverallPct,
         passMarkPct,
         isMemorizer: !!card.hifz?.show,
-        weakSubjects,
+        subjects: subjectCtx,
       }, findings);
 
       let text = "";
@@ -886,7 +941,7 @@ export function installReportCard(school: Hono): void {
             model: REMARK_MODEL,
             // Room for a sentence pair per weak subject on top of the
             // four remarks; unspent headroom costs nothing.
-            max_tokens: weakSubjects.length > 0 ? 2600 : 1200,
+            max_tokens: subjectCtx.length > 0 ? 2600 : 1200,
             // Short, bounded writing from facts already established -
             // low effort keeps it fast and cheap without costing quality.
             output_config: { effort: "low" },
@@ -918,7 +973,7 @@ export function installReportCard(school: Hono): void {
         return c.json({ error: "Could not reach the writing service.", code: "AI_UNREACHABLE" }, 502);
       }
 
-      const parsed = parseSuggestion(text, new Set(weakSubjects.map((w) => w.id)));
+      const parsed = parseSuggestion(text, new Set(subjectCtx.map((w) => w.id)));
       if (!parsed) {
         return c.json({
           error: "The suggestion came back in an unexpected shape - please try again.",
@@ -988,6 +1043,20 @@ export function installReportCard(school: Hono): void {
         if (!adminOK) return c.json({ error: "only principal/admin can set principal comment" }, 403);
         patch.principal_comment = body.principalComment === null
           ? null : String(body.principalComment).slice(0, 2000);
+      }
+      // Per-subject teacher observations (round 3, 2 Oct): what the
+      // teacher SAW - a picked need and a few of their own words. The
+      // evidence the AI writes from; never printed raw. Same lock rules
+      // as the comments they ride beside.
+      if ("subjectObservations" in body && body.subjectObservations && typeof body.subjectObservations === "object") {
+        const so: Record<string, { need?: string; note?: string }> = {};
+        for (const [k, v] of Object.entries(body.subjectObservations as Record<string, unknown>)) {
+          if (!v || typeof v !== "object") continue;
+          const need = typeof (v as any).need === "string" ? (v as any).need.trim().slice(0, 80) : "";
+          const note = typeof (v as any).note === "string" ? (v as any).note.trim().slice(0, 280) : "";
+          if (need || note) so[k] = { ...(need ? { need } : {}), ...(note ? { note } : {}) };
+        }
+        patch.subject_observations = so;
       }
       if (Object.keys(patch).length === 0) return c.json({ ok: true });
       const { error } = await serviceRoleClient
