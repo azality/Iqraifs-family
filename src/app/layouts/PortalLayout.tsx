@@ -19,7 +19,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate, useParams } from "react-router";
-import { LogOut, ChevronDown, Home, BookOpen, BookMarked, Calendar, MoreHorizontal, Bell, Wallet, MessageSquare } from "lucide-react";
+import { LogOut, ChevronDown, Home, BookOpen, BookMarked, Calendar, MoreHorizontal, Bell, Wallet, MessageSquare, CircleUserRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { usePinAuth } from "../contexts/PinAuthContext";
 import {
@@ -296,7 +296,26 @@ export function PortalLayout() {
                 <span className="truncate">{activeStudent.fullName}</span>
               </span>
             ) : null}
-            <span className="hidden md:block text-xs text-slate-500">{subjectName}</span>
+            {/* Your own name opens your profile - the convention every
+                app trained people on (4 Oct). The More-menu entry stays
+                for whoever looks there instead. */}
+            <button
+              type="button"
+              onClick={() => navigate("/school-portal/profile")}
+              title={t("portal.nav.profile")}
+              className="hidden md:inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+            >
+              <CircleUserRound className="h-4 w-4 text-slate-400" />
+              <span className="max-w-[140px] truncate">{subjectName}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate("/school-portal/profile")}
+              aria-label={t("portal.nav.profile")}
+              className="md:hidden inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:text-slate-900"
+            >
+              <CircleUserRound className="h-4 w-4" />
+            </button>
             {isParent && (
               <DropdownMenu onOpenChange={openBell}>
                 <DropdownMenuTrigger asChild>
