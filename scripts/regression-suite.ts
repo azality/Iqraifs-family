@@ -8086,6 +8086,8 @@ await check("136. finalize pre-fills AI drafts; unchanged re-finalize is free; h
   const aiOff = probe.status === 503;
 
   const getCard = async () => await (await api(admin2.token, cardUrl)).json();
+  // Finalize AWAITS generation (v1.23.1), so the drafts are normally
+  // there on the first read; the loop is slack for a slow model call.
   const waitForMeta = async (not?: string | null) => {
     for (let i = 0; i < 15; i++) {
       await new Promise((r) => setTimeout(r, 2000));
@@ -8096,11 +8098,22 @@ await check("136. finalize pre-fills AI drafts; unchanged re-finalize is free; h
     return null;
   };
 
+  // The generator deliberately never touches a PUBLISHED card, so the
+  // fixture must be unpublished or this check silently proves nothing
+  // (3 Oct: the Sandbox card was published with the 1st Assessment
+  // batch and generation correctly skipped it - the check would have
+  // read that as a failure). Restored in `finally`.
+  const { data: pubRow } = await admin.from("term_report_card")
+    .select("published_at").eq("student_id", pStu1).eq("term_id", term!.id).maybeSingle();
+  const originalPublishedAt = (pubRow as any)?.published_at ?? null;
+
   try {
     if (originalMode !== "marks") {
       await admin.from("class_subject").update({ assessment_mode: "marks" }).eq("id", subj!.id);
     }
-    // Clean slate: a failing mark, no remarks, no meta, unfinalized.
+    // Clean slate: a failing mark, no remarks, no meta, unfinalized,
+    // and NOT published.
+    await wf("unpublish");
     await wf("unfinalize");
     await admin.from("term_report_card").update({
       class_teacher_comment: null, principal_comment: null,
@@ -8171,6 +8184,7 @@ await check("136. finalize pre-fills AI drafts; unchanged re-finalize is free; h
     await admin.from("term_report_card").update({
       class_teacher_comment: null, principal_comment: null,
       subject_comments: {}, ai_remarks_meta: null,
+      published_at: originalPublishedAt,
     }).eq("student_id", pStu1).eq("term_id", term!.id);
     if (originalMode !== "marks") {
       await admin.from("class_subject").update({ assessment_mode: originalMode }).eq("id", subj!.id);
