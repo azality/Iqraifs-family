@@ -170,6 +170,7 @@ const SchoolSlugEntry = page(() => import("./pages/school/SchoolSlugEntry"), "Sc
 const ResetPassword = page(() => import("./pages/ResetPassword"), "ResetPassword");
 const SchoolAccount = page(() => import("./pages/school/SchoolAccount"), "SchoolAccount");
 const PortalChangePin = page(() => import("./pages/portal/PortalChangePin"), "PortalChangePin");
+const PortalProfile = page(() => import("./pages/portal/PortalProfile"), "PortalProfile");
 const PortalHome = page(() => import("./pages/portal/PortalHome"), "PortalHome");
 const StudentDashboard = page(() => import("./pages/portal/StudentDashboard"), "StudentDashboard");
 const StudentLessons = page(() => import("./pages/portal/StudentLessons"), "StudentLessons");
@@ -499,6 +500,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <PortalHome /> },
       { path: "change-pin", element: <PortalChangePin /> },
+      { path: "profile", element: <PortalProfile /> },
       { path: "students/:studentId", element: <StudentDashboard /> },
       { path: "students/:studentId/lessons", element: <StudentLessons /> },
       { path: "students/:studentId/homework", element: <StudentHomework /> },

@@ -242,6 +242,14 @@ export function PortalLayout() {
           </DropdownMenuItem>
         </>
       )}
+      {/* My profile & PIN (3 Oct: "parents are saying there's no way
+          for them to update or change their pin or their profile" -
+          the PIN page existed, nothing linked to it). Every login type
+          gets it; the page itself scopes what each can edit. */}
+      <DropdownMenuSeparator />
+      <DropdownMenuItem onClick={() => navigate("/school-portal/profile")}>
+        {t("portal.nav.profile")}
+      </DropdownMenuItem>
     </>
   );
 
