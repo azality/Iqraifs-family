@@ -247,6 +247,23 @@ export interface PortalMe {
 
 export const getPortalMe = (): Promise<PortalMe> => pinApiCall("/school/pin-me");
 
+/** The parent's own record (v1.24.0). Phone is read-only by design -
+ *  it is the login identity and the school's dedupe key. */
+export interface ParentProfile {
+  fullName: string;
+  phone: string | null;
+  email: string | null;
+  homeAddress: string | null;
+  relationship: string | null;
+  title: string | null;
+}
+export const getMyProfile = (): Promise<ParentProfile> =>
+  pinApiCall("/school/pin-me/profile");
+export const updateMyProfile = (
+  body: Partial<{ fullName: string; email: string; homeAddress: string }>,
+): Promise<{ ok: true }> =>
+  pinApiCall("/school/pin-me/profile", { method: "PATCH", body: JSON.stringify(body) });
+
 // ─── Student data ───────────────────────────────────────────────────────
 
 export interface DashboardActivityItem {

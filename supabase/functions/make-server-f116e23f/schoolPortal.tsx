@@ -857,6 +857,87 @@ export function installPortal(school: Hono): void {
   const notifSeenKey = (orgId: string, parentId: string) =>
     `school:${orgId}:pin-notif-seen:parent:${parentId}`;
 
+  // ─── The parent's own profile (v1.24.0, 3 Oct) ─────────────────────
+  // "Parents are saying there's no way for them to update or change
+  // their PIN or their profile." The PIN page existed but nothing
+  // linked to it; the profile had no surface at all, so a misspelled
+  // name or missing email meant calling the office. Parents may fix
+  // their own name, email and home address. The PHONE stays office-
+  // managed: it is the login identity and the dedupe key, and a typo
+  // would lock the family out.
+  school.get("/pin-me/profile", async (c) => {
+    const auth = await requirePinSubject(c);
+    if ((auth as any).__error) { const e = auth as any; return c.json(e.body, e.status); }
+    const subject = auth as PinTokenPayload;
+    if (subject.subjectType !== "parent") {
+      return c.json({ error: "only a parent login has a profile here" }, 403);
+    }
+    const { data: p } = await serviceRoleClient
+      .from("parent")
+      .select("id, full_name, phone, email, home_address, relationship, title")
+      .eq("id", subject.subjectId)
+      .maybeSingle();
+    if (!p) return c.json({ error: "parent not found" }, 404);
+    return c.json({
+      fullName: (p as any).full_name ?? "",
+      phone: (p as any).phone ?? null,
+      email: (p as any).email ?? "",
+      homeAddress: (p as any).home_address ?? "",
+      relationship: (p as any).relationship ?? null,
+      title: (p as any).title ?? null,
+    });
+  });
+
+  school.patch("/pin-me/profile", async (c) => {
+    const auth = await requirePinSubject(c);
+    if ((auth as any).__error) { const e = auth as any; return c.json(e.body, e.status); }
+    const subject = auth as PinTokenPayload;
+    if (subject.subjectType !== "parent") {
+      return c.json({ error: "only a parent login can edit this profile" }, 403);
+    }
+    let body: any;
+    try { body = await c.req.json(); } catch { return c.json({ error: "invalid JSON" }, 400); }
+
+    const patch: Record<string, unknown> = {};
+    if ("fullName" in body) {
+      const v = String(body.fullName ?? "").trim().replace(/\s+/g, " ");
+      if (v.length < 2 || v.length > 120) {
+        return c.json({ error: "name must be 2-120 characters" }, 400);
+      }
+      patch.full_name = v;
+    }
+    if ("email" in body) {
+      const v = String(body.email ?? "").trim().slice(0, 160);
+      if (v && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) {
+        return c.json({ error: "that does not look like an email address" }, 400);
+      }
+      patch.email = v || null;
+    }
+    if ("homeAddress" in body) {
+      patch.home_address = String(body.homeAddress ?? "").trim().slice(0, 300) || null;
+    }
+    if (Object.keys(patch).length === 0) return c.json({ ok: true });
+
+    const { error } = await serviceRoleClient
+      .from("parent").update(patch).eq("id", subject.subjectId);
+    if (error) return c.json({ error: error.message }, 500);
+
+    // guardian_email is denormalized onto the student rows (same rule
+    // as guardian_phone) - and a merged family's children hang off the
+    // ALIAS rows, so the sync walks the whole cluster.
+    if ("email" in patch) {
+      const clusterIds = await aliasClusterParentIds(subject.subjectId);
+      const { data: links } = await serviceRoleClient
+        .from("student_parent").select("student_id").in("parent_id", clusterIds);
+      const kidIds = [...new Set(((links ?? []) as any[]).map((l) => l.student_id))];
+      if (kidIds.length) {
+        await serviceRoleClient.from("student")
+          .update({ guardian_email: patch.email }).in("id", kidIds);
+      }
+    }
+    return c.json({ ok: true });
+  });
+
   school.get("/pin-me/notifications", async (c) => {
     const auth = await requirePinSubject(c);
     if ((auth as any).__error) {

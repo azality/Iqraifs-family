@@ -8213,6 +8213,78 @@ await check("136. finalize pre-fills AI drafts; unchanged re-finalize is free; h
   }
 });
 
+await check("137. a parent edits their own profile; a merged parent still passes every gate", async () => {
+  // 3 Oct, two findings from the same afternoon. One: "parents are
+  // saying there's no way for them to update or change their pin or
+  // their profile" - so the portal grew /pin-me/profile (name, email,
+  // home address; phone stays office-managed as the login identity).
+  // Two: merged-parent gates 403'd and the portal showed it as "no
+  // report cards published yet" - fixed with aliasClusterParentIds in
+  // five gates; this check is the tripwire that keeps them fixed.
+  const pTok = (await (await pinLogin(PARENT_PHONE, "3456")).json()).token;
+  assert(pTok, "parent pin login failed");
+  const H = { apikey: ANON, "X-Pin-Token": pTok, "Content-Type": "application/json" };
+
+  // (a) Profile round trip.
+  const before = await (await fetch(`${FUNC}/school/pin-me/profile`, { headers: H })).json();
+  assert(typeof before.fullName === "string" && before.fullName.length > 0,
+    `profile must load, got ${JSON.stringify(before).slice(0, 120)}`);
+  const orig = { fullName: before.fullName, email: before.email ?? "", homeAddress: before.homeAddress ?? "" };
+  const patch = await fetch(`${FUNC}/school/pin-me/profile`, {
+    method: "PATCH", headers: H,
+    body: JSON.stringify({ fullName: "QA Portal Parent", email: "qa-parent@example.com", homeAddress: "12 QA Street, Sandbox" }),
+  });
+  assert(patch.status === 200, `profile save ${patch.status}: ${(await patch.text()).slice(0, 120)}`);
+  const after = await (await fetch(`${FUNC}/school/pin-me/profile`, { headers: H })).json();
+  assert(after.email === "qa-parent@example.com" && after.homeAddress === "12 QA Street, Sandbox",
+    "edited fields must round-trip");
+  // guardian_email is denormalized onto the children (same rule as
+  // guardian_phone) - the edit must reach the student row.
+  const { data: kid } = await admin.from("student").select("guardian_email").eq("id", pStu1).maybeSingle();
+  assert((kid as any)?.guardian_email === "qa-parent@example.com",
+    `guardian_email must follow the parent's edit, got ${JSON.stringify((kid as any)?.guardian_email)}`);
+  // A phone change is NOT accepted from the portal - the number is the
+  // login identity, office-managed.
+  const phoneTry = await fetch(`${FUNC}/school/pin-me/profile`, {
+    method: "PATCH", headers: H, body: JSON.stringify({ phone: "+920000000999" }),
+  });
+  const phoneAfter = await (await fetch(`${FUNC}/school/pin-me/profile`, { headers: H })).json();
+  assert(phoneTry.status === 200 && phoneAfter.phone === before.phone,
+    "a phone field in the body must be ignored, never applied");
+  // A STUDENT login has no parent profile here.
+  const sTok = (await (await pinLogin("QA-PORTAL-1", "1234")).json()).token;
+  const sTry = await fetch(`${FUNC}/school/pin-me/profile`, {
+    headers: { apikey: ANON, "X-Pin-Token": sTok },
+  });
+  assert(sTry.status === 403, `a student login must be refused, got ${sTry.status}`);
+
+  // (b) The merged-family tripwire. An alias row folded into the QA
+  // parent, with a child linked ONLY to the alias - exactly the shape
+  // that locked 76 real families out on results morning.
+  const pStu4 = await ensurePortalStudent("QA-PORTAL-4", "QA Portal Fourth");
+  const { data: aliasRow, error: aliasErr } = await admin.from("parent")
+    .insert({ org_id: ORG, full_name: "QA Alias Parent", canonical_id: pParent!.id })
+    .select("id").single();
+  assert(!aliasErr, `alias insert: ${aliasErr?.message}`);
+  const aliasId = (aliasRow as any).id;
+  try {
+    const { error: linkErr } = await admin.from("student_parent")
+      .insert({ parent_id: aliasId, student_id: pStu4, is_primary: true });
+    assert(!linkErr, `alias link: ${linkErr?.message}`);
+    const gate = await fetch(`${FUNC}/school/pin-me/students/${pStu4}/term-report-cards`, { headers: H });
+    assert(gate.status === 200,
+      `the report-card gate must accept a child linked via a MERGED row, got ${gate.status}`);
+  } finally {
+    await admin.from("student_parent").delete().eq("parent_id", aliasId).eq("student_id", pStu4);
+    await admin.from("parent").delete().eq("id", aliasId);
+    // Put the profile back exactly as found, denorm included.
+    await fetch(`${FUNC}/school/pin-me/profile`, {
+      method: "PATCH", headers: H,
+      body: JSON.stringify({ fullName: orig.fullName, email: orig.email, homeAddress: orig.homeAddress }),
+    });
+  }
+});
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
