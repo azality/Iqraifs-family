@@ -23,7 +23,7 @@ import type { Hono, Context } from "npm:hono";
 import { currentHomework, hifzKindOfSubject, type HifzRow } from "./portalHifz.ts";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { todayInOrgTz } from "./tz.ts";
-import { verifyPinToken } from "./schoolPhaseA.tsx";
+import { verifyPinToken, aliasClusterParentIds } from "./schoolPhaseA.tsx";
 
 type EntryRow = {
   id: string;
@@ -384,10 +384,16 @@ export function installLessonPrep(school: Hono): void {
       return c.json({ error: "forbidden" }, 403);
     }
     if (subj.subjectType === "parent") {
+      // A merged family keeps its children on the ORIGINAL parent rows
+      // while the person signs in as the canonical one, so a gate that
+      // reads a single row locks them out (3 Oct: two siblings' report
+      // cards were invisible to their father all results morning).
+      // aliasClusterParentIds covers the whole cluster.
+      const clusterIds = await aliasClusterParentIds(subj.subjectId);
       const { data: link } = await serviceRoleClient
         .from("student_parent")
         .select("student_id")
-        .eq("parent_id", subj.subjectId)
+        .in("parent_id", clusterIds)
         .eq("student_id", studentId)
         .maybeSingle();
       if (!link) return c.json({ error: "forbidden" }, 403);

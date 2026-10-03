@@ -39,7 +39,7 @@ import {
 } from "./aiRemarks.ts";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
 import { hasAnyRoleInOrg as hasAnyOrgRole, hasAdminOrPrincipal as isAdminOrPrincipal } from "./schoolAuth.ts";
-import { verifyPinToken } from "./schoolPhaseA.tsx";
+import { verifyPinToken, aliasClusterParentIds } from "./schoolPhaseA.tsx";
 import { attendanceTotals } from "./attendanceOpening.ts";
 import { checkOpeningAgainstAdmission } from "./admissionStart.ts";
 import { remarkLock, remarkLockMessage, type RemarkLock } from "./remarksLock.ts";
@@ -1320,10 +1320,18 @@ export function installReportCard(school: Hono): void {
         return { ok: false, resp: c.json({ error: "forbidden" }, 403) };
       }
     } else if (verified.subjectType === "parent") {
+      // A merged family keeps its children on the ORIGINAL parent rows
+      // while the person signs in as the canonical one, so a gate that
+      // reads a single row locks them out. On results morning (3 Oct)
+      // this hid two siblings' published cards from their father: the
+      // portal renders a 403 here as "no report cards published yet",
+      // so it looked like a publishing failure. Same helper the child
+      // listing already uses.
+      const clusterIds = await aliasClusterParentIds(verified.subjectId);
       const { data: link } = await serviceRoleClient
         .from("student_parent")
         .select("student_id")
-        .eq("parent_id", verified.subjectId)
+        .in("parent_id", clusterIds)
         .eq("student_id", studentId)
         .maybeSingle();
       if (!link) return { ok: false, resp: c.json({ error: "forbidden" }, 403) };
