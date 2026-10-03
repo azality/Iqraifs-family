@@ -7451,27 +7451,36 @@ await check("127. AI remark suggestions are gated, refuse a blank card, and neve
       `a markless child must be refused with NO_MARKS, got ${blank.status}: ${JSON.stringify(blankJ).slice(0, 120)}`);
   }
 
-  // The real path needs a child who actually HAS marks - the QA portal
-  // students carry none, and the endpoint rightly refuses those. Borrow
-  // a real marked student (read-only; nothing is written to their card).
-  // Two traps an arbitrary row can fall into: a FINALIZED card rightly
-  // refuses the suggester (242 were finalized on 30 Sep), and an
-  // absent-only child has no overall and is refused with NO_MARKS - so
-  // pick a child with a real obtained mark whose card is still open.
-  const { data: markedRows } = await admin
-    .from("exam_subject_score")
-    .select("student_id, exam:exam_id!inner(term_id)")
-    .eq("exam.term_id", term!.id)
-    .eq("absent", false)
-    .not("obtained_marks", "is", null)
-    .limit(40);
-  const candidates = [...new Set(((markedRows ?? []) as any[]).map((r) => r.student_id))];
-  const { data: closed } = await admin.from("term_report_card")
-    .select("student_id").eq("term_id", term!.id)
-    .in("student_id", candidates.length ? candidates : ["-"])
-    .not("finalized_at", "is", null);
-  const closedSet = new Set(((closed ?? []) as any[]).map((r) => r.student_id));
-  const subjectStudent = candidates.find((id) => !closedSet.has(id)) ?? candidates[0] ?? pStu1;
+  // The real path needs a child who actually HAS marks. This used to
+  // BORROW one from the school, which turned out to be unstable: with
+  // every real card finalized, the only borrowable candidates left were
+  // the Sandbox students, whose marks are fixtures other checks create
+  // and delete - so 127 could run in the window where they had none and
+  // fail with NO_MARKS (3 Oct). It now builds its own fixture on the
+  // Sandbox and cleans it up, depending on nothing else.
+  const subjectStudent = pStu1;
+  const { data: exam127 } = await admin.from("exam").select("id")
+    .eq("term_id", term!.id).is("archived_at", null).ilike("name", "%written%").maybeSingle();
+  const { data: subj127 } = await admin.from("class_subject").select("id, assessment_mode")
+    .eq("class_id", sandboxClass.id).is("archived_at", null).limit(1).maybeSingle();
+  const mode127 = (subj127 as any)?.assessment_mode ?? "marks";
+  const { data: pub127 } = await admin.from("term_report_card")
+    .select("published_at").eq("student_id", subjectStudent).eq("term_id", term!.id).maybeSingle();
+  const published127 = (pub127 as any)?.published_at ?? null;
+  if (exam127 && subj127) {
+    if (mode127 !== "marks") {
+      await admin.from("class_subject").update({ assessment_mode: "marks" }).eq("id", subj127.id);
+    }
+    // Unfinalized and unpublished, or the suggester rightly refuses it.
+    await api(admin2.token, `/school/orgs/${ORG}/students/${subjectStudent}/terms/${term!.id}/report-card/unpublish`, { method: "POST" });
+    await api(admin2.token, `/school/orgs/${ORG}/students/${subjectStudent}/terms/${term!.id}/report-card/unfinalize`, { method: "POST" });
+    await api(admin2.token, `/school/orgs/${ORG}/exams/${(exam127 as any).id}/marks-sheet`, {
+      method: "POST",
+      body: JSON.stringify({ sectionId: sandboxSec.id, rows: [
+        { studentId: subjectStudent, classSubjectId: (subj127 as any).id, maxMarks: 25, obtainedMarks: 14 },
+      ] }),
+    });
+  }
   const before = await (await api(admin2.token,
     `/school/orgs/${ORG}/students/${subjectStudent}/terms/${term!.id}/report-card`)).json();
   const r = await api(admin2.token, url(subjectStudent), { method: "POST" });
@@ -7508,6 +7517,18 @@ await check("127. AI remark suggestions are gated, refuse a blank card, and neve
     (before.comments?.principal ?? null) === (after.comments?.principal ?? null),
     "a suggestion must not write anything to the card",
   );
+
+  // Put the Sandbox back exactly as it was found.
+  if (exam127 && subj127) {
+    await admin.from("exam_subject_score").delete()
+      .eq("student_id", subjectStudent).eq("class_subject_id", (subj127 as any).id)
+      .eq("exam_id", (exam127 as any).id);
+    await admin.from("term_report_card").update({ published_at: published127 })
+      .eq("student_id", subjectStudent).eq("term_id", term!.id);
+    if (mode127 !== "marks") {
+      await admin.from("class_subject").update({ assessment_mode: mode127 }).eq("id", subj127.id);
+    }
+  }
 });
 
 await check("128. a child admitted mid-term is not divided by their class's whole register", async () => {
