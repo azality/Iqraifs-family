@@ -17,7 +17,7 @@ import type { Context, Hono } from "npm:hono";
 import { loadSchoolWeek, schoolDaysWaiting } from "./schoolWeek.ts";
 import { todayInOrgTz, orgTimezone } from "./tz.ts";
 import { serviceRoleClient, getAuthUserId } from "./middleware.tsx";
-import { verifyPinToken } from "./schoolPhaseA.tsx";
+import { verifyPinToken, aliasClusterParentIds } from "./schoolPhaseA.tsx";
 
 // ─── Auth helpers ─────────────────────────────────────────────────────
 async function isSchoolStaff(userId: string, orgId: string): Promise<boolean> {
@@ -223,10 +223,12 @@ export function installMessages(school: Hono): void {
 
     // If studentId provided, verify the parent owns the student.
     if (studentId) {
+      // Alias cluster, same reason as the portal's other gates (3 Oct).
+      const clusterIds = await aliasClusterParentIds(parentUserId);
       const { data: link } = await serviceRoleClient
         .from("student_parent")
         .select("student_id")
-        .eq("parent_id", parentUserId)
+        .in("parent_id", clusterIds)
         .eq("student_id", studentId)
         .maybeSingle();
       if (!link) return c.json({ error: "student not yours" }, 403);

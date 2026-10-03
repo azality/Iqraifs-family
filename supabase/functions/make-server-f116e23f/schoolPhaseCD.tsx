@@ -19,7 +19,7 @@ import {
   createImportBatch,
   finalizeImportBatch,
 } from "./middleware.tsx";
-import { verifyPinToken } from "./schoolPhaseA.tsx";
+import { verifyPinToken, aliasClusterParentIds } from "./schoolPhaseA.tsx";
 import { todayInOrgTz } from "./tz.ts";
 import {
   paymentsByFeeId,
@@ -222,10 +222,13 @@ async function callerLinkedStudentIds(caller: Caller, orgId: string): Promise<st
     if (caller.orgId !== orgId) return [];
     if (caller.subjectType === "student") return [caller.subjectId];
     // Parent: student_parent table
+    // The whole alias cluster - a merged parent's children hang off the
+    // original rows (3 Oct).
+    const clusterIds = await aliasClusterParentIds(caller.subjectId);
     const { data, error } = await serviceRoleClient
       .from("student_parent")
       .select("student_id")
-      .eq("parent_id", caller.subjectId);
+      .in("parent_id", clusterIds);
     if (error) return [];
     return (data ?? []).map((r: any) => r.student_id);
   }
