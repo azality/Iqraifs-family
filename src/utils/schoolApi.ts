@@ -5882,7 +5882,11 @@ export interface TermReportCardSubject {
   perExam: Array<{ examId: string; examName: string; obtained: number | null; max: number; absent: boolean }>;
 }
 export interface TermReportCardResponse {
-  school: { name: string; slug: string | null; logoUrl: string | null; motto: string | null; themeColor: string | null; address: string | null; principalSignatureUrl?: string | null; stampUrl?: string | null;
+  school: { name: string; slug: string | null; logoUrl: string | null; motto: string | null; themeColor: string | null; address: string | null;
+    /** Header contact, carried on the card so the PARENT surface can
+     *  show it too - a parent token cannot read org settings (v1.23.0). */
+    whatsappNumber?: string | null; contactPhone?: string | null;
+    principalSignatureUrl?: string | null; stampUrl?: string | null;
     /** Which lines the school wants on the signature strip (v1.15.0).
      *  All default true. */
     signatureLines?: { classTeacher: boolean; principal: boolean; parent: boolean; stamp: boolean } };
@@ -5944,6 +5948,9 @@ export interface TermReportCardResponse {
       usage?: { inputTokens: number; outputTokens: number; cacheReadTokens?: number } | null;
     } | null;
   };
+  /** The school's own grade chart, carried so BOTH surfaces draw the
+   *  same REMARKS CHART from one source (v1.23.0). */
+  gradeScale?: { bands: Array<{ letter: string; minPct: number; maxPct: number; remark: string | null }> } | null;
   /** What the numbers say, computed (v1.13.0) - the teacher's "what do
    *  I tell this parent" panel, worst finding first. */
   findings?: { items: ReportFinding[]; notable: boolean };

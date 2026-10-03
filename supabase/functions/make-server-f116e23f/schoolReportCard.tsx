@@ -483,6 +483,11 @@ async function assembleReportCard(
         motto: (orgSettings as any).school_motto ?? null,
         themeColor: (orgSettings as any).theme_color ?? null,
         address: (orgSettings as any).address ?? null,
+        // Header contact, and the grade chart below - both were office-
+        // only because the parent token cannot read org settings or the
+        // grade-scale endpoint (3 Oct).
+        whatsappNumber: (orgSettings as any).whatsapp_number ?? null,
+        contactPhone: (orgSettings as any).contact_phone ?? null,
         principalSignatureUrl: (orgSettings as any).principal_signature_url ?? null,
         stampUrl: (orgSettings as any).school_stamp_url ?? null,
         // Which lines the school wants on the signature strip (26 Sep:
@@ -533,6 +538,13 @@ async function assembleReportCard(
          *  this; null falls back to the school-wide exam name. */
         columnLabel: paperLabel.get(examPaperKind(e)) ?? null,
       })),
+      // The school's own chart, carried so both surfaces draw the same
+      // REMARKS CHART from one source (3 Oct).
+      gradeScale: {
+        bands: bands.map((b) => ({
+          letter: b.letter, minPct: b.minPct, maxPct: b.maxPct, remark: b.remark ?? null,
+        })),
+      },
       academic: {
         subjects: subjects.map((s) => {
           // A grade-mode subject's letter is a first-class score value

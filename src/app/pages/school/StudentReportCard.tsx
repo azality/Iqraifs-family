@@ -34,7 +34,10 @@ import {
 } from "../../../utils/schoolApi";
 import { ReportFindingsPanel } from "./components/ReportFindingsPanel";
 import { defaultSubjectRemark } from "../../../utils/subjectRemarkDefaults";
-import { fmtDayMonthYear, paperOnly, bandRangeLabel } from "../../../utils/reportCardFormat";
+import {
+  CardHeader, CardIdentity, CardSubjectTable, CardStatBoxes,
+  CardRemarksChart, CardSignatures, EN_LABELS,
+} from "../../components/report-card/ReportCardDocument";
 import { Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
@@ -496,297 +499,35 @@ export function StudentReportCard() {
 
           <Card className="print-card">
             <CardContent className="p-6 space-y-5">
-              <div className="border-b border-slate-200 pb-2 print-keep">
-                <div className="flex items-start justify-between gap-4">
-                <div className="flex items-center gap-3 min-w-0">
-                  {card.school.logoUrl && (
-                    <img src={card.school.logoUrl} alt="" className="h-12 w-12 rounded object-cover shrink-0" />
-                  )}
-                  <div className="min-w-0">
-                    <div className="text-lg font-bold text-slate-900">{card.school.name}</div>
-                    {card.school.motto && <div className="text-xs text-slate-600 italic">{card.school.motto}</div>}
-                  </div>
-                </div>
-                <div className="text-right flex items-start gap-3 shrink-0">
-                  <div>
-                    <div className="text-xs font-semibold uppercase tracking-wider text-indigo-700">Report Card</div>
-                    {/* The office pen wrote the WhatsApp number on the
-                        header (1 Oct) - settings-owned, see schoolPhone. */}
-                    {schoolPhone && (
-                      <div className="text-[10px] text-slate-600 mt-0.5 whitespace-nowrap">
-                        {schoolPhone.wa ? "WhatsApp " : "Tel "}{schoolPhone.n}
-                      </div>
-                    )}
-                  </div>
-                  {/* Print-only QR. Points at the school-portal login page
-                      for this org so a parent can scan and access their
-                      child's full record. Uses a public QR-image API so we
-                      don't carry a generator dep. */}
-                  {card.school.slug && (
-                    <img
-                      className="print-only h-16 w-16"
-                      alt="Scan for portal"
-                      src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(
-                        `${window.location.origin}/school-portal/${card.school.slug}/login`,
-                      )}`}
-                    />
-                  )}
-                </div>
-                </div>
-                {/* One line PER CAMPUS, full width UNDER the header row.
-                    Inside the row it fought the QR column for width:
-                    either the QR was pushed past the printable edge
-                    (office, 2 Oct: "the QR code is cutting off") or, once
-                    the block was allowed to shrink, every campus line
-                    wrapped and the card grew past A4. Rendered as one
-                    blob the campuses also ran together ("...KARACHI,
-                    Pakistan Campus II: B-15..."). */}
-                {card.school.address && (
-                  <div className="text-[11px] text-slate-500 mt-1 print-addr">
-                    {card.school.address.split(/\r?\n/).filter((l) => l.trim()).map((line, i) => (
-                      <div key={i} className="truncate">{line.trim()}</div>
-                    ))}
-                  </div>
-                )}
-                {/* The term and its dates, CENTERED on their own line
-                    (office, 1 Oct print markup: "centralize"). Dates read
-                    day-month-year, the way Pakistan writes them. */}
-                <div className="text-center text-[11px] text-slate-600 mt-1.5 whitespace-nowrap print-term-line">
-                  <span className="font-semibold text-slate-900">{card.term.name}</span>
-                  <span className="text-slate-400"> · </span>
-                  {fmtDayMonthYear(card.term.startDate)} – {fmtDayMonthYear(card.term.endDate)}
-                </div>
-              </div>
+              {/* THE shared card document (3 Oct) - the same component
+                  the PARENT sees, so a change here reaches both. The QR
+                  is office-print only, passed in. */}
+              <CardHeader
+                card={card}
+                labels={EN_LABELS}
+                contactFallback={schoolPhone}
+                qr={card.school.slug ? (
+                  <img
+                    className="print-only h-16 w-16"
+                    alt="Scan for portal"
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(
+                      `${window.location.origin}/school-portal/${card.school.slug}/login`,
+                    )}`}
+                  />
+                ) : undefined}
+              />
+              <CardIdentity card={card} labels={EN_LABELS} />
 
-              {/* The child's identity sits in its own quiet band (office,
-                  1 Oct markup: wanted it bolder; a subtle boxed strip
-                  separates it without shouting). Values go semibold. */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs rounded-md border border-slate-200 bg-slate-50/70 px-3 py-2 print-keep print-info-band">
-                <div><div className="text-slate-500">Name</div><div className="font-semibold text-slate-900">{card.student.fullName}</div></div>
-                <div><div className="text-slate-500">GR No</div><div className="font-semibold text-slate-900">{card.student.grNumber}</div></div>
-                <div><div className="text-slate-500">Class</div>
-                  <div className="font-semibold text-slate-900">
-                    {card.placement.className ?? "—"}{card.placement.sectionName ? ` — ${card.placement.sectionName}` : ""}
-                  </div>
-                </div>
-                <div><div className="text-slate-500">Class teacher</div>
-                  <div className="font-semibold text-slate-900">{card.placement.classTeacherName ?? "—"}</div>
-                </div>
-              </div>
+              <CardSubjectTable
+                card={card}
+                labels={EN_LABELS}
+                fmtPct={fmtPct}
+                remarkFor={(s) =>
+                  (subjectComments[s.classSubjectId] ?? "").trim()
+                  || printedDefault(s.percentage, s.remark)}
+              />
 
-              <section>
-                {/* Underlined, per the office's pen (1 Oct). */}
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-2 flex items-center gap-1">
-                  <BookOpen className="h-3.5 w-3.5 text-indigo-500" />
-                  <span className="underline underline-offset-2">Academic performance</span>
-                </h3>
-                {card.academic.subjects.length === 0 ? (
-                  <div className="text-xs text-slate-500 italic">No subject scores recorded for this term.</div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    {/* Full grid lines (office, 1 Oct): every cell ruled so
-                        a parent's eye can't drift a row - which grade and
-                        remark belongs to which subject is unmistakable. */}
-                    <table className="w-full text-xs border border-slate-300 print-subject-table">
-                      {/* Width HINTS, not hard shares - the table lays out
-                          auto, so a column grows if its content needs it.
-                          With table-layout:fixed a wide total ("422.5/650")
-                          overflowed its share and printed across the next
-                          column (office's 2 Oct print). Remarks still take
-                          whatever is left, which keeps the finding
-                          sentences to two lines on most cards. */}
-                      <colgroup>
-                        <col className="w-[14%]" />
-                        {card.exams.map((e) => <col key={e.id} className="w-[10%]" />)}
-                        <col className="w-[11%]" />
-                        <col className="w-[8%]" />
-                        <col className="w-[7%]" />
-                        <col />
-                      </colgroup>
-                      <thead className="bg-slate-50 text-slate-700">
-                        <tr>
-                          <th className="text-left px-2 py-1.5 border border-slate-200">Subject</th>
-                          {/* "1st Assessment — Written" said the term twice:
-                              the term already heads the card, so the column is
-                              just "Written" (office, 1 Oct). A per-class
-                              override label is used as-is. */}
-                          {card.exams.map((e) => (
-                            <th key={e.id} className="text-center px-2 py-1.5 border border-slate-200">
-                              {e.columnLabel || paperOnly(e.name, card.term.name)}
-                            </th>
-                          ))}
-                          <th className="text-right px-2 py-1.5 border border-slate-200">Total</th>
-                          <th className="text-right px-2 py-1.5 border border-slate-200">%</th>
-                          <th className="text-center px-2 py-1.5 border border-slate-200">Grade</th>
-                          <th className="text-center px-2 py-1.5 border border-slate-200">Remarks</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {card.academic.subjects.map((s) => {
-                        // Below the school's pass line reads RED here, the
-                        // same as on the tabulation sheet - the two must
-                        // never disagree about who failed what (25 Sep:
-                        // Fizza's Science showed F in plain black).
-                        const subjFailed = s.percentage !== null &&
-                          s.percentage < card.academic.overall.passMarkPct;
-                        return (
-                          <tr key={s.classSubjectId}>
-                            <td className="px-2 py-1.5 font-medium border border-slate-200">{s.name}</td>
-                            {card.exams.map((e) => {
-                              const pe = s.perExam.find((x) => x.examId === e.id);
-                              return (
-                                <td key={e.id} className="px-2 py-1.5 text-center border border-slate-200">
-                                  {!pe ? "—" : pe.absent ? <span className="text-rose-600">Abs</span> :
-                                    pe.obtained === null ? "—" :
-                                    <>{pe.obtained}<span className="text-slate-400">/{pe.max}</span></>}
-                                </td>
-                              );
-                            })}
-                            <td className="px-2 py-1.5 text-right border border-slate-200">
-                              {s.totalMax > 0 ? `${s.totalObtained}/${s.totalMax}` : "—"}
-                            </td>
-                            <td className={"px-2 py-1.5 text-right font-medium border border-slate-200 " + (subjFailed ? "text-rose-700" : "")}>{fmtPct(s.percentage)}</td>
-                            <td className={"px-2 py-1.5 text-center font-bold border border-slate-200 " + (subjFailed ? "text-rose-700" : "")}>{s.letter}</td>
-                            {/* The subject teacher's own comment lives IN the
-                                table; the computed FINDING for the subject is
-                                the default (office, 1 Oct: "remarks for every
-                                subject by default" - the findings are exact
-                                arithmetic, no model, no credits); the band
-                                remark is the last fallback. Live state, so
-                                unsaved edits print. */}
-                            <td className={"px-2 py-1.5 border border-slate-200 print-subject-remark " + (subjFailed ? "text-rose-700" : "text-slate-600")}>
-                              <div className="remark-clamp">
-                                {(subjectComments[s.classSubjectId] ?? "").trim()
-                                  || printedDefault(s.percentage, s.remark)}
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                        })}
-                        {/* The heavier rule above Overall is the office's
-                            "line in between" pen note (1 Oct). */}
-                        <tr className="border-t-2 border-slate-400 bg-slate-50/60 font-semibold">
-                          <td className="px-2 py-1.5 border border-slate-200 border-t-2 border-t-slate-400">Overall</td>
-                          <td colSpan={card.exams.length} className="px-2 py-1.5 border border-slate-200 border-t-2 border-t-slate-400"></td>
-                          <td className="px-2 py-1.5 text-right border border-slate-200 border-t-2 border-t-slate-400">
-                            {card.academic.overall.max > 0
-                              ? `${card.academic.overall.obtained}/${card.academic.overall.max}`
-                              : "—"}
-                          </td>
-                          {/* The verdict by the SCHOOL's own pass mark, which
-                              is set independently of the grading chart (22 Sep). */}
-                          <td className={"px-2 py-1.5 text-right border border-slate-200 border-t-2 border-t-slate-400 " +
-                            (card.academic.overall.failed ? "font-bold text-rose-700" : "")}>
-                            {fmtPct(card.academic.overall.percentage)}
-                          </td>
-                          <td className="px-2 py-1.5 text-center border border-slate-200 border-t-2 border-t-slate-400">{card.academic.overall.letter}</td>
-                          <td className="px-2 py-1.5 border border-slate-200 border-t-2 border-t-slate-400">
-                            {card.academic.overall.remark}
-                            {card.academic.overall.failed && (
-                              <span className="ml-1.5 font-bold text-rose-700">
-                                {/* A fail in ANY subject fails the term, so the
-                                    card must say which - otherwise a card with a
-                                    healthy total just reads "Failed" (26 Sep). */}
-                                — Failed
-                                {(card.academic.overall.failedSubjects ?? []).length > 0
-                                  ? ` (${card.academic.overall.failedSubjects!.join(", ")} below ${card.academic.overall.passMarkPct}%)`
-                                  : ` (below ${card.academic.overall.passMarkPct}%)`}
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </section>
-
-              <section className={`grid grid-cols-1 ${card.hifz.show !== false ? "sm:grid-cols-3" : "sm:grid-cols-2"} gap-3 print-keep`}>
-                <div className="rounded-md border border-slate-300 bg-white p-3">
-                  <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 pb-1 border-b border-slate-200 flex items-center gap-1">
-                    <Calendar className="h-3.5 w-3.5 text-indigo-500" /> Attendance
-                  </div>
-                  <div className="text-xs space-y-0.5">
-                    {/* Days present leads. With a carried balance the
-                        per-status counts below cover only the days marked
-                        here, so they are labelled (21 Sep). */}
-                    <div>
-                      Present:{" "}
-                      <span className="font-medium">
-                        {card.attendance.daysPresent ?? card.attendance.present} days
-                        {card.attendance.joinedMidTerm
-                          ? " since joining"
-                          : ` of ${card.attendance.workingDays ?? card.attendance.total} days`}
-                      </span>
-                    </div>
-                    {/* A child admitted mid-term was handed their class's
-                        register denominator, which made a new arrival read
-                        as a truant. Print the joining date instead of a
-                        percentage we cannot stand behind (25 Sep). */}
-                    {card.attendance.joinedMidTerm ? (
-                      <div className="text-[10px] leading-tight text-slate-500">
-                        Joined{" "}
-                        {new Date(
-                          (card.attendance.startsOn ?? card.attendance.admissionDate) as string,
-                        ).toLocaleDateString()}
-                        , part-way through the term.
-                      </div>
-                    ) : !!card.attendance.carriedDays && (
-                      <div className="text-[10px] leading-tight text-slate-500">
-                        Includes {card.attendance.carriedDays} days from the school
-                        {card.attendance.carriedAsOf ? ` register up to ${card.attendance.carriedAsOf}` : " register"}.
-                      </div>
-                    )}
-                    <div className="pt-1">
-                      {card.attendance.carriedDays && !card.attendance.joinedMidTerm ? "Since then — " : ""}
-                      Late: <span className="font-medium">{card.attendance.late}</span>
-                      {" · "}Absent: <span className="font-medium">{card.attendance.absent}</span>
-                      {" · "}Excused: <span className="font-medium">{card.attendance.excused}</span>
-                    </div>
-                    <div className="pt-1 border-t border-slate-100 mt-1">
-                      {card.attendance.joinedMidTerm ? (
-                        <span className="text-slate-500">
-                          Attendance percentage not shown for a part-term.
-                        </span>
-                      ) : (
-                        <>
-                          <span className="font-semibold">{fmtPct(card.attendance.attendancePct)}</span> attendance
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </div>
-                <div className="rounded-md border border-slate-300 bg-white p-3">
-                  <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 pb-1 border-b border-slate-200 flex items-center gap-1">
-                    <TrendingUp className="h-3.5 w-3.5 text-emerald-500" /> Behavior
-                  </div>
-                  <div className="text-xs space-y-0.5">
-                    <div>Positive notes: <span className="font-medium text-emerald-700">{card.behavior.positive}</span></div>
-                    <div>Concerns: <span className="font-medium text-amber-700">{card.behavior.concern}</span></div>
-                    <div>Net points: <span className="font-semibold">{card.behavior.netPoints}</span></div>
-                  </div>
-                </div>
-                {/* Only a memorizing child gets the Hifz box — an academic
-                    child's card showed a box of zeros (school, 14 Sep). */}
-                {card.hifz.show !== false && (
-                  <div className="rounded-md border border-slate-300 bg-white p-3">
-                    <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 pb-1 border-b border-slate-200 flex items-center gap-1">
-                      <Award className="h-3.5 w-3.5 text-amber-500" /> Hifz progress
-                    </div>
-                    <div className="text-xs space-y-0.5">
-                      <div>Ayahs memorized: <span className="font-medium">{card.hifz.ayahsMemorized}</span></div>
-                      <div>Surahs touched: <span className="font-medium">{card.hifz.surahsCompleted}</span></div>
-                      <div>Entries: {card.hifz.totalEntries} (missed {card.hifz.missedCount})</div>
-                      <div className="pt-1 border-t border-slate-100 mt-1 text-[11px] text-slate-500">
-                        Quality: Excellent {card.hifz.qualityCounts.excellent} ·
-                        Good {card.hifz.qualityCounts.good} ·
-                        Needs practice {card.hifz.qualityCounts.needs_practice} ·
-                        Weak {card.hifz.qualityCounts.weak}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </section>
+              <CardStatBoxes card={card} labels={EN_LABELS} fmtPct={fmtPct} />
 
               {/* Editing tool only — on PAPER each subject's comment sits in
                   the table's Remarks column above. Printing this list too
@@ -1051,108 +792,10 @@ export function StudentReportCard() {
                   the office a defined area for the rubber stamp so it
                   doesn't smudge over the text. */}
               <section className="pt-4 mt-4 border-t border-slate-200 print-keep print-signature">
-                {/* Which lines print is the school's call (26 Sep: teachers
-                    were uneasy about handing over a signature image). The
-                    row rebalances to however many are switched on, and the
-                    class teacher's NAME still heads the card either way. */}
-                <div
-                  className="grid gap-6 text-[11px] text-slate-600"
-                  style={{ gridTemplateColumns: `repeat(${sigCount || 1}, minmax(0, 1fr))` }}
-                >
-                  {sigLines.classTeacher && (
-                    <div className="text-center">
-                      {/* An uploaded signature (the teacher's own profile
-                          page) sits on the line like ink; otherwise the
-                          line stays blank to be signed by hand. */}
-                      <div className="h-10 border-b border-slate-300 flex items-end justify-center">
-                        {card.placement.classTeacherSignatureUrl && (
-                          <img src={card.placement.classTeacherSignatureUrl} alt="" className="max-h-9 max-w-full object-contain" />
-                        )}
-                      </div>
-                      <div className="mt-1">Class teacher</div>
-                      <div className="text-[10px] text-slate-500">{card.placement.classTeacherName ?? ""}</div>
-                    </div>
-                  )}
-                  {sigLines.principal && (
-                    <div className="text-center">
-                      {/* Set in Settings → Organization. Blank when unset. */}
-                      <div className="h-10 border-b border-slate-300 flex items-end justify-center">
-                        {card.school.principalSignatureUrl && (
-                          <img
-                            src={card.school.principalSignatureUrl}
-                            alt=""
-                            className="max-h-9 max-w-full object-contain"
-                          />
-                        )}
-                      </div>
-                      <div className="mt-1">Principal</div>
-                    </div>
-                  )}
-                  {sigLines.parent && (
-                    <div className="text-center">
-                      <div className="h-10 border-b border-slate-300"></div>
-                      <div className="mt-1">Parent signature</div>
-                    </div>
-                  )}
-                  {sigLines.stamp && (
-                    <div className="text-center">
-                      {card.school.stampUrl ? (
-                        <div className="h-14 flex items-center justify-center">
-                          <img src={card.school.stampUrl} alt="School stamp" className="max-h-14 max-w-full object-contain" />
-                        </div>
-                      ) : (
-                        <div className="h-14 rounded border border-dashed border-slate-300 flex items-center justify-center text-[10px] text-slate-400">
-                          School stamp
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-                {/* The REMARKS CHART, laid out the way the school prints
-                    it on its own paper (office, 2 Oct, with a photo of
-                    theirs): remark word, grade, range - boxed, headed,
-                    centered. It sits BELOW the signature row, where they
-                    asked for it ("Remarks chart sign k bad hona chahiye",
-                    2 Oct), with only the issued footer after it.
-                    Built from the school's OWN grade scale, so it can
-                    never drift from the letters the card awards.
-                    Ranges read their way too: a band stored half-open as
-                    [80, 90) prints "80% - 89%", and the bottom band
-                    prints "Below 40%". */}
-                {keyBands && keyBands.length > 0 && (() => {
-                  const bands = [...keyBands].sort((a, b) => b.minPct - a.minPct);
-                  const lowest = bands[bands.length - 1];
-                  const range = bandRangeLabel;
-                  // Only say the pass mark when it is NOT simply the
-                  // bottom band's edge - otherwise the chart already
-                  // says it and repeating it adds noise.
-                  const passSaidByChart = Math.round(lowest?.maxPct ?? -1) === card.academic.overall.passMarkPct;
-                  return (
-                    <div className="mt-5 flex justify-center print-keep">
-                      <div className="inline-block border-2 border-indigo-900/70 rounded-sm px-4 py-2">
-                        <div className="text-center text-[11px] font-bold uppercase tracking-wider text-indigo-900 mb-1">
-                          Remarks chart
-                        </div>
-                        <table className="text-[10px] text-slate-700">
-                          <tbody>
-                            {bands.map((b) => (
-                              <tr key={`${b.letter}-${b.minPct}`}>
-                                <td className="pr-6 py-[1px] whitespace-nowrap">{b.remark ?? "—"}</td>
-                                <td className="pr-6 py-[1px] text-center font-semibold whitespace-nowrap">{b.letter}</td>
-                                <td className="py-[1px] text-right whitespace-nowrap tabular-nums">{range(b)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                        {!passSaidByChart && (
-                          <div className="text-center text-[9px] text-slate-500 mt-1">
-                            Pass mark {card.academic.overall.passMarkPct}%
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })()}
+                <CardSignatures card={card} labels={EN_LABELS} />
+                {/* The school's own chart, BELOW the signature row
+                    ("Remarks chart sign k bad hona chahiye", 2 Oct). */}
+                <CardRemarksChart card={card} labels={EN_LABELS} />
                 <div className="mt-3 text-[10px] text-slate-400 text-center">
                   Issued {new Date().toLocaleDateString()} · {card.school.name}
                   {card.school.slug && ` · Scan the QR on the header to view this card on the parent portal.`}
