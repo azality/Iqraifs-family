@@ -34,30 +34,12 @@ import {
 } from "../../../utils/schoolApi";
 import { ReportFindingsPanel } from "./components/ReportFindingsPanel";
 import { defaultSubjectRemark } from "../../../utils/subjectRemarkDefaults";
+import { fmtDayMonthYear, paperOnly, bandRangeLabel } from "../../../utils/reportCardFormat";
 import { Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
 function fmtPct(n: number | null): string {
   return n === null ? "—" : `${n.toFixed(1)}%`;
-}
-
-/** Day-month-year, the way Pakistan writes a date (office, 30 Sep). The
- *  term dates arrive as YYYY-MM-DD; split the string rather than parsing,
- *  so a date never shifts a day across a timezone. */
-function fmtDayMonthYear(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
-  return m ? `${m[3]}-${m[2]}-${m[1]}` : iso;
-}
-
-/** "1st Assessment — Written" said the term twice on the card (office,
- *  1 Oct): the term heads the whole card, so the column keeps only its
- *  paper. Strips a leading "<term name> — " (any dash); anything else
- *  passes through untouched. */
-function paperOnly(examName: string, termName: string): string {
-  if (!examName.startsWith(termName)) return examName;
-  const rest = examName.slice(termName.length).replace(/^\s*[—–-]+\s*/, "").trim();
-  return rest || examName;
 }
 
 export function StudentReportCard() {
@@ -1140,10 +1122,7 @@ export function StudentReportCard() {
                 {keyBands && keyBands.length > 0 && (() => {
                   const bands = [...keyBands].sort((a, b) => b.minPct - a.minPct);
                   const lowest = bands[bands.length - 1];
-                  const range = (b: GradeBand) =>
-                    b.minPct <= 0
-                      ? `Below ${Math.round(b.maxPct)}%`
-                      : `${Math.round(b.minPct)}% – ${Math.round(b.maxPct) >= 100 ? 100 : Math.round(b.maxPct) - 1}%`;
+                  const range = bandRangeLabel;
                   // Only say the pass mark when it is NOT simply the
                   // bottom band's edge - otherwise the chart already
                   // says it and repeating it adds noise.

@@ -14,6 +14,7 @@ import {
 } from "../../../utils/schoolPortalApi";
 import type { TermReportCardResponse } from "../../../utils/schoolApi";
 import { defaultSubjectRemark } from "../../../utils/subjectRemarkDefaults";
+import { fmtDayMonthYear, paperOnly } from "../../../utils/reportCardFormat";
 
 function fmtPct(n: number | null): string {
   return n === null ? "—" : `${n.toFixed(1)}%`;
@@ -136,46 +137,70 @@ export function StudentTermReportCard() {
 
       {!card ? null : (
         <div className="rc-print-card rounded-xl border border-slate-200 bg-white p-5 space-y-5">
-          <div className="flex items-start justify-between gap-4 border-b border-slate-200 pb-3">
-            <div className="flex items-center gap-3">
-              {card.school.logoUrl && <img src={card.school.logoUrl} alt="" className="h-12 w-12 rounded object-cover" />}
-              <div>
-                <div className="text-lg font-bold text-slate-900">{card.school.name}</div>
-                {card.school.motto && <div className="text-xs text-slate-600 italic">{card.school.motto}</div>}
+          <div className="border-b border-slate-200 pb-2">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-center gap-3 min-w-0">
+                {card.school.logoUrl && <img src={card.school.logoUrl} alt="" className="h-12 w-12 rounded object-cover shrink-0" />}
+                <div className="min-w-0">
+                  <div className="text-lg font-bold text-slate-900">{card.school.name}</div>
+                  {card.school.motto && <div className="text-xs text-slate-600 italic">{card.school.motto}</div>}
+                </div>
+              </div>
+              <div className="text-right shrink-0">
+                <div className="text-xs font-semibold uppercase tracking-wider text-indigo-700">{t("portal.rc.docTitle")}</div>
               </div>
             </div>
-            <div className="text-right">
-              <div className="text-xs font-semibold uppercase tracking-wider text-indigo-700">{t("portal.rc.docTitle")}</div>
-              <div className="text-sm font-medium text-slate-900">{card.term.name}</div>
-              <div className="text-[11px] text-slate-500">{card.term.startDate} → {card.term.endDate}</div>
+            {/* One line per campus, then the term CENTERED on its own
+                line in day-month-year - the same header the paper card
+                carries (office, 30 Sep - 2 Oct). */}
+            {card.school.address && (
+              <div className="text-[11px] text-slate-500 mt-1">
+                {card.school.address.split(/\r?\n/).filter((l) => l.trim()).map((line, i) => (
+                  <div key={i}>{line.trim()}</div>
+                ))}
+              </div>
+            )}
+            <div className="text-center text-[11px] text-slate-600 mt-1.5">
+              <span className="font-semibold text-slate-900">{card.term.name}</span>
+              <span className="text-slate-400"> · </span>
+              {fmtDayMonthYear(card.term.startDate)} – {fmtDayMonthYear(card.term.endDate)}
             </div>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-            <div><div className="text-slate-500">{t("portal.rc.name")}</div><div className="font-medium">{card.student.fullName}</div></div>
-            <div><div className="text-slate-500">{t("portal.rc.grNo")}</div><div className="font-medium">{card.student.grNumber}</div></div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs rounded-md border border-slate-200 bg-slate-50/70 px-3 py-2">
+            <div><div className="text-slate-500">{t("portal.rc.name")}</div><div className="font-semibold text-slate-900">{card.student.fullName}</div></div>
+            <div><div className="text-slate-500">{t("portal.rc.grNo")}</div><div className="font-semibold text-slate-900">{card.student.grNumber}</div></div>
             <div><div className="text-slate-500">{t("portal.rc.class")}</div>
-              <div className="font-medium">{card.placement.className ?? "—"}{card.placement.sectionName ? ` — ${card.placement.sectionName}` : ""}</div></div>
-            <div><div className="text-slate-500">{t("portal.rc.classTeacher")}</div><div className="font-medium">{card.placement.classTeacherName ?? "—"}</div></div>
+              <div className="font-semibold text-slate-900">{card.placement.className ?? "—"}{card.placement.sectionName ? ` — ${card.placement.sectionName}` : ""}</div></div>
+            <div><div className="text-slate-500">{t("portal.rc.classTeacher")}</div><div className="font-semibold text-slate-900">{card.placement.classTeacherName ?? "—"}</div></div>
           </div>
 
           <section>
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-2 flex items-center gap-1">
-              <BookOpen className="h-3.5 w-3.5 text-indigo-500" /> {t("portal.rc.academic")}
+              <BookOpen className="h-3.5 w-3.5 text-indigo-500" />
+              <span className="underline underline-offset-2">{t("portal.rc.academic")}</span>
             </h3>
             {card.academic.subjects.length === 0 ? (
               <div className="text-xs text-slate-500 italic">{t("portal.rc.noMarks")}</div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-xs">
+                <table className="w-full text-xs border border-slate-300">
                   <thead className="bg-slate-50 text-slate-700">
                     <tr>
-                      <th className="text-left px-2 py-1.5">{t("portal.rc.colSubject")}</th>
-                      {card.exams.map((e) => <th key={e.id} className="text-center px-2 py-1.5">{e.name}</th>)}
-                      <th className="text-right px-2 py-1.5">{t("portal.rc.colTotal")}</th>
-                      <th className="text-right px-2 py-1.5">%</th>
-                      <th className="text-center px-2 py-1.5">{t("portal.rc.colGrade")}</th>
-                      <th className="text-left px-2 py-1.5">{t("portal.rc.colRemarks")}</th>
+                      <th className="text-left px-2 py-1.5 border border-slate-200">{t("portal.rc.colSubject")}</th>
+                      {/* The class's OWN column name ("Overall Learning &
+                          Participation" on Classes I-VII), else the paper
+                          without the term said twice - exactly what the
+                          paper card prints (office, 1 Oct). */}
+                      {card.exams.map((e) => (
+                        <th key={e.id} className="text-center px-2 py-1.5 border border-slate-200">
+                          {e.columnLabel || paperOnly(e.name, card.term.name)}
+                        </th>
+                      ))}
+                      <th className="text-right px-2 py-1.5 border border-slate-200">{t("portal.rc.colTotal")}</th>
+                      <th className="text-right px-2 py-1.5 border border-slate-200">%</th>
+                      <th className="text-center px-2 py-1.5 border border-slate-200">{t("portal.rc.colGrade")}</th>
+                      <th className="text-center px-2 py-1.5 border border-slate-200">{t("portal.rc.colRemarks")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -185,39 +210,39 @@ export function StudentTermReportCard() {
                     const subjFailed = s.percentage !== null &&
                       s.percentage < card.academic.overall.passMarkPct;
                     return (
-                      <tr key={s.classSubjectId} className="border-t border-slate-100">
-                        <td className="px-2 py-1.5 font-medium">{s.name}</td>
+                      <tr key={s.classSubjectId}>
+                        <td className="px-2 py-1.5 font-medium border border-slate-200">{s.name}</td>
                         {card.exams.map((e) => {
                           const pe = s.perExam.find((x) => x.examId === e.id);
                           return (
-                            <td key={e.id} className="px-2 py-1.5 text-center">
+                            <td key={e.id} className="px-2 py-1.5 text-center border border-slate-200">
                               {!pe ? "—" : pe.absent ? <span className="text-rose-600">{t("portal.rc.abs")}</span> :
                                 pe.obtained === null ? "—" :
                                 <>{pe.obtained}<span className="text-slate-400">/{pe.max}</span></>}
                             </td>
                           );
                         })}
-                        <td className="px-2 py-1.5 text-right">{s.totalMax > 0 ? `${s.totalObtained}/${s.totalMax}` : "—"}</td>
-                        <td className={"px-2 py-1.5 text-right font-medium " + (subjFailed ? "text-rose-700" : "")}>{fmtPct(s.percentage)}</td>
-                        <td className={"px-2 py-1.5 text-center font-bold " + (subjFailed ? "text-rose-700" : "")}>{s.letter}</td>
-                        <td className={"px-2 py-1.5 " + (subjFailed ? "text-rose-700" : "text-slate-600")}>
+                        <td className="px-2 py-1.5 text-right border border-slate-200">{s.totalMax > 0 ? `${s.totalObtained}/${s.totalMax}` : "—"}</td>
+                        <td className={"px-2 py-1.5 text-right font-medium border border-slate-200 " + (subjFailed ? "text-rose-700" : "")}>{fmtPct(s.percentage)}</td>
+                        <td className={"px-2 py-1.5 text-center font-bold border border-slate-200 " + (subjFailed ? "text-rose-700" : "")}>{s.letter}</td>
+                        <td className={"px-2 py-1.5 border border-slate-200 " + (subjFailed ? "text-rose-700" : "text-slate-600")}>
                           {s.teacherComment || portalDefault(s.percentage, s.remark)}
                         </td>
                       </tr>
                     );
                     })}
-                    <tr className="border-t-2 border-slate-300 bg-slate-50/60 font-semibold">
-                      <td className="px-2 py-1.5">{t("portal.rc.overall")}</td>
-                      <td colSpan={card.exams.length}></td>
-                      <td className="px-2 py-1.5 text-right">
+                    <tr className="border-t-2 border-slate-400 bg-slate-50/60 font-semibold">
+                      <td className="px-2 py-1.5 border border-slate-200 border-t-2 border-t-slate-400">{t("portal.rc.overall")}</td>
+                      <td colSpan={card.exams.length} className="border border-slate-200 border-t-2 border-t-slate-400"></td>
+                      <td className="px-2 py-1.5 text-right border border-slate-200 border-t-2 border-t-slate-400">
                         {card.academic.overall.max > 0 ? `${card.academic.overall.obtained}/${card.academic.overall.max}` : "—"}
                       </td>
-                      <td className={"px-2 py-1.5 text-right " +
+                      <td className={"px-2 py-1.5 text-right border border-slate-200 border-t-2 border-t-slate-400 " +
                         (card.academic.overall.failed ? "font-bold text-rose-700" : "")}>
                         {fmtPct(card.academic.overall.percentage)}
                       </td>
-                      <td className="px-2 py-1.5 text-center">{card.academic.overall.letter}</td>
-                      <td className="px-2 py-1.5">
+                      <td className="px-2 py-1.5 text-center border border-slate-200 border-t-2 border-t-slate-400">{card.academic.overall.letter}</td>
+                      <td className="px-2 py-1.5 border border-slate-200 border-t-2 border-t-slate-400">
                         {card.academic.overall.remark}
                         {card.academic.overall.failed && (
                           <span className="ml-1.5 font-bold text-rose-700">
@@ -238,8 +263,8 @@ export function StudentTermReportCard() {
           </section>
 
           <section className={`grid grid-cols-1 ${card.hifz.show !== false ? "sm:grid-cols-3" : "sm:grid-cols-2"} gap-3`}>
-            <div className="rounded-md border border-slate-200 bg-white p-3">
-              <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 flex items-center gap-1">
+            <div className="rounded-md border border-slate-300 bg-white p-3">
+              <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 pb-1 border-b border-slate-200 flex items-center gap-1">
                 <Calendar className="h-3.5 w-3.5 text-indigo-500" /> {t("portal.rc.attendance")}
               </div>
               <div className="text-xs space-y-0.5">
@@ -290,8 +315,8 @@ export function StudentTermReportCard() {
                 </div>
               </div>
             </div>
-            <div className="rounded-md border border-slate-200 bg-white p-3">
-              <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 flex items-center gap-1">
+            <div className="rounded-md border border-slate-300 bg-white p-3">
+              <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 pb-1 border-b border-slate-200 flex items-center gap-1">
                 <TrendingUp className="h-3.5 w-3.5 text-emerald-500" /> {t("portal.rc.behavior")}
               </div>
               <div className="text-xs space-y-0.5">
@@ -303,8 +328,8 @@ export function StudentTermReportCard() {
             {/* Hidden for a child who is not memorizing — same rule as the
                 staff card. */}
             {card.hifz.show !== false && (
-              <div className="rounded-md border border-slate-200 bg-white p-3">
-                <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 flex items-center gap-1">
+              <div className="rounded-md border border-slate-300 bg-white p-3">
+                <div className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 pb-1 border-b border-slate-200 flex items-center gap-1">
                   <Award className="h-3.5 w-3.5 text-amber-500" /> {t("portal.rc.hifzProgress")}
                 </div>
                 <div className="text-xs space-y-0.5">
