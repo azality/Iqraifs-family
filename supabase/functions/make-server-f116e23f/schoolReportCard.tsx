@@ -1221,15 +1221,34 @@ export function installReportCard(school: Hono): void {
       .eq("id", id);
     if (error) return c.json({ error: error.message }, 500);
 
-    // Finalize -> pre-fill AI remark drafts (v1.23.0, 2 Oct). Runs in
-    // the background so a class's 15-20 finalize clicks stay fast; the
-    // hash check inside makes an unchanged re-finalize free. Unfinalize
-    // itself generates nothing - the re-finalize does.
+    // Finalize -> pre-fill AI remark drafts (v1.23.0, 2 Oct).
+    //
+    // AWAITED, not backgrounded (3 Oct). It first shipped on
+    // EdgeRuntime.waitUntil to keep a class's finalize burst fast, and
+    // verification against the live deploy showed that is unreliable
+    // here: of three finalizes with generation due, one produced drafts
+    // and two produced nothing - the instance is recycled once the
+    // response is written and the pending work dies with it. A feature
+    // that fills some cards and silently skips others is worse than one
+    // that takes a few seconds, so finalize now waits for it.
+    //
+    // Bounded, because nothing may hold a finalize hostage: if the
+    // writing service has not answered within the budget we return
+    // anyway. No hash is stored on that path, so the NEXT finalize
+    // simply tries again - and an unchanged re-finalize that already
+    // has drafts still costs zero tokens.
     if (field === "finalized_at" && set) {
-      const gen = autoGenerateRemarks(orgId, studentId, termId);
-      const rt = (globalThis as any).EdgeRuntime;
-      if (rt?.waitUntil) rt.waitUntil(gen);
-      else gen.catch((e: unknown) => console.error("[auto-remarks]", e));
+      const AUTO_REMARK_BUDGET_MS = 20_000;
+      try {
+        await Promise.race([
+          autoGenerateRemarks(orgId, studentId, termId),
+          new Promise((resolve) => setTimeout(resolve, AUTO_REMARK_BUDGET_MS)),
+        ]);
+      } catch (e) {
+        // Generation never fails a finalize - the card is finalized
+        // either way, it just has no drafts yet.
+        console.error("[auto-remarks] finalize hook", e);
+      }
     }
 
     // Notification trigger (PR feat/notification-scaffold).
